@@ -49,8 +49,13 @@ public class IngestionOrchestrator
             submission.MarkParsing();
             await _submissionRepo.Update(submission, ct);
 
-            // 3. XSD validation
-            var schemaErrors = await ValidateXsd(xmlStream, returnCode, ct);
+            // 3. Buffer stream (XmlReader requires synchronous reads not supported by request body)
+            var bufferedStream = new MemoryStream();
+            await xmlStream.CopyToAsync(bufferedStream, ct);
+            bufferedStream.Position = 0;
+
+            // 3b. XSD validation
+            var schemaErrors = await ValidateXsd(bufferedStream, returnCode, ct);
             if (schemaErrors.Count > 0)
             {
                 var schemaReport = ValidationReport.Create(submission.Id);
@@ -67,8 +72,8 @@ public class IngestionOrchestrator
             }
 
             // 4. Reset stream and parse XML
-            xmlStream.Position = 0;
-            var record = await _xmlParser.Parse(xmlStream, returnCode, ct);
+            bufferedStream.Position = 0;
+            var record = await _xmlParser.Parse(bufferedStream, returnCode, ct);
 
             // 5. Run validation pipeline
             submission.MarkValidating();
@@ -132,7 +137,8 @@ public class IngestionOrchestrator
             var settings = new System.Xml.XmlReaderSettings
             {
                 ValidationType = System.Xml.ValidationType.Schema,
-                Schemas = schemaSet
+                Schemas = schemaSet,
+                Async = true
             };
             settings.ValidationEventHandler += (_, e) =>
             {
