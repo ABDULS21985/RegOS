@@ -1,0 +1,58 @@
+using System.Data;
+using FC.Engine.Domain.Abstractions;
+using FC.Engine.Infrastructure.Audit;
+using FC.Engine.Infrastructure.Caching;
+using FC.Engine.Infrastructure.DynamicSchema;
+using FC.Engine.Infrastructure.Metadata;
+using FC.Engine.Infrastructure.Metadata.Repositories;
+using FC.Engine.Infrastructure.Persistence;
+using FC.Engine.Infrastructure.Persistence.Repositories;
+using FC.Engine.Infrastructure.Xml;
+using Microsoft.Data.SqlClient;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace FC.Engine.Infrastructure;
+
+public static class DependencyInjection
+{
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("FcEngine")
+            ?? throw new InvalidOperationException("Connection string 'FcEngine' not found");
+
+        // EF Core for metadata + operational tables
+        services.AddDbContext<MetadataDbContext>(options =>
+            options.UseSqlServer(connectionString));
+
+        // Dapper connection for dynamic data tables
+        services.AddScoped<IDbConnection>(_ => new SqlConnection(connectionString));
+
+        // Repositories
+        services.AddScoped<ITemplateRepository, TemplateRepository>();
+        services.AddScoped<IFormulaRepository, FormulaRepository>();
+        services.AddScoped<ISubmissionRepository, SubmissionRepository>();
+        services.AddScoped<IGenericDataRepository, GenericDataRepository>();
+
+        // Dynamic SQL
+        services.AddSingleton<DynamicSqlBuilder>();
+
+        // DDL Engine
+        services.AddScoped<IDdlEngine, DdlEngine>();
+        services.AddScoped<DdlMigrationExecutor>();
+        services.AddSingleton<SqlTypeMapper>();
+
+        // XML
+        services.AddScoped<IGenericXmlParser, GenericXmlParser>();
+        services.AddScoped<IXsdGenerator, XsdGenerator>();
+
+        // Caching — singleton so the in-memory ConcurrentDictionary lives across requests
+        services.AddSingleton<ITemplateMetadataCache, TemplateMetadataCache>();
+
+        // Audit
+        services.AddScoped<IAuditLogger, AuditLogger>();
+
+        return services;
+    }
+}
