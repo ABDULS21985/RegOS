@@ -27,6 +27,12 @@ services:
         condition: service_healthy
     environment:
       - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
+      - Seeding__SchemaFilePath=/app/schema.sql
+      - Seeding__MetadataSchemaPath=/app/scripts/create-metadata-schema.sql
+      - Seeding__AutoSeed=true
+    volumes:
+      - ../schema.sql:/app/schema.sql:ro
+      - ../scripts:/app/scripts:ro
 
   api:
     build:
@@ -36,10 +42,20 @@ services:
       migrator:
         condition: service_completed_successfully
     ports:
-      - "5000:8080"
+      - "5100:8080"
     environment:
       - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - Seeding__SchemaFilePath=/app/schema.sql
+    volumes:
+      - ../schema.sql:/app/schema.sql:ro
+    healthcheck:
+      test: curl -f http://localhost:8080/health || exit 1
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 
 volumes:
   sqlserver-data:
