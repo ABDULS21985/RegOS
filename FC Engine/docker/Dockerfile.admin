@@ -4,16 +4,16 @@ EXPOSE 8080
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
 WORKDIR /src
-COPY ["src/FC.Engine.Api/FC.Engine.Api.csproj", "src/FC.Engine.Api/"]
+COPY ["src/FC.Engine.Admin/FC.Engine.Admin.csproj", "src/FC.Engine.Admin/"]
 COPY ["src/FC.Engine.Application/FC.Engine.Application.csproj", "src/FC.Engine.Application/"]
 COPY ["src/FC.Engine.Infrastructure/FC.Engine.Infrastructure.csproj", "src/FC.Engine.Infrastructure/"]
 COPY ["src/FC.Engine.Domain/FC.Engine.Domain.csproj", "src/FC.Engine.Domain/"]
-RUN dotnet restore "src/FC.Engine.Api/FC.Engine.Api.csproj"
+RUN dotnet restore "src/FC.Engine.Admin/FC.Engine.Admin.csproj"
 COPY . .
-WORKDIR "/src/src/FC.Engine.Api"
-RUN dotnet publish "FC.Engine.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
+WORKDIR "/src/src/FC.Engine.Admin"
+RUN dotnet publish "FC.Engine.Admin.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
-ENTRYPOINT ["dotnet", "FC.Engine.Api.dll"]
+ENTRYPOINT ["dotnet", "FC.Engine.Admin.dll"]
