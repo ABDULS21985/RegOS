@@ -1,0 +1,163 @@
+@page "/impact-analysis"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Policy = "ApproverOrAdmin")]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Application.Services
+@inject ITemplateMetadataCache Cache
+@inject ITemplateRepository TemplateRepo
+@inject IFormulaRepository FormulaRepo
+
+<div class="page-header">
+    <h1>Impact Analysis</h1>
+    <p>Analyze the impact of template changes before publishing</p>
+</div>
+
+<div class="card">
+    <div class="card-header"><h2>Select Template</h2></div>
+    <div style="padding:1rem;">
+        <div class="form-group">
+            <label>Return Code</label>
+            <select class="form-control" @bind="_selectedTemplate" @bind:after="AnalyzeTemplate">
+                <option value="">Select a template...</option>
+                @foreach (var rc in _returnCodes)
+                {
+                    <option value="@rc">@rc</option>
+                }
+            </select>
+        </div>
+    </div>
+</div>
+
+@if (_analyzing)
+{
+    <div class="text-center"><span class="spinner"></span> Analyzing...</div>
+}
+else if (_analysis != null)
+{
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value">@_analysis.FieldCount</div>
+            <div class="stat-label">Fields</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_analysis.FormulaCount</div>
+            <div class="stat-label">Intra-Sheet Formulas</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_analysis.CrossSheetRuleCount</div>
+            <div class="stat-label">Cross-Sheet Rules</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_analysis.DependentTemplates.Count</div>
+            <div class="stat-label">Dependent Templates</div>
+        </div>
+    </div>
+
+    @if (_analysis.CrossSheetRules.Any())
+    {
+        <div class="card">
+            <div class="card-header"><h2>Cross-Sheet Rules Involving This Template</h2></div>
+            <table class="data-table">
+                <thead>
+                    <tr><th>Rule Code</th><th>Name</th><th>Related Templates</th><th>Expression</th></tr>
+                </thead>
+                <tbody>
+                    @foreach (var rule in _analysis.CrossSheetRules)
+                    {
+                        <tr>
+                            <td><code>@rule.RuleCode</code></td>
+                            <td>@rule.RuleName</td>
+                            <td>@string.Join(", ", rule.Operands.Select(o => o.TemplateReturnCode).Distinct())</td>
+                            <td><code>@rule.Expression?.Expression</code></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @if (_analysis.DependentTemplates.Any())
+    {
+        <div class="card">
+            <div class="card-header"><h2>Dependent Templates</h2></div>
+            <p style="padding:0.75rem;">Changes to <strong>@_selectedTemplate</strong> may affect validation of these templates:</p>
+            <table class="data-table">
+                <thead><tr><th>Return Code</th><th>Via Rule</th></tr></thead>
+                <tbody>
+                    @foreach (var (rc, rule) in _analysis.DependentTemplates)
+                    {
+                        <tr>
+                            <td><a href="/templates/@rc">@rc</a></td>
+                            <td><code>@rule</code></td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+}
+
+@code {
+    private List<string> _returnCodes = new();
+    private string _selectedTemplate = "";
+    private bool _analyzing;
+    private ImpactAnalysisResult? _analysis;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var templates = await Cache.GetAllPublishedTemplates();
+        _returnCodes = templates.Select(t => t.ReturnCode).OrderBy(x => x).ToList();
+    }
+
+    private async Task AnalyzeTemplate()
+    {
+        if (string.IsNullOrEmpty(_selectedTemplate)) { _analysis = null; return; }
+
+        _analyzing = true;
+        try
+        {
+            var template = await Cache.GetPublishedTemplate(_selectedTemplate);
+            var crossSheetRules = await FormulaRepo.GetCrossSheetRulesForTemplate(_selectedTemplate);
+            var allRules = await FormulaRepo.GetAllActiveCrossSheetRules();
+
+            // Find all rules that reference this template
+            var relevantRules = allRules
+                .Where(r => r.Operands.Any(o => o.TemplateReturnCode == _selectedTemplate))
+                .ToList();
+
+            // Find dependent templates (other templates in the same cross-sheet rules)
+            var dependents = new List<(string ReturnCode, string RuleCode)>();
+            foreach (var rule in relevantRules)
+            {
+                foreach (var op in rule.Operands)
+                {
+                    if (op.TemplateReturnCode != _selectedTemplate)
+                    {
+                        dependents.Add((op.TemplateReturnCode, rule.RuleCode));
+                    }
+                }
+            }
+
+            _analysis = new ImpactAnalysisResult
+            {
+                FieldCount = template.CurrentVersion.Fields.Count,
+                FormulaCount = template.CurrentVersion.IntraSheetFormulas.Count,
+                CrossSheetRuleCount = relevantRules.Count,
+                CrossSheetRules = relevantRules,
+                DependentTemplates = dependents.Distinct().ToList()
+            };
+        }
+        catch { _analysis = null; }
+        _analyzing = false;
+    }
+
+    private class ImpactAnalysisResult
+    {
+        public int FieldCount { get; set; }
+        public int FormulaCount { get; set; }
+        public int CrossSheetRuleCount { get; set; }
+        public List<FC.Engine.Domain.Validation.CrossSheetRule> CrossSheetRules { get; set; } = new();
+        public List<(string ReturnCode, string RuleCode)> DependentTemplates { get; set; } = new();
+    }
+}

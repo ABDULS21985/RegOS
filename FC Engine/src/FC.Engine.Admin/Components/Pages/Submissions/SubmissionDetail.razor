@@ -1,0 +1,128 @@
+@page "/submissions/{Id:int}"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Domain.Enums
+@inject ISubmissionRepository SubmissionRepo
+@inject NavigationManager Nav
+
+<div class="page-header">
+    <h1>Submission #@Id</h1>
+    <p>Validation report and submission details</p>
+</div>
+
+@if (_loading)
+{
+    <div class="text-center"><span class="spinner"></span></div>
+}
+else if (_submission == null)
+{
+    <div class="alert alert-error">Submission not found</div>
+}
+else
+{
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-value"><a href="/templates/@_submission.ReturnCode">@_submission.ReturnCode</a></div>
+            <div class="stat-label">Return Code</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">
+                <span class="badge badge-@GetStatusClass(_submission.Status)">@_submission.Status</span>
+            </div>
+            <div class="stat-label">Status</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@(_submission.ValidationReport?.Errors.Count ?? 0)</div>
+            <div class="stat-label">Validation Issues</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value">@_submission.SubmittedAt.ToString("yyyy-MM-dd HH:mm")</div>
+            <div class="stat-label">Submitted</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h2>Submission Info</h2></div>
+        <div class="grid-2">
+            <div class="form-group"><label>Institution ID</label><span>@_submission.InstitutionId</span></div>
+            <div class="form-group"><label>Return Period ID</label><span>@_submission.ReturnPeriodId</span></div>
+            <div class="form-group"><label>Template Version</label><span>@_submission.TemplateVersionId</span></div>
+            <div class="form-group"><label>Processing Time</label><span>@(_submission.ProcessingDurationMs)ms</span></div>
+        </div>
+    </div>
+
+    @if (_submission.ValidationReport != null)
+    {
+        var report = _submission.ValidationReport;
+        <div class="card">
+            <div class="card-header">
+                <h2>Validation Report</h2>
+                <span class="badge badge-@(report.IsValid ? "published" : "deprecated")">
+                    @(report.IsValid ? "Valid" : "Invalid")
+                </span>
+            </div>
+
+            @if (report.Errors.Any())
+            {
+                <div style="padding:0.5rem 1rem;display:flex;gap:1rem;">
+                    <span>Errors: <strong>@report.ErrorCount</strong></span>
+                    <span>Warnings: <strong>@report.WarningCount</strong></span>
+                </div>
+
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Rule ID</th><th>Category</th><th>Severity</th>
+                            <th>Field</th><th>Message</th><th>Expected</th><th>Actual</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var err in report.Errors.OrderBy(e => e.Severity.ToString()))
+                        {
+                            <tr>
+                                <td><code>@err.RuleId</code></td>
+                                <td><span class="badge badge-draft">@err.Category</span></td>
+                                <td>
+                                    <span class="badge badge-@(err.Severity == ValidationSeverity.Error ? "deprecated" : "review")">
+                                        @err.Severity
+                                    </span>
+                                </td>
+                                <td><code>@err.Field</code></td>
+                                <td>@err.Message</td>
+                                <td>@err.ExpectedValue</td>
+                                <td>@err.ActualValue</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+            else
+            {
+                <div style="padding:1rem;color:#28a745;">No validation issues found.</div>
+            }
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+    private bool _loading = true;
+    private Submission? _submission;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _submission = await SubmissionRepo.GetByIdWithReport(Id);
+        _loading = false;
+    }
+
+    private static string GetStatusClass(SubmissionStatus status) => status switch
+    {
+        SubmissionStatus.Accepted => "published",
+        SubmissionStatus.AcceptedWithWarnings => "review",
+        SubmissionStatus.Rejected => "deprecated",
+        _ => "draft"
+    };
+}
