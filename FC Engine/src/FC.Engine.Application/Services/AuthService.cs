@@ -63,7 +63,7 @@ public class AuthService
     public static string HashPassword(string password)
     {
         var salt = RandomNumberGenerator.GetBytes(16);
-        var hash = KeyDerivation.Prf(
+        var hash = KeyDerivation.Pbkdf2(
             password: password,
             salt: salt,
             prf: KeyDerivationPrf.HMACSHA256,
@@ -82,7 +82,7 @@ public class AuthService
         var salt = Convert.FromBase64String(parts[0]);
         var expectedHash = Convert.FromBase64String(parts[1]);
 
-        var actualHash = KeyDerivation.Prf(
+        var actualHash = KeyDerivation.Pbkdf2(
             password: password,
             salt: salt,
             prf: KeyDerivationPrf.HMACSHA256,
