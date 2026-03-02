@@ -7,6 +7,7 @@ using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Metadata.Repositories;
 using FC.Engine.Infrastructure.Persistence;
 using FC.Engine.Infrastructure.Persistence.Repositories;
+using FC.Engine.Infrastructure.Validation;
 using FC.Engine.Infrastructure.Xml;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
@@ -52,6 +53,13 @@ public static class DependencyInjection
 
         // Audit
         services.AddScoped<IAuditLogger, AuditLogger>();
+
+        // Validation
+        services.AddSingleton<ExpressionParser>();
+        services.AddSingleton<ExpressionTokenizer>();
+        services.AddScoped<IFormulaEvaluator, FormulaEvaluator>();
+        services.AddScoped<ICrossSheetValidator, CrossSheetValidator>();
+        services.AddScoped<IBusinessRuleEvaluator, BusinessRuleEvaluator>();
 
         return services;
     }
