@@ -156,9 +156,9 @@ else
                         <tbody>
                             @foreach (var sub in _recentSubmissions)
                             {
-                                <tr @onclick="() => Nav.NavigateTo($&quot;/submissions/{sub.Id}&quot;)" class="dash-row-clickable">
+                                <tr @onclick="() => NavigateToSubmission(sub.Id)" class="dash-row-clickable">
                                     <td class="dash-cell-code">@sub.ReturnCode</td>
-                                    <td>@(sub.Institution?.Name ?? "—")</td>
+                                    <td>@(sub.Institution?.InstitutionName ?? "—")</td>
                                     <td>
                                         <span class="dash-status-badge dash-status-@sub.Status.ToString().ToLowerInvariant()">
                                             @FormatStatus(sub.Status)
@@ -355,6 +355,8 @@ else
 
         _loading = false;
     }
+
+    private void NavigateToSubmission(int id) => Nav.NavigateTo($"/submissions/{id}");
 
     private static string FormatStatus(SubmissionStatus status) => status switch
     {
