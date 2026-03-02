@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace FC.Engine.Infrastructure.DynamicSchema;
 
-public class DdlMigrationExecutor
+public class DdlMigrationExecutor : IDdlMigrationExecutor
 {
     private readonly MetadataDbContext _db;
 
@@ -18,7 +18,7 @@ public class DdlMigrationExecutor
         int versionTo,
         DdlScript ddlScript,
         string executedBy,
-        CancellationToken ct)
+        CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(ddlScript.ForwardSql))
             return new MigrationResult(true, null);
@@ -64,7 +64,7 @@ public class DdlMigrationExecutor
         }
     }
 
-    public async Task<MigrationResult> Rollback(int migrationId, string rolledBackBy, CancellationToken ct)
+    public async Task<MigrationResult> Rollback(int migrationId, string rolledBackBy, CancellationToken ct = default)
     {
         var migration = await _db.DdlMigrations.FindAsync(new object[] { migrationId }, ct);
         if (migration == null)
@@ -97,5 +97,3 @@ public class DdlMigrationExecutor
         }
     }
 }
-
-public record MigrationResult(bool Success, string? Error);

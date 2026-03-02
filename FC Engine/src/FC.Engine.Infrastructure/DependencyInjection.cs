@@ -41,8 +41,8 @@ public static class DependencyInjection
 
         // DDL Engine
         services.AddScoped<IDdlEngine, DdlEngine>();
-        services.AddScoped<DdlMigrationExecutor>();
-        services.AddSingleton<SqlTypeMapper>();
+        services.AddScoped<IDdlMigrationExecutor, DdlMigrationExecutor>();
+        services.AddSingleton<ISqlTypeMapper, SqlTypeMapper>();
 
         // XML
         services.AddScoped<IGenericXmlParser, GenericXmlParser>();

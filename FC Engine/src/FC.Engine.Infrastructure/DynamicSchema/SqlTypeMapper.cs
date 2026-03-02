@@ -1,10 +1,11 @@
+using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Enums;
 
 namespace FC.Engine.Infrastructure.DynamicSchema;
 
-public class SqlTypeMapper
+public class SqlTypeMapper : ISqlTypeMapper
 {
-    public string ToSqlType(FieldDataType dataType, string? sqlTypeOverride = null)
+    public string MapToSqlType(FieldDataType dataType, string? sqlTypeOverride = null)
     {
         if (!string.IsNullOrEmpty(sqlTypeOverride))
             return sqlTypeOverride;
