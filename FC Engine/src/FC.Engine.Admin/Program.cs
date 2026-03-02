@@ -1,5 +1,6 @@
 using FC.Engine.Application.Services;
 using FC.Engine.Infrastructure;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -22,6 +23,31 @@ builder.Services.AddScoped<CrossSheetRuleSeedService>();
 builder.Services.AddScoped<SeedService>();
 builder.Services.AddScoped<IngestionOrchestrator>();
 builder.Services.AddScoped<ValidationOrchestrator>();
+builder.Services.AddScoped<AuthService>();
+
+// Authentication — cookie-based for Blazor Server
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/login";
+        options.LogoutPath = "/logout";
+        options.AccessDeniedPath = "/login";
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+        options.Cookie.HttpOnly = true;
+        options.Cookie.SameSite = SameSiteMode.Strict;
+    });
+
+// Authorization policies
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
+    options.AddPolicy("ApproverOrAdmin", policy => policy.RequireRole("Approver", "Admin"));
+    options.AddPolicy("Authenticated", policy => policy.RequireAuthenticatedUser());
+});
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddCascadingAuthenticationState();
 
 // Blazor Server
 builder.Services.AddRazorComponents()
@@ -36,6 +62,8 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseStaticFiles();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseAntiforgery();
 
 app.MapRazorComponents<FC.Engine.Admin.Components.App>()

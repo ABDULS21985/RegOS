@@ -28,6 +28,9 @@ public class MetadataDbContext : DbContext
     public DbSet<ValidationReport> ValidationReports => Set<ValidationReport>();
     public DbSet<ValidationError> ValidationErrors => Set<ValidationError>();
 
+    // Portal users
+    public DbSet<PortalUser> PortalUsers => Set<PortalUser>();
+
     // Audit
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
     public DbSet<DdlMigrationRecord> DdlMigrations => Set<DdlMigrationRecord>();

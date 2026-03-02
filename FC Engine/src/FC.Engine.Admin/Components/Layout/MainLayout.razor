@@ -1,4 +1,5 @@
 @inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Authorization
 
 <div class="admin-layout">
     <nav class="sidebar">
@@ -7,6 +8,17 @@
             <span class="subtitle">Admin Portal</span>
         </div>
         <NavMenu />
+        <div class="sidebar-footer">
+            <AuthorizeView>
+                <Authorized>
+                    <div class="user-info">
+                        <span class="user-name">@context.User.Identity?.Name</span>
+                        <span class="user-role">@context.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value</span>
+                    </div>
+                    <a href="/logout" class="logout-link">Sign Out</a>
+                </Authorized>
+            </AuthorizeView>
+        </div>
     </nav>
     <main class="main-content">
         <header class="top-bar">

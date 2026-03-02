@@ -1,0 +1,137 @@
+@page "/users"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Policy = "AdminOnly")]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Application.Services
+@inject IPortalUserRepository UserRepo
+@inject AuthService AuthService
+
+<div class="page-header">
+    <h1>User Management</h1>
+    <p>Manage portal users and their roles</p>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Portal Users</h2>
+        <button class="btn btn-primary btn-sm" @onclick="ShowAddUser">Add User</button>
+    </div>
+
+    @if (_showAddForm)
+    {
+        <div class="form-inline" style="padding: 1rem; background: #f9f9f9; border-bottom: 1px solid #eee;">
+            <div class="grid-2">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input class="form-control" @bind="_newUsername" placeholder="username" />
+                </div>
+                <div class="form-group">
+                    <label>Display Name</label>
+                    <input class="form-control" @bind="_newDisplayName" placeholder="Full Name" />
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input class="form-control" @bind="_newEmail" placeholder="email@example.com" />
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input class="form-control" type="password" @bind="_newPassword" placeholder="Password" />
+                </div>
+                <div class="form-group">
+                    <label>Role</label>
+                    <select class="form-control" @bind="_newRole">
+                        @foreach (var role in Enum.GetValues<PortalRole>())
+                        {
+                            <option value="@role">@role</option>
+                        }
+                    </select>
+                </div>
+                <div class="form-group" style="display:flex;align-items:flex-end;gap:0.5rem;">
+                    <button class="btn btn-primary btn-sm" @onclick="CreateUser">Create</button>
+                    <button class="btn btn-outline btn-sm" @onclick="() => _showAddForm = false">Cancel</button>
+                </div>
+            </div>
+            @if (!string.IsNullOrEmpty(_createError))
+            {
+                <div class="alert alert-error" style="margin-top:0.5rem;">@_createError</div>
+            }
+        </div>
+    }
+
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Username</th>
+                <th>Display Name</th>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Status</th>
+                <th>Last Login</th>
+                <th>Created</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var user in _users)
+            {
+                <tr>
+                    <td><strong>@user.Username</strong></td>
+                    <td>@user.DisplayName</td>
+                    <td>@user.Email</td>
+                    <td>
+                        <span class="badge badge-@(user.Role == PortalRole.Admin ? "published" :
+                            user.Role == PortalRole.Approver ? "review" : "draft")">
+                            @user.Role
+                        </span>
+                    </td>
+                    <td>@(user.IsActive ? "Active" : "Inactive")</td>
+                    <td>@user.LastLoginAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                    <td>@user.CreatedAt.ToString("yyyy-MM-dd")</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@code {
+    private IReadOnlyList<PortalUser> _users = Array.Empty<PortalUser>();
+    private bool _showAddForm;
+    private string _newUsername = "", _newDisplayName = "", _newEmail = "", _newPassword = "";
+    private PortalRole _newRole = PortalRole.Viewer;
+    private string? _createError;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _users = await UserRepo.GetAll();
+    }
+
+    private void ShowAddUser()
+    {
+        _showAddForm = true;
+        _createError = null;
+    }
+
+    private async Task CreateUser()
+    {
+        _createError = null;
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_newUsername) || string.IsNullOrWhiteSpace(_newPassword))
+            {
+                _createError = "Username and password are required";
+                return;
+            }
+
+            await AuthService.CreateUser(_newUsername, _newDisplayName, _newEmail, _newPassword, _newRole);
+            _users = await UserRepo.GetAll();
+            _showAddForm = false;
+            _newUsername = _newDisplayName = _newEmail = _newPassword = "";
+            _newRole = PortalRole.Viewer;
+        }
+        catch (Exception ex)
+        {
+            _createError = ex.Message;
+        }
+    }
+}
