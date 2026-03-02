@@ -1,0 +1,14 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+COPY ["src/FC.Engine.Migrator/FC.Engine.Migrator.csproj", "src/FC.Engine.Migrator/"]
+COPY ["src/FC.Engine.Infrastructure/FC.Engine.Infrastructure.csproj", "src/FC.Engine.Infrastructure/"]
+COPY ["src/FC.Engine.Domain/FC.Engine.Domain.csproj", "src/FC.Engine.Domain/"]
+RUN dotnet restore "src/FC.Engine.Migrator/FC.Engine.Migrator.csproj"
+COPY . .
+WORKDIR "/src/src/FC.Engine.Migrator"
+RUN dotnet build "FC.Engine.Migrator.csproj" -c Release -o /app/build
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+WORKDIR /app
+COPY --from=build /app/build .
+ENTRYPOINT ["dotnet", "FC.Engine.Migrator.dll"]
