@@ -68,7 +68,7 @@ public partial class DynamicSqlBuilder
 
         return $"SELECT {string.Join(", ", columns)} FROM dbo.[{tableName}] d " +
                "INNER JOIN dbo.return_submissions s ON d.submission_id = s.id " +
-               "WHERE s.institution_id = @institutionId AND s.return_period_id = @returnPeriodId " +
+               "WHERE s.InstitutionId = @institutionId AND s.ReturnPeriodId = @returnPeriodId " +
                "ORDER BY d.id";
     }
 

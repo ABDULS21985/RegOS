@@ -139,7 +139,36 @@ try
         logger.LogInformation("Cross-sheet rules seeded: {Count}", crossSheetCount);
     }
 
-    // Step 6: Seed default admin user (if no users exist)
+    // Step 6: Create physical data tables for all published templates
+    logger.LogInformation("Creating physical data tables for published templates...");
+    var templateRepo = scope.ServiceProvider.GetRequiredService<ITemplateRepository>();
+    var ddlEngine = scope.ServiceProvider.GetRequiredService<IDdlEngine>();
+    var allTemplates = await templateRepo.GetAll();
+    var tablesCreated = 0;
+    var tablesSkipped = 0;
+    foreach (var tmpl in allTemplates)
+    {
+        var publishedVersion = tmpl.Versions
+            .FirstOrDefault(v => v.Status == FC.Engine.Domain.Enums.TemplateStatus.Published);
+        if (publishedVersion == null) continue;
+
+        try
+        {
+            var ddl = ddlEngine.GenerateCreateTable(tmpl, publishedVersion);
+            await db.Database.ExecuteSqlRawAsync(ddl.ForwardSql);
+            tablesCreated++;
+        }
+        catch (Microsoft.Data.SqlClient.SqlException ex) when (ex.Number is 2714)
+        {
+            // Table already exists
+            tablesSkipped++;
+        }
+    }
+    logger.LogInformation(
+        "Physical tables: {Created} created, {Skipped} already existed",
+        tablesCreated, tablesSkipped);
+
+    // Step 7: Seed default admin user (if no users exist)
     var userRepo = scope.ServiceProvider.GetRequiredService<IPortalUserRepository>();
     var existingUsers = await userRepo.GetAll();
     if (existingUsers.Count == 0)
