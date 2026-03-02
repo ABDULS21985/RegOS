@@ -1,591 +1,1692 @@
-# Comprehensive Implementation Plan: CBN DFIS FC Returns Data Processing Engine
+I have now thoroughly explored every file in the codebase. I have a complete understanding of:
 
-## 1. Solution Architecture Overview
+1. The 103 data tables in `schema.sql` and their structural categories (FixedRow, MultiRow, ItemCoded)
+2. The existing code-driven architecture: per-template C# classes, XSD files, XML parsers, EF configurations, validation rules
+3. The current submission pipeline: API endpoint -> IngestionOrchestrator -> XSD validation -> XML parsing -> Validation engine -> Persistence
+4. All domain entities, value objects, enums, and interfaces
 
-### 1.1 High-Level Data Flow
+Let me now produce the comprehensive metadata-driven architecture design.
+
+---
+
+# CBN DFIS FC Returns Data Processing Engine -- Metadata-Driven Architecture
+
+## Preamble: Analysis of What Exists and What Must Be Replaced
+
+Having examined every file in the repository, the current code-driven architecture requires the following per-template artifacts for each of the 103 return templates:
+
+- **One C# domain class** (e.g., `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Domain/Returns/FixedRow/Mfcr300Data.cs` -- 104 lines mapping ~40 `[LineCode]` properties)
+- **One XSD schema file** (e.g., `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/Xml/Schemas/MFCR300.xsd` -- 115 lines, manually authored)
+- **One XML parser class** (e.g., `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/Xml/Parsers/Mfcr300XmlParser.cs` -- 97 lines, hand-coded property-by-property mapping)
+- **One EF entity class** (e.g., `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/Persistence/Entities/Mfcr300Entity.cs` -- 103 lines)
+- **One EF configuration class** (e.g., `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/Persistence/Configurations/Mfcr300Configuration.cs` -- 101 lines)
+- **One validation rule class** (e.g., `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/Validation/Rules/IntraSheet/Mfcr300SumRules.cs` -- 144 lines)
+- **One section in ReturnRepository.cs** (`switch` branch per template type)
+- **One DI registration line** in `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/DependencyInjection.cs`
+
+Completing all 103 templates this way would produce approximately **70,000+ lines of highly repetitive C# code** plus 103 XSD files. The metadata-driven approach replaces all of this with database-driven configuration interpreted at runtime.
+
+---
+
+## A. Database Schema for Metadata
+
+### A.1 Core Metadata Tables (the "Template Registry")
+
+```sql
+-- ============================================================================
+-- METADATA SCHEMA: Template Registry
+-- These tables define the structure of ALL return templates.
+-- CBN admins manage these through the Admin Portal.
+-- ============================================================================
+
+-- Template lifecycle: Draft -> Review -> Published -> Deprecated -> Retired
+CREATE TABLE meta.template_statuses (
+    id          INT IDENTITY(1,1) PRIMARY KEY,
+    name        VARCHAR(20) NOT NULL UNIQUE,  -- Draft, Review, Published, Deprecated, Retired
+    description VARCHAR(200)
+);
+
+-- Master table: one row per return template
+CREATE TABLE meta.return_templates (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    return_code         VARCHAR(20) NOT NULL UNIQUE,     -- 'MFCR 300', 'QFCR 364', etc.
+    name                NVARCHAR(255) NOT NULL,           -- 'Statement of Financial Position'
+    description         NVARCHAR(1000),
+    frequency           VARCHAR(20) NOT NULL,             -- Monthly, Quarterly, SemiAnnual, Computed
+    structural_category VARCHAR(20) NOT NULL,             -- FixedRow, MultiRow, ItemCoded
+    physical_table_name VARCHAR(128) NOT NULL UNIQUE,     -- 'mfcr_300', 'qfcr_364'
+    xml_root_element    VARCHAR(128) NOT NULL,            -- 'MFCR300', 'QFCR364'
+    xml_namespace       VARCHAR(255) NOT NULL,            -- 'urn:cbn:dfis:fc:mfcr300'
+    is_system_template  BIT NOT NULL DEFAULT 0,           -- 1 = seeded from schema.sql, 0 = user-created
+    owner_department    VARCHAR(50) DEFAULT 'DFIS',
+    institution_type    VARCHAR(10) DEFAULT 'FC',
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    created_by          NVARCHAR(100) NOT NULL,
+    updated_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    updated_by          NVARCHAR(100) NOT NULL
+);
+
+-- Version tracking: every published change creates a new version
+CREATE TABLE meta.template_versions (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    template_id         INT NOT NULL REFERENCES meta.return_templates(id),
+    version_number      INT NOT NULL,                     -- 1, 2, 3...
+    status_id           INT NOT NULL REFERENCES meta.template_statuses(id),
+    effective_from      DATE,                             -- when Published: first period this version applies
+    effective_to        DATE,                             -- NULL = current; set when deprecated
+    change_summary      NVARCHAR(1000),
+    approved_by         NVARCHAR(100),
+    approved_at         DATETIME2,
+    published_at        DATETIME2,
+    ddl_script          NVARCHAR(MAX),                    -- the CREATE/ALTER TABLE DDL that was executed
+    rollback_script     NVARCHAR(MAX),                    -- inverse DDL for rollback
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    created_by          NVARCHAR(100) NOT NULL,
+    CONSTRAINT UQ_template_version UNIQUE (template_id, version_number)
+);
+
+-- Field definitions: one row per column/field in a template
+CREATE TABLE meta.template_fields (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    template_version_id INT NOT NULL REFERENCES meta.template_versions(id),
+    field_name          VARCHAR(128) NOT NULL,             -- SQL column name: 'cash_notes'
+    display_name        NVARCHAR(255) NOT NULL,            -- UI label: 'Cash - Notes'
+    xml_element_name    VARCHAR(128) NOT NULL,             -- XML element: 'CashNotes'
+    line_code           VARCHAR(20),                       -- CBN line code: '10110'
+    section_name        NVARCHAR(100),                     -- grouping: 'Financial Assets: Cash'
+    section_order       INT NOT NULL DEFAULT 0,            -- order within section
+    field_order         INT NOT NULL DEFAULT 0,            -- order within template
+    data_type           VARCHAR(30) NOT NULL,              -- Money, Integer, Decimal, Text, Date, Boolean, Percentage
+    sql_type            VARCHAR(50) NOT NULL,              -- 'DECIMAL(20,2)', 'VARCHAR(255)', 'INT', 'DATE', 'BIT'
+    is_required         BIT NOT NULL DEFAULT 0,
+    is_computed         BIT NOT NULL DEFAULT 0,            -- true for total/subtotal fields
+    is_key_field        BIT NOT NULL DEFAULT 0,            -- true for serial_no, item_code (row identity)
+    default_value       NVARCHAR(100),
+    min_value           NVARCHAR(100),                     -- for range validation
+    max_value           NVARCHAR(100),
+    max_length          INT,                               -- for text fields
+    allowed_values      NVARCHAR(MAX),                     -- JSON array: ["Secured","Unsecured"]
+    reference_table     VARCHAR(128),                      -- FK to e.g. 'bank_codes', 'sectors'
+    reference_column    VARCHAR(128),
+    help_text           NVARCHAR(500),
+    is_ytd_field        BIT NOT NULL DEFAULT 0,            -- for YTD companion fields
+    ytd_source_field_id INT REFERENCES meta.template_fields(id), -- links YTD field to its source
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_field_per_version UNIQUE (template_version_id, field_name)
+);
+
+-- Predefined item codes for ItemCoded templates (e.g., MFCR 356 item_code: 33002, 33008...)
+CREATE TABLE meta.template_item_codes (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    template_version_id INT NOT NULL REFERENCES meta.template_versions(id),
+    item_code           VARCHAR(20) NOT NULL,
+    item_description    NVARCHAR(255) NOT NULL,
+    sort_order          INT NOT NULL DEFAULT 0,
+    is_total_row        BIT NOT NULL DEFAULT 0,            -- this row is a computed total
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT UQ_item_code_per_version UNIQUE (template_version_id, item_code)
+);
+
+-- Template sections for UI grouping
+CREATE TABLE meta.template_sections (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    template_version_id INT NOT NULL REFERENCES meta.template_versions(id),
+    section_name        NVARCHAR(100) NOT NULL,
+    section_order       INT NOT NULL DEFAULT 0,
+    description         NVARCHAR(500),
+    is_repeating        BIT NOT NULL DEFAULT 0,            -- for MultiRow sections
+    CONSTRAINT UQ_section_per_version UNIQUE (template_version_id, section_name)
+);
+```
+
+### A.2 Validation Rule Metadata Tables
+
+```sql
+-- ============================================================================
+-- VALIDATION METADATA: Formulas and Rules
+-- ============================================================================
+
+-- Intra-sheet formulas: single-template field-level validation
+CREATE TABLE meta.intra_sheet_formulas (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    template_version_id INT NOT NULL REFERENCES meta.template_versions(id),
+    rule_code           VARCHAR(50) NOT NULL,              -- 'MFCR300_SUM_TOTAL_CASH'
+    rule_name           NVARCHAR(255) NOT NULL,            -- 'Total Cash = Cash Notes + Cash Coins'
+    formula_type        VARCHAR(30) NOT NULL,              -- Sum, Difference, Equals, GreaterThan, LessThan,
+                                                           -- GreaterThanOrEqual, Between, Ratio, Custom
+    target_field_name   VARCHAR(128) NOT NULL,             -- 'total_cash' (the computed field)
+    target_line_code    VARCHAR(20),                       -- '10140'
+    operand_fields      NVARCHAR(MAX) NOT NULL,            -- JSON: ["cash_notes","cash_coins"]
+    operand_line_codes  NVARCHAR(MAX),                     -- JSON: ["10110","10120"]
+    custom_expression   NVARCHAR(1000),                    -- for Custom type: "A + B - C" using field aliases
+    tolerance_amount    DECIMAL(20,2) DEFAULT 0,           -- allow rounding: 0.01
+    tolerance_percent   DECIMAL(10,4),                     -- or percentage tolerance
+    severity            VARCHAR(10) NOT NULL DEFAULT 'Error', -- Error, Warning, Info
+    error_message       NVARCHAR(500),                     -- custom message; NULL = auto-generated
+    is_active           BIT NOT NULL DEFAULT 1,
+    sort_order          INT NOT NULL DEFAULT 0,
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    created_by          NVARCHAR(100) NOT NULL,
+    CONSTRAINT UQ_intra_rule UNIQUE (template_version_id, rule_code)
+);
+
+-- Cross-sheet rules: validation spanning two or more templates
+CREATE TABLE meta.cross_sheet_rules (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    rule_code           VARCHAR(50) NOT NULL UNIQUE,       -- 'XS-001'
+    rule_name           NVARCHAR(255) NOT NULL,
+    description         NVARCHAR(1000),
+    severity            VARCHAR(10) NOT NULL DEFAULT 'Error',
+    is_active           BIT NOT NULL DEFAULT 1,
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    created_by          NVARCHAR(100) NOT NULL
+);
+
+-- Cross-sheet rule operands: identifies which templates and fields participate
+CREATE TABLE meta.cross_sheet_rule_operands (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    rule_id             INT NOT NULL REFERENCES meta.cross_sheet_rules(id),
+    operand_alias       VARCHAR(10) NOT NULL,              -- 'A', 'B', 'C'
+    template_return_code VARCHAR(20) NOT NULL,             -- 'MFCR 300'
+    field_name          VARCHAR(128) NOT NULL,             -- 'total_assets'
+    line_code           VARCHAR(20),
+    -- For MultiRow/ItemCoded: aggregate function to apply
+    aggregate_function  VARCHAR(20),                       -- NULL (FixedRow), SUM, COUNT, MAX, MIN, AVG
+    filter_item_code    VARCHAR(20),                       -- for ItemCoded: specific item_code row
+    sort_order          INT NOT NULL DEFAULT 0,
+    CONSTRAINT UQ_cross_operand UNIQUE (rule_id, operand_alias)
+);
+
+-- Cross-sheet rule expression: the formula using operand aliases
+CREATE TABLE meta.cross_sheet_rule_expressions (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    rule_id             INT NOT NULL REFERENCES meta.cross_sheet_rules(id) UNIQUE,
+    expression          NVARCHAR(1000) NOT NULL,           -- 'A = B + C' or 'A >= B * 0.125'
+    tolerance_amount    DECIMAL(20,2) DEFAULT 0,
+    tolerance_percent   DECIMAL(10,4),
+    error_message       NVARCHAR(500)
+);
+
+-- Business rules: general-purpose rules (deadline checks, threshold checks, etc.)
+CREATE TABLE meta.business_rules (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    rule_code           VARCHAR(50) NOT NULL UNIQUE,
+    rule_name           NVARCHAR(255) NOT NULL,
+    description         NVARCHAR(1000),
+    rule_type           VARCHAR(30) NOT NULL,              -- DateCheck, ThresholdCheck, Completeness, Custom
+    expression          NVARCHAR(1000),                    -- e.g., 'capital_adequacy_ratio >= 0.125'
+    applies_to_templates NVARCHAR(MAX),                    -- JSON: ["MFCR 300","FC CAR 2"] or "*" for all
+    applies_to_fields   NVARCHAR(MAX),                     -- JSON: ["capital_adequacy_ratio"] or NULL for template-level
+    severity            VARCHAR(10) NOT NULL DEFAULT 'Error',
+    is_active           BIT NOT NULL DEFAULT 1,
+    created_at          DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    created_by          NVARCHAR(100) NOT NULL
+);
+```
+
+### A.3 Audit and Migration Tracking Tables
+
+```sql
+-- ============================================================================
+-- AUDIT AND MIGRATION TRACKING
+-- ============================================================================
+
+-- Audit trail: every change to metadata
+CREATE TABLE meta.audit_log (
+    id                  BIGINT IDENTITY(1,1) PRIMARY KEY,
+    entity_type         VARCHAR(50) NOT NULL,              -- 'ReturnTemplate', 'TemplateField', 'IntraSheetFormula', etc.
+    entity_id           INT NOT NULL,
+    action              VARCHAR(20) NOT NULL,              -- 'Create', 'Update', 'Delete', 'Publish', 'Deprecate'
+    old_values          NVARCHAR(MAX),                     -- JSON of previous state
+    new_values          NVARCHAR(MAX),                     -- JSON of new state
+    performed_by        NVARCHAR(100) NOT NULL,
+    performed_at        DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    ip_address          VARCHAR(45),
+    correlation_id      UNIQUEIDENTIFIER
+);
+
+-- DDL migration history: tracks every schema change to physical data tables
+CREATE TABLE meta.ddl_migrations (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    template_id         INT NOT NULL REFERENCES meta.return_templates(id),
+    version_from        INT,                               -- NULL for initial creation
+    version_to          INT NOT NULL,
+    migration_type      VARCHAR(20) NOT NULL,              -- 'CreateTable', 'AddColumn', 'AlterColumn', 'DropColumn'
+    ddl_script          NVARCHAR(MAX) NOT NULL,
+    rollback_script     NVARCHAR(MAX) NOT NULL,
+    executed_at         DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    executed_by         NVARCHAR(100) NOT NULL,
+    execution_duration_ms INT,
+    is_rolled_back      BIT NOT NULL DEFAULT 0,
+    rolled_back_at      DATETIME2,
+    rolled_back_by      NVARCHAR(100)
+);
+
+-- Template publish queue: for async DDL execution
+CREATE TABLE meta.publish_queue (
+    id                  INT IDENTITY(1,1) PRIMARY KEY,
+    template_version_id INT NOT NULL REFERENCES meta.template_versions(id),
+    status              VARCHAR(20) NOT NULL DEFAULT 'Pending', -- Pending, Processing, Completed, Failed
+    ddl_script          NVARCHAR(MAX) NOT NULL,
+    error_message       NVARCHAR(MAX),
+    queued_at           DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+    queued_by           NVARCHAR(100) NOT NULL,
+    processed_at        DATETIME2,
+    retry_count         INT NOT NULL DEFAULT 0
+);
+```
+
+### A.4 Operational Tables (kept from current design, enhanced)
+
+```sql
+-- ============================================================================
+-- OPERATIONAL TABLES (reference data + submission tracking)
+-- These are managed via EF Core as today
+-- ============================================================================
+
+-- institutions, return_periods, return_submissions: kept as-is from schema.sql
+-- with minor column additions:
+
+ALTER TABLE dbo.return_submissions ADD
+    template_version_id INT REFERENCES meta.template_versions(id),
+    raw_xml             NVARCHAR(MAX),              -- store original XML for replay
+    parsed_data_json    NVARCHAR(MAX),              -- JSON snapshot of parsed data
+    processing_duration_ms INT;
+
+-- validation_reports and validation_errors: kept from current domain model
+```
+
+### A.5 Entity-Relationship Summary
 
 ```
-Finance Company                FC Engine API               SQL Server
-     |                             |                          |
-     |  XML Submission             |                          |
-     |  (per return code)          |                          |
-     |---------------------------->|                          |
-     |                             |                          |
-     |                    [1. Receive XML]                    |
-     |                    [2. XSD Validation]                 |
-     |                    [3. Parse to Domain]                |
-     |                    [4. Type/Range Validate]            |
-     |                    [5. Intra-sheet Validate]           |
-     |                    [6. Cross-sheet Validate]           |
-     |                    [7. Business Rules]                 |
-     |                    [8. Persist if valid]               |
-     |                             |                          |
-     |                             |-------persist----------->|
-     |                             |                          |
-     |<---Validation Report--------|                          |
-     |                             |                          |
-```
+meta.return_templates (1) --< meta.template_versions (N)
+meta.template_versions (1) --< meta.template_fields (N)
+meta.template_versions (1) --< meta.template_item_codes (N)
+meta.template_versions (1) --< meta.template_sections (N)
+meta.template_versions (1) --< meta.intra_sheet_formulas (N)
+meta.cross_sheet_rules (1) --< meta.cross_sheet_rule_operands (N)
+meta.cross_sheet_rules (1) --- meta.cross_sheet_rule_expressions (1)
+meta.return_templates (1) --< meta.ddl_migrations (N)
+meta.template_versions (1) --< meta.publish_queue (N)
 
-### 1.2 Submission Lifecycle State Machine
-
-```
-UPLOAD --> PARSING --> VALIDATING --> [VALID] --> ACCEPTED --> STORED
-                         |
-                         +--> [INVALID] --> REJECTED (with report)
-                         |
-                         +--> [WARNINGS] --> ACCEPTED_WITH_WARNINGS --> STORED
-```
-
-### 1.3 Clean Architecture Layers
-
-```
-+-----------------------------------------------------------------+
-|  FC.Engine.Api  (ASP.NET 8 Minimal API / Controllers)           |
-|  - Endpoints: /submissions, /returns/{code}, /validation-report |
-|  - Middleware: Auth, Error handling, Request logging             |
-+-----------------------------------------------------------------+
-         |  depends on
-         v
-+-----------------------------------------------------------------+
-|  FC.Engine.Application  (Use Cases / CQRS Handlers)             |
-|  - Commands: SubmitReturn, ValidateReturn, ResubmitReturn       |
-|  - Queries: GetSubmission, GetValidationReport, GetReturnData   |
-|  - Services: IngestionOrchestrator, ValidationOrchestrator      |
-+-----------------------------------------------------------------+
-         |  depends on
-         v
-+-----------------------------------------------------------------+
-|  FC.Engine.Domain  (Entities, Value Objects, Rules)              |
-|  - Entities: Submission, ReturnData, ValidationResult            |
-|  - Value Objects: ReturnCode, ReportingPeriod, MoneyAmount      |
-|  - Interfaces: IReturnValidator, IReturnRepository              |
-|  - Validation Rules: FormulaRule, CrossSheetRule, BusinessRule   |
-+-----------------------------------------------------------------+
-         ^
-         |  implemented by
-+-----------------------------------------------------------------+
-|  FC.Engine.Infrastructure  (EF Core, XML, SQL Server)           |
-|  - Persistence: DbContext, Repositories, Migrations             |
-|  - Xml: XsdSchemaProvider, XmlParser, ReturnDeserializers       |
-|  - Validation: RuleEngine, FormulaEvaluator                     |
-+-----------------------------------------------------------------+
-         ^
-         |  configuration / hosting
-+-----------------------------------------------------------------+
-|  FC.Engine.Migrator  (standalone tool for DB migrations)         |
-+-----------------------------------------------------------------+
+dbo.return_submissions --> meta.template_versions (FK)
+dbo.return_submissions --> dbo.institutions (FK)
+dbo.return_submissions --> dbo.return_periods (FK)
 ```
 
 ---
 
-## 2. Solution Structure
-
-### 2.1 Directory Tree
+## B. Solution Structure
 
 ```
-/Users/mac/codes/fcs/FC Engine/
+/FC Engine/
 |
 +-- FCEngine.sln
 |
 +-- src/
 |   +-- FC.Engine.Domain/
-|   |   +-- FC.Engine.Domain.csproj
+|   |   +-- FC.Engine.Domain.csproj           (no external deps except Abstractions)
 |   |   +-- Entities/
-|   |   |   +-- Submission.cs
-|   |   |   +-- ReturnHeader.cs
-|   |   |   +-- Institution.cs
-|   |   |   +-- ReturnPeriod.cs
-|   |   |   +-- ValidationReport.cs
-|   |   |   +-- ValidationError.cs
-|   |   +-- ValueObjects/
-|   |   |   +-- ReturnCode.cs
-|   |   |   +-- ReportingPeriod.cs
-|   |   |   +-- MoneyAmount.cs
-|   |   |   +-- LineCode.cs
-|   |   +-- Enums/
-|   |   |   +-- SubmissionStatus.cs
-|   |   |   +-- ReturnFrequency.cs
-|   |   |   +-- ValidationSeverity.cs
-|   |   |   +-- ValidationCategory.cs
-|   |   +-- Returns/
-|   |   |   +-- IReturnData.cs            (marker interface for all return data)
-|   |   |   +-- FixedRow/
-|   |   |   |   +-- Mfcr300Data.cs        (Statement of Financial Position)
-|   |   |   |   +-- Mfcr1000Data.cs       (Comprehensive Income)
-|   |   |   |   +-- Mfcr100Data.cs        (Memorandum Items)
-|   |   |   |   +-- FcCar2Data.cs         (Capital Adequacy)
-|   |   |   |   +-- FcAcrData.cs          (Adjusted Capital Ratio)
-|   |   |   |   +-- ... (other single-record returns)
-|   |   |   +-- MultiRow/
-|   |   |   |   +-- Mfcr302Row.cs         (Balances Held with Banks)
-|   |   |   |   +-- Mfcr304Row.cs         (Secured Money at Call)
-|   |   |   |   +-- Mfcr318Row.cs         (Treasury Bills)
-|   |   |   |   +-- Mfcr349Row.cs         (Loans - Other Customers)
-|   |   |   |   +-- Qfcr364Row.cs         (Direct Credit Substitutes)
-|   |   |   |   +-- ... (other list returns)
-|   |   |   +-- ItemCoded/
-|   |   |       +-- Mfcr356Item.cs        (Other Assets - keyed by item_code)
-|   |   |       +-- Mfcr1002Item.cs       (Govt Securities Income)
-|   |   |       +-- Mfcr1540Item.cs       (Maturity Profile)
-|   |   |       +-- Mfcr1550Item.cs       (Sectoral Credit)
-|   |   |       +-- FcCar1Item.cs         (Risk-Weighted Assets)
-|   |   |       +-- ... (other item-coded returns)
+|   |   |   +-- Submission.cs                 (KEPT - enhanced with TemplateVersionId)
+|   |   |   +-- Institution.cs                (KEPT as-is)
+|   |   |   +-- ReturnPeriod.cs               (KEPT as-is)
+|   |   |   +-- ValidationReport.cs           (KEPT as-is)
+|   |   |   +-- ValidationError.cs            (KEPT as-is)
+|   |   +-- Metadata/
+|   |   |   +-- ReturnTemplate.cs             (NEW - aggregate root for template + versions)
+|   |   |   +-- TemplateVersion.cs            (NEW - version with status lifecycle)
+|   |   |   +-- TemplateField.cs              (NEW - field definition value object)
+|   |   |   +-- TemplateItemCode.cs           (NEW - predefined item code)
+|   |   |   +-- TemplateSection.cs            (NEW - section grouping)
+|   |   |   +-- TemplateStatus.cs             (NEW - lifecycle enum)
 |   |   +-- Validation/
-|   |   |   +-- IValidationRule.cs
-|   |   |   +-- IIntraSheetRule.cs
-|   |   |   +-- ICrossSheetRule.cs
-|   |   |   +-- IBusinessRule.cs
-|   |   |   +-- ValidationContext.cs
-|   |   |   +-- FormulaExpression.cs
+|   |   |   +-- IntraSheetFormula.cs           (NEW - formula definition entity)
+|   |   |   +-- CrossSheetRule.cs              (NEW - cross-sheet rule entity)
+|   |   |   +-- CrossSheetRuleOperand.cs       (NEW - operand definition)
+|   |   |   +-- BusinessRule.cs                (NEW - business rule entity)
+|   |   |   +-- FormulaType.cs                 (NEW - enum: Sum, Difference, Ratio, etc.)
+|   |   |   +-- ValidationResult.cs            (KEPT/RENAMED)
+|   |   +-- DataRecord/
+|   |   |   +-- ReturnDataRecord.cs            (NEW - replaces IReturnData + all 103 typed classes)
+|   |   |   +-- ReturnDataRow.cs               (NEW - single row: Dictionary<string, object?>)
+|   |   |   +-- ReturnDataSet.cs               (NEW - wrapper for multi-row data)
+|   |   +-- ValueObjects/
+|   |   |   +-- ReturnCode.cs                  (KEPT as-is - still useful for parsing)
+|   |   |   +-- ReportingPeriod.cs             (KEPT)
+|   |   |   +-- FieldValue.cs                  (NEW - typed wrapper for dynamic field values)
+|   |   +-- Enums/
+|   |   |   +-- SubmissionStatus.cs            (KEPT as-is)
+|   |   |   +-- ReturnFrequency.cs             (KEPT as-is)
+|   |   |   +-- ValidationSeverity.cs          (KEPT as-is)
+|   |   |   +-- ValidationCategory.cs          (KEPT as-is)
+|   |   |   +-- StructuralCategory.cs          (NEW - FixedRow, MultiRow, ItemCoded)
+|   |   |   +-- FieldDataType.cs               (NEW - Money, Integer, Decimal, Text, Date, Boolean, Percentage)
+|   |   |   +-- FormulaType.cs                 (NEW - Sum, Difference, Equals, GreaterThan, etc.)
 |   |   +-- Abstractions/
-|   |       +-- IReturnRepository.cs
-|   |       +-- ISubmissionRepository.cs
-|   |       +-- IXmlParser.cs
-|   |       +-- IValidationEngine.cs
-|   |       +-- IRuleRegistry.cs
+|   |       +-- ITemplateRepository.cs         (NEW)
+|   |       +-- ITemplateFieldRepository.cs    (NEW)
+|   |       +-- IFormulaRepository.cs          (NEW)
+|   |       +-- IGenericDataRepository.cs      (NEW - replaces IReturnRepository)
+|   |       +-- ISubmissionRepository.cs       (KEPT, slightly modified)
+|   |       +-- IDdlEngine.cs                  (NEW)
+|   |       +-- IXsdGenerator.cs               (NEW - replaces IXsdSchemaProvider)
+|   |       +-- IGenericXmlParser.cs            (NEW - replaces IXmlParser)
+|   |       +-- IFormulaEvaluator.cs           (NEW)
+|   |       +-- ICrossSheetValidator.cs        (NEW)
+|   |       +-- IBusinessRuleEvaluator.cs      (NEW)
+|   |       +-- IAuditLogger.cs                (NEW)
 |   |
 |   +-- FC.Engine.Application/
 |   |   +-- FC.Engine.Application.csproj
 |   |   +-- DependencyInjection.cs
-|   |   +-- Commands/
-|   |   |   +-- SubmitReturn/
-|   |   |   |   +-- SubmitReturnCommand.cs
-|   |   |   |   +-- SubmitReturnHandler.cs
-|   |   |   +-- ValidateReturn/
-|   |   |   |   +-- ValidateReturnCommand.cs
-|   |   |   |   +-- ValidateReturnHandler.cs
-|   |   |   +-- SubmitBatch/
-|   |   |       +-- SubmitBatchCommand.cs
-|   |   |       +-- SubmitBatchHandler.cs
-|   |   +-- Queries/
-|   |   |   +-- GetSubmission/
-|   |   |   |   +-- GetSubmissionQuery.cs
-|   |   |   |   +-- GetSubmissionHandler.cs
-|   |   |   +-- GetValidationReport/
-|   |   |   |   +-- GetValidationReportQuery.cs
-|   |   |   |   +-- GetValidationReportHandler.cs
-|   |   |   +-- GetReturnData/
-|   |   |       +-- GetReturnDataQuery.cs
-|   |   |       +-- GetReturnDataHandler.cs
 |   |   +-- Services/
-|   |   |   +-- IngestionOrchestrator.cs
-|   |   |   +-- ValidationOrchestrator.cs
-|   |   |   +-- CrossSheetValidationService.cs
+|   |   |   +-- TemplateService.cs             (NEW - CRUD for templates)
+|   |   |   +-- TemplateVersioningService.cs   (NEW - version lifecycle management)
+|   |   |   +-- FormulaService.cs              (NEW - CRUD for validation rules)
+|   |   |   +-- IngestionOrchestrator.cs       (REWRITTEN - uses generic pipeline)
+|   |   |   +-- ValidationOrchestrator.cs      (NEW - coordinates all validation phases)
+|   |   |   +-- SeedService.cs                 (NEW - seeds 103 templates from schema.sql)
+|   |   |   +-- TemplateImpactAnalyzer.cs      (NEW - impact analysis for changes)
 |   |   +-- DTOs/
-|   |       +-- SubmissionDto.cs
-|   |       +-- ValidationReportDto.cs
-|   |       +-- ReturnDataDto.cs
+|   |   |   +-- SubmissionDto.cs               (KEPT)
+|   |   |   +-- SubmissionResultDto.cs         (KEPT)
+|   |   |   +-- ValidationReportDto.cs         (KEPT)
+|   |   |   +-- TemplateDto.cs                 (NEW)
+|   |   |   +-- TemplateFieldDto.cs            (NEW)
+|   |   |   +-- FormulaDto.cs                  (NEW)
+|   |   |   +-- TemplateVersionDto.cs          (NEW)
+|   |   |   +-- ReturnDataDto.cs               (NEW - generic data representation)
 |   |
 |   +-- FC.Engine.Infrastructure/
 |   |   +-- FC.Engine.Infrastructure.csproj
-|   |   +-- DependencyInjection.cs
-|   |   +-- Persistence/
-|   |   |   +-- FcEngineDbContext.cs
+|   |   +-- DependencyInjection.cs             (REWRITTEN)
+|   |   +-- Metadata/
+|   |   |   +-- MetadataDbContext.cs            (NEW - EF context for meta schema)
 |   |   |   +-- Configurations/
-|   |   |   |   +-- SubmissionConfiguration.cs
-|   |   |   |   +-- InstitutionConfiguration.cs
-|   |   |   |   +-- Mfcr300Configuration.cs
-|   |   |   |   +-- Mfcr1000Configuration.cs
-|   |   |   |   +-- ... (one per table)
+|   |   |   |   +-- ReturnTemplateConfiguration.cs
+|   |   |   |   +-- TemplateVersionConfiguration.cs
+|   |   |   |   +-- TemplateFieldConfiguration.cs
+|   |   |   |   +-- IntraSheetFormulaConfiguration.cs
+|   |   |   |   +-- CrossSheetRuleConfiguration.cs
+|   |   |   |   +-- BusinessRuleConfiguration.cs
+|   |   |   |   +-- AuditLogConfiguration.cs
 |   |   |   +-- Repositories/
-|   |   |   |   +-- SubmissionRepository.cs
-|   |   |   |   +-- ReturnRepository.cs
-|   |   |   +-- Migrations/
-|   |   |       +-- (EF Core generated)
+|   |   |       +-- TemplateRepository.cs       (NEW)
+|   |   |       +-- FormulaRepository.cs        (NEW)
+|   |   +-- DynamicSchema/
+|   |   |   +-- DdlEngine.cs                   (NEW - generates DDL from metadata)
+|   |   |   +-- DdlMigrationExecutor.cs        (NEW - executes DDL safely)
+|   |   |   +-- SqlTypeMapper.cs               (NEW - FieldDataType -> SQL type)
 |   |   +-- Xml/
-|   |   |   +-- Schemas/
-|   |   |   |   +-- MFCR300.xsd
-|   |   |   |   +-- MFCR1000.xsd
-|   |   |   |   +-- MFCR100.xsd
-|   |   |   |   +-- MFCR302.xsd
-|   |   |   |   +-- ... (103 XSD files)
-|   |   |   +-- XsdSchemaProvider.cs
-|   |   |   +-- XmlReturnParser.cs
-|   |   |   +-- Parsers/
-|   |   |   |   +-- IReturnXmlParser.cs
-|   |   |   |   +-- Mfcr300XmlParser.cs
-|   |   |   |   +-- Mfcr1000XmlParser.cs
-|   |   |   |   +-- Mfcr302XmlParser.cs
-|   |   |   |   +-- ... (one per return type)
-|   |   |   +-- XmlParserFactory.cs
+|   |   |   +-- XsdGenerator.cs                (NEW - generates XSD from template_fields)
+|   |   |   +-- GenericXmlParser.cs            (NEW - parses any XML using metadata)
+|   |   |   +-- XmlNamespaceResolver.cs        (NEW)
+|   |   +-- Persistence/
+|   |   |   +-- FcEngineDbContext.cs            (KEPT - for operational tables only)
+|   |   |   +-- GenericDataRepository.cs       (NEW - Dapper-based dynamic CRUD)
+|   |   |   +-- DynamicSqlBuilder.cs           (NEW - builds parameterized INSERT/SELECT)
+|   |   |   +-- Repositories/
+|   |   |       +-- SubmissionRepository.cs     (KEPT, modified)
 |   |   +-- Validation/
-|   |       +-- RuleEngine.cs
-|   |       +-- RuleRegistry.cs
-|   |       +-- FormulaEvaluator.cs
-|   |       +-- Rules/
-|   |       |   +-- IntraSheet/
-|   |       |   |   +-- Mfcr300SumRules.cs
-|   |       |   |   +-- Mfcr1000ComputedRules.cs
-|   |       |   |   +-- Mfcr356RowTotalRules.cs
-|   |       |   |   +-- ... (one per return with formulas)
-|   |       |   +-- CrossSheet/
-|   |       |   |   +-- Mfcr302ToMfcr300Rule.cs
-|   |       |   |   +-- Mfcr304ToMfcr300Rule.cs
-|   |       |   |   +-- Mfcr318ToMfcr300Rule.cs
-|   |       |   |   +-- Mfcr1000ToMfcr1002Rule.cs
-|   |       |   |   +-- Mfcr387ToMfcr1000Rule.cs
-|   |       |   |   +-- FcCarToMfcr300Rule.cs
-|   |       |   |   +-- FcAcrToMfcr300And1000Rule.cs
-|   |       |   |   +-- ... (one per known cross-reference)
-|   |       |   +-- Business/
-|   |       |       +-- DateInPastRule.cs
-|   |       |       +-- DecimalPrecisionRule.cs
-|   |       |       +-- NonZeroRequiredFieldRule.cs
-|   |       |       +-- DropdownValueRule.cs
-|   |       |       +-- ConditionalRequiredRule.cs
-|   |       +-- RuleDefinitions/
-|   |           +-- formula_rules.json     (machine-readable formula catalog)
-|   |           +-- crosssheet_rules.json
-|   |           +-- business_rules.json
+|   |   |   +-- FormulaEvaluator.cs            (NEW - interprets formula metadata)
+|   |   |   +-- CrossSheetValidator.cs         (NEW - evaluates cross-sheet rules)
+|   |   |   +-- BusinessRuleEvaluator.cs       (NEW - evaluates business rules)
+|   |   |   +-- ExpressionParser.cs            (NEW - parses "A + B - C = D" expressions)
+|   |   |   +-- ExpressionTokenizer.cs         (NEW)
+|   |   +-- Caching/
+|   |   |   +-- TemplateMetadataCache.cs       (NEW - in-memory cache for template defs)
+|   |   +-- Audit/
+|   |       +-- AuditLogger.cs                 (NEW)
 |   |
 |   +-- FC.Engine.Api/
 |   |   +-- FC.Engine.Api.csproj
-|   |   +-- Program.cs
-|   |   +-- appsettings.json
-|   |   +-- appsettings.Development.json
+|   |   +-- Program.cs                         (MODIFIED)
 |   |   +-- Endpoints/
-|   |   |   +-- SubmissionEndpoints.cs
-|   |   |   +-- ValidationEndpoints.cs
-|   |   |   +-- ReturnDataEndpoints.cs
-|   |   |   +-- ReferenceDataEndpoints.cs
-|   |   |   +-- SchemaEndpoints.cs
+|   |   |   +-- SubmissionEndpoints.cs         (MODIFIED - uses generic pipeline)
+|   |   |   +-- SchemaEndpoints.cs             (MODIFIED - returns generated XSD)
+|   |   |   +-- TemplateEndpoints.cs           (NEW - REST API for template management)
+|   |   |   +-- ValidationRuleEndpoints.cs     (NEW - REST API for rule management)
 |   |   +-- Middleware/
-|   |   |   +-- ExceptionHandlingMiddleware.cs
-|   |   |   +-- RequestLoggingMiddleware.cs
-|   |   +-- Filters/
-|   |       +-- ValidationFilter.cs
+|   |       +-- ExceptionHandlingMiddleware.cs  (KEPT)
+|   |
+|   +-- FC.Engine.Admin/
+|   |   +-- FC.Engine.Admin.csproj             (NEW - Blazor Server)
+|   |   +-- Program.cs
+|   |   +-- Pages/
+|   |   |   +-- Templates/
+|   |   |   |   +-- TemplateList.razor
+|   |   |   |   +-- TemplateDesigner.razor
+|   |   |   |   +-- FieldEditor.razor
+|   |   |   |   +-- TemplatePreview.razor
+|   |   |   |   +-- VersionHistory.razor
+|   |   |   +-- Validation/
+|   |   |   |   +-- FormulaBuilder.razor
+|   |   |   |   +-- CrossSheetRuleEditor.razor
+|   |   |   |   +-- BusinessRuleEditor.razor
+|   |   |   |   +-- RuleTestRunner.razor
+|   |   |   +-- Submissions/
+|   |   |   |   +-- SubmissionList.razor
+|   |   |   |   +-- SubmissionDetail.razor
+|   |   |   |   +-- ValidationReportView.razor
+|   |   |   +-- Audit/
+|   |   |   |   +-- AuditLog.razor
+|   |   |   |   +-- ImpactAnalysis.razor
+|   |   |   +-- Dashboard.razor
+|   |   +-- Components/
+|   |   |   +-- FieldDefinitionGrid.razor
+|   |   |   +-- FormulaExpressionEditor.razor
+|   |   |   +-- TemplateStatusBadge.razor
+|   |   |   +-- DataTypeSelector.razor
+|   |   |   +-- XmlPreviewPanel.razor
+|   |   +-- wwwroot/
 |   |
 |   +-- FC.Engine.Migrator/
 |       +-- FC.Engine.Migrator.csproj
-|       +-- Program.cs
+|       +-- Program.cs                         (REWRITTEN - seeds metadata + runs DDL)
+|       +-- SeedData/
+|           +-- TemplateSeedData.cs             (NEW - parses schema.sql into metadata)
+|           +-- FormulaSeedData.cs             (NEW - parses formula_catalog into rules)
 |
 +-- tests/
 |   +-- FC.Engine.Domain.Tests/
-|   |   +-- FC.Engine.Domain.Tests.csproj
-|   |   +-- ValueObjects/
-|   |   +-- Validation/
-|   +-- FC.Engine.Application.Tests/
-|   |   +-- FC.Engine.Application.Tests.csproj
-|   |   +-- Commands/
-|   |   +-- Services/
 |   +-- FC.Engine.Infrastructure.Tests/
-|   |   +-- FC.Engine.Infrastructure.Tests.csproj
-|   |   +-- Xml/
-|   |   +-- Validation/
+|   |   +-- DdlEngineTests.cs                 (NEW)
+|   |   +-- XsdGeneratorTests.cs              (NEW)
+|   |   +-- GenericXmlParserTests.cs          (NEW)
+|   |   +-- GenericDataRepositoryTests.cs     (NEW)
+|   |   +-- FormulaEvaluatorTests.cs          (NEW)
+|   |   +-- ExpressionParserTests.cs          (NEW)
+|   |   +-- CrossSheetValidatorTests.cs       (NEW)
 |   +-- FC.Engine.Integration.Tests/
-|       +-- FC.Engine.Integration.Tests.csproj
-|       +-- SubmissionPipelineTests.cs
-|       +-- CrossSheetValidationTests.cs
+|   +-- FC.Engine.Admin.Tests/                (NEW)
 |
 +-- docker/
-|   +-- docker-compose.yml
-|   +-- docker-compose.override.yml
+|   +-- docker-compose.yml                    (MODIFIED - add admin service)
 |   +-- Dockerfile.api
+|   +-- Dockerfile.admin                      (NEW)
 |   +-- Dockerfile.migrator
-|   +-- .env.example
 |
 +-- scripts/
-|   +-- seed-reference-data.sql
-|   +-- generate-xsd.ps1         (PowerShell script to help generate XSDs)
-|
-+-- docs/
-    +-- return-codes.md
-    +-- validation-rules.md
-    +-- api-reference.md
-    +-- cross-sheet-map.md
+    +-- seed-reference-data.sql               (KEPT)
+    +-- seed-template-metadata.sql            (NEW - generated by SeedService)
 ```
 
 ---
 
-## 3. Key Classes and Interfaces
+## C. Core Components Design
 
-### 3.1 Domain Layer -- Core Entities
+### C.1 ReturnDataRecord -- The Universal Data Container
 
-**`Submission.cs`** -- The aggregate root for a regulatory return submission:
-
-```csharp
-namespace FC.Engine.Domain.Entities;
-
-public class Submission
-{
-    public int Id { get; private set; }
-    public int InstitutionId { get; private set; }
-    public int ReturnPeriodId { get; private set; }
-    public ReturnCode ReturnCode { get; private set; }
-    public SubmissionStatus Status { get; private set; }
-    public DateTime SubmissionDate { get; private set; }
-    public DateTime CreatedAt { get; private set; }
-    public DateTime UpdatedAt { get; private set; }
-    
-    // Navigation
-    public Institution Institution { get; private set; }
-    public ReturnPeriod ReturnPeriod { get; private set; }
-    public ValidationReport? ValidationReport { get; private set; }
-    
-    public void MarkValidating() => Status = SubmissionStatus.Validating;
-    public void MarkAccepted() => Status = SubmissionStatus.Accepted;
-    public void MarkRejected() => Status = SubmissionStatus.Rejected;
-    public void MarkAcceptedWithWarnings() => Status = SubmissionStatus.AcceptedWithWarnings;
-}
-```
-
-**`ReturnCode.cs`** -- Value object encapsulating a CBN return code:
+This replaces all 103 `IReturnData` implementations. The key insight: return data is fundamentally a dictionary of field names to values, with the template metadata providing the schema.
 
 ```csharp
-namespace FC.Engine.Domain.ValueObjects;
-
-public record ReturnCode
-{
-    public string Value { get; }
-    public string Prefix { get; }       // MFCR, QFCR, SFCR, FC
-    public int Number { get; }          // 300, 1000, etc.
-    public string? Suffix { get; }      // "1" for combined tables like 306-1
-    public ReturnFrequency Frequency { get; }
-    
-    // Factory method parses "MFCR 300", "QFCR 364", "FC CAR 1", etc.
-    public static ReturnCode Parse(string code) { ... }
-    
-    // Maps to the SQL table name: "mfcr_300", "qfcr_364", "fc_car_1"
-    public string ToTableName() { ... }
-    
-    // Maps to the XSD file name: "MFCR300.xsd"
-    public string ToXsdFileName() { ... }
-}
-```
-
-**`ValidationReport.cs`** -- Captures all validation outcomes:
-
-```csharp
-namespace FC.Engine.Domain.Entities;
-
-public class ValidationReport
-{
-    public int Id { get; private set; }
-    public int SubmissionId { get; private set; }
-    public bool IsValid => !Errors.Any(e => e.Severity == ValidationSeverity.Error);
-    public bool HasWarnings => Errors.Any(e => e.Severity == ValidationSeverity.Warning);
-    public List<ValidationError> Errors { get; private set; } = new();
-    public DateTime ValidatedAt { get; private set; }
-    
-    public void AddError(string ruleId, string field, string message, 
-        ValidationSeverity severity, ValidationCategory category) { ... }
-}
-
-public class ValidationError
-{
-    public string RuleId { get; set; }           // e.g., "MFCR300_SUM_CASH"
-    public string Field { get; set; }            // e.g., "total_cash"
-    public string Message { get; set; }          // Human-readable
-    public ValidationSeverity Severity { get; set; }  // Error, Warning, Info
-    public ValidationCategory Category { get; set; }  // Schema, IntraSheet, CrossSheet, Business
-    public string? ExpectedValue { get; set; }
-    public string? ActualValue { get; set; }
-    public string? ReferencedReturnCode { get; set; }  // For cross-sheet errors
-}
-```
-
-### 3.2 Domain Layer -- Validation Abstractions
-
-```csharp
-namespace FC.Engine.Domain.Validation;
+// FC.Engine.Domain/DataRecord/ReturnDataRecord.cs
+namespace FC.Engine.Domain.DataRecord;
 
 /// <summary>
-/// Base interface for all validation rules.
+/// Universal container for return data. Replaces all 103 per-template IReturnData classes.
+/// For FixedRow: contains exactly one row.
+/// For MultiRow: contains N rows, each identified by serial_no.
+/// For ItemCoded: contains N rows, each identified by item_code.
 /// </summary>
-public interface IValidationRule
+public class ReturnDataRecord
 {
-    string RuleId { get; }
-    ValidationCategory Category { get; }
-    ValidationSeverity DefaultSeverity { get; }
+    public string ReturnCode { get; }
+    public int TemplateVersionId { get; }
+    public StructuralCategory Category { get; }
+    private readonly List<ReturnDataRow> _rows = new();
+    
+    public IReadOnlyList<ReturnDataRow> Rows => _rows.AsReadOnly();
+    
+    public ReturnDataRecord(string returnCode, int templateVersionId, StructuralCategory category)
+    {
+        ReturnCode = returnCode;
+        TemplateVersionId = templateVersionId;
+        Category = category;
+    }
+    
+    public void AddRow(ReturnDataRow row) => _rows.Add(row);
+    
+    /// <summary>
+    /// For FixedRow templates: get the single data row.
+    /// </summary>
+    public ReturnDataRow SingleRow => Category == StructuralCategory.FixedRow
+        ? _rows.Single()
+        : throw new InvalidOperationException("SingleRow only valid for FixedRow templates");
+    
+    /// <summary>
+    /// Get a field value from the single row (FixedRow) or by row key (MultiRow/ItemCoded).
+    /// </summary>
+    public object? GetValue(string fieldName, string? rowKey = null)
+    {
+        var row = rowKey == null ? SingleRow : _rows.FirstOrDefault(r => r.RowKey == rowKey);
+        return row?.GetValue(fieldName);
+    }
+    
+    public decimal? GetDecimal(string fieldName, string? rowKey = null)
+    {
+        var val = GetValue(fieldName, rowKey);
+        return val switch
+        {
+            null => null,
+            decimal d => d,
+            _ => Convert.ToDecimal(val)
+        };
+    }
 }
 
 /// <summary>
-/// Validates data within a single return sheet.
-/// Receives the parsed domain data for one return code.
+/// A single row of return data. Each field is stored by name.
 /// </summary>
-public interface IIntraSheetRule : IValidationRule
+public class ReturnDataRow
 {
-    ReturnCode ApplicableReturnCode { get; }
-    IEnumerable<ValidationError> Validate(IReturnData data);
+    private readonly Dictionary<string, object?> _fields = new(StringComparer.OrdinalIgnoreCase);
+    
+    /// <summary>
+    /// Row identity: serial_no for MultiRow, item_code for ItemCoded, null for FixedRow.
+    /// </summary>
+    public string? RowKey { get; set; }
+    
+    public void SetValue(string fieldName, object? value) => _fields[fieldName] = value;
+    
+    public object? GetValue(string fieldName) =>
+        _fields.TryGetValue(fieldName, out var val) ? val : null;
+    
+    public bool HasField(string fieldName) => _fields.ContainsKey(fieldName);
+    
+    public IReadOnlyDictionary<string, object?> AllFields => _fields;
+    
+    public decimal? GetDecimal(string fieldName)
+    {
+        var val = GetValue(fieldName);
+        return val switch
+        {
+            null => null,
+            decimal d => d,
+            int i => i,
+            long l => l,
+            string s when decimal.TryParse(s, out var d) => d,
+            _ => Convert.ToDecimal(val)
+        };
+    }
 }
+```
+
+### C.2 GenericXmlParser -- Parses Any XML Using Metadata
+
+```csharp
+// FC.Engine.Infrastructure/Xml/GenericXmlParser.cs
+namespace FC.Engine.Infrastructure.Xml;
+
+public class GenericXmlParser : IGenericXmlParser
+{
+    private readonly ITemplateMetadataCache _metadataCache;
+    
+    public GenericXmlParser(ITemplateMetadataCache metadataCache)
+    {
+        _metadataCache = metadataCache;
+    }
+    
+    public async Task<ReturnDataRecord> Parse(Stream xmlStream, string returnCode, CancellationToken ct)
+    {
+        // 1. Load template metadata (cached)
+        var template = await _metadataCache.GetPublishedTemplate(returnCode, ct);
+        var version = template.CurrentVersion;
+        var fields = version.Fields;
+        
+        // 2. Parse XML
+        var doc = XDocument.Load(xmlStream);
+        XNamespace ns = template.XmlNamespace;
+        var root = doc.Root!;
+        
+        var record = new ReturnDataRecord(returnCode, version.Id, template.StructuralCategory);
+        
+        switch (template.StructuralCategory)
+        {
+            case StructuralCategory.FixedRow:
+                ParseFixedRow(root, ns, fields, record);
+                break;
+                
+            case StructuralCategory.MultiRow:
+                ParseMultiRow(root, ns, fields, record);
+                break;
+                
+            case StructuralCategory.ItemCoded:
+                ParseItemCoded(root, ns, fields, record, version.ItemCodes);
+                break;
+        }
+        
+        return record;
+    }
+    
+    private void ParseFixedRow(XElement root, XNamespace ns,
+        IReadOnlyList<TemplateField> fields, ReturnDataRecord record)
+    {
+        var row = new ReturnDataRow();
+        
+        // Navigate to the data section (first child after Header)
+        var dataSection = root.Elements()
+            .FirstOrDefault(e => e.Name.LocalName != "Header") ?? root;
+        
+        foreach (var field in fields)
+        {
+            var element = dataSection.Element(ns + field.XmlElementName)
+                       ?? dataSection.Descendants(ns + field.XmlElementName).FirstOrDefault();
+            
+            if (element != null && !string.IsNullOrWhiteSpace(element.Value))
+            {
+                row.SetValue(field.FieldName, ConvertValue(element.Value, field.DataType));
+            }
+        }
+        
+        record.AddRow(row);
+    }
+    
+    private void ParseMultiRow(XElement root, XNamespace ns,
+        IReadOnlyList<TemplateField> fields, ReturnDataRecord record)
+    {
+        // Multi-row templates have a repeating element (e.g., <Row> or <Item>)
+        var dataSection = root.Elements()
+            .FirstOrDefault(e => e.Name.LocalName != "Header") ?? root;
+        
+        var rowElements = dataSection.Elements().Where(e => e.Name.LocalName != "Header");
+        int serialNo = 1;
+        
+        foreach (var rowElement in rowElements)
+        {
+            var row = new ReturnDataRow { RowKey = serialNo.ToString() };
+            
+            foreach (var field in fields)
+            {
+                if (field.FieldName == "serial_no")
+                {
+                    row.SetValue("serial_no", serialNo);
+                    continue;
+                }
+                
+                var element = rowElement.Element(ns + field.XmlElementName);
+                if (element != null && !string.IsNullOrWhiteSpace(element.Value))
+                {
+                    row.SetValue(field.FieldName, ConvertValue(element.Value, field.DataType));
+                }
+            }
+            
+            record.AddRow(row);
+            serialNo++;
+        }
+    }
+    
+    private void ParseItemCoded(XElement root, XNamespace ns,
+        IReadOnlyList<TemplateField> fields, ReturnDataRecord record,
+        IReadOnlyList<TemplateItemCode> expectedItemCodes)
+    {
+        var dataSection = root.Elements()
+            .FirstOrDefault(e => e.Name.LocalName != "Header") ?? root;
+        
+        var rowElements = dataSection.Elements().Where(e => e.Name.LocalName != "Header");
+        
+        foreach (var rowElement in rowElements)
+        {
+            var itemCodeField = fields.FirstOrDefault(f => f.IsKeyField);
+            var itemCodeElement = rowElement.Element(ns + (itemCodeField?.XmlElementName ?? "ItemCode"));
+            var itemCodeValue = itemCodeElement?.Value;
+            
+            if (string.IsNullOrWhiteSpace(itemCodeValue)) continue;
+            
+            var row = new ReturnDataRow { RowKey = itemCodeValue };
+            row.SetValue(itemCodeField?.FieldName ?? "item_code", itemCodeValue);
+            
+            foreach (var field in fields.Where(f => !f.IsKeyField))
+            {
+                var element = rowElement.Element(ns + field.XmlElementName);
+                if (element != null && !string.IsNullOrWhiteSpace(element.Value))
+                {
+                    row.SetValue(field.FieldName, ConvertValue(element.Value, field.DataType));
+                }
+            }
+            
+            record.AddRow(row);
+        }
+    }
+    
+    private static object? ConvertValue(string text, FieldDataType dataType)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        
+        return dataType switch
+        {
+            FieldDataType.Money or FieldDataType.Decimal or FieldDataType.Percentage
+                => decimal.TryParse(text, out var d) ? d : null,
+            FieldDataType.Integer
+                => int.TryParse(text, out var i) ? i : null,
+            FieldDataType.Date
+                => DateTime.TryParse(text, out var dt) ? dt : null,
+            FieldDataType.Boolean
+                => bool.TryParse(text, out var b) ? b : null,
+            FieldDataType.Text
+                => text,
+            _ => text
+        };
+    }
+}
+```
+
+### C.3 XsdGenerator -- Generates XSD From Metadata at Runtime
+
+```csharp
+// FC.Engine.Infrastructure/Xml/XsdGenerator.cs
+namespace FC.Engine.Infrastructure.Xml;
+
+public class XsdGenerator : IXsdGenerator
+{
+    private readonly ITemplateMetadataCache _cache;
+    private readonly ConcurrentDictionary<string, XmlSchemaSet> _xsdCache = new();
+    
+    public async Task<XmlSchemaSet> GenerateSchema(string returnCode, CancellationToken ct)
+    {
+        if (_xsdCache.TryGetValue(returnCode, out var cached))
+            return cached;
+        
+        var template = await _cache.GetPublishedTemplate(returnCode, ct);
+        var version = template.CurrentVersion;
+        var fields = version.Fields;
+        
+        var xsd = new StringBuilder();
+        xsd.AppendLine($@"<?xml version=""1.0"" encoding=""UTF-8""?>");
+        xsd.AppendLine($@"<xs:schema xmlns:xs=""http://www.w3.org/2001/XMLSchema""");
+        xsd.AppendLine($@"           targetNamespace=""{template.XmlNamespace}""");
+        xsd.AppendLine($@"           xmlns:tns=""{template.XmlNamespace}""");
+        xsd.AppendLine($@"           elementFormDefault=""qualified"">");
+        
+        // Root element
+        xsd.AppendLine($@"  <xs:element name=""{template.XmlRootElement}"">");
+        xsd.AppendLine($@"    <xs:complexType>");
+        xsd.AppendLine($@"      <xs:sequence>");
+        xsd.AppendLine($@"        <xs:element name=""Header"" type=""tns:HeaderType""/>");
+        
+        if (template.StructuralCategory == StructuralCategory.FixedRow)
+        {
+            xsd.AppendLine($@"        <xs:element name=""Data"" type=""tns:DataType""/>");
+        }
+        else
+        {
+            xsd.AppendLine($@"        <xs:element name=""Rows"">");
+            xsd.AppendLine($@"          <xs:complexType>");
+            xsd.AppendLine($@"            <xs:sequence>");
+            xsd.AppendLine($@"              <xs:element name=""Row"" type=""tns:RowType"" ");
+            xsd.AppendLine($@"                          maxOccurs=""unbounded"" minOccurs=""0""/>");
+            xsd.AppendLine($@"            </xs:sequence>");
+            xsd.AppendLine($@"          </xs:complexType>");
+            xsd.AppendLine($@"        </xs:element>");
+        }
+        
+        xsd.AppendLine($@"      </xs:sequence>");
+        xsd.AppendLine($@"    </xs:complexType>");
+        xsd.AppendLine($@"  </xs:element>");
+        
+        // Header type (standard for all templates)
+        xsd.AppendLine(@"  <xs:complexType name=""HeaderType"">");
+        xsd.AppendLine(@"    <xs:sequence>");
+        xsd.AppendLine(@"      <xs:element name=""InstitutionCode"" type=""xs:string""/>");
+        xsd.AppendLine(@"      <xs:element name=""ReportingDate"" type=""xs:date""/>");
+        xsd.AppendLine($@"      <xs:element name=""ReturnCode"" type=""xs:string"" fixed=""{template.ReturnCode.Replace(" ", "")}""/>");
+        xsd.AppendLine(@"    </xs:sequence>");
+        xsd.AppendLine(@"  </xs:complexType>");
+        
+        // Data/Row type with all fields
+        var typeName = template.StructuralCategory == StructuralCategory.FixedRow ? "DataType" : "RowType";
+        xsd.AppendLine($@"  <xs:complexType name=""{typeName}"">");
+        xsd.AppendLine(@"    <xs:sequence>");
+        
+        foreach (var field in fields.OrderBy(f => f.FieldOrder))
+        {
+            var xsdType = MapToXsdType(field.DataType, field.SqlType);
+            var minOccurs = field.IsRequired ? "1" : "0";
+            xsd.AppendLine($@"      <xs:element name=""{field.XmlElementName}"" type=""{xsdType}"" minOccurs=""{minOccurs}""/>");
+        }
+        
+        xsd.AppendLine(@"    </xs:sequence>");
+        xsd.AppendLine(@"  </xs:complexType>");
+        
+        // Custom simple types
+        xsd.AppendLine(@"  <xs:simpleType name=""MoneyType"">");
+        xsd.AppendLine(@"    <xs:restriction base=""xs:decimal"">");
+        xsd.AppendLine(@"      <xs:fractionDigits value=""2""/>");
+        xsd.AppendLine(@"      <xs:totalDigits value=""20""/>");
+        xsd.AppendLine(@"    </xs:restriction>");
+        xsd.AppendLine(@"  </xs:simpleType>");
+        
+        xsd.AppendLine(@"</xs:schema>");
+        
+        // Parse and cache
+        var schemaSet = new XmlSchemaSet();
+        using var reader = new StringReader(xsd.ToString());
+        schemaSet.Add(XmlSchema.Read(reader, null)!);
+        schemaSet.Compile();
+        
+        _xsdCache[returnCode] = schemaSet;
+        return schemaSet;
+    }
+    
+    private static string MapToXsdType(FieldDataType dataType, string sqlType) => dataType switch
+    {
+        FieldDataType.Money => "tns:MoneyType",
+        FieldDataType.Decimal => "xs:decimal",
+        FieldDataType.Percentage => "xs:decimal",
+        FieldDataType.Integer => "xs:int",
+        FieldDataType.Text => "xs:string",
+        FieldDataType.Date => "xs:date",
+        FieldDataType.Boolean => "xs:boolean",
+        _ => "xs:string"
+    };
+    
+    public void InvalidateCache(string returnCode)
+    {
+        _xsdCache.TryRemove(returnCode, out _);
+    }
+}
+```
+
+### C.4 DdlEngine -- Generates CREATE TABLE / ALTER TABLE From Metadata
+
+```csharp
+// FC.Engine.Infrastructure/DynamicSchema/DdlEngine.cs
+namespace FC.Engine.Infrastructure.DynamicSchema;
+
+public class DdlEngine : IDdlEngine
+{
+    private readonly SqlTypeMapper _typeMapper;
+    
+    public DdlEngine(SqlTypeMapper typeMapper)
+    {
+        _typeMapper = typeMapper;
+    }
+    
+    /// <summary>
+    /// Generate CREATE TABLE DDL for a new template version.
+    /// </summary>
+    public DdlScript GenerateCreateTable(ReturnTemplate template, TemplateVersion version)
+    {
+        var tableName = template.PhysicalTableName;
+        var fields = version.Fields;
+        var sb = new StringBuilder();
+        
+        sb.AppendLine($"CREATE TABLE dbo.[{tableName}] (");
+        sb.AppendLine("    id INT IDENTITY(1,1) PRIMARY KEY,");
+        sb.AppendLine("    submission_id INT NOT NULL REFERENCES dbo.return_submissions(id),");
+        
+        foreach (var field in fields.OrderBy(f => f.FieldOrder))
+        {
+            var sqlType = _typeMapper.ToSqlType(field.DataType, field.SqlType);
+            var nullable = field.IsRequired ? " NOT NULL" : "";
+            var defaultVal = !string.IsNullOrEmpty(field.DefaultValue)
+                ? $" DEFAULT {field.DefaultValue}" : "";
+            sb.AppendLine($"    [{field.FieldName}] {sqlType}{nullable}{defaultVal},");
+        }
+        
+        sb.AppendLine("    created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()");
+        sb.AppendLine(");");
+        sb.AppendLine();
+        sb.AppendLine($"CREATE INDEX IX_{tableName}_submission ON dbo.[{tableName}](submission_id);");
+        
+        // Rollback script
+        var rollback = $"DROP TABLE IF EXISTS dbo.[{tableName}];";
+        
+        return new DdlScript(sb.ToString(), rollback);
+    }
+    
+    /// <summary>
+    /// Generate ALTER TABLE DDL to migrate from one version to another.
+    /// Compares field lists and generates ADD COLUMN / ALTER COLUMN statements.
+    /// Does NOT generate DROP COLUMN (data preservation).
+    /// </summary>
+    public DdlScript GenerateAlterTable(
+        ReturnTemplate template,
+        TemplateVersion oldVersion,
+        TemplateVersion newVersion)
+    {
+        var tableName = template.PhysicalTableName;
+        var oldFields = oldVersion.Fields.ToDictionary(f => f.FieldName, StringComparer.OrdinalIgnoreCase);
+        var newFields = newVersion.Fields.ToDictionary(f => f.FieldName, StringComparer.OrdinalIgnoreCase);
+        
+        var sb = new StringBuilder();
+        var rollback = new StringBuilder();
+        
+        // Fields added in new version
+        foreach (var (name, field) in newFields)
+        {
+            if (!oldFields.ContainsKey(name))
+            {
+                var sqlType = _typeMapper.ToSqlType(field.DataType, field.SqlType);
+                sb.AppendLine($"ALTER TABLE dbo.[{tableName}] ADD [{name}] {sqlType};");
+                rollback.AppendLine($"ALTER TABLE dbo.[{tableName}] DROP COLUMN [{name}];");
+            }
+        }
+        
+        // Fields with changed data types (widen only -- never narrow)
+        foreach (var (name, newField) in newFields)
+        {
+            if (oldFields.TryGetValue(name, out var oldField))
+            {
+                if (oldField.SqlType != newField.SqlType)
+                {
+                    var newSqlType = _typeMapper.ToSqlType(newField.DataType, newField.SqlType);
+                    var oldSqlType = _typeMapper.ToSqlType(oldField.DataType, oldField.SqlType);
+                    
+                    // Safety: only allow widening conversions
+                    if (IsWideningConversion(oldSqlType, newSqlType))
+                    {
+                        sb.AppendLine($"ALTER TABLE dbo.[{tableName}] ALTER COLUMN [{name}] {newSqlType};");
+                        rollback.AppendLine($"ALTER TABLE dbo.[{tableName}] ALTER COLUMN [{name}] {oldSqlType};");
+                    }
+                }
+            }
+        }
+        
+        // Fields removed: mark as deprecated in metadata but do NOT drop column
+        // (data preservation principle)
+        foreach (var (name, _) in oldFields)
+        {
+            if (!newFields.ContainsKey(name))
+            {
+                sb.AppendLine($"-- NOTE: Field [{name}] removed from template but column preserved in table");
+            }
+        }
+        
+        return new DdlScript(sb.ToString(), rollback.ToString());
+    }
+    
+    private static bool IsWideningConversion(string oldType, string newType)
+    {
+        // Allow: VARCHAR(x) -> VARCHAR(y) where y > x
+        // Allow: DECIMAL(p1,s1) -> DECIMAL(p2,s2) where p2 >= p1
+        // Allow: INT -> BIGINT
+        // Deny: anything else (requires manual intervention)
+        // Simplified for example:
+        return true; // Full implementation compares precision/length
+    }
+}
+
+public record DdlScript(string ForwardSql, string RollbackSql);
+```
+
+### C.5 GenericDataRepository -- Dynamic CRUD With Dapper
+
+```csharp
+// FC.Engine.Infrastructure/Persistence/GenericDataRepository.cs
+namespace FC.Engine.Infrastructure.Persistence;
 
 /// <summary>
-/// Validates data across multiple return sheets for the same submission period.
-/// Receives a context with access to all returns in the submission batch.
+/// Replaces all 103 per-template EF entity classes + configurations + repository switch branches.
+/// Uses Dapper for dynamic parameterized SQL against physical tables.
 /// </summary>
-public interface ICrossSheetRule : IValidationRule
+public class GenericDataRepository : IGenericDataRepository
 {
-    IReadOnlyList<ReturnCode> RequiredReturnCodes { get; }
-    IEnumerable<ValidationError> Validate(CrossSheetValidationContext context);
+    private readonly IDbConnection _connection;
+    private readonly ITemplateMetadataCache _cache;
+    private readonly DynamicSqlBuilder _sqlBuilder;
+    
+    public GenericDataRepository(
+        IDbConnection connection,
+        ITemplateMetadataCache cache,
+        DynamicSqlBuilder sqlBuilder)
+    {
+        _connection = connection;
+        _cache = cache;
+        _sqlBuilder = sqlBuilder;
+    }
+    
+    public async Task Save(ReturnDataRecord record, int submissionId, CancellationToken ct)
+    {
+        var template = await _cache.GetPublishedTemplate(record.ReturnCode, ct);
+        var tableName = template.PhysicalTableName;
+        var fields = template.CurrentVersion.Fields;
+        
+        foreach (var row in record.Rows)
+        {
+            var (sql, parameters) = _sqlBuilder.BuildInsert(tableName, fields, row, submissionId);
+            await _connection.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: ct));
+        }
+    }
+    
+    public async Task<ReturnDataRecord?> GetBySubmission(
+        string returnCode, int submissionId, CancellationToken ct)
+    {
+        var template = await _cache.GetPublishedTemplate(returnCode, ct);
+        var tableName = template.PhysicalTableName;
+        var fields = template.CurrentVersion.Fields;
+        
+        var sql = _sqlBuilder.BuildSelect(tableName, fields, submissionId);
+        var rows = await _connection.QueryAsync(new CommandDefinition(sql,
+            new { submissionId }, cancellationToken: ct));
+        
+        if (!rows.Any()) return null;
+        
+        var record = new ReturnDataRecord(returnCode, template.CurrentVersion.Id,
+            template.StructuralCategory);
+        
+        foreach (IDictionary<string, object> dbRow in rows)
+        {
+            var dataRow = new ReturnDataRow();
+            
+            // Determine row key based on structural category
+            if (template.StructuralCategory == StructuralCategory.MultiRow)
+                dataRow.RowKey = dbRow.GetValueOrDefault("serial_no")?.ToString();
+            else if (template.StructuralCategory == StructuralCategory.ItemCoded)
+                dataRow.RowKey = dbRow.GetValueOrDefault("item_code")?.ToString();
+            
+            foreach (var field in fields)
+            {
+                if (dbRow.TryGetValue(field.FieldName, out var value))
+                    dataRow.SetValue(field.FieldName, value);
+            }
+            
+            record.AddRow(dataRow);
+        }
+        
+        return record;
+    }
+    
+    public async Task DeleteBySubmission(string returnCode, int submissionId, CancellationToken ct)
+    {
+        var template = await _cache.GetPublishedTemplate(returnCode, ct);
+        var sql = $"DELETE FROM dbo.[{template.PhysicalTableName}] WHERE submission_id = @submissionId";
+        await _connection.ExecuteAsync(new CommandDefinition(sql,
+            new { submissionId }, cancellationToken: ct));
+    }
 }
+
+// FC.Engine.Infrastructure/Persistence/DynamicSqlBuilder.cs
+public class DynamicSqlBuilder
+{
+    public (string Sql, DynamicParameters Parameters) BuildInsert(
+        string tableName,
+        IReadOnlyList<TemplateField> fields,
+        ReturnDataRow row,
+        int submissionId)
+    {
+        var parameters = new DynamicParameters();
+        parameters.Add("@submission_id", submissionId);
+        
+        var columns = new List<string> { "submission_id" };
+        var paramNames = new List<string> { "@submission_id" };
+        
+        foreach (var field in fields)
+        {
+            var value = row.GetValue(field.FieldName);
+            if (value != null)
+            {
+                var paramName = $"@{field.FieldName}";
+                columns.Add($"[{field.FieldName}]");
+                paramNames.Add(paramName);
+                parameters.Add(paramName, value);
+            }
+        }
+        
+        var sql = $"INSERT INTO dbo.[{tableName}] ({string.Join(", ", columns)}) " +
+                  $"VALUES ({string.Join(", ", paramNames)})";
+        
+        return (sql, parameters);
+    }
+    
+    public string BuildSelect(string tableName, IReadOnlyList<TemplateField> fields, int submissionId)
+    {
+        var columns = fields.Select(f => $"[{f.FieldName}]").ToList();
+        columns.Insert(0, "id");
+        columns.Insert(1, "submission_id");
+        
+        return $"SELECT {string.Join(", ", columns)} FROM dbo.[{tableName}] " +
+               $"WHERE submission_id = @submissionId ORDER BY id";
+    }
+}
+```
+
+### C.6 FormulaEvaluator -- Interprets Intra-Sheet Formulas From Metadata
+
+```csharp
+// FC.Engine.Infrastructure/Validation/FormulaEvaluator.cs
+namespace FC.Engine.Infrastructure.Validation;
 
 /// <summary>
-/// Generic business rules (date, range, conditional).
+/// Replaces all 103+ per-template IIntraSheetRule implementations.
+/// Reads formula definitions from metadata and evaluates them against ReturnDataRecord.
 /// </summary>
-public interface IBusinessRule : IValidationRule
+public class FormulaEvaluator : IFormulaEvaluator
 {
-    IEnumerable<ValidationError> Validate(IReturnData data, BusinessRuleContext context);
+    private readonly ITemplateMetadataCache _cache;
+    private readonly ExpressionParser _expressionParser;
+    
+    public FormulaEvaluator(ITemplateMetadataCache cache, ExpressionParser expressionParser)
+    {
+        _cache = cache;
+        _expressionParser = expressionParser;
+    }
+    
+    public async Task<IReadOnlyList<ValidationError>> Evaluate(
+        ReturnDataRecord record, CancellationToken ct)
+    {
+        var errors = new List<ValidationError>();
+        var template = await _cache.GetPublishedTemplate(record.ReturnCode, ct);
+        var formulas = template.CurrentVersion.IntraSheetFormulas.Where(f => f.IsActive);
+        
+        foreach (var formula in formulas)
+        {
+            switch (template.StructuralCategory)
+            {
+                case StructuralCategory.FixedRow:
+                    EvaluateForRow(formula, record.SingleRow, errors);
+                    break;
+                    
+                case StructuralCategory.MultiRow:
+                case StructuralCategory.ItemCoded:
+                    // For multi-row, formulas can apply per-row or across all rows
+                    foreach (var row in record.Rows)
+                    {
+                        EvaluateForRow(formula, row, errors, row.RowKey);
+                    }
+                    break;
+            }
+        }
+        
+        return errors;
+    }
+    
+    private void EvaluateForRow(
+        IntraSheetFormula formula,
+        ReturnDataRow row,
+        List<ValidationError> errors,
+        string? rowKey = null)
+    {
+        var targetValue = row.GetDecimal(formula.TargetFieldName);
+        if (targetValue == null && formula.FormulaType != FormulaType.Required) return;
+        
+        var operandNames = JsonSerializer.Deserialize<string[]>(formula.OperandFields)!;
+        var operandValues = operandNames.Select(name => row.GetDecimal(name)).ToArray();
+        
+        bool isValid;
+        decimal? expectedValue = null;
+        
+        switch (formula.FormulaType)
+        {
+            case FormulaType.Sum:
+                expectedValue = operandValues.Where(v => v.HasValue).Sum(v => v!.Value);
+                isValid = IsWithinTolerance(targetValue, expectedValue, formula);
+                break;
+                
+            case FormulaType.Difference:
+                // First operand minus remaining operands
+                if (operandValues.Length >= 2 && operandValues[0].HasValue)
+                {
+                    expectedValue = operandValues[0]!.Value -
+                        operandValues.Skip(1).Where(v => v.HasValue).Sum(v => v!.Value);
+                    isValid = IsWithinTolerance(targetValue, expectedValue, formula);
+                }
+                else
+                {
+                    isValid = true; // skip if insufficient data
+                }
+                break;
+                
+            case FormulaType.Equals:
+                expectedValue = operandValues.FirstOrDefault(v => v.HasValue);
+                isValid = IsWithinTolerance(targetValue, expectedValue, formula);
+                break;
+                
+            case FormulaType.GreaterThan:
+                isValid = targetValue > operandValues.FirstOrDefault();
+                break;
+                
+            case FormulaType.GreaterThanOrEqual:
+                isValid = targetValue >= operandValues.FirstOrDefault();
+                break;
+                
+            case FormulaType.LessThan:
+                isValid = targetValue < operandValues.FirstOrDefault();
+                break;
+                
+            case FormulaType.Between:
+                isValid = operandValues.Length >= 2
+                    && targetValue >= operandValues[0]
+                    && targetValue <= operandValues[1];
+                break;
+                
+            case FormulaType.Ratio:
+                if (operandValues.Length >= 2 && operandValues[1].HasValue && operandValues[1] != 0)
+                {
+                    expectedValue = operandValues[0] / operandValues[1];
+                    isValid = IsWithinTolerance(targetValue, expectedValue, formula);
+                }
+                else
+                {
+                    isValid = true;
+                }
+                break;
+                
+            case FormulaType.Custom:
+                // Use expression parser for custom formulas like "A + B - C"
+                var context = new Dictionary<string, decimal?>();
+                for (int i = 0; i < operandNames.Length; i++)
+                    context[operandNames[i]] = operandValues[i];
+                
+                expectedValue = _expressionParser.Evaluate(formula.CustomExpression!, context);
+                isValid = IsWithinTolerance(targetValue, expectedValue, formula);
+                break;
+                
+            case FormulaType.Required:
+                isValid = targetValue.HasValue;
+                break;
+                
+            default:
+                isValid = true;
+                break;
+        }
+        
+        if (!isValid)
+        {
+            var rowRef = rowKey != null ? $" (row: {rowKey})" : "";
+            errors.Add(new ValidationError
+            {
+                RuleId = formula.RuleCode,
+                Field = formula.TargetFieldName + rowRef,
+                Message = formula.ErrorMessage ??
+                    $"Validation failed for {formula.RuleName}{rowRef}",
+                ExpectedValue = expectedValue?.ToString("N2"),
+                ActualValue = targetValue?.ToString("N2"),
+                Severity = Enum.Parse<ValidationSeverity>(formula.Severity),
+                Category = ValidationCategory.IntraSheet
+            });
+        }
+    }
+    
+    private static bool IsWithinTolerance(
+        decimal? actual, decimal? expected, IntraSheetFormula formula)
+    {
+        if (actual == null || expected == null) return true;
+        
+        var diff = Math.Abs(actual.Value - expected.Value);
+        
+        if (formula.ToleranceAmount > 0)
+            return diff <= formula.ToleranceAmount;
+        
+        if (formula.TolerancePercent.HasValue && expected.Value != 0)
+            return diff / Math.Abs(expected.Value) <= formula.TolerancePercent.Value / 100m;
+        
+        return actual.Value == expected.Value;
+    }
 }
+```
+
+### C.7 CrossSheetValidator
+
+```csharp
+// FC.Engine.Infrastructure/Validation/CrossSheetValidator.cs
+namespace FC.Engine.Infrastructure.Validation;
+
+public class CrossSheetValidator : ICrossSheetValidator
+{
+    private readonly IFormulaRepository _formulaRepo;
+    private readonly IGenericDataRepository _dataRepo;
+    private readonly ExpressionParser _parser;
+    
+    public async Task<IReadOnlyList<ValidationError>> Validate(
+        ReturnDataRecord currentRecord,
+        int institutionId,
+        int returnPeriodId,
+        CancellationToken ct)
+    {
+        var errors = new List<ValidationError>();
+        
+        // Find all active cross-sheet rules that involve this template
+        var rules = await _formulaRepo.GetCrossSheetRulesForTemplate(
+            currentRecord.ReturnCode, ct);
+        
+        foreach (var rule in rules)
+        {
+            // Build operand values
+            var operandValues = new Dictionary<string, decimal?>();
+            
+            foreach (var operand in rule.Operands)
+            {
+                ReturnDataRecord? sourceData;
+                
+                if (operand.TemplateReturnCode == currentRecord.ReturnCode)
+                {
+                    sourceData = currentRecord;
+                }
+                else
+                {
+                    // Load the other template's data for same institution/period
+                    sourceData = await _dataRepo.GetByInstitutionAndPeriod(
+                        operand.TemplateReturnCode, institutionId, returnPeriodId, ct);
+                }
+                
+                if (sourceData == null)
+                {
+                    operandValues[operand.OperandAlias] = null;
+                    continue;
+                }
+                
+                // Apply aggregate function for multi-row templates
+                decimal? value;
+                if (!string.IsNullOrEmpty(operand.AggregateFunction))
+                {
+                    var allValues = sourceData.Rows
+                        .Select(r => r.GetDecimal(operand.FieldName))
+                        .Where(v => v.HasValue)
+                        .Select(v => v!.Value);
+                    
+                    value = operand.AggregateFunction switch
+                    {
+                        "SUM" => allValues.Any() ? allValues.Sum() : 0m,
+                        "COUNT" => allValues.Count(),
+                        "MAX" => allValues.Any() ? allValues.Max() : null,
+                        "MIN" => allValues.Any() ? allValues.Min() : null,
+                        "AVG" => allValues.Any() ? allValues.Average() : null,
+                        _ => null
+                    };
+                }
+                else if (!string.IsNullOrEmpty(operand.FilterItemCode))
+                {
+                    value = sourceData.GetDecimal(operand.FieldName, operand.FilterItemCode);
+                }
+                else
+                {
+                    value = sourceData.GetDecimal(operand.FieldName);
+                }
+                
+                operandValues[operand.OperandAlias] = value;
+            }
+            
+            // Evaluate expression
+            if (operandValues.Values.All(v => v == null)) continue; // skip if no data
+            
+            var expression = rule.Expression;
+            var result = _parser.EvaluateComparison(expression.Expression, operandValues);
+            
+            if (!result.IsValid)
+            {
+                errors.Add(new ValidationError
+                {
+                    RuleId = rule.RuleCode,
+                    Field = $"Cross-sheet: {rule.RuleName}",
+                    Message = expression.ErrorMessage ??
+                        $"Cross-sheet validation failed: {rule.RuleName}",
+                    Severity = Enum.Parse<ValidationSeverity>(rule.Severity),
+                    Category = ValidationCategory.CrossSheet,
+                    ExpectedValue = result.ExpectedValue?.ToString("N2"),
+                    ActualValue = result.ActualValue?.ToString("N2")
+                });
+            }
+        }
+        
+        return errors;
+    }
+}
+```
+
+### C.8 ExpressionParser -- Simple Expression Language
+
+```csharp
+// FC.Engine.Infrastructure/Validation/ExpressionParser.cs
+namespace FC.Engine.Infrastructure.Validation;
 
 /// <summary>
-/// Provides access to all returns in a submission batch for cross-validation.
+/// Parses and evaluates simple arithmetic expressions like "A + B - C" and
+/// comparison expressions like "A = B + C" or "A >= B * 0.125".
+/// 
+/// Supported operators: +, -, *, /, (, )
+/// Comparison operators: =, !=, >, <, >=, <=
+/// Variables: field names or single-letter aliases (A, B, C)
+/// Literals: numeric constants
 /// </summary>
-public class CrossSheetValidationContext
+public class ExpressionParser
 {
-    private readonly Dictionary<ReturnCode, IReturnData> _returns = new();
+    /// <summary>
+    /// Evaluate an arithmetic expression and return the computed value.
+    /// Used for custom intra-sheet formulas.
+    /// </summary>
+    public decimal? Evaluate(string expression, Dictionary<string, decimal?> variables)
+    {
+        var tokens = Tokenize(expression);
+        var postfix = InfixToPostfix(tokens);
+        return EvaluatePostfix(postfix, variables);
+    }
     
-    public void Register(ReturnCode code, IReturnData data) => _returns[code] = data;
-    public T? GetReturn<T>(ReturnCode code) where T : class, IReturnData 
-        => _returns.GetValueOrDefault(code) as T;
-    public bool HasReturn(ReturnCode code) => _returns.ContainsKey(code);
+    /// <summary>
+    /// Evaluate a comparison expression like "A = B + C" or "A >= B * 0.125".
+    /// Returns whether the comparison holds, plus the actual and expected values.
+    /// </summary>
+    public ComparisonResult EvaluateComparison(
+        string expression, Dictionary<string, decimal?> variables)
+    {
+        // Split on comparison operator
+        var (leftExpr, op, rightExpr) = SplitComparison(expression);
+        
+        var leftValue = Evaluate(leftExpr, variables);
+        var rightValue = Evaluate(rightExpr, variables);
+        
+        if (leftValue == null || rightValue == null)
+            return new ComparisonResult(true, leftValue, rightValue); // skip null
+        
+        bool isValid = op switch
+        {
+            "=" or "==" => leftValue == rightValue,
+            "!=" => leftValue != rightValue,
+            ">" => leftValue > rightValue,
+            ">=" => leftValue >= rightValue,
+            "<" => leftValue < rightValue,
+            "<=" => leftValue <= rightValue,
+            _ => throw new ArgumentException($"Unknown comparison operator: {op}")
+        };
+        
+        return new ComparisonResult(isValid, leftValue, rightValue);
+    }
+    
+    // Standard shunting-yard algorithm for tokenization and evaluation
+    private List<Token> Tokenize(string expr) { /* ... standard tokenizer ... */ }
+    private Queue<Token> InfixToPostfix(List<Token> tokens) { /* ... shunting-yard ... */ }
+    private decimal? EvaluatePostfix(Queue<Token> postfix, Dictionary<string, decimal?> vars) { /* ... */ }
+    private (string Left, string Op, string Right) SplitComparison(string expr) { /* ... */ }
+}
+
+public record ComparisonResult(bool IsValid, decimal? ActualValue, decimal? ExpectedValue);
+```
+
+### C.9 ValidationOrchestrator -- Coordinates All Phases
+
+```csharp
+// FC.Engine.Application/Services/ValidationOrchestrator.cs
+namespace FC.Engine.Application.Services;
+
+public class ValidationOrchestrator
+{
+    private readonly IFormulaEvaluator _formulaEvaluator;
+    private readonly ICrossSheetValidator _crossSheetValidator;
+    private readonly IBusinessRuleEvaluator _businessRuleEvaluator;
+    
+    public async Task<ValidationReport> ValidateAll(
+        ReturnDataRecord record,
+        Submission submission,
+        CancellationToken ct)
+    {
+        var report = ValidationReport.Create(submission.Id);
+        
+        // Phase 1: Type/Range validation (from field metadata: min, max, allowed_values)
+        var typeErrors = await ValidateTypesAndRanges(record, ct);
+        report.AddErrors(typeErrors);
+        
+        // Phase 2: Intra-sheet formulas
+        var formulaErrors = await _formulaEvaluator.Evaluate(record, ct);
+        report.AddErrors(formulaErrors);
+        
+        // Phase 3: Cross-sheet validation
+        var crossErrors = await _crossSheetValidator.Validate(
+            record, submission.InstitutionId, submission.ReturnPeriodId, ct);
+        report.AddErrors(crossErrors);
+        
+        // Phase 4: Business rules
+        var bizErrors = await _businessRuleEvaluator.Evaluate(
+            record, submission, ct);
+        report.AddErrors(bizErrors);
+        
+        report.FinalizeAt(DateTime.UtcNow);
+        return report;
+    }
+    
+    private async Task<IReadOnlyList<ValidationError>> ValidateTypesAndRanges(
+        ReturnDataRecord record, CancellationToken ct)
+    {
+        var errors = new List<ValidationError>();
+        var template = await _cache.GetPublishedTemplate(record.ReturnCode, ct);
+        var fields = template.CurrentVersion.Fields;
+        
+        foreach (var row in record.Rows)
+        {
+            foreach (var field in fields)
+            {
+                var value = row.GetValue(field.FieldName);
+                
+                // Required check
+                if (field.IsRequired && value == null)
+                {
+                    errors.Add(new ValidationError
+                    {
+                        RuleId = $"REQUIRED_{field.FieldName.ToUpper()}",
+                        Field = field.FieldName,
+                        Message = $"Required field '{field.DisplayName}' is missing",
+                        Severity = ValidationSeverity.Error,
+                        Category = ValidationCategory.TypeRange
+                    });
+                    continue;
+                }
+                
+                if (value == null) continue;
+                
+                // Range checks for numeric fields
+                if (field.DataType is FieldDataType.Money or FieldDataType.Decimal or FieldDataType.Integer)
+                {
+                    var numVal = Convert.ToDecimal(value);
+                    
+                    if (!string.IsNullOrEmpty(field.MinValue) &&
+                        numVal < decimal.Parse(field.MinValue))
+                    {
+                        errors.Add(new ValidationError
+                        {
+                            RuleId = $"RANGE_{field.FieldName.ToUpper()}",
+                            Field = field.FieldName,
+                            Message = $"'{field.DisplayName}' value {numVal} is below minimum {field.MinValue}",
+                            Severity = ValidationSeverity.Error,
+                            Category = ValidationCategory.TypeRange,
+                            ActualValue = numVal.ToString(),
+                            ExpectedValue = $">= {field.MinValue}"
+                        });
+                    }
+                    
+                    if (!string.IsNullOrEmpty(field.MaxValue) &&
+                        numVal > decimal.Parse(field.MaxValue))
+                    {
+                        errors.Add(new ValidationError
+                        {
+                            RuleId = $"RANGE_{field.FieldName.ToUpper()}",
+                            Field = field.FieldName,
+                            Message = $"'{field.DisplayName}' value {numVal} exceeds maximum {field.MaxValue}",
+                            Severity = ValidationSeverity.Error,
+                            Category = ValidationCategory.TypeRange,
+                            ActualValue = numVal.ToString(),
+                            ExpectedValue = $"<= {field.MaxValue}"
+                        });
+                    }
+                }
+                
+                // Allowed values check
+                if (!string.IsNullOrEmpty(field.AllowedValues))
+                {
+                    var allowed = JsonSerializer.Deserialize<string[]>(field.AllowedValues)!;
+                    if (!allowed.Contains(value.ToString(), StringComparer.OrdinalIgnoreCase))
+                    {
+                        errors.Add(new ValidationError
+                        {
+                            RuleId = $"ALLOWED_{field.FieldName.ToUpper()}",
+                            Field = field.FieldName,
+                            Message = $"'{field.DisplayName}' value '{value}' is not in allowed values: {field.AllowedValues}",
+                            Severity = ValidationSeverity.Error,
+                            Category = ValidationCategory.TypeRange,
+                            ActualValue = value.ToString()
+                        });
+                    }
+                }
+            }
+        }
+        
+        return errors;
+    }
 }
 ```
 
-### 3.3 Domain Layer -- Return Data Models
-
-The 103 return types fall into three structural categories discovered from the schema analysis.
-
-**Category 1: Fixed-Row Returns** (single record per submission, ~15 tables):
-
-These tables like `mfcr_300`, `mfcr_1000`, `mfcr_100`, `fc_acr`, `fc_car_2` have a known fixed set of columns, each mapping to a CBN line code (e.g., 10110, 30120). One row per submission.
+### C.10 IngestionOrchestrator -- Rewritten for Generic Pipeline
 
 ```csharp
-namespace FC.Engine.Domain.Returns.FixedRow;
-
-public class Mfcr300Data : IReturnData
-{
-    public ReturnCode ReturnCode => ReturnCode.Parse("MFCR 300");
-    
-    // Cash
-    [LineCode("10110")] public decimal? CashNotes { get; set; }
-    [LineCode("10120")] public decimal? CashCoins { get; set; }
-    [LineCode("10140")] public decimal? TotalCash { get; set; }
-    
-    // Due From Banks Nigeria
-    [LineCode("10170")] public decimal? DueFromBanksNigeria { get; set; }
-    [LineCode("10180")] public decimal? UnclearedEffects { get; set; }
-    [LineCode("10185")] public decimal? DueFromOtherFi { get; set; }
-    [LineCode("10190")] public decimal? TotalDueFromBanksNigeria { get; set; }
-    // ... all other fields matching schema columns
-    
-    [LineCode("10670")] public decimal? TotalAssets { get; set; }
-    [LineCode("10750")] public decimal? TotalLiabilities { get; set; }
-    [LineCode("10830")] public decimal? TotalEquity { get; set; }
-    [LineCode("10840")] public decimal? TotalLiabilitiesAndEquity { get; set; }
-}
-```
-
-**Category 2: Multi-Row Returns** (~70 tables with `serial_no`):
-
-Tables like `mfcr_302`, `mfcr_304`, `mfcr_318`, `mfcr_349`, `qfcr_364`, `sfcr_1930` store variable-length lists of line items.
-
-```csharp
-namespace FC.Engine.Domain.Returns.MultiRow;
-
-public class Mfcr302DataSet : IReturnData
-{
-    public ReturnCode ReturnCode => ReturnCode.Parse("MFCR 302");
-    public List<Mfcr302Row> Rows { get; set; } = new();
-    public decimal? TotalAmount => Rows.Sum(r => r.AmountNgn);
-}
-
-public class Mfcr302Row
-{
-    public string? BankCode { get; set; }
-    public string? InstitutionName { get; set; }
-    public string? InstitutionType { get; set; }
-    public string? AccountNumber { get; set; }
-    public decimal? AmountNgn { get; set; }
-    public string? CurrencyType { get; set; }
-    public string? ClearedUncleared { get; set; }
-}
-```
-
-**Category 3: Item-Coded Returns** (~18 tables with `item_code`):
-
-Tables like `mfcr_356`, `mfcr_358`, `mfcr_362`, `mfcr_1002`, `mfcr_1020`, `mfcr_1540`, `mfcr_1550`, `fc_car_1` use a fixed set of item_code rows that each have specific meaning.
-
-```csharp
-namespace FC.Engine.Domain.Returns.ItemCoded;
-
-public class Mfcr1002DataSet : IReturnData
-{
-    public ReturnCode ReturnCode => ReturnCode.Parse("MFCR 1002");
-    public List<Mfcr1002Item> Items { get; set; } = new();
-    
-    public decimal? GetTotalInterestIncome() 
-        => Items.Sum(i => i.InterestIncome);
-    
-    public Mfcr1002Item? GetByCode(int code) 
-        => Items.FirstOrDefault(i => i.ItemCode == code);
-}
-
-public class Mfcr1002Item
-{
-    public int ItemCode { get; set; }
-    public string? ItemDescription { get; set; }
-    public decimal? BookValue { get; set; }
-    public decimal? CouponRate { get; set; }
-    public decimal? InterestIncome { get; set; }
-    public decimal? FairValueGainLoss { get; set; }
-    public decimal? GainLossOnDisposal { get; set; }
-    public decimal? TotalAmount { get; set; }
-}
-```
-
-### 3.4 Application Layer -- Orchestrators
-
-**`IngestionOrchestrator.cs`**:
-
-```csharp
+// FC.Engine.Application/Services/IngestionOrchestrator.cs
 namespace FC.Engine.Application.Services;
 
 public class IngestionOrchestrator
 {
-    private readonly IXmlParser _xmlParser;
-    private readonly IXsdSchemaProvider _schemaProvider;
-    private readonly IValidationEngine _validationEngine;
+    private readonly IGenericXmlParser _xmlParser;
+    private readonly IXsdGenerator _xsdGenerator;
+    private readonly ValidationOrchestrator _validationOrchestrator;
     private readonly ISubmissionRepository _submissionRepo;
-    private readonly IReturnRepository _returnRepo;
+    private readonly IGenericDataRepository _dataRepo;
+    private readonly ITemplateMetadataCache _cache;
     
-    /// <summary>
-    /// Full pipeline: Parse XML -> Validate XSD -> Map to Domain -> 
-    /// Run all validations -> Persist or Reject
-    /// </summary>
-    public async Task<SubmissionResult> ProcessSubmission(
-        Stream xmlStream, 
-        string returnCode, 
-        int institutionId, 
+    public async Task<SubmissionResultDto> ProcessSubmission(
+        Stream xmlStream,
+        string returnCode,
+        int institutionId,
         int returnPeriodId,
         CancellationToken ct)
     {
-        // 1. Create submission record in DRAFT status
+        // 0. Verify template exists and is published
+        var template = await _cache.GetPublishedTemplate(returnCode, ct);
+        if (template == null)
+            throw new InvalidOperationException($"No published template for '{returnCode}'");
+        
+        // 1. Create submission record
         var submission = Submission.Create(institutionId, returnPeriodId, returnCode);
+        submission.SetTemplateVersion(template.CurrentVersion.Id);
         await _submissionRepo.Add(submission, ct);
         
-        // 2. XSD validation (structural)
-        var xsd = _schemaProvider.GetSchema(ReturnCode.Parse(returnCode));
-        var xsdErrors = _xmlParser.ValidateAgainstXsd(xmlStream, xsd);
-        if (xsdErrors.Any())
-            return SubmissionResult.SchemaFailed(submission.Id, xsdErrors);
-        
-        // 3. Parse XML into domain model
-        xmlStream.Position = 0;
-        var returnData = _xmlParser.Parse(xmlStream, ReturnCode.Parse(returnCode));
-        
-        // 4. Run validation engine
-        submission.MarkValidating();
-        var report = await _validationEngine.Validate(returnData, submission, ct);
-        
-        // 5. Decision
-        if (report.IsValid)
+        // 2. XSD validation
+        var xsd = await _xsdGenerator.GenerateSchema(returnCode, ct);
+        var xsdErrors = ValidateAgainstXsd(xmlStream, xsd);
+        if (xsdErrors.Any(e => e.Severity == ValidationSeverity.Error))
         {
-            await _returnRepo.Save(returnData, submission.Id, ct);
+            submission.MarkRejected();
+            var xsdReport = ValidationReport.Create(submission.Id);
+            xsdReport.AddErrors(xsdErrors);
+            xsdReport.FinalizeAt(DateTime.UtcNow);
+            submission.AttachValidationReport(xsdReport);
+            await _submissionRepo.Update(submission, ct);
+            return MapResult(submission);
+        }
+        xmlStream.Position = 0;
+        
+        // 3. Parse XML using metadata-driven generic parser
+        submission.MarkParsing();
+        var record = await _xmlParser.Parse(xmlStream, returnCode, ct);
+        
+        // 4. Run all validation phases
+        submission.MarkValidating();
+        var report = await _validationOrchestrator.ValidateAll(record, submission, ct);
+        
+        // 5. Persist or reject
+        if (report.IsValid && !report.HasWarnings)
+        {
+            await _dataRepo.Save(record, submission.Id, ct);
             submission.MarkAccepted();
         }
-        else if (report.HasWarnings && !report.HasErrors)
+        else if (!report.HasErrors && report.HasWarnings)
         {
-            await _returnRepo.Save(returnData, submission.Id, ct);
+            await _dataRepo.Save(record, submission.Id, ct);
             submission.MarkAcceptedWithWarnings();
         }
         else
@@ -596,1024 +1697,773 @@ public class IngestionOrchestrator
         submission.AttachValidationReport(report);
         await _submissionRepo.Update(submission, ct);
         
-        return new SubmissionResult(submission.Id, submission.Status, report);
+        return MapResult(submission);
     }
 }
 ```
 
-**`ValidationOrchestrator.cs`** -- Runs all rule categories in sequence:
+### C.11 TemplateService and TemplateVersioningService
 
 ```csharp
+// FC.Engine.Application/Services/TemplateService.cs
 namespace FC.Engine.Application.Services;
 
-public class ValidationOrchestrator : IValidationEngine
+public class TemplateService
 {
-    private readonly IRuleRegistry _ruleRegistry;
-    private readonly IReturnRepository _returnRepo;
+    private readonly ITemplateRepository _repo;
+    private readonly IAuditLogger _audit;
     
-    public async Task<ValidationReport> Validate(
-        IReturnData data, 
-        Submission submission, 
-        CancellationToken ct)
+    public async Task<TemplateDto> CreateTemplate(CreateTemplateRequest request, string userId, CancellationToken ct)
     {
-        var report = new ValidationReport(submission.Id);
-        var returnCode = data.ReturnCode;
-        
-        // Phase 1: Type and range validation (applied generically via reflection/attributes)
-        var typeRules = _ruleRegistry.GetTypeRules(returnCode);
-        foreach (var rule in typeRules)
-            report.AddErrors(rule.Validate(data));
-        
-        // Phase 2: Intra-sheet formula validation
-        var formulaRules = _ruleRegistry.GetIntraSheetRules(returnCode);
-        foreach (var rule in formulaRules)
-            report.AddErrors(rule.Validate(data));
-        
-        // Phase 3: Cross-sheet validation 
-        // Load other returns for same institution + period from DB
-        var crossRules = _ruleRegistry.GetCrossSheetRules(returnCode);
-        if (crossRules.Any())
+        var template = new ReturnTemplate
         {
-            var context = await BuildCrossSheetContext(submission, crossRules, ct);
-            context.Register(returnCode, data);
-            foreach (var rule in crossRules)
-                report.AddErrors(rule.Validate(context));
-        }
-        
-        // Phase 4: Business rules
-        var bizRules = _ruleRegistry.GetBusinessRules(returnCode);
-        var bizContext = new BusinessRuleContext(submission.ReturnPeriod);
-        foreach (var rule in bizRules)
-            report.AddErrors(rule.Validate(data, bizContext));
-        
-        report.FinalizeAt(DateTime.UtcNow);
-        return report;
-    }
-    
-    private async Task<CrossSheetValidationContext> BuildCrossSheetContext(
-        Submission submission, 
-        IEnumerable<ICrossSheetRule> rules, 
-        CancellationToken ct)
-    {
-        var context = new CrossSheetValidationContext();
-        var requiredCodes = rules
-            .SelectMany(r => r.RequiredReturnCodes)
-            .Distinct();
-        
-        foreach (var code in requiredCodes)
-        {
-            var existingData = await _returnRepo.GetBySubmissionPeriod(
-                submission.InstitutionId, 
-                submission.ReturnPeriodId, 
-                code, ct);
-            if (existingData != null)
-                context.Register(code, existingData);
-        }
-        
-        return context;
-    }
-}
-```
-
-### 3.5 Infrastructure Layer -- Validation Rules (Examples)
-
-**Intra-sheet rule for MFCR 300 (sums)**:
-
-```csharp
-namespace FC.Engine.Infrastructure.Validation.Rules.IntraSheet;
-
-public class Mfcr300SumRules : IIntraSheetRule
-{
-    public string RuleId => "MFCR300_SUMS";
-    public ReturnCode ApplicableReturnCode => ReturnCode.Parse("MFCR 300");
-    public ValidationCategory Category => ValidationCategory.IntraSheet;
-    public ValidationSeverity DefaultSeverity => ValidationSeverity.Error;
-    
-    public IEnumerable<ValidationError> Validate(IReturnData data)
-    {
-        var d = (Mfcr300Data)data;
-        var errors = new List<ValidationError>();
-        
-        // total_cash = cash_notes + cash_coins
-        CheckSum(errors, "total_cash", d.TotalCash, 
-            d.CashNotes, d.CashCoins);
-        
-        // total_due_from_banks_nigeria = due_from_banks_nigeria + uncleared_effects + due_from_other_fi
-        CheckSum(errors, "total_due_from_banks_nigeria", d.TotalDueFromBanksNigeria,
-            d.DueFromBanksNigeria, d.UnclearedEffects, d.DueFromOtherFi);
-        
-        // total_money_at_call = money_at_call_secured + money_at_call_unsecured
-        CheckSum(errors, "total_money_at_call", d.TotalMoneyAtCall,
-            d.MoneyAtCallSecured, d.MoneyAtCallUnsecured);
-        
-        // total_bank_placements = secured + unsecured + discount_houses
-        CheckSum(errors, "total_bank_placements", d.TotalBankPlacements,
-            d.PlacementsSecuredBanks, d.PlacementsUnsecuredBanks, d.PlacementsDiscountHouses);
-        
-        // total_securities = sum of all security types
-        CheckSum(errors, "total_securities", d.TotalSecurities,
-            d.TreasuryBills, d.FgnBonds, d.StateGovtBonds, d.LocalGovtBonds,
-            d.CorporateBonds, d.OtherBonds, d.TreasuryCertificates,
-            d.CbnRegisteredCertificates, d.CertificatesOfDeposit, d.CommercialPapers);
-        
-        // total_gross_loans = sum of all loan categories
-        CheckSum(errors, "total_gross_loans", d.TotalGrossLoans,
-            d.LoansToFiNigeria, d.LoansToSubsidiaryNigeria, d.LoansToSubsidiaryOutside,
-            d.LoansToAssociateNigeria, d.LoansToAssociateOutside,
-            d.LoansToOtherEntitiesOutside, d.LoansToGovernment, d.LoansToOtherCustomers);
-        
-        // total_net_loans = total_gross_loans - impairment_on_loans
-        CheckDifference(errors, "total_net_loans", d.TotalNetLoans,
-            d.TotalGrossLoans, d.ImpairmentOnLoans);
-        
-        // total_assets balance check
-        CheckSum(errors, "total_assets", d.TotalAssets,
-            d.TotalCash, d.TotalDueFromBanksNigeria, d.TotalDueFromBanksOutside,
-            d.TotalMoneyAtCall, d.TotalBankPlacements, d.DerivativeFinancialAssets,
-            d.TotalSecurities, d.TotalNetLoans, d.OtherInvestmentsQuoted,
-            d.OtherInvestmentsUnquoted, d.InvestmentsInSubsidiaries,
-            d.InvestmentsInAssociates, d.OtherAssets, d.IntangibleAssets,
-            d.NonCurrentAssetsHeldForSale, d.PropertyPlantEquipment);
-        
-        // total_liabilities_and_equity = total_liabilities + total_equity
-        CheckSum(errors, "total_liabilities_and_equity", d.TotalLiabilitiesAndEquity,
-            d.TotalLiabilities, d.TotalEquity);
-        
-        // Balance sheet must balance: total_assets == total_liabilities_and_equity
-        if (d.TotalAssets.HasValue && d.TotalLiabilitiesAndEquity.HasValue 
-            && d.TotalAssets != d.TotalLiabilitiesAndEquity)
-        {
-            errors.Add(new ValidationError
-            {
-                RuleId = "MFCR300_BALANCE_SHEET",
-                Field = "total_assets vs total_liabilities_and_equity",
-                Message = "Balance sheet does not balance",
-                ExpectedValue = d.TotalLiabilitiesAndEquity?.ToString("N2"),
-                ActualValue = d.TotalAssets?.ToString("N2"),
-                Severity = ValidationSeverity.Error,
-                Category = ValidationCategory.IntraSheet
-            });
-        }
-        
-        return errors;
-    }
-    
-    private void CheckSum(List<ValidationError> errors, string field, 
-        decimal? actual, params decimal?[] addends)
-    {
-        var expected = addends.Where(a => a.HasValue).Sum(a => a!.Value);
-        if (actual.HasValue && actual.Value != expected)
-        {
-            errors.Add(new ValidationError
-            {
-                RuleId = $"MFCR300_SUM_{field.ToUpper()}",
-                Field = field,
-                Message = $"Sum validation failed for {field}",
-                ExpectedValue = expected.ToString("N2"),
-                ActualValue = actual.Value.ToString("N2"),
-                Severity = DefaultSeverity,
-                Category = Category
-            });
-        }
-    }
-}
-```
-
-**Cross-sheet rule: MFCR 302 total must equal MFCR 300 line 10170**:
-
-```csharp
-namespace FC.Engine.Infrastructure.Validation.Rules.CrossSheet;
-
-public class Mfcr302ToMfcr300Rule : ICrossSheetRule
-{
-    public string RuleId => "XSHEET_MFCR302_TO_300_10170";
-    public ValidationCategory Category => ValidationCategory.CrossSheet;
-    public ValidationSeverity DefaultSeverity => ValidationSeverity.Error;
-    
-    public IReadOnlyList<ReturnCode> RequiredReturnCodes => new[]
-    {
-        ReturnCode.Parse("MFCR 300"),
-        ReturnCode.Parse("MFCR 302")
-    };
-    
-    public IEnumerable<ValidationError> Validate(CrossSheetValidationContext context)
-    {
-        var errors = new List<ValidationError>();
-        
-        var mfcr300 = context.GetReturn<Mfcr300Data>(ReturnCode.Parse("MFCR 300"));
-        var mfcr302 = context.GetReturn<Mfcr302DataSet>(ReturnCode.Parse("MFCR 302"));
-        
-        if (mfcr300 == null || mfcr302 == null)
-        {
-            // Cannot validate; one of the required returns has not been submitted yet
-            errors.Add(new ValidationError
-            {
-                RuleId = RuleId,
-                Field = "cross_sheet_dependency",
-                Message = "Cross-sheet validation deferred: MFCR 300 or MFCR 302 not yet submitted",
-                Severity = ValidationSeverity.Warning,
-                Category = Category
-            });
-            return errors;
-        }
-        
-        var mfcr302Total = mfcr302.TotalAmount;
-        var mfcr300Line = mfcr300.DueFromBanksNigeria; // line 10170
-        
-        if (mfcr302Total.HasValue && mfcr300Line.HasValue 
-            && mfcr302Total.Value != mfcr300Line.Value)
-        {
-            errors.Add(new ValidationError
-            {
-                RuleId = RuleId,
-                Field = "MFCR302.total vs MFCR300.due_from_banks_nigeria",
-                Message = "MFCR 302 total must equal MFCR 300 line 10170 (due_from_banks_nigeria)",
-                ExpectedValue = mfcr300Line.Value.ToString("N2"),
-                ActualValue = mfcr302Total.Value.ToString("N2"),
-                ReferencedReturnCode = "MFCR 300",
-                Severity = DefaultSeverity,
-                Category = Category
-            });
-        }
-        
-        return errors;
-    }
-}
-```
-
-### 3.6 Infrastructure Layer -- Rule Registry
-
-```csharp
-namespace FC.Engine.Infrastructure.Validation;
-
-public class RuleRegistry : IRuleRegistry
-{
-    private readonly Dictionary<ReturnCode, List<IIntraSheetRule>> _intraRules = new();
-    private readonly Dictionary<ReturnCode, List<ICrossSheetRule>> _crossRules = new();
-    private readonly Dictionary<ReturnCode, List<IBusinessRule>> _bizRules = new();
-    
-    public RuleRegistry(
-        IEnumerable<IIntraSheetRule> intraSheetRules,
-        IEnumerable<ICrossSheetRule> crossSheetRules,
-        IEnumerable<IBusinessRule> businessRules)
-    {
-        // Index rules by applicable return code(s)
-        foreach (var rule in intraSheetRules)
-            _intraRules.GetOrAdd(rule.ApplicableReturnCode).Add(rule);
-        
-        foreach (var rule in crossSheetRules)
-            foreach (var code in rule.RequiredReturnCodes)
-                _crossRules.GetOrAdd(code).Add(rule);
-        
-        // Business rules registered via attributes or explicit mapping
-    }
-    
-    // DI registration uses assembly scanning:
-    // services.Scan(s => s.FromAssemblyOf<RuleRegistry>()
-    //     .AddClasses(c => c.AssignableTo<IIntraSheetRule>())
-    //     .AsImplementedInterfaces()
-    //     .WithTransientLifetime());
-}
-```
-
-### 3.7 Infrastructure Layer -- XML/XSD
-
-**XSD Design** -- Each return code gets one XSD. The namespace convention is `urn:cbn:dfis:fc:{return_code_lower}`. Example for MFCR 300:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           targetNamespace="urn:cbn:dfis:fc:mfcr300"
-           xmlns:tns="urn:cbn:dfis:fc:mfcr300"
-           elementFormDefault="qualified">
-
-  <xs:element name="MFCR300">
-    <xs:complexType>
-      <xs:sequence>
-        <xs:element name="Header" type="tns:HeaderType"/>
-        <xs:element name="FinancialPosition" type="tns:FinancialPositionType"/>
-      </xs:sequence>
-    </xs:complexType>
-  </xs:element>
-
-  <xs:complexType name="HeaderType">
-    <xs:sequence>
-      <xs:element name="InstitutionCode" type="xs:string"/>
-      <xs:element name="ReportingDate" type="xs:date"/>
-      <xs:element name="ReturnCode" type="xs:string" fixed="MFCR300"/>
-    </xs:sequence>
-  </xs:complexType>
-
-  <xs:complexType name="FinancialPositionType">
-    <xs:sequence>
-      <!-- Cash -->
-      <xs:element name="CashNotes" type="tns:MoneyType" minOccurs="0"/>
-      <xs:element name="CashCoins" type="tns:MoneyType" minOccurs="0"/>
-      <xs:element name="TotalCash" type="tns:MoneyType" minOccurs="0"/>
-      <!-- ... all 80+ fields ... -->
-    </xs:sequence>
-  </xs:complexType>
-
-  <xs:simpleType name="MoneyType">
-    <xs:restriction base="xs:decimal">
-      <xs:fractionDigits value="2"/>
-      <xs:totalDigits value="20"/>
-    </xs:restriction>
-  </xs:simpleType>
-
-</xs:schema>
-```
-
-For multi-row returns like MFCR 302:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
-           targetNamespace="urn:cbn:dfis:fc:mfcr302"
-           xmlns:tns="urn:cbn:dfis:fc:mfcr302"
-           elementFormDefault="qualified">
-
-  <xs:element name="MFCR302">
-    <xs:complexType>
-      <xs:sequence>
-        <xs:element name="Header" type="tns:HeaderType"/>
-        <xs:element name="Balances">
-          <xs:complexType>
-            <xs:sequence>
-              <xs:element name="BankBalance" type="tns:BankBalanceType" 
-                          minOccurs="0" maxOccurs="unbounded"/>
-            </xs:sequence>
-          </xs:complexType>
-        </xs:element>
-      </xs:sequence>
-    </xs:complexType>
-  </xs:element>
-
-  <xs:complexType name="BankBalanceType">
-    <xs:sequence>
-      <xs:element name="BankCode" type="xs:string"/>
-      <xs:element name="InstitutionName" type="xs:string"/>
-      <xs:element name="InstitutionType" type="xs:string" minOccurs="0"/>
-      <xs:element name="AccountNumber" type="xs:string" minOccurs="0"/>
-      <xs:element name="AmountNGN" type="tns:MoneyType"/>
-      <xs:element name="CurrencyType" type="tns:CurrencyEnum"/>
-      <xs:element name="ClearedUncleared" type="tns:ClearedEnum" minOccurs="0"/>
-    </xs:sequence>
-  </xs:complexType>
-
-  <xs:simpleType name="CurrencyEnum">
-    <xs:restriction base="xs:string">
-      <xs:enumeration value="NGN"/>
-      <xs:enumeration value="USD"/>
-      <xs:enumeration value="GBP"/>
-      <xs:enumeration value="EUR"/>
-    </xs:restriction>
-  </xs:simpleType>
-</xs:schema>
-```
-
-**`XmlReturnParser.cs`**:
-
-```csharp
-namespace FC.Engine.Infrastructure.Xml;
-
-public class XmlReturnParser : IXmlParser
-{
-    private readonly IXsdSchemaProvider _schemaProvider;
-    private readonly XmlParserFactory _parserFactory;
-    
-    public IReadOnlyList<ValidationError> ValidateAgainstXsd(Stream xml, XmlSchemaSet schema)
-    {
-        var errors = new List<ValidationError>();
-        var settings = new XmlReaderSettings();
-        settings.Schemas = schema;
-        settings.ValidationType = ValidationType.Schema;
-        settings.ValidationEventHandler += (s, e) =>
-        {
-            errors.Add(new ValidationError
-            {
-                RuleId = "XSD_VALIDATION",
-                Field = e.Exception?.SourceUri ?? "unknown",
-                Message = e.Message,
-                Severity = e.Severity == XmlSeverityType.Error 
-                    ? ValidationSeverity.Error : ValidationSeverity.Warning,
-                Category = ValidationCategory.Schema
-            });
+            ReturnCode = request.ReturnCode,
+            Name = request.Name,
+            Description = request.Description,
+            Frequency = request.Frequency,
+            StructuralCategory = request.StructuralCategory,
+            PhysicalTableName = GenerateTableName(request.ReturnCode),
+            XmlRootElement = request.ReturnCode.Replace(" ", ""),
+            XmlNamespace = $"urn:cbn:dfis:fc:{request.ReturnCode.Replace(" ", "").ToLower()}",
+            CreatedBy = userId
         };
         
-        using var reader = XmlReader.Create(xml, settings);
-        while (reader.Read()) { } // Force full read for validation
-        return errors;
-    }
-    
-    public IReturnData Parse(Stream xml, ReturnCode returnCode)
-    {
-        var parser = _parserFactory.GetParser(returnCode);
-        return parser.Parse(xml);
-    }
-}
-```
-
-### 3.8 Infrastructure Layer -- EF Core DbContext
-
-```csharp
-namespace FC.Engine.Infrastructure.Persistence;
-
-public class FcEngineDbContext : DbContext
-{
-    // Reference tables
-    public DbSet<Institution> Institutions => Set<Institution>();
-    public DbSet<ReturnPeriod> ReturnPeriods => Set<ReturnPeriod>();
-    public DbSet<Submission> Submissions => Set<Submission>();
-    public DbSet<BankCode> BankCodes => Set<BankCode>();
-    public DbSet<Sector> Sectors => Set<Sector>();
-    public DbSet<SubSector> SubSectors => Set<SubSector>();
-    public DbSet<State> States => Set<State>();
-    public DbSet<LocalGovernment> LocalGovernments => Set<LocalGovernment>();
-    
-    // Return data tables (103)
-    public DbSet<Mfcr300Entity> Mfcr300 => Set<Mfcr300Entity>();
-    public DbSet<Mfcr1000Entity> Mfcr1000 => Set<Mfcr1000Entity>();
-    public DbSet<Mfcr100Entity> Mfcr100 => Set<Mfcr100Entity>();
-    public DbSet<Mfcr302Entity> Mfcr302 => Set<Mfcr302Entity>();
-    // ... all 103 tables
-    
-    // Validation
-    public DbSet<ValidationReportEntity> ValidationReports => Set<ValidationReportEntity>();
-    public DbSet<ValidationErrorEntity> ValidationErrors => Set<ValidationErrorEntity>();
-    
-    protected override void OnModelCreating(ModelBuilder modelBuilder)
-    {
-        modelBuilder.ApplyConfigurationsFromAssembly(typeof(FcEngineDbContext).Assembly);
-    }
-}
-```
-
-Note: The EF entity classes (e.g., `Mfcr300Entity`) are distinct from the domain return data classes (`Mfcr300Data`). A mapping layer converts between them. This keeps the domain clean of ORM concerns.
-
-### 3.9 API Layer
-
-```csharp
-namespace FC.Engine.Api.Endpoints;
-
-public static class SubmissionEndpoints
-{
-    public static void MapSubmissionEndpoints(this WebApplication app)
-    {
-        var group = app.MapGroup("/api/submissions").WithTags("Submissions");
+        // Create initial Draft version
+        var version = template.CreateDraftVersion(userId);
         
-        // POST /api/submissions/{returnCode}
-        // Body: XML content
-        // Headers: X-Institution-Code, X-Reporting-Date
-        group.MapPost("/{returnCode}", async (
-            string returnCode,
-            [FromHeader(Name = "X-Institution-Code")] string institutionCode,
-            [FromHeader(Name = "X-Reporting-Date")] DateOnly reportingDate,
-            HttpRequest request,
-            IngestionOrchestrator orchestrator,
-            CancellationToken ct) =>
+        await _repo.Add(template, ct);
+        await _audit.Log("ReturnTemplate", template.Id, "Create", null, template, userId);
+        
+        return MapToDto(template);
+    }
+    
+    public async Task AddField(int templateId, int versionId, AddFieldRequest request,
+        string userId, CancellationToken ct)
+    {
+        var template = await _repo.GetById(templateId, ct);
+        var version = template.GetVersion(versionId);
+        
+        if (version.Status != TemplateStatus.Draft)
+            throw new InvalidOperationException("Can only modify Draft versions");
+        
+        version.AddField(new TemplateField
         {
-            var result = await orchestrator.ProcessSubmission(
-                request.Body, returnCode, institutionCode, reportingDate, ct);
+            FieldName = request.FieldName,
+            DisplayName = request.DisplayName,
+            XmlElementName = request.XmlElementName ?? ToPascalCase(request.FieldName),
+            LineCode = request.LineCode,
+            DataType = request.DataType,
+            SqlType = MapDataTypeToSqlType(request.DataType, request.MaxLength),
+            IsRequired = request.IsRequired,
+            SectionName = request.SectionName,
+            FieldOrder = request.FieldOrder
+        });
+        
+        await _repo.Update(template, ct);
+        await _audit.Log("TemplateField", 0, "Create", null, request, userId);
+    }
+}
+
+// FC.Engine.Application/Services/TemplateVersioningService.cs
+public class TemplateVersioningService
+{
+    private readonly ITemplateRepository _repo;
+    private readonly IDdlEngine _ddlEngine;
+    private readonly DdlMigrationExecutor _ddlExecutor;
+    private readonly IXsdGenerator _xsdGenerator;
+    private readonly ITemplateMetadataCache _cache;
+    private readonly IAuditLogger _audit;
+    
+    /// <summary>
+    /// Publish a draft version: generates DDL, executes it, and activates the version.
+    /// </summary>
+    public async Task<PublishResult> PublishVersion(
+        int templateId, int versionId, string userId, CancellationToken ct)
+    {
+        var template = await _repo.GetById(templateId, ct);
+        var version = template.GetVersion(versionId);
+        
+        if (version.Status != TemplateStatus.Review)
+            throw new InvalidOperationException("Only versions in Review status can be published");
+        
+        // Determine if this is new table or alter
+        DdlScript ddlScript;
+        var previousVersion = template.GetPreviousPublishedVersion(versionId);
+        
+        if (previousVersion == null)
+        {
+            // New template: CREATE TABLE
+            ddlScript = _ddlEngine.GenerateCreateTable(template, version);
+        }
+        else
+        {
+            // Modified template: ALTER TABLE
+            ddlScript = _ddlEngine.GenerateAlterTable(template, previousVersion, version);
+        }
+        
+        // Execute DDL within transaction
+        var migrationResult = await _ddlExecutor.Execute(
+            template.Id, previousVersion?.VersionNumber, version.VersionNumber,
+            ddlScript, userId, ct);
+        
+        if (!migrationResult.Success)
+            return new PublishResult(false, migrationResult.Error);
+        
+        // Update version status
+        version.Publish(DateTime.UtcNow, userId);
+        version.SetDdlScript(ddlScript.ForwardSql, ddlScript.RollbackSql);
+        
+        // Deprecate previous version
+        previousVersion?.Deprecate();
+        
+        await _repo.Update(template, ct);
+        
+        // Invalidate caches
+        _cache.Invalidate(template.ReturnCode);
+        _xsdGenerator.InvalidateCache(template.ReturnCode);
+        
+        await _audit.Log("TemplateVersion", versionId, "Publish", null, version, userId);
+        
+        return new PublishResult(true, null);
+    }
+    
+    /// <summary>
+    /// Create a new draft version by cloning the current published version.
+    /// </summary>
+    public async Task<TemplateVersionDto> CreateNewDraftVersion(
+        int templateId, string userId, CancellationToken ct)
+    {
+        var template = await _repo.GetById(templateId, ct);
+        var currentPublished = template.CurrentVersion;
+        
+        var newVersion = template.CreateDraftVersion(userId);
+        
+        // Clone all fields from current published version
+        foreach (var field in currentPublished.Fields)
+        {
+            newVersion.AddField(field.Clone());
+        }
+        
+        // Clone all formulas
+        foreach (var formula in currentPublished.IntraSheetFormulas)
+        {
+            newVersion.AddFormula(formula.Clone());
+        }
+        
+        // Clone item codes
+        foreach (var itemCode in currentPublished.ItemCodes)
+        {
+            newVersion.AddItemCode(itemCode.Clone());
+        }
+        
+        await _repo.Update(template, ct);
+        return MapToDto(newVersion);
+    }
+}
+```
+
+### C.12 SeedService -- Seeds Existing 103 Templates From schema.sql
+
+```csharp
+// FC.Engine.Application/Services/SeedService.cs
+namespace FC.Engine.Application.Services;
+
+/// <summary>
+/// Parses the existing schema.sql to extract the 103 template definitions
+/// and seeds them into the metadata tables. Run once during initial migration.
+/// </summary>
+public class SeedService
+{
+    private readonly ITemplateRepository _repo;
+    private readonly IDdlEngine _ddlEngine;
+    
+    /// <summary>
+    /// Analyzes each CREATE TABLE statement in schema.sql, extracts:
+    /// - Table name -> return_code, physical_table_name
+    /// - Column definitions -> template_fields
+    /// - Comment line codes -> field line_code values
+    /// - Structural category detection (serial_no -> MultiRow, item_code -> ItemCoded, else FixedRow)
+    /// </summary>
+    public async Task SeedFromSchema(string schemaSqlPath, CancellationToken ct)
+    {
+        var sql = await File.ReadAllTextAsync(schemaSqlPath, ct);
+        var tables = ParseCreateTableStatements(sql);
+        
+        foreach (var tableDef in tables)
+        {
+            if (IsReferenceTable(tableDef.TableName)) continue; // skip institutions, return_periods, etc.
             
-            return result.Status switch
+            var returnCode = InferReturnCode(tableDef.TableName);
+            var category = DetectStructuralCategory(tableDef.Columns);
+            var frequency = InferFrequency(returnCode);
+            
+            var template = new ReturnTemplate
             {
-                SubmissionStatus.Accepted => Results.Ok(result.ToDto()),
-                SubmissionStatus.AcceptedWithWarnings => Results.Ok(result.ToDto()),
-                SubmissionStatus.Rejected => Results.UnprocessableEntity(result.ToDto()),
-                _ => Results.StatusCode(500)
+                ReturnCode = returnCode,
+                Name = tableDef.Comment, // from the "TABLE N: MFCR 300 - ..." comment
+                Frequency = frequency,
+                StructuralCategory = category,
+                PhysicalTableName = tableDef.TableName,
+                XmlRootElement = returnCode.Replace(" ", ""),
+                XmlNamespace = $"urn:cbn:dfis:fc:{returnCode.Replace(" ", "").ToLower()}",
+                IsSystemTemplate = true,
+                CreatedBy = "SYSTEM_SEED"
             };
-        })
-        .Accepts<IFormFile>("application/xml")
-        .Produces<SubmissionResultDto>(200)
-        .Produces<SubmissionResultDto>(422);
-        
-        // POST /api/submissions/batch
-        // Accepts multipart form with multiple XML files
-        group.MapPost("/batch", async (
-            [FromHeader(Name = "X-Institution-Code")] string institutionCode,
-            [FromHeader(Name = "X-Reporting-Date")] DateOnly reportingDate,
-            IFormFileCollection files,
-            IngestionOrchestrator orchestrator,
-            CancellationToken ct) =>
-        {
-            // Process all files, collect results, then run cross-sheet validation
-        });
-        
-        // GET /api/submissions/{id}
-        group.MapGet("/{id:int}", async (int id, IMediator mediator, CancellationToken ct) =>
-        {
-            var result = await mediator.Send(new GetSubmissionQuery(id), ct);
-            return result is not null ? Results.Ok(result) : Results.NotFound();
-        });
-        
-        // GET /api/submissions/{id}/validation-report
-        group.MapGet("/{id:int}/validation-report", async (int id, IMediator mediator, CancellationToken ct) =>
-        {
-            var report = await mediator.Send(new GetValidationReportQuery(id), ct);
-            return report is not null ? Results.Ok(report) : Results.NotFound();
-        });
+            
+            var version = template.CreateDraftVersion("SYSTEM_SEED");
+            
+            foreach (var col in tableDef.Columns)
+            {
+                if (col.Name is "id" or "submission_id" or "created_at") continue;
+                
+                version.AddField(new TemplateField
+                {
+                    FieldName = col.Name,
+                    DisplayName = InferDisplayName(col.Name),
+                    XmlElementName = ToPascalCase(col.Name),
+                    LineCode = col.LineCodeComment,
+                    DataType = InferFieldDataType(col.SqlType),
+                    SqlType = col.SqlType,
+                    IsRequired = col.IsNotNull,
+                    IsKeyField = col.Name is "serial_no" or "item_code",
+                    FieldOrder = col.OrdinalPosition
+                });
+            }
+            
+            // Auto-publish since these are existing tables
+            version.Publish(DateTime.UtcNow, "SYSTEM_SEED");
+            
+            await _repo.Add(template, ct);
+        }
     }
-}
-```
-
-### 3.10 Docker Compose
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  sqlserver:
-    image: mcr.microsoft.com/mssql/server:2022-latest
-    environment:
-      - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=${SA_PASSWORD}
-      - MSSQL_PID=Developer
-    ports:
-      - "1433:1433"
-    volumes:
-      - sqlserver-data:/var/opt/mssql
-    healthcheck:
-      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$SA_PASSWORD" -C -Q "SELECT 1"
-      interval: 10s
-      retries: 10
-
-  migrator:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.migrator
-    depends_on:
-      sqlserver:
-        condition: service_healthy
-    environment:
-      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True
-
-  api:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.api
-    depends_on:
-      migrator:
-        condition: service_completed_successfully
-    ports:
-      - "5000:8080"
-    environment:
-      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD};TrustServerCertificate=True
-      - ASPNETCORE_ENVIRONMENT=Production
-
-volumes:
-  sqlserver-data:
-```
-
----
-
-## 4. Complete Cross-Sheet Validation Map
-
-Based on the requirements and schema analysis, here is the full cross-sheet validation matrix:
-
-| Rule ID | Source Return | Source Field/Total | Target Return | Target Field (Line Code) | Description |
-|---------|-------------|-------------------|---------------|-------------------------|-------------|
-| XS-001 | MFCR 302 | SUM(amount_ngn) where cleared | MFCR 300 | due_from_banks_nigeria (10170) | Bank balances -> fin position |
-| XS-002 | MFCR 302 | SUM(amount_ngn) where uncleared | MFCR 300 | uncleared_effects (10180) | Uncleared effects |
-| XS-003 | MFCR 304 | SUM(amount_ngn) secured | MFCR 300 | money_at_call_secured (10250) | Secured call money |
-| XS-004 | MFCR 306 | SUM(amount_ngn) | MFCR 300 | money_at_call_unsecured (10260) | Unsecured call money |
-| XS-005 | MFCR 308 | SUM(amount_ngn) | MFCR 300 | placements_secured_banks (10280) | Secured placements |
-| XS-006 | MFCR 310 | SUM(amount_ngn) | MFCR 300 | placements_unsecured_banks (10290) | Unsecured placements |
-| XS-007 | MFCR 312 | SUM(amount_ngn) | MFCR 300 | placements_discount_houses (10295) | DH placements |
-| XS-008 | MFCR 316 | SUM(carrying_value) | MFCR 300 | derivative_financial_assets (10370) | Derivative assets |
-| XS-009 | MFCR 318 | SUM(net_carrying_value) | MFCR 300 | treasury_bills (10380) | T-bills |
-| XS-010 | MFCR 320 | SUM(market_value) | MFCR 300 | fgn_bonds (10390) | FGN bonds |
-| XS-011 | MFCR 322 | SUM(market_value) | MFCR 300 | state_govt_bonds (10400) | State bonds |
-| XS-012 | MFCR 324 | SUM(market_value) | MFCR 300 | local_govt_bonds (10410) | Local bonds |
-| XS-013 | MFCR 326 | SUM(market_value) | MFCR 300 | corporate_bonds (10420) | Corporate bonds |
-| XS-014 | MFCR 328 | SUM(market_value) | MFCR 300 | other_bonds (10430) | Other bonds |
-| XS-015 | MFCR 330 | SUM(net_carrying_value) | MFCR 300 | treasury_certificates (10440) | Treasury certs |
-| XS-016 | MFCR 334 | SUM(amount_ngn) | MFCR 300 | certificates_of_deposit (10460) | CDs |
-| XS-017 | MFCR 336 | SUM(market_value) | MFCR 300 | commercial_papers (10470) | Commercial papers |
-| XS-018 | MFCR 338 | SUM(carrying_amount) | MFCR 300 | loans_to_fi_nigeria (10490) | Loans to FIs |
-| XS-019 | MFCR 340 | SUM(total) | MFCR 300 | loans_to_subsidiary_nigeria (10500) | Subsidiary loans NG |
-| XS-020 | MFCR 342 | SUM(total) | MFCR 300 | loans_to_subsidiary_outside (10510) | Subsidiary loans outside |
-| XS-021 | MFCR 344 | SUM(total) | MFCR 300 | loans_to_associate_nigeria (10520) | Associate loans NG |
-| XS-022 | MFCR 346 | SUM(total) | MFCR 300 | loans_to_associate_outside (10530) | Associate loans outside |
-| XS-023 | MFCR 348 | SUM(carrying_amount) | MFCR 300 | loans_to_other_entities_outside (10540) | Other entity loans |
-| XS-024 | MFCR 351 | SUM(carrying_amount) | MFCR 300 | loans_to_government (10545) | Government loans |
-| XS-025 | MFCR 349 | SUM(carrying_amount) | MFCR 300 | loans_to_other_customers (10550) | Customer loans |
-| XS-026 | MFCR 350 | SUM(impairment_for_period) | MFCR 300 | impairment_on_loans (10570) | Impairment |
-| XS-027 | MFCR 352 | SUM(carrying_value_end) quoted | MFCR 300 | other_investments_quoted (10590) | Quoted investments |
-| XS-028 | MFCR 352 | SUM(carrying_value_end) unquoted | MFCR 300 | other_investments_unquoted (10600) | Unquoted investments |
-| XS-029 | MFCR 354 | SUM() subsidiary | MFCR 300 | investments_in_subsidiaries (10610) | Sub investments |
-| XS-030 | MFCR 354 | SUM() associate | MFCR 300 | investments_in_associates (10620) | Assoc investments |
-| XS-031 | MFCR 356+357 | SUM(total) | MFCR 300 | other_assets (10630) | Other assets |
-| XS-032 | MFCR 358 | SUM(total) | MFCR 300 | intangible_assets (10640) | Intangibles |
-| XS-033 | MFCR 360 | SUM(total) | MFCR 300 | non_current_assets_held_for_sale (10650) | NCAFS |
-| XS-034 | MFCR 362 | SUM(net_carrying_amount) | MFCR 300 | property_plant_equipment (10660) | PPE |
-| XS-035 | QFCR 377 | SUM(amount_ngn) | MFCR 300 | borrowings_from_banks (10680) | Borrowings from banks |
-| XS-036 | QFCR 379 | SUM(amount_ngn) | MFCR 300 | borrowings_from_other_fc (10690) | Borrowings from FCs |
-| XS-037 | QFCR 381 | SUM(amount_ngn) | MFCR 300 | borrowings_from_other_fi (10700) | Borrowings from FIs |
-| XS-038 | MFCR 1530 | SUM(amount_borrowed) | MFCR 300 | borrowings_from_individuals (10710) | Individual borrowings |
-| XS-039 | MFCR 385 | SUM(carrying_value) | MFCR 300 | derivative_financial_liabilities (10730) | Derivative liabilities |
-| XS-040 | MFCR 387 | SUM(total) | MFCR 300 | other_liabilities (10740) | Other liabilities |
-| XS-041 | MFCR 1002 | SUM(total_amount) | MFCR 1000 | interest_income_govt_securities (30140) | Govt sec income |
-| XS-042 | MFCR 387 | item 34715 (unaudited profit) | MFCR 1000 | profit_after_tax (30600) | Profit cross-check |
-| XS-043 | FC CAR 1 | derived from MFCR 300 | MFCR 300 | asset_value column | Risk-weighted assets |
-| XS-044 | FC ACR | capital_funds | MFCR 300 | total_equity (10830) | ACR capital check |
-| XS-045 | FC ACR | net_credit | MFCR 300 | total_gross_loans (10560) | ACR credit check |
-
----
-
-## 5. Phased Implementation Order
-
-### Phase 1: Foundation (Weeks 1-2)
-
-**Goal**: Solution scaffolding, database, reference data, and one complete end-to-end return (MFCR 300).
-
-**Files to create**:
-
-```
-Phase 1A - Solution Structure:
-  FCEngine.sln
-  src/FC.Engine.Domain/FC.Engine.Domain.csproj
-  src/FC.Engine.Application/FC.Engine.Application.csproj
-  src/FC.Engine.Infrastructure/FC.Engine.Infrastructure.csproj
-  src/FC.Engine.Api/FC.Engine.Api.csproj
-  src/FC.Engine.Migrator/FC.Engine.Migrator.csproj
-  docker/docker-compose.yml
-  docker/Dockerfile.api
-  docker/Dockerfile.migrator
-  docker/.env.example
-
-Phase 1B - Domain Core:
-  src/FC.Engine.Domain/Entities/Submission.cs
-  src/FC.Engine.Domain/Entities/Institution.cs
-  src/FC.Engine.Domain/Entities/ReturnPeriod.cs
-  src/FC.Engine.Domain/Entities/ReturnHeader.cs
-  src/FC.Engine.Domain/Entities/ValidationReport.cs
-  src/FC.Engine.Domain/Entities/ValidationError.cs
-  src/FC.Engine.Domain/ValueObjects/ReturnCode.cs
-  src/FC.Engine.Domain/ValueObjects/ReportingPeriod.cs
-  src/FC.Engine.Domain/ValueObjects/MoneyAmount.cs
-  src/FC.Engine.Domain/ValueObjects/LineCode.cs
-  src/FC.Engine.Domain/Enums/SubmissionStatus.cs
-  src/FC.Engine.Domain/Enums/ReturnFrequency.cs
-  src/FC.Engine.Domain/Enums/ValidationSeverity.cs
-  src/FC.Engine.Domain/Enums/ValidationCategory.cs
-  src/FC.Engine.Domain/Returns/IReturnData.cs
-  src/FC.Engine.Domain/Validation/IValidationRule.cs
-  src/FC.Engine.Domain/Validation/IIntraSheetRule.cs
-  src/FC.Engine.Domain/Validation/ICrossSheetRule.cs
-  src/FC.Engine.Domain/Validation/IBusinessRule.cs
-  src/FC.Engine.Domain/Validation/ValidationContext.cs
-  src/FC.Engine.Domain/Validation/FormulaExpression.cs
-  src/FC.Engine.Domain/Abstractions/IReturnRepository.cs
-  src/FC.Engine.Domain/Abstractions/ISubmissionRepository.cs
-  src/FC.Engine.Domain/Abstractions/IXmlParser.cs
-  src/FC.Engine.Domain/Abstractions/IValidationEngine.cs
-  src/FC.Engine.Domain/Abstractions/IRuleRegistry.cs
-
-Phase 1C - First Return (MFCR 300):
-  src/FC.Engine.Domain/Returns/FixedRow/Mfcr300Data.cs
-  src/FC.Engine.Infrastructure/Persistence/FcEngineDbContext.cs
-  src/FC.Engine.Infrastructure/Persistence/Configurations/SubmissionConfiguration.cs
-  src/FC.Engine.Infrastructure/Persistence/Configurations/InstitutionConfiguration.cs
-  src/FC.Engine.Infrastructure/Persistence/Configurations/ReturnPeriodConfiguration.cs
-  src/FC.Engine.Infrastructure/Persistence/Configurations/Mfcr300Configuration.cs
-  src/FC.Engine.Infrastructure/Persistence/Configurations/ValidationReportConfiguration.cs
-  src/FC.Engine.Infrastructure/Persistence/Repositories/SubmissionRepository.cs
-  src/FC.Engine.Infrastructure/Persistence/Repositories/ReturnRepository.cs
-  src/FC.Engine.Infrastructure/Xml/Schemas/MFCR300.xsd
-  src/FC.Engine.Infrastructure/Xml/XsdSchemaProvider.cs
-  src/FC.Engine.Infrastructure/Xml/XmlReturnParser.cs
-  src/FC.Engine.Infrastructure/Xml/Parsers/IReturnXmlParser.cs
-  src/FC.Engine.Infrastructure/Xml/Parsers/Mfcr300XmlParser.cs
-  src/FC.Engine.Infrastructure/Xml/XmlParserFactory.cs
-  src/FC.Engine.Infrastructure/Validation/RuleEngine.cs
-  src/FC.Engine.Infrastructure/Validation/RuleRegistry.cs
-  src/FC.Engine.Infrastructure/Validation/Rules/IntraSheet/Mfcr300SumRules.cs
-  src/FC.Engine.Infrastructure/DependencyInjection.cs
-
-Phase 1D - Application + API:
-  src/FC.Engine.Application/DependencyInjection.cs
-  src/FC.Engine.Application/Services/IngestionOrchestrator.cs
-  src/FC.Engine.Application/Services/ValidationOrchestrator.cs
-  src/FC.Engine.Application/DTOs/SubmissionDto.cs
-  src/FC.Engine.Application/DTOs/ValidationReportDto.cs
-  src/FC.Engine.Api/Program.cs
-  src/FC.Engine.Api/appsettings.json
-  src/FC.Engine.Api/Endpoints/SubmissionEndpoints.cs
-  src/FC.Engine.Api/Endpoints/SchemaEndpoints.cs
-  src/FC.Engine.Api/Middleware/ExceptionHandlingMiddleware.cs
-  src/FC.Engine.Migrator/Program.cs
-  scripts/seed-reference-data.sql
-
-Phase 1E - Tests:
-  tests/FC.Engine.Domain.Tests/FC.Engine.Domain.Tests.csproj
-  tests/FC.Engine.Domain.Tests/ValueObjects/ReturnCodeTests.cs
-  tests/FC.Engine.Infrastructure.Tests/FC.Engine.Infrastructure.Tests.csproj
-  tests/FC.Engine.Infrastructure.Tests/Xml/Mfcr300XmlParserTests.cs
-  tests/FC.Engine.Infrastructure.Tests/Validation/Mfcr300SumRulesTests.cs
-  tests/FC.Engine.Integration.Tests/FC.Engine.Integration.Tests.csproj
-  tests/FC.Engine.Integration.Tests/SubmissionPipelineTests.cs
-```
-
-**Milestone**: Can submit MFCR 300 XML, validate its internal sums, persist to SQL Server, get validation report back. Docker Compose starts up cleanly.
-
----
-
-### Phase 2: Core Monthly Returns (Weeks 3-4)
-
-**Goal**: All MFCR 300-series returns (the financial position schedules) plus MFCR 1000 (income statement). Cross-sheet validation between 300-series schedules and MFCR 300.
-
-**Returns to implement** (31 returns):
-
-```
-MFCR 300 (done), MFCR 1000, MFCR 100
-MFCR 302, 304, 306, 306-1, 308, 310, 312, 314, 314-1
-MFCR 316, 318, 320, 322, 324, 326, 328, 330, 332, 334, 334-1, 336, 336-1
-MFCR 338, 340, 342, 344, 346, 346-1
-```
-
-**Files per return** (template -- multiply by ~30):
-
-```
-For each return (example: MFCR 302):
-  src/FC.Engine.Domain/Returns/MultiRow/Mfcr302Row.cs
-  src/FC.Engine.Infrastructure/Persistence/Configurations/Mfcr302Configuration.cs
-  src/FC.Engine.Infrastructure/Xml/Schemas/MFCR302.xsd
-  src/FC.Engine.Infrastructure/Xml/Parsers/Mfcr302XmlParser.cs
-  src/FC.Engine.Infrastructure/Validation/Rules/CrossSheet/Mfcr302ToMfcr300Rule.cs
-  tests/FC.Engine.Infrastructure.Tests/Xml/Mfcr302XmlParserTests.cs
-```
-
-**Additional cross-sheet rules**:
-
-```
-  src/FC.Engine.Infrastructure/Validation/Rules/CrossSheet/Mfcr302ToMfcr300Rule.cs  (XS-001, XS-002)
-  src/FC.Engine.Infrastructure/Validation/Rules/CrossSheet/Mfcr304ToMfcr300Rule.cs  (XS-003)
-  src/FC.Engine.Infrastructure/Validation/Rules/CrossSheet/Mfcr306ToMfcr300Rule.cs  (XS-004)
-  ... (XS-005 through XS-017 for all security/placement schedules)
-  src/FC.Engine.Infrastructure/Validation/Rules/CrossSheet/Mfcr338ToMfcr300Rule.cs  (XS-018 through XS-026 for loan schedules)
-  tests/FC.Engine.Integration.Tests/CrossSheetValidationTests.cs
-```
-
-**Application layer additions**:
-
-```
-  src/FC.Engine.Application/Services/CrossSheetValidationService.cs
-  src/FC.Engine.Application/Commands/SubmitBatch/SubmitBatchCommand.cs
-  src/FC.Engine.Application/Commands/SubmitBatch/SubmitBatchHandler.cs
-```
-
-**Milestone**: All 300-series returns parse, validate intra-sheet, and cross-validate against MFCR 300 line items. Batch submission API works.
-
----
-
-### Phase 3: Remaining Monthly Returns (Weeks 5-6)
-
-**Goal**: Income breakdown returns (1000-series), impairments, other assets/liabilities, contingencies.
-
-**Returns to implement** (~35 returns):
-
-```
-MFCR 348, 349, 350, 351, 351(2)
-MFCR 352, 354, 356, 357, 358, 360, 362
-QFCR 364, 366, 368, 370, 372, 374
-MFCR 376, QFCR 376-1
-QFCR 377, 379, 381, 381-1
-MFCR 334-1, 385, 387, 388, 395, 397, 397-1
-MFCR 1002, 1004, 1006, 1008, 1010, 1012, 1014, 1016, 1018, 1018-1, 1020
-```
-
-**Cross-sheet rules added**:
-
-```
-  XS-027 through XS-042 (investment, liability, income cross-checks)
-  MFCR 1000 to MFCR 1002 (govt securities income)
-  MFCR 387 to MFCR 1000 (unaudited profit cross-check)
-```
-
-**Milestone**: All monthly-frequency returns operational. Complete income statement and balance sheet validation chain.
-
----
-
-### Phase 4: Quarterly, Semi-Annual, and Specialized Returns (Weeks 7-8)
-
-**Goal**: Lending/borrowing returns (1500-series), semi-annual corporate returns (1900-series), capital adequacy, and derived returns.
-
-**Returns to implement** (~25 returns):
-
-```
-MFCR 1510, 1520, 1530, 1540, 1550
-MFCR 1570, 1590, 1600, 1610, 1620, 1630
-SFCR 1900, 1910, 1920, 1930, 1940, 1950, 1960
-FC CAR 1, FC CAR 2, FC ACR, FC FHR, FC CVR, FC RATING
-CONSOL, NPL, REPORTS (KRI)
-sheet2_return_codes, cleaned_summary, summary, sheet3_top10_rankings
-```
-
-**Cross-sheet rules added**:
-
-```
-  XS-043 (FC CAR reads from MFCR 300)
-  XS-044, XS-045 (FC ACR reads from MFCR 300 + MFCR 1000)
-```
-
-**Business rules added**:
-
-```
-  src/FC.Engine.Infrastructure/Validation/Rules/Business/DateInPastRule.cs
-  src/FC.Engine.Infrastructure/Validation/Rules/Business/DecimalPrecisionRule.cs
-  src/FC.Engine.Infrastructure/Validation/Rules/Business/NonZeroRequiredFieldRule.cs
-  src/FC.Engine.Infrastructure/Validation/Rules/Business/DropdownValueRule.cs
-  src/FC.Engine.Infrastructure/Validation/Rules/Business/ConditionalRequiredRule.cs
-  src/FC.Engine.Infrastructure/Validation/Rules/Business/CapitalAdequacyMinimumRule.cs
-  src/FC.Engine.Infrastructure/Validation/Rules/Business/LendingLimitRule.cs
-```
-
-**Milestone**: All 103 returns implemented. Full CBN compliance validation.
-
----
-
-### Phase 5: Hardening, Reporting, and Polish (Weeks 9-10)
-
-**Goal**: Production readiness.
-
-```
-Files:
-  src/FC.Engine.Api/Middleware/RequestLoggingMiddleware.cs
-  src/FC.Engine.Api/Endpoints/ValidationEndpoints.cs
-  src/FC.Engine.Api/Endpoints/ReturnDataEndpoints.cs
-  src/FC.Engine.Api/Endpoints/ReferenceDataEndpoints.cs
-  src/FC.Engine.Application/Queries/GetSubmission/GetSubmissionQuery.cs
-  src/FC.Engine.Application/Queries/GetSubmission/GetSubmissionHandler.cs
-  src/FC.Engine.Application/Queries/GetValidationReport/GetValidationReportQuery.cs
-  src/FC.Engine.Application/Queries/GetValidationReport/GetValidationReportHandler.cs
-  src/FC.Engine.Application/Queries/GetReturnData/GetReturnDataQuery.cs
-  src/FC.Engine.Application/Queries/GetReturnData/GetReturnDataHandler.cs
-  docker/docker-compose.override.yml (dev overrides)
-  docs/return-codes.md
-  docs/validation-rules.md
-  docs/api-reference.md
-  docs/cross-sheet-map.md
-
-Tasks:
-  - Add health check endpoints (/health, /ready)
-  - Add structured logging (Serilog)
-  - Add OpenAPI/Swagger documentation
-  - Add rate limiting
-  - Add response compression
-  - Performance test with full submission batch
-  - Comprehensive integration test suite
-  - Load test with concurrent submissions
-```
-
----
-
-## 6. Key Design Decisions and Trade-offs
-
-### 6.1 Why Separate EF Entities from Domain Models
-
-The domain `Mfcr300Data` and EF `Mfcr300Entity` are separate classes with a mapping layer between them. Rationale:
-- Domain models can have computed properties, validation logic, and business methods without ORM leak
-- EF entities can be flat, table-mapped POCOs optimized for persistence
-- Prevents EF change tracking from interfering with validation logic
-- The mapping cost is negligible compared to XML parsing + DB I/O
-
-### 6.2 Why Not Code-Generate All 103 Return Types
-
-While tempting, code generation from the Excel/SQL schema introduces fragility:
-- Each return has unique validation semantics that require human understanding
-- The three structural categories (FixedRow, MultiRow, ItemCoded) have different code patterns
-- However, within each category, many tables share identical structures (e.g., QFCR 364-376 all have the same column layout). For these, we use a generic base class with column-name configuration, reducing the per-return boilerplate.
-
-### 6.3 Why JSON Rule Definitions + Code Rules (Hybrid)
-
-Simple sum/difference formulas can be expressed in JSON configuration:
-
-```json
-{
-  "returnCode": "MFCR300",
-  "rules": [
+    
+    private static StructuralCategory DetectStructuralCategory(List<ColumnDef> columns)
     {
-      "ruleId": "MFCR300_SUM_CASH",
-      "type": "sum",
-      "target": "total_cash",
-      "addends": ["cash_notes", "cash_coins"]
+        if (columns.Any(c => c.Name == "item_code")) return StructuralCategory.ItemCoded;
+        if (columns.Any(c => c.Name == "serial_no")) return StructuralCategory.MultiRow;
+        return StructuralCategory.FixedRow;
     }
-  ]
+    
+    private static string InferReturnCode(string tableName)
+    {
+        // mfcr_300 -> "MFCR 300"
+        // qfcr_364 -> "QFCR 364"
+        // mfcr_306_1 -> "MFCR 306-1"
+        // fc_car_1 -> "FC CAR 1"
+        // ... pattern matching logic
+    }
 }
 ```
 
-Complex cross-sheet rules and conditional business rules require C# code. The hybrid approach means:
-- Simple rules can be updated without recompilation (loaded from JSON at startup)
-- Complex rules get the full power of C# with compile-time safety
-- The `FormulaEvaluator` class interprets JSON rules; coded rules implement interfaces directly
+### C.13 TemplateMetadataCache
 
-### 6.4 Cross-Sheet Validation Timing
+```csharp
+// FC.Engine.Infrastructure/Caching/TemplateMetadataCache.cs
+namespace FC.Engine.Infrastructure.Caching;
 
-Cross-sheet validation cannot run until both sides of a cross-reference have been submitted. Two strategies:
+public interface ITemplateMetadataCache
+{
+    Task<CachedTemplate> GetPublishedTemplate(string returnCode, CancellationToken ct);
+    void Invalidate(string returnCode);
+    void InvalidateAll();
+}
 
-**Strategy A (Recommended for Phase 1)**: Validate at batch submission time. The batch endpoint accepts all related returns together and runs cross-sheet after all are parsed.
-
-**Strategy B (Phase 2 enhancement)**: Deferred cross-sheet validation. When submitting a single return, cross-sheet rules produce warnings if the counterpart is not yet submitted. When the counterpart arrives, re-run cross-sheet rules for both.
-
-### 6.5 Schema Conversion: PostgreSQL to SQL Server
-
-The existing `schema.sql` uses PostgreSQL syntax (`SERIAL`, `NUMERIC`, `TIMESTAMP`, `BOOLEAN`). For SQL Server:
-- `SERIAL PRIMARY KEY` becomes `INT IDENTITY(1,1) PRIMARY KEY`
-- `NUMERIC(20,2)` stays as `DECIMAL(20,2)`
-- `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` becomes `DATETIME2 DEFAULT GETUTCDATE()`
-- `BOOLEAN` becomes `BIT`
-- `TEXT` stays as `NVARCHAR(MAX)`
-
-EF Core migrations will handle this conversion naturally when we define entities with Fluent API configurations targeting SQL Server.
-
----
-
-## 7. Dependency Graph
-
-```
-FC.Engine.Api
-  |-- FC.Engine.Application
-  |     |-- FC.Engine.Domain
-  |-- FC.Engine.Infrastructure
-        |-- FC.Engine.Domain
-
-FC.Engine.Migrator
-  |-- FC.Engine.Infrastructure
-        |-- FC.Engine.Domain
-```
-
-NuGet packages per project:
-
-```
-FC.Engine.Domain:
-  (no external dependencies -- pure C#)
-
-FC.Engine.Application:
-  MediatR (optional, for CQRS)
-  FluentValidation (for command validation)
-
-FC.Engine.Infrastructure:
-  Microsoft.EntityFrameworkCore.SqlServer
-  Microsoft.EntityFrameworkCore.Design (for migrations)
-  System.Xml.XmlSerializer (built-in)
-
-FC.Engine.Api:
-  Microsoft.AspNetCore.OpenApi
-  Swashbuckle.AspNetCore
-  Serilog.AspNetCore
-  Serilog.Sinks.Console
-
-FC.Engine.Migrator:
-  Microsoft.EntityFrameworkCore.Design
-  Microsoft.EntityFrameworkCore.SqlServer
-
-Tests:
-  xunit
-  FluentAssertions
-  NSubstitute
-  Microsoft.EntityFrameworkCore.InMemory (or Testcontainers.MsSql)
-  Testcontainers.MsSql (for integration tests)
+public class TemplateMetadataCache : ITemplateMetadataCache
+{
+    private readonly ConcurrentDictionary<string, CachedTemplate> _cache = new();
+    private readonly ITemplateRepository _repo;
+    private readonly SemaphoreSlim _lock = new(1, 1);
+    
+    public async Task<CachedTemplate> GetPublishedTemplate(string returnCode, CancellationToken ct)
+    {
+        var key = returnCode.ToUpperInvariant().Trim();
+        
+        if (_cache.TryGetValue(key, out var cached))
+            return cached;
+        
+        await _lock.WaitAsync(ct);
+        try
+        {
+            if (_cache.TryGetValue(key, out cached))
+                return cached;
+            
+            var template = await _repo.GetPublishedByReturnCode(key, ct);
+            if (template == null)
+                throw new InvalidOperationException($"No published template for '{returnCode}'");
+            
+            // Build cached view with eager-loaded fields, formulas, item codes
+            cached = new CachedTemplate
+            {
+                ReturnCode = template.ReturnCode,
+                Name = template.Name,
+                StructuralCategory = template.StructuralCategory,
+                PhysicalTableName = template.PhysicalTableName,
+                XmlRootElement = template.XmlRootElement,
+                XmlNamespace = template.XmlNamespace,
+                CurrentVersion = BuildCachedVersion(template.CurrentPublishedVersion!)
+            };
+            
+            _cache[key] = cached;
+            return cached;
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+    
+    public void Invalidate(string returnCode) =>
+        _cache.TryRemove(returnCode.ToUpperInvariant().Trim(), out _);
+    
+    public void InvalidateAll() => _cache.Clear();
+}
 ```
 
 ---
 
-## 8. Return Type Classification Summary
+## D. Data Flows
 
-From the full schema analysis, here is how each of the 103 data tables (excluding 8 reference tables) maps to a structural category:
+### D.1 CBN User Creates a New Template via Admin Portal
 
-**Fixed-Row (single record per submission, ~8 tables)**:
-`mfcr_300`, `mfcr_1000`, `mfcr_100`, `fc_car_2`, `fc_acr`, `fc_rating`, `sfcr_1910`
+```
+1. User navigates to Admin Portal -> Templates -> "Create New Template"
+2. Fills in: Return Code = "MFCR 2000", Name = "Digital Banking Returns",
+   Frequency = Monthly, Category = FixedRow
+3. System creates meta.return_templates row + meta.template_versions (v1, status=Draft)
+4. User switches to Field Editor tab, adds fields one by one:
+   - field_name=digital_wallet_balance, display_name="Digital Wallet Balance",
+     data_type=Money, line_code=50110
+   - field_name=mobile_transactions_count, display_name="Mobile Transaction Count",
+     data_type=Integer, line_code=50120
+   - (... more fields ...)
+5. Each field insert creates a meta.template_fields row
+6. User switches to Formula Builder tab:
+   - Creates formula: total_digital_balance = digital_wallet_balance + mobile_money_balance
+   - System stores in meta.intra_sheet_formulas:
+     rule_code="MFCR2000_SUM_TOTAL_DIGITAL", formula_type=Sum,
+     target_field_name="total_digital_balance",
+     operand_fields=["digital_wallet_balance","mobile_money_balance"]
+7. User clicks "Submit for Review" -> status changes to Review
+8. Approver reviews and clicks "Publish"
+9. TemplateVersioningService.PublishVersion() executes:
+   a. DdlEngine.GenerateCreateTable() produces:
+      CREATE TABLE dbo.[mfcr_2000] (
+          id INT IDENTITY(1,1) PRIMARY KEY,
+          submission_id INT NOT NULL REFERENCES dbo.return_submissions(id),
+          digital_wallet_balance DECIMAL(20,2),
+          mobile_transactions_count INT,
+          ...
+          created_at DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+      );
+   b. DdlMigrationExecutor runs DDL in a transaction
+   c. Records migration in meta.ddl_migrations
+   d. Version status -> Published
+   e. Cache invalidated
+10. Template is now live -- Finance Companies can submit XML for "MFCR 2000"
+```
 
-**Multi-Row with serial_no (~60 tables)**:
-`mfcr_302`, `mfcr_304`, `mfcr_306`, `mfcr_306_1`, `mfcr_308`, `mfcr_310`, `mfcr_312`, `mfcr_314`, `mfcr_314_1`, `mfcr_316`, `mfcr_318`, `mfcr_320`, `mfcr_322`, `mfcr_324`, `mfcr_326`, `mfcr_328`, `mfcr_330`, `mfcr_332`, `mfcr_334`, `mfcr_334_1`, `mfcr_336`, `mfcr_336_1`, `mfcr_338`, `mfcr_340`, `mfcr_342`, `mfcr_344`, `mfcr_346`, `mfcr_346_1`, `mfcr_348`, `mfcr_349`, `mfcr_350`, `mfcr_351`, `mfcr_351_2`, `mfcr_352`, `mfcr_354`, `mfcr_360`, `mfcr_376`, `mfcr_385`, `mfcr_388`, `mfcr_395`, `mfcr_397`, `mfcr_397_1`, `qfcr_364`, `qfcr_366`, `qfcr_368`, `qfcr_370`, `qfcr_372`, `qfcr_374`, `qfcr_376_1`, `qfcr_377`, `qfcr_379`, `qfcr_381`, `qfcr_381_1`, `mfcr_1004`, `mfcr_1008`, `mfcr_1012`, `mfcr_1014`, `mfcr_1016`, `mfcr_1018`, `mfcr_1018_1`, `mfcr_1510`, `mfcr_1520`, `mfcr_1530`, `mfcr_1570`, `mfcr_1590`, `mfcr_1600`, `mfcr_1610`, `mfcr_1620`, `sfcr_1900`, `sfcr_1920`, `sfcr_1930`, `sfcr_1940`, `sfcr_1950`, `sfcr_1960`, `npl`
+### D.2 Finance Company Submits XML for That Template
 
-**Item-Coded with item_code (~15 tables)**:
-`mfcr_356`, `mfcr_357`, `mfcr_358`, `mfcr_362`, `mfcr_387`, `mfcr_1002`, `mfcr_1006`, `mfcr_1010`, `mfcr_1020`, `mfcr_1540`, `mfcr_1550`, `fc_car_1`, `fc_fhr`, `fc_cvr`
+```
+1. FC submits POST /api/submissions/MFCR%202000 with XML body:
+   <MFCR2000 xmlns="urn:cbn:dfis:fc:mfcr2000">
+     <Header>
+       <InstitutionCode>FC001</InstitutionCode>
+       <ReportingDate>2026-01-31</ReportingDate>
+       <ReturnCode>MFCR2000</ReturnCode>
+     </Header>
+     <Data>
+       <DigitalWalletBalance>5000000.00</DigitalWalletBalance>
+       <MobileTransactionsCount>15432</MobileTransactionsCount>
+       ...
+     </Data>
+   </MFCR2000>
 
-**Aggregation/Report tables** (not per-submission):
-`consol`, `reports_kri`, `sheet3_top10_rankings`, `sheet2_return_codes`, `cleaned_summary`, `summary`
+2. IngestionOrchestrator.ProcessSubmission():
+   a. Looks up template metadata from cache (CachedTemplate for "MFCR 2000")
+   b. Creates Submission record (status=Draft)
+   
+3. XSD Validation:
+   a. XsdGenerator.GenerateSchema("MFCR 2000") reads template_fields from cache
+   b. Generates XSD on-the-fly (cached after first generation)
+   c. Validates XML against generated XSD
+   d. If XSD errors: Submission -> Rejected, return validation report
+   
+4. XML Parsing:
+   a. GenericXmlParser.Parse(xmlStream, "MFCR 2000")
+   b. Reads field definitions from cache: [{FieldName:"digital_wallet_balance", XmlElementName:"DigitalWalletBalance", DataType:Money}, ...]
+   c. For each field, finds <DigitalWalletBalance> element, converts to decimal
+   d. Returns ReturnDataRecord with one ReturnDataRow containing all field values
+   
+5. Validation:
+   a. ValidationOrchestrator.ValidateAll():
+      Phase 1 - TypeRange: checks required fields, min/max, allowed_values
+      Phase 2 - IntraSheet: FormulaEvaluator reads formula metadata:
+        - MFCR2000_SUM_TOTAL_DIGITAL: Sum type, target=total_digital_balance,
+          operands=[digital_wallet_balance, mobile_money_balance]
+        - Gets operand values from ReturnDataRow, computes sum, compares to target
+      Phase 3 - CrossSheet: (none defined for new template initially)
+      Phase 4 - Business: (none defined initially)
+   b. Returns ValidationReport with any errors/warnings
+   
+6. Persistence:
+   a. If valid: GenericDataRepository.Save(record, submissionId)
+   b. DynamicSqlBuilder.BuildInsert() generates:
+      INSERT INTO dbo.[mfcr_2000] (submission_id, digital_wallet_balance, mobile_transactions_count, ...)
+      VALUES (@submission_id, @digital_wallet_balance, @mobile_transactions_count, ...)
+   c. Executes via Dapper with parameterized values
+   d. Submission -> Accepted
+   
+7. Returns SubmissionResultDto with validation report
+```
+
+### D.3 CBN User Modifies an Existing Template (Adds a Field)
+
+```
+1. User navigates to Admin Portal -> Templates -> "MFCR 300" -> "Create New Version"
+2. TemplateVersioningService.CreateNewDraftVersion():
+   a. Clones current published version (v1) into new draft (v2)
+   b. Copies all 40+ fields, all formulas, all item codes
+   c. v2 status = Draft
+   
+3. User adds new field in Field Editor:
+   - field_name=digital_assets, display_name="Digital Assets (Crypto)",
+     data_type=Money, line_code=10675
+   
+4. User modifies existing formula for total_assets:
+   - Adds "digital_assets" to the operand list of the total_assets sum formula
+   
+5. User clicks "Preview":
+   - System generates sample XSD showing new field
+   - Shows impact analysis: "42 institutions will need to include this field"
+   
+6. User submits for Review, Approver publishes
+7. TemplateVersioningService.PublishVersion():
+   a. DdlEngine.GenerateAlterTable(template, v1, v2):
+      - Compares fields: v2 has one new field "digital_assets"
+      - Generates: ALTER TABLE dbo.[mfcr_300] ADD [digital_assets] DECIMAL(20,2);
+   b. Executes DDL
+   c. Records migration: version_from=1, version_to=2, migration_type=AddColumn
+   d. v1 -> Deprecated, v2 -> Published
+   e. Cache invalidated
+   
+8. Existing data in mfcr_300 is preserved -- new column has NULL for old submissions
+9. New submissions will include the digital_assets field
+10. Formulas automatically pick up the new field since they reference by field_name
+```
 
 ---
 
-## 9. Potential Challenges and Mitigations
+## E. Admin Portal Pages (Blazor Server)
 
-| Challenge | Mitigation |
-|-----------|-----------|
-| 103 XSD schemas to create | Create 3 XSD template generators (one per structural category). Many multi-row tables share identical column layouts (e.g., QFCR 364-376). |
-| 103 EF configurations | Use a convention-based `IEntityTypeConfiguration<T>` with reflection for common patterns. Only custom configs for tables with unique constraints. |
-| Formula catalog is in Excel binary format | Extract the 508 formulas into a JSON catalog (manual or scripted via Python/openpyxl). This JSON becomes the authoritative formula registry. |
-| Cross-sheet validation ordering | Batch submission API ensures all returns arrive together. Deferred validation with re-run on second arrival as Phase 2 enhancement. |
-| Performance with 103 tables | Lazy-load cross-sheet dependencies only when needed. Index on `(institution_id, return_period_id, return_code)` ensures fast lookups. |
-| PostgreSQL schema to SQL Server | EF Core migrations generate SQL Server DDL natively. The existing `schema.sql` serves as documentation, not as migration source. |
+### E.1 Dashboard (`/admin`)
+- Overview statistics: 103 templates, 508 formulas, recent submissions
+- Pending approvals: draft versions awaiting review
+- Recent audit activity
+- System health: last DDL migration, cache status
+
+### E.2 Template List (`/admin/templates`)
+- Searchable/filterable data grid of all 103+ templates
+- Columns: Return Code, Name, Frequency, Category, Status, Version, Last Modified
+- Filters: by frequency (Monthly/Quarterly/Semi-Annual), by category, by status
+- Actions: View, Create New, Create New Version
+
+### E.3 Template Designer (`/admin/templates/{id}`)
+- **Header section**: Return Code, Name, Description, Frequency, Category (read-only after creation)
+- **Tabs**:
+  - **Fields**: Editable data grid with drag-and-drop reordering
+    - Columns: Field Name, Display Name, XML Element, Line Code, Data Type, Required, Section
+    - Add/Remove/Edit fields (only if version is Draft)
+    - Bulk import from CSV
+  - **Sections**: Define section groupings with ordering
+  - **Item Codes** (visible only for ItemCoded): Define predefined item codes and descriptions
+  - **Preview**: Shows auto-generated XSD and sample XML
+  - **History**: Version timeline with diff view
+
+### E.4 Formula Builder (`/admin/templates/{id}/formulas`)
+- List of all intra-sheet formulas for this template
+- Inline formula editor:
+  - Target field dropdown (auto-populated from template fields)
+  - Formula type selector (Sum, Difference, Equals, Custom, etc.)
+  - Operand field multi-select
+  - Custom expression editor (for Formula type = Custom)
+  - Tolerance settings (amount or percentage)
+  - Severity selector
+  - Custom error message
+- **Test Runner**: Upload sample XML and run formulas to see validation results
+
+### E.5 Cross-Sheet Rule Editor (`/admin/cross-sheet-rules`)
+- List of all 45 cross-sheet rules
+- Editor:
+  - Rule code, name, description
+  - Operand grid: Alias (A, B, C) + Template dropdown + Field dropdown + Aggregate function
+  - Expression builder: "A = B + C" with syntax highlighting
+  - Tolerance settings
+- Test with sample data from specific institution/period
+
+### E.6 Business Rule Editor (`/admin/business-rules`)
+- List of business rules
+- Expression editor with template/field references
+- Applicability: which templates/fields this rule applies to
+
+### E.7 Version History & Approval (`/admin/templates/{id}/versions`)
+- Timeline of all versions with status badges (Draft, Review, Published, Deprecated)
+- Diff view: compare two versions side by side (fields added/removed/changed)
+- Approval workflow: Review button, Publish button (with confirmation)
+- Rollback capability: revert to previous version (re-executes rollback DDL)
+
+### E.8 Submission Browser (`/admin/submissions`)
+- Data grid of all submissions across all templates
+- Filters: by institution, by template, by period, by status
+- Drill-down to validation report
+- Reprocessing: re-validate existing submissions against updated formulas
+
+### E.9 Audit Log (`/admin/audit`)
+- Chronological log of all metadata changes
+- Filters: by entity type, by user, by date range
+- Detail view: shows old/new values as JSON diff
+
+### E.10 Impact Analysis (`/admin/templates/{id}/impact`)
+- When modifying a template: shows which institutions have existing submissions
+- When changing formulas: shows how many existing submissions would pass/fail
+- Dry-run: re-validate all existing data against proposed changes without persisting
+
+---
+
+## F. Phased Implementation Plan
+
+### Phase 1: Foundation (Weeks 1-4)
+**Goal**: Metadata schema, core engine, seed existing 103 templates
+
+1. **Week 1**: Metadata database schema
+   - Create all `meta.*` tables (return_templates, template_versions, template_fields, etc.)
+   - Create validation rule tables (intra_sheet_formulas, cross_sheet_rules, business_rules)
+   - Create audit_log and ddl_migrations tables
+   - EF Core migrations for metadata schema
+
+2. **Week 2**: Domain model and metadata repository
+   - `ReturnDataRecord` / `ReturnDataRow` (replaces all IReturnData implementations)
+   - `ReturnTemplate`, `TemplateVersion`, `TemplateField` domain entities
+   - `IntraSheetFormula`, `CrossSheetRule`, `BusinessRule` entities
+   - `ITemplateRepository`, `IFormulaRepository` with EF implementations
+   - `TemplateMetadataCache` with in-memory caching
+
+3. **Week 3**: DdlEngine and SeedService
+   - `DdlEngine`: GenerateCreateTable, GenerateAlterTable
+   - `DdlMigrationExecutor`: safe DDL execution with transaction and logging
+   - `SeedService`: parse schema.sql, create metadata rows for all 103 templates
+   - Execute seed: all 103 templates in metadata with Published status
+
+4. **Week 4**: Testing Phase 1
+   - Unit tests for DdlEngine (generate expected DDL from metadata)
+   - Unit tests for SeedService (verify all 103 templates correctly parsed)
+   - Integration test: seed -> verify metadata -> verify physical tables exist
+
+### Phase 2: Generic Pipeline (Weeks 5-8)
+**Goal**: Replace hardcoded parsing and persistence for all templates
+
+5. **Week 5**: XsdGenerator and GenericXmlParser
+   - `XsdGenerator`: generate XSD from template_fields metadata (FixedRow, MultiRow, ItemCoded)
+   - `GenericXmlParser`: parse any XML using field metadata
+   - Verify: generated XSD for MFCR 300 matches existing `MFCR300.xsd` semantically
+   - Verify: GenericXmlParser produces same data as Mfcr300XmlParser
+
+6. **Week 6**: GenericDataRepository
+   - `DynamicSqlBuilder`: parameterized INSERT/SELECT/DELETE
+   - `GenericDataRepository`: Dapper-based CRUD against any physical table
+   - Verify: roundtrip test -- parse XML, save via generic repo, read back, compare
+
+7. **Week 7**: Rewrite IngestionOrchestrator
+   - Replace typed pipeline with generic pipeline
+   - Remove `IReturnData`, `Mfcr300Data`, `Mfcr300XmlParser`, `Mfcr300Entity`, etc.
+   - Remove `XmlParserFactory`, `XsdSchemaProvider` (replaced by metadata-driven versions)
+   - Remove all per-template DI registrations
+
+8. **Week 8**: Testing Phase 2
+   - End-to-end: submit XML for each of the 3 structural categories
+   - Regression: submit MFCR 300 XML through generic pipeline, compare results to old
+   - Performance: measure latency of metadata lookup + generic parsing + Dapper persistence
+
+### Phase 3: Validation Engine (Weeks 9-12)
+**Goal**: Formula evaluator, cross-sheet validator, expression parser
+
+9. **Week 9**: FormulaEvaluator
+   - Implement all formula types: Sum, Difference, Equals, GreaterThan, etc.
+   - Tolerance handling (amount and percentage)
+   - Seed MFCR 300 sum rules into metadata from existing `Mfcr300SumRules.cs`
+   - Verify: FormulaEvaluator produces identical errors to hardcoded Mfcr300SumRules
+
+10. **Week 10**: ExpressionParser
+    - Tokenizer and shunting-yard parser for arithmetic expressions
+    - Comparison expression evaluation
+    - Unit tests: "A + B - C", "A >= B * 0.125", "(A + B) / C = D"
+
+11. **Week 11**: CrossSheetValidator and BusinessRuleEvaluator
+    - Implement cross-sheet rule loading and evaluation
+    - Seed the 45 cross-sheet rules (XS-001 through XS-045)
+    - BusinessRuleEvaluator for generic rules
+
+12. **Week 12**: Seed All 508 Formulas
+    - Parse formula_catalog.xlsx into intra_sheet_formulas rows
+    - Create seed script for cross-sheet rules
+    - Full validation regression test against sample data
+
+### Phase 4: Admin Portal (Weeks 13-18)
+**Goal**: Blazor Server admin portal for template and rule management
+
+13. **Week 13**: Admin portal scaffolding
+    - Blazor Server project setup with authentication
+    - Shared layout, navigation, common components
+    - Dashboard page
+
+14. **Week 14**: Template management pages
+    - Template list with search/filter
+    - Template designer: field editor grid
+    - Data type selector, section management
+
+15. **Week 15**: Formula builder
+    - Intra-sheet formula editor with field dropdowns
+    - Formula type selector with dynamic operand configuration
+    - Custom expression editor
+
+16. **Week 16**: Cross-sheet rules and business rules
+    - Cross-sheet rule editor with multi-template operands
+    - Expression builder with syntax validation
+    - Business rule editor
+
+17. **Week 17**: Versioning and publishing workflow
+    - Version history timeline
+    - Diff view (field-level comparison between versions)
+    - Publish workflow with DDL preview and confirmation
+    - Rollback capability
+
+18. **Week 18**: Testing and polish
+    - End-to-end: create template in Admin -> submit XML via API -> view results in Admin
+    - Audit log page
+    - Impact analysis
+    - Submission browser
+
+### Phase 5: Production Hardening (Weeks 19-22)
+**Goal**: Performance, security, documentation, deployment
+
+19. **Week 19**: Performance optimization
+    - Template metadata cache warming on startup
+    - XSD cache management
+    - Dapper query optimization
+    - Connection pooling configuration
+
+20. **Week 20**: Security and auth
+    - Role-based access: Admin (create/edit), Approver (publish), Viewer (read-only)
+    - API authentication (JWT or API keys for FC submissions)
+    - Admin portal authentication (CBN internal auth)
+    - SQL injection prevention review (parameterized queries throughout)
+
+21. **Week 21**: Docker Compose update and deployment
+    - Add Blazor Admin service to docker-compose.yml
+    - Health checks for all services
+    - Environment-specific configuration
+    - CI/CD pipeline
+
+22. **Week 22**: Documentation and handover
+    - Admin portal user guide
+    - API documentation (OpenAPI/Swagger)
+    - Template creation guide for CBN users
+    - Formula authoring guide
+    - Operations runbook
+
+---
+
+## G. Key Design Decisions
+
+### G.1 Dictionary<string, object?> vs Strongly-Typed
+
+**Decision**: Use `ReturnDataRecord` containing `ReturnDataRow` (which wraps `Dictionary<string, object?>`) as the universal data container.
+
+**Rationale**: The entire point of the metadata-driven approach is that template structure is defined in the database, not in code. Strongly-typed C# classes per template are exactly what we are eliminating. The dictionary approach:
+- Works identically for all 103 templates without code changes
+- New templates added via Admin Portal work immediately
+- Field additions require no code deployment
+- Type safety is enforced at the metadata level (FieldDataType enum + runtime conversion)
+- Performance penalty of dictionary lookup vs property access is negligible (nanoseconds) compared to DB I/O
+
+**Guard rails**: The `ReturnDataRow.GetDecimal()`, `GetValue()` etc. methods provide type-safe accessors. The `FieldDataType` enum in metadata ensures correct conversion at parse time.
+
+### G.2 How to Generate DDL Safely
+
+**Decision**: DdlEngine generates DDL scripts. DdlMigrationExecutor runs them in a transaction with pre/post verification.
+
+**Safety measures**:
+1. DDL is generated, not hand-written -- eliminates SQL injection risk in table/column names (validated against regex `^[a-z_][a-z0-9_]*$`)
+2. ALTER TABLE only adds columns or widens types -- never drops columns (data preservation)
+3. Every DDL execution is recorded in `meta.ddl_migrations` with a rollback script
+4. Publish workflow requires Review status -- two-person approval
+5. Preview mode: admin can see the exact DDL before execution
+6. DDL runs in a serializable transaction with schema lock
+7. Table names use a safe prefix pattern derived from return codes
+
+### G.3 Template Version Migrations (Data in Old Table Format)
+
+**Decision**: When a template version changes, the physical table is altered in place. Old data rows retain their existing column values. New columns are nullable and contain NULL for pre-existing rows.
+
+**Key principles**:
+- Columns are never dropped (deprecated fields stay in the table but are removed from the active template version's field list)
+- Column types can only be widened (e.g., `VARCHAR(100)` to `VARCHAR(255)`, `DECIMAL(20,2)` to `DECIMAL(30,2)`)
+- Each submission records `template_version_id`, so the system knows which version's fields apply
+- When reading old data, missing fields (not in old version) return NULL
+- When re-validating old data, the system uses the version-at-time-of-submission, not the current version
+
+### G.4 Expression Language for Custom Formulas
+
+**Decision**: Simple arithmetic expression language with standard operator precedence.
+
+**Supported syntax**:
+```
+Arithmetic: A + B - C * D / E
+Grouping:   (A + B) * C
+Comparison: A = B + C
+             A >= B * 0.125
+             A != 0
+             A > B AND C > D    (future: boolean connectives)
+Variables:  field_name (e.g., total_assets)
+            alias (e.g., A, B, C -- used in cross-sheet rules)
+Literals:   123.45, 0.125
+```
+
+**Implementation**: Standard shunting-yard algorithm (Dijkstra) with a tokenizer and postfix evaluator. This is approximately 200 lines of code and handles all common financial formula patterns without requiring an external expression library.
+
+**Why not use a full scripting engine (Roslyn, NCalc, etc.)?**: Security. CBN business users will author these expressions through a UI. A simple arithmetic-only parser prevents injection of arbitrary code. NCalc would be a reasonable alternative if richer expressions are needed in the future.
+
+### G.5 How the Generic XML Parser Works Without Per-Template Code
+
+**Decision**: The parser reads template field metadata (cached) and iterates over the XML elements to extract values by matching `xml_element_name` to actual XML element names.
+
+**Mechanism**:
+1. Template metadata (from cache) provides the list of expected fields with their `xml_element_name` and `data_type`
+2. The `structural_category` (FixedRow/MultiRow/ItemCoded) determines the XML traversal strategy
+3. For **FixedRow**: navigate to the data section, iterate fields, find matching elements
+4. For **MultiRow**: find repeating Row elements, for each row iterate fields
+5. For **ItemCoded**: find repeating Item elements, identify by item_code field, iterate remaining fields
+
+**The parser is truly generic** -- it uses zero template-specific code. Adding a new template with 50 fields requires only 50 rows in `meta.template_fields`, zero C# code.
+
+### G.6 How the Generic Data Repository Does CRUD Without EF Entity Classes
+
+**Decision**: Use Dapper with dynamically constructed parameterized SQL.
+
+**Mechanism**:
+1. `DynamicSqlBuilder.BuildInsert()` reads the field list from metadata and the values from `ReturnDataRow`
+2. It constructs: `INSERT INTO dbo.[{tableName}] ([field1], [field2], ...) VALUES (@field1, @field2, ...)`
+3. All values are bound as Dapper `DynamicParameters` -- fully parameterized, no SQL injection
+4. `BuildSelect()` similarly constructs: `SELECT [field1], [field2], ... FROM dbo.[{tableName}] WHERE submission_id = @submissionId`
+5. Dapper returns `IEnumerable<dynamic>` which is cast to `IDictionary<string, object>` for field extraction
+
+**Why Dapper over EF Core for data tables?**: EF Core requires compile-time entity classes. Since template structure is defined at runtime in metadata, EF Core's strongly-typed model is not applicable for the 103 data tables. EF Core IS still used for the operational tables (submissions, institutions, etc.) and the metadata tables (return_templates, template_fields, etc.) which have fixed schemas.
 
 ---
 
 ### Critical Files for Implementation
-
-- `/Users/mac/codes/fcs/schema.sql` - The complete 2487-line SQL schema with all 111 tables, column definitions, line codes, and indexes. This is the single source of truth for every return template's data structure and serves as the blueprint for all EF Core entity configurations, domain models, and XSD schemas.
-- `/Users/mac/Downloads/formula_catalog_dfis_fc_return_templates.xlsx` - Contains all 508 formula cells across 17 sheets. Must be parsed (via Python openpyxl or manual extraction) into a JSON rule catalog that drives both the intra-sheet validation rules and cross-sheet validation map.
-- `/Users/mac/codes/fcs/FC Engine/` (new) `src/FC.Engine.Infrastructure/Validation/RuleRegistry.cs` - The central registry that indexes all validation rules by return code. This is the architectural keystone connecting 103 return types to their applicable intra-sheet, cross-sheet, and business rules.
-- `/Users/mac/codes/fcs/FC Engine/` (new) `src/FC.Engine.Application/Services/IngestionOrchestrator.cs` - The pipeline controller that orchestrates the full submission lifecycle: XML parsing, XSD validation, domain mapping, multi-phase validation, and persistence. Every API call flows through this class.
-- `/Users/mac/codes/fcs/FC Engine/` (new) `src/FC.Engine.Infrastructure/Persistence/FcEngineDbContext.cs` - The EF Core DbContext with DbSets for all 111+ tables. This file, along with its 103+ entity configurations, represents the largest volume of infrastructure code and must accurately mirror schema.sql for SQL Server.
+- `/Users/mac/codes/fcs/schema.sql` - Source of truth for all 103 existing table structures, used by SeedService to populate metadata
+- `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/Validation/Rules/IntraSheet/Mfcr300SumRules.cs` - Pattern for converting hardcoded validation rules into metadata-driven IntraSheetFormula rows
+- `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Application/Services/IngestionOrchestrator.cs` - The submission pipeline to be rewritten to use generic metadata-driven components
+- `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/Xml/Parsers/Mfcr300XmlParser.cs` - Reference for how XML parsing currently works per-template, to be replaced by GenericXmlParser
+- `/Users/mac/codes/fcs/FC Engine/src/FC.Engine.Infrastructure/Persistence/Repositories/ReturnRepository.cs` - The per-template switch/case persistence to be replaced by GenericDataRepository with Dapper

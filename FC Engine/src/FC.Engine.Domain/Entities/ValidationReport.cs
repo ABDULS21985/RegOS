@@ -4,56 +4,32 @@ namespace FC.Engine.Domain.Entities;
 
 public class ValidationReport
 {
-    public int Id { get; private set; }
-    public int SubmissionId { get; private set; }
-    public bool IsValid => !Errors.Any(e => e.Severity == ValidationSeverity.Error);
-    public bool HasWarnings => Errors.Any(e => e.Severity == ValidationSeverity.Warning);
-    public bool HasErrors => Errors.Any(e => e.Severity == ValidationSeverity.Error);
-    public int ErrorCount => Errors.Count(e => e.Severity == ValidationSeverity.Error);
-    public int WarningCount => Errors.Count(e => e.Severity == ValidationSeverity.Warning);
-    public DateTime ValidatedAt { get; private set; }
+    public int Id { get; set; }
+    public int SubmissionId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? FinalizedAt { get; set; }
 
-    public List<ValidationError> Errors { get; private set; } = new();
+    private readonly List<ValidationError> _errors = new();
+    public IReadOnlyList<ValidationError> Errors => _errors.AsReadOnly();
 
-    // Navigation
-    public Submission? Submission { get; private set; }
-
-    private ValidationReport() { }
+    public bool IsValid => !_errors.Any(e => e.Severity == ValidationSeverity.Error);
+    public bool HasWarnings => _errors.Any(e => e.Severity == ValidationSeverity.Warning);
+    public bool HasErrors => _errors.Any(e => e.Severity == ValidationSeverity.Error);
+    public int ErrorCount => _errors.Count(e => e.Severity == ValidationSeverity.Error);
+    public int WarningCount => _errors.Count(e => e.Severity == ValidationSeverity.Warning);
 
     public static ValidationReport Create(int submissionId)
     {
         return new ValidationReport
         {
             SubmissionId = submissionId,
-            ValidatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow
         };
     }
 
-    public void AddError(string ruleId, string field, string message,
-        ValidationSeverity severity, ValidationCategory category,
-        string? expectedValue = null, string? actualValue = null,
-        string? referencedReturnCode = null)
-    {
-        Errors.Add(new ValidationError
-        {
-            RuleId = ruleId,
-            Field = field,
-            Message = message,
-            Severity = severity,
-            Category = category,
-            ExpectedValue = expectedValue,
-            ActualValue = actualValue,
-            ReferencedReturnCode = referencedReturnCode
-        });
-    }
+    public void AddError(ValidationError error) => _errors.Add(error);
 
-    public void AddErrors(IEnumerable<ValidationError> errors)
-    {
-        Errors.AddRange(errors);
-    }
+    public void AddErrors(IEnumerable<ValidationError> errors) => _errors.AddRange(errors);
 
-    public void FinalizeAt(DateTime timestamp)
-    {
-        ValidatedAt = timestamp;
-    }
+    public void FinalizeAt(DateTime timestamp) => FinalizedAt = timestamp;
 }

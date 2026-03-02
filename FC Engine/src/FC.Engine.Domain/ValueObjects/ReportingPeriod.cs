@@ -1,26 +1,8 @@
 namespace FC.Engine.Domain.ValueObjects;
 
-public record ReportingPeriod
+public sealed record ReportingPeriod(int Year, int Month)
 {
-    public int Year { get; }
-    public int Month { get; }
-    public DateOnly ReportingDate { get; }
+    public DateTime ReportingDate => new DateTime(Year, Month, DateTime.DaysInMonth(Year, Month));
 
-    public ReportingPeriod(DateOnly reportingDate)
-    {
-        ReportingDate = reportingDate;
-        Year = reportingDate.Year;
-        Month = reportingDate.Month;
-    }
-
-    public ReportingPeriod(int year, int month)
-    {
-        Year = year;
-        Month = month;
-        ReportingDate = new DateOnly(year, month, DateTime.DaysInMonth(year, month));
-    }
-
-    public string ToKey() => $"{Year:D4}-{Month:D2}";
-
-    public override string ToString() => ReportingDate.ToString("yyyy-MM-dd");
+    public override string ToString() => $"{Year}-{Month:D2}";
 }

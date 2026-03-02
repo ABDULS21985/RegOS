@@ -1,25 +1,24 @@
 using FC.Engine.Domain.Enums;
-using FC.Engine.Domain.ValueObjects;
 
 namespace FC.Engine.Domain.Entities;
 
 public class Submission
 {
-    public int Id { get; private set; }
-    public int InstitutionId { get; private set; }
-    public int ReturnPeriodId { get; private set; }
-    public string ReturnCodeValue { get; private set; } = string.Empty;
-    public SubmissionStatus Status { get; private set; }
-    public DateTime SubmittedAt { get; private set; }
-    public DateTime CreatedAt { get; private set; }
-    public DateTime UpdatedAt { get; private set; }
+    public int Id { get; set; }
+    public int InstitutionId { get; set; }
+    public int ReturnPeriodId { get; set; }
+    public string ReturnCode { get; set; } = string.Empty;
+    public int? TemplateVersionId { get; set; }
+    public SubmissionStatus Status { get; set; }
+    public DateTime SubmittedAt { get; set; }
+    public string? RawXml { get; set; }
+    public string? ParsedDataJson { get; set; }
+    public int? ProcessingDurationMs { get; set; }
+    public DateTime CreatedAt { get; set; }
 
-    // Navigation
-    public Institution? Institution { get; private set; }
-    public ReturnPeriod? ReturnPeriod { get; private set; }
-    public ValidationReport? ValidationReport { get; private set; }
-
-    private Submission() { }
+    public Institution? Institution { get; set; }
+    public ReturnPeriod? ReturnPeriod { get; set; }
+    public ValidationReport? ValidationReport { get; set; }
 
     public static Submission Create(int institutionId, int returnPeriodId, string returnCode)
     {
@@ -27,49 +26,19 @@ public class Submission
         {
             InstitutionId = institutionId,
             ReturnPeriodId = returnPeriodId,
-            ReturnCodeValue = returnCode,
+            ReturnCode = returnCode,
             Status = SubmissionStatus.Draft,
             SubmittedAt = DateTime.UtcNow,
-            CreatedAt = DateTime.UtcNow,
-            UpdatedAt = DateTime.UtcNow
+            CreatedAt = DateTime.UtcNow
         };
     }
 
-    public ReturnCode GetReturnCode() => ReturnCode.Parse(ReturnCodeValue);
-
-    public void MarkParsing()
-    {
-        Status = SubmissionStatus.Parsing;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    public void MarkValidating()
-    {
-        Status = SubmissionStatus.Validating;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    public void MarkAccepted()
-    {
-        Status = SubmissionStatus.Accepted;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    public void MarkAcceptedWithWarnings()
-    {
-        Status = SubmissionStatus.AcceptedWithWarnings;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    public void MarkRejected()
-    {
-        Status = SubmissionStatus.Rejected;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
-    public void AttachValidationReport(ValidationReport report)
-    {
-        ValidationReport = report;
-        UpdatedAt = DateTime.UtcNow;
-    }
+    public void SetTemplateVersion(int templateVersionId) => TemplateVersionId = templateVersionId;
+    public void MarkParsing() => Status = SubmissionStatus.Parsing;
+    public void MarkValidating() => Status = SubmissionStatus.Validating;
+    public void MarkAccepted() => Status = SubmissionStatus.Accepted;
+    public void MarkAcceptedWithWarnings() => Status = SubmissionStatus.AcceptedWithWarnings;
+    public void MarkRejected() => Status = SubmissionStatus.Rejected;
+    public void AttachValidationReport(ValidationReport report) => ValidationReport = report;
+    public void StoreRawXml(string xml) => RawXml = xml;
 }

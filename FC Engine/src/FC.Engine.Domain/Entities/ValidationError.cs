@@ -14,7 +14,4 @@ public class ValidationError
     public string? ExpectedValue { get; set; }
     public string? ActualValue { get; set; }
     public string? ReferencedReturnCode { get; set; }
-
-    // Navigation
-    public ValidationReport? ValidationReport { get; set; }
 }
