@@ -1,0 +1,562 @@
+@page "/schemas"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@inject IJSRuntime JS
+
+<PageTitle>Download Schemas — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         PAGE HEADER
+         ═══════════════════════════════════════════════════════════════ -->
+    <div class="portal-page-header">
+        <div class="portal-page-header-main">
+            <h1 class="portal-page-title">Download Schemas</h1>
+            <p class="portal-page-subtitle">Download XSD schemas and sample XML files for all return templates to build your submission files</p>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         SUMMARY STATS
+         ═══════════════════════════════════════════════════════════════ -->
+    @if (!isLoading && allTemplates.Any())
+    {
+        <div class="portal-schema-stats">
+            <div class="portal-schema-stat-card">
+                <span class="portal-schema-stat-value">@allTemplates.Count</span>
+                <span class="portal-schema-stat-label">Total Templates</span>
+            </div>
+            <div class="portal-schema-stat-card">
+                <span class="portal-schema-stat-value">@allTemplates.Count(t => t.Frequency.Equals("Monthly", StringComparison.OrdinalIgnoreCase))</span>
+                <span class="portal-schema-stat-label">Monthly</span>
+            </div>
+            <div class="portal-schema-stat-card">
+                <span class="portal-schema-stat-value">@allTemplates.Count(t => t.Frequency.Equals("Quarterly", StringComparison.OrdinalIgnoreCase))</span>
+                <span class="portal-schema-stat-label">Quarterly</span>
+            </div>
+            <div class="portal-schema-stat-card">
+                <span class="portal-schema-stat-value">@allTemplates.Count(t => t.Frequency.Equals("SemiAnnual", StringComparison.OrdinalIgnoreCase))</span>
+                <span class="portal-schema-stat-label">Semi-Annual</span>
+            </div>
+        </div>
+    }
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         TOOLBAR: Search, Filters, Bulk Actions
+         ═══════════════════════════════════════════════════════════════ -->
+    <div class="portal-toolbar">
+        <div class="portal-toolbar-row">
+            <div class="portal-toolbar-search">
+                <div class="portal-input-wrapper">
+                    <span class="portal-input-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                    </span>
+                    <input type="text"
+                           class="portal-form-input portal-form-input-icon"
+                           placeholder="Search by return code or name..."
+                           @bind="searchQuery"
+                           @bind:event="oninput"
+                           aria-label="Search schemas" />
+                </div>
+            </div>
+
+            <div class="portal-toolbar-filter">
+                <label for="schemaFreq" class="portal-form-label-sr">Frequency</label>
+                <select id="schemaFreq" class="portal-form-select" @bind="filterFrequency">
+                    <option value="">All Frequencies</option>
+                    <option value="Monthly">Monthly</option>
+                    <option value="Quarterly">Quarterly</option>
+                    <option value="SemiAnnual">Semi-Annual</option>
+                </select>
+            </div>
+
+            <div class="portal-toolbar-filter">
+                <label for="schemaCat" class="portal-form-label-sr">Category</label>
+                <select id="schemaCat" class="portal-form-select" @bind="filterCategory">
+                    <option value="">All Categories</option>
+                    <option value="FixedRow">Fixed Row</option>
+                    <option value="MultiRow">Multi Row</option>
+                    <option value="ItemCoded">Item Coded</option>
+                </select>
+            </div>
+
+            @if (selectedCodes.Any())
+            {
+                <button class="portal-btn portal-btn-primary portal-btn-sm"
+                        @onclick="DownloadSelectedSchemas"
+                        disabled="@isBulkDownloading">
+                    @if (isBulkDownloading)
+                    {
+                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                        <span>Downloading...</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        <span>Download @selectedCodes.Count XSD@(selectedCodes.Count != 1 ? "s" : "")</span>
+                    }
+                </button>
+            }
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         SCHEMA LIST
+         ═══════════════════════════════════════════════════════════════ -->
+    @if (isLoading)
+    {
+        <div class="portal-card portal-card-flush">
+            @for (int i = 0; i < 8; i++)
+            {
+                <div class="portal-skeleton portal-skeleton-row" style="margin: 4px 0;"></div>
+            }
+        </div>
+    }
+    else if (!FilteredTemplates.Any())
+    {
+        <div class="portal-empty-state portal-card" style="padding: 3rem;">
+            <div class="portal-empty-state-icon" aria-hidden="true">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--cbn-text-muted);">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+            </div>
+            <h3 class="portal-empty-state-title">No Schemas Found</h3>
+            <p class="portal-empty-state-desc">Try adjusting your search or filter criteria.</p>
+        </div>
+    }
+    else
+    {
+        <div class="portal-card portal-card-flush">
+            <div class="portal-table-responsive">
+                <table class="portal-table" aria-label="Return template schemas">
+                    <thead>
+                        <tr>
+                            <th style="width: 40px;">
+                                <input type="checkbox"
+                                       class="portal-form-checkbox"
+                                       checked="@IsAllSelected"
+                                       @onchange="ToggleSelectAll"
+                                       aria-label="Select all schemas" />
+                            </th>
+                            <th>Return Code</th>
+                            <th>Template Name</th>
+                            <th>Frequency</th>
+                            <th>Category</th>
+                            <th class="portal-table-th-num">Fields</th>
+                            <th class="portal-table-th-actions" style="width: 280px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var template in FilteredTemplates)
+                        {
+                            <tr class="@(expandedCode == template.ReturnCode ? "portal-schema-row-expanded" : "")">
+                                <td @onclick:stopPropagation>
+                                    <input type="checkbox"
+                                           class="portal-form-checkbox"
+                                           checked="@selectedCodes.Contains(template.ReturnCode)"
+                                           @onchange="() => ToggleSelection(template.ReturnCode)"
+                                           aria-label="Select @template.ReturnCode" />
+                                </td>
+                                <td>
+                                    <a href="/templates/@template.ReturnCode" class="portal-table-code portal-schema-link" title="View template details">
+                                        @template.ReturnCode
+                                    </a>
+                                </td>
+                                <td class="portal-table-truncate">@template.TemplateName</td>
+                                <td><span class="portal-badge portal-badge-sm @GetFrequencyBadgeClass(template.Frequency)">@FormatFrequency(template.Frequency)</span></td>
+                                <td><span class="portal-badge portal-badge-sm portal-badge-neutral">@GetCategoryLabel(template.StructuralCategory)</span></td>
+                                <td class="portal-table-th-num">@template.FieldCount</td>
+                                <td class="portal-table-th-actions" @onclick:stopPropagation>
+                                    <div class="portal-schema-actions">
+                                        <button class="portal-btn portal-btn-primary portal-btn-xs"
+                                                @onclick="() => DownloadXsd(template.ReturnCode)"
+                                                disabled="@IsDownloading(template.ReturnCode)"
+                                                title="Download XSD schema">
+                                            @if (IsDownloading(template.ReturnCode))
+                                            {
+                                                <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                            }
+                                            else
+                                            {
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                                </svg>
+                                            }
+                                            XSD
+                                        </button>
+                                        <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                                @onclick="() => DownloadSampleXml(template.ReturnCode)"
+                                                disabled="@IsDownloading(template.ReturnCode)"
+                                                title="Download sample XML">
+                                            @if (downloadingSampleCodes.Contains(template.ReturnCode))
+                                            {
+                                                <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                            }
+                                            else
+                                            {
+                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                                                </svg>
+                                            }
+                                            Sample
+                                        </button>
+                                        <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                                @onclick="() => TogglePreview(template.ReturnCode)"
+                                                title="@(expandedCode == template.ReturnCode ? "Hide preview" : "Preview schema")">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                @if (expandedCode == template.ReturnCode)
+                                                {
+                                                    <polyline points="18 15 12 9 6 15"/>
+                                                }
+                                                else
+                                                {
+                                                    <polyline points="6 9 12 15 18 9"/>
+                                                }
+                                            </svg>
+                                            Preview
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            @if (expandedCode == template.ReturnCode)
+                            {
+                                <tr class="portal-schema-preview-row">
+                                    <td colspan="7">
+                                        <div class="portal-schema-preview">
+                                            <!-- Preview Tabs -->
+                                            <div class="portal-schema-preview-tabs">
+                                                <button class="portal-schema-preview-tab @(previewTab == "xsd" ? "portal-schema-preview-tab-active" : "")"
+                                                        @onclick='() => LoadPreview(template.ReturnCode, "xsd")'>
+                                                    XSD Schema
+                                                </button>
+                                                <button class="portal-schema-preview-tab @(previewTab == "sample" ? "portal-schema-preview-tab-active" : "")"
+                                                        @onclick='() => LoadPreview(template.ReturnCode, "sample")'>
+                                                    Sample XML
+                                                </button>
+                                            </div>
+
+                                            @if (isLoadingPreview)
+                                            {
+                                                <div class="portal-skeleton portal-skeleton-block" style="height: 200px;"></div>
+                                            }
+                                            else if (string.IsNullOrEmpty(previewContent))
+                                            {
+                                                <div class="portal-empty-state" style="padding: 2rem;">
+                                                    <p class="portal-empty-state-desc">Could not generate preview for this template.</p>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="portal-card">
+                                                    <div class="portal-code-header">
+                                                        <span class="portal-code-header-label">
+                                                            @(previewTab == "xsd" ? $"{template.ReturnCode}.xsd" : $"{template.ReturnCode}_sample.xml")
+                                                        </span>
+                                                        <div class="portal-code-header-actions">
+                                                            <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                                                    @onclick="() => CopyPreview()">
+                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                                    <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                                                </svg>
+                                                                @(copiedPreview ? "Copied!" : "Copy")
+                                                            </button>
+                                                            <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                                                    @onclick="() => DownloadPreview(template.ReturnCode)">
+                                                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                                                </svg>
+                                                                Download
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <pre class="portal-code-block"><code>@previewContent</code></pre>
+                                                </div>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="portal-template-count">
+            Showing @FilteredTemplates.Count() of @allTemplates.Count schemas
+            @if (selectedCodes.Any())
+            {
+                <span> · @selectedCodes.Count selected</span>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Inject] private TemplateBrowserService BrowserSvc { get; set; } = default!;
+
+    // ── State ─────────────────────────────────────────────────────
+    private bool isLoading = true;
+    private List<TemplateBrowseItem> allTemplates = new();
+    private string searchQuery = "";
+    private string filterFrequency = "";
+    private string filterCategory = "";
+
+    // Selection
+    private HashSet<string> selectedCodes = new();
+
+    // Preview
+    private string? expandedCode;
+    private string previewTab = "xsd";
+    private bool isLoadingPreview;
+    private string? previewContent;
+    private bool copiedPreview;
+
+    // Download tracking
+    private HashSet<string> downloadingXsdCodes = new();
+    private HashSet<string> downloadingSampleCodes = new();
+    private bool isBulkDownloading;
+
+    // ── Computed ──────────────────────────────────────────────────
+
+    private IEnumerable<TemplateBrowseItem> FilteredTemplates =>
+        allTemplates.Where(t =>
+        {
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var q = searchQuery.Trim();
+                if (!t.ReturnCode.Contains(q, StringComparison.OrdinalIgnoreCase) &&
+                    !t.TemplateName.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+            if (!string.IsNullOrEmpty(filterFrequency) &&
+                !t.Frequency.Equals(filterFrequency, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!string.IsNullOrEmpty(filterCategory) &&
+                !t.StructuralCategory.Equals(filterCategory, StringComparison.OrdinalIgnoreCase))
+                return false;
+            return true;
+        });
+
+    private bool IsAllSelected =>
+        FilteredTemplates.Any() && FilteredTemplates.All(t => selectedCodes.Contains(t.ReturnCode));
+
+    private bool IsDownloading(string code) =>
+        downloadingXsdCodes.Contains(code) || downloadingSampleCodes.Contains(code);
+
+    // ── Lifecycle ────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            allTemplates = await BrowserSvc.GetAllTemplates();
+        }
+        catch
+        {
+            // Template loading failed — empty grid will show
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ── Selection ────────────────────────────────────────────────
+
+    private void ToggleSelection(string returnCode)
+    {
+        if (!selectedCodes.Remove(returnCode))
+            selectedCodes.Add(returnCode);
+    }
+
+    private void ToggleSelectAll()
+    {
+        if (IsAllSelected)
+        {
+            foreach (var t in FilteredTemplates)
+                selectedCodes.Remove(t.ReturnCode);
+        }
+        else
+        {
+            foreach (var t in FilteredTemplates)
+                selectedCodes.Add(t.ReturnCode);
+        }
+    }
+
+    // ── Preview ──────────────────────────────────────────────────
+
+    private async Task TogglePreview(string returnCode)
+    {
+        if (expandedCode == returnCode)
+        {
+            expandedCode = null;
+            previewContent = null;
+            return;
+        }
+
+        expandedCode = returnCode;
+        previewTab = "xsd";
+        await LoadPreviewContent(returnCode, "xsd");
+    }
+
+    private async Task LoadPreview(string returnCode, string tab)
+    {
+        previewTab = tab;
+        await LoadPreviewContent(returnCode, tab);
+    }
+
+    private async Task LoadPreviewContent(string returnCode, string tab)
+    {
+        isLoadingPreview = true;
+        previewContent = null;
+        StateHasChanged();
+
+        try
+        {
+            previewContent = tab == "xsd"
+                ? await BrowserSvc.GetSchemaXml(returnCode)
+                : await BrowserSvc.GenerateSampleXml(returnCode);
+        }
+        catch
+        {
+            previewContent = null;
+        }
+        finally
+        {
+            isLoadingPreview = false;
+            copiedPreview = false;
+        }
+    }
+
+    private async Task CopyPreview()
+    {
+        if (string.IsNullOrEmpty(previewContent)) return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("portalCopyToClipboard", previewContent);
+            copiedPreview = true;
+            StateHasChanged();
+            await Task.Delay(2000);
+            copiedPreview = false;
+        }
+        catch { }
+    }
+
+    private async Task DownloadPreview(string returnCode)
+    {
+        if (string.IsNullOrEmpty(previewContent)) return;
+
+        var filename = previewTab == "xsd"
+            ? $"{returnCode}.xsd"
+            : $"{returnCode}_sample.xml";
+
+        try
+        {
+            await JS.InvokeVoidAsync("portalDownloadFile", previewContent, filename, "application/xml");
+        }
+        catch { }
+    }
+
+    // ── Download XSD ─────────────────────────────────────────────
+
+    private async Task DownloadXsd(string returnCode)
+    {
+        downloadingXsdCodes.Add(returnCode);
+        StateHasChanged();
+
+        try
+        {
+            var xsd = await BrowserSvc.GetSchemaXml(returnCode);
+            if (!string.IsNullOrEmpty(xsd))
+            {
+                await JS.InvokeVoidAsync("portalDownloadFile", xsd, $"{returnCode}.xsd", "application/xml");
+            }
+        }
+        catch { }
+        finally
+        {
+            downloadingXsdCodes.Remove(returnCode);
+        }
+    }
+
+    // ── Download Sample XML ──────────────────────────────────────
+
+    private async Task DownloadSampleXml(string returnCode)
+    {
+        downloadingSampleCodes.Add(returnCode);
+        StateHasChanged();
+
+        try
+        {
+            var xml = await BrowserSvc.GenerateSampleXml(returnCode);
+            if (!string.IsNullOrEmpty(xml))
+            {
+                await JS.InvokeVoidAsync("portalDownloadFile", xml, $"{returnCode}_sample.xml", "application/xml");
+            }
+        }
+        catch { }
+        finally
+        {
+            downloadingSampleCodes.Remove(returnCode);
+        }
+    }
+
+    // ── Bulk Download ────────────────────────────────────────────
+
+    private async Task DownloadSelectedSchemas()
+    {
+        if (!selectedCodes.Any()) return;
+
+        isBulkDownloading = true;
+        StateHasChanged();
+
+        try
+        {
+            foreach (var code in selectedCodes.ToList())
+            {
+                var xsd = await BrowserSvc.GetSchemaXml(code);
+                if (!string.IsNullOrEmpty(xsd))
+                {
+                    await JS.InvokeVoidAsync("portalDownloadFile", xsd, $"{code}.xsd", "application/xml");
+                    await Task.Delay(250); // Small delay between downloads
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            isBulkDownloading = false;
+        }
+    }
+
+    // ── Display Helpers ──────────────────────────────────────────
+
+    private static string GetFrequencyBadgeClass(string freq)
+    {
+        if (freq.Equals("Monthly", StringComparison.OrdinalIgnoreCase)) return "portal-badge-info";
+        if (freq.Equals("Quarterly", StringComparison.OrdinalIgnoreCase)) return "portal-badge-warning";
+        if (freq.Equals("SemiAnnual", StringComparison.OrdinalIgnoreCase)) return "portal-badge-accent";
+        return "portal-badge-neutral";
+    }
+
+    private static string GetCategoryLabel(string cat)
+    {
+        if (cat == "FixedRow") return "Fixed Row";
+        if (cat == "MultiRow") return "Multi Row";
+        if (cat == "ItemCoded") return "Item Coded";
+        return cat;
+    }
+
+    private static string FormatFrequency(string freq)
+    {
+        if (freq == "SemiAnnual") return "Semi-Annual";
+        return freq;
+    }
+}
