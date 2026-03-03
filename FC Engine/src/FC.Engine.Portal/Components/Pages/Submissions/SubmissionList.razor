@@ -1,0 +1,507 @@
+@page "/submissions"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@inject ISubmissionRepository SubmissionRepo
+@inject ITemplateMetadataCache TemplateCache
+@inject NavigationManager Navigation
+
+<PageTitle>My Submissions — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-page-header portal-page-header-split">
+        <div class="portal-page-header-main">
+            <h1 class="portal-page-title">
+                My Submissions
+                @if (!isLoading && submissions.Any())
+                {
+                    <span class="portal-badge portal-badge-neutral portal-badge-lg">@totalCount</span>
+                }
+            </h1>
+            <p class="portal-page-subtitle">View and track all your institution's return submissions</p>
+        </div>
+        <div class="portal-page-header-actions">
+            <a href="/submit" class="portal-btn portal-btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Submit New Return
+            </a>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         FILTERS & SEARCH TOOLBAR
+         ═══════════════════════════════════════════════════════ -->
+    <div class="portal-toolbar" role="search" aria-label="Filter submissions">
+        <div class="portal-toolbar-row">
+            <div class="portal-toolbar-search">
+                <div class="portal-input-wrapper">
+                    <span class="portal-input-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                    </span>
+                    <input type="text"
+                           class="portal-form-input portal-form-input-icon"
+                           placeholder="Search by return code or submission ID..."
+                           @bind="searchQuery"
+                           @bind:event="oninput"
+                           @bind:after="ApplyFilters"
+                           aria-label="Search submissions" />
+                </div>
+            </div>
+
+            <div class="portal-toolbar-filter">
+                <label for="filterStatus" class="portal-sr-only">Status</label>
+                <select id="filterStatus" class="portal-form-select" @bind="filterStatus" @bind:after="ApplyFilters">
+                    <option value="">All Statuses</option>
+                    <option value="Accepted">Accepted</option>
+                    <option value="AcceptedWithWarnings">Accepted with Warnings</option>
+                    <option value="Rejected">Rejected</option>
+                    <option value="PendingApproval">Pending Approval</option>
+                    <option value="ApprovalRejected">Approval Rejected</option>
+                    <option value="Draft">Draft</option>
+                </select>
+            </div>
+
+            <div class="portal-toolbar-filter">
+                <label for="filterTemplate" class="portal-sr-only">Template</label>
+                <select id="filterTemplate" class="portal-form-select" @bind="filterReturnCode" @bind:after="ApplyFilters">
+                    <option value="">All Templates</option>
+                    @foreach (var code in availableReturnCodes)
+                    {
+                        <option value="@code">@code</option>
+                    }
+                </select>
+            </div>
+
+            <div class="portal-toolbar-filter">
+                <label for="sortBy" class="portal-sr-only">Sort by</label>
+                <select id="sortBy" class="portal-form-select" @bind="sortBy" @bind:after="ApplyFilters">
+                    <option value="date-desc">Newest First</option>
+                    <option value="date-asc">Oldest First</option>
+                    <option value="status">Status</option>
+                    <option value="returncode">Return Code</option>
+                </select>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrEmpty(searchQuery) || !string.IsNullOrEmpty(filterStatus) || !string.IsNullOrEmpty(filterReturnCode))
+        {
+            <div class="portal-toolbar-active-filters">
+                <span class="portal-toolbar-active-label">Active filters:</span>
+                @if (!string.IsNullOrEmpty(searchQuery))
+                {
+                    <button class="portal-chip portal-chip-removable" @onclick="() => { searchQuery = string.Empty; ApplyFilters(); }">
+                        Search: @searchQuery
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                }
+                @if (!string.IsNullOrEmpty(filterStatus))
+                {
+                    <button class="portal-chip portal-chip-removable" @onclick="() => { filterStatus = string.Empty; ApplyFilters(); }">
+                        Status: @GetStatusLabel(filterStatus)
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                }
+                @if (!string.IsNullOrEmpty(filterReturnCode))
+                {
+                    <button class="portal-chip portal-chip-removable" @onclick="() => { filterReturnCode = string.Empty; ApplyFilters(); }">
+                        Template: @filterReturnCode
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                }
+                <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="ClearAllFilters">Clear All</button>
+            </div>
+        }
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         SUBMISSIONS TABLE
+         ═══════════════════════════════════════════════════════ -->
+    @if (isLoading)
+    {
+        <div class="portal-card">
+            @for (int i = 0; i < 8; i++)
+            {
+                <div class="portal-skeleton portal-skeleton-row"></div>
+            }
+        </div>
+    }
+    else if (!filteredSubmissions.Any())
+    {
+        <div class="portal-empty-state portal-card">
+            <div class="portal-empty-state-icon" aria-hidden="true">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="16" y1="13" x2="8" y2="13"/>
+                    <line x1="16" y1="17" x2="8" y2="17"/>
+                </svg>
+            </div>
+            @if (string.IsNullOrEmpty(searchQuery) && string.IsNullOrEmpty(filterStatus) && string.IsNullOrEmpty(filterReturnCode))
+            {
+                <h3 class="portal-empty-state-title">No Submissions Yet</h3>
+                <p class="portal-empty-state-desc">Start by submitting your first return to see it here.</p>
+                <a href="/submit" class="portal-btn portal-btn-primary">Submit Your First Return</a>
+            }
+            else
+            {
+                <h3 class="portal-empty-state-title">No Matching Submissions</h3>
+                <p class="portal-empty-state-desc">Try adjusting your filters or search query.</p>
+                <button class="portal-btn portal-btn-outline" @onclick="ClearAllFilters">Clear Filters</button>
+            }
+        </div>
+    }
+    else
+    {
+        <!-- Desktop Table -->
+        <div class="portal-card portal-card-flush portal-hide-mobile">
+            <div class="portal-table-container">
+                <table class="portal-table" aria-label="Submissions list">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Return Code</th>
+                            <th>Return Name</th>
+                            <th>Period</th>
+                            <th>Submitted</th>
+                            <th>Status</th>
+                            <th class="portal-th-num">Errors</th>
+                            <th class="portal-th-num">Warnings</th>
+                            <th class="portal-th-num">Duration</th>
+                            <th class="portal-th-center">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var sub in pagedSubmissions)
+                        {
+                            <tr class="portal-table-row-clickable" @onclick="() => ViewDetail(sub.Id)">
+                                <td class="portal-td-mono">@sub.Id</td>
+                                <td>
+                                    <span class="portal-table-primary">@sub.ReturnCode</span>
+                                </td>
+                                <td class="portal-td-truncate">@sub.TemplateName</td>
+                                <td>@sub.PeriodLabel</td>
+                                <td>
+                                    <span class="portal-td-date">@sub.SubmittedAt.ToString("d MMM yyyy")</span>
+                                    <span class="portal-td-time">@sub.SubmittedAt.ToString("HH:mm")</span>
+                                </td>
+                                <td>
+                                    <span class="portal-badge @GetStatusBadgeClass(sub.Status)">
+                                        @GetStatusIcon(sub.Status)@GetStatusLabel(sub.Status)
+                                    </span>
+                                </td>
+                                <td class="portal-th-num">
+                                    @if (sub.ErrorCount > 0)
+                                    {
+                                        <span class="portal-text-danger-bold">@sub.ErrorCount</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-text-muted">0</span>
+                                    }
+                                </td>
+                                <td class="portal-th-num">
+                                    @if (sub.WarningCount > 0)
+                                    {
+                                        <span class="portal-text-warning-bold">@sub.WarningCount</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-text-muted">0</span>
+                                    }
+                                </td>
+                                <td class="portal-td-mono">@FormatDuration(sub.ProcessingDurationMs)</td>
+                                <td class="portal-th-center" @onclick:stopPropagation>
+                                    <a href="/submissions/@sub.Id" class="portal-btn portal-btn-ghost portal-btn-xs" title="View details">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-label="View">
+                                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                                        </svg>
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Mobile Card View -->
+        <div class="portal-show-mobile">
+            @foreach (var sub in pagedSubmissions)
+            {
+                <a href="/submissions/@sub.Id" class="portal-submission-card-mobile">
+                    <div class="portal-submission-card-mobile-header">
+                        <span class="portal-table-primary">@sub.ReturnCode</span>
+                        <span class="portal-badge @GetStatusBadgeClass(sub.Status)">
+                            @GetStatusLabel(sub.Status)
+                        </span>
+                    </div>
+                    <span class="portal-submission-card-mobile-name">@sub.TemplateName</span>
+                    <div class="portal-submission-card-mobile-meta">
+                        <span>@sub.PeriodLabel</span>
+                        <span>·</span>
+                        <span>@sub.SubmittedAt.ToString("d MMM yyyy")</span>
+                        @if (sub.ErrorCount > 0)
+                        {
+                            <span>·</span>
+                            <span class="portal-text-danger-bold">@sub.ErrorCount errors</span>
+                        }
+                    </div>
+                </a>
+            }
+        </div>
+
+        <!-- Pagination -->
+        @if (totalPages > 1)
+        {
+            <nav class="portal-pagination" role="navigation" aria-label="Submission list pagination">
+                <span class="portal-pagination-info">
+                    Showing @(((currentPage - 1) * pageSize) + 1)–@(Math.Min(currentPage * pageSize, totalCount)) of @totalCount
+                </span>
+                <div class="portal-pagination-controls">
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                            disabled="@(currentPage <= 1)"
+                            @onclick="() => GoToPage(currentPage - 1)"
+                            aria-label="Previous page">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <polyline points="15 18 9 12 15 6"/>
+                        </svg>
+                    </button>
+                    @for (int p = 1; p <= totalPages; p++)
+                    {
+                        var pageNum = p;
+                        @if (ShouldShowPageButton(pageNum))
+                        {
+                            <button class="portal-btn @(pageNum == currentPage ? "portal-btn-primary portal-btn-sm" : "portal-btn-ghost portal-btn-sm")"
+                                    @onclick="() => GoToPage(pageNum)"
+                                    aria-label="Go to page @pageNum"
+                                    aria-current="@(pageNum == currentPage ? "page" : null)">
+                                @pageNum
+                            </button>
+                        }
+                        else if (ShouldShowEllipsis(pageNum))
+                        {
+                            <span class="portal-pagination-ellipsis">…</span>
+                        }
+                    }
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                            disabled="@(currentPage >= totalPages)"
+                            @onclick="() => GoToPage(currentPage + 1)"
+                            aria-label="Next page">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <polyline points="9 18 15 12 9 6"/>
+                        </svg>
+                    </button>
+                </div>
+            </nav>
+        }
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private List<SubmissionListItem> submissions = new();
+    private List<SubmissionListItem> filteredSubmissions = new();
+    private List<string> availableReturnCodes = new();
+
+    private string searchQuery = "";
+    private string filterStatus = "";
+    private string filterReturnCode = "";
+    private string sortBy = "date-desc";
+
+    private int currentPage = 1;
+    private const int pageSize = 20;
+    private int totalCount => filteredSubmissions.Count;
+    private int totalPages => (int)Math.Ceiling((double)totalCount / pageSize);
+    private List<SubmissionListItem> pagedSubmissions =>
+        filteredSubmissions.Skip((currentPage - 1) * pageSize).Take(pageSize).ToList();
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSubmissions();
+    }
+
+    private async Task LoadSubmissions()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            var state = await AuthState!;
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            int.TryParse(instIdStr, out var institutionId);
+
+            var rawSubmissions = await SubmissionRepo.GetByInstitution(institutionId);
+
+            var allTemplates = await TemplateCache.GetAllPublishedTemplates();
+            var templateNameMap = allTemplates.ToDictionary(
+                t => t.ReturnCode,
+                t => t.Name,
+                StringComparer.OrdinalIgnoreCase
+            );
+
+            submissions = rawSubmissions.Select(s => new SubmissionListItem
+            {
+                Id = s.Id,
+                ReturnCode = s.ReturnCode,
+                TemplateName = templateNameMap.GetValueOrDefault(s.ReturnCode, s.ReturnCode),
+                PeriodLabel = s.ReturnPeriod is not null
+                    ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month, 1).ToString("MMM yyyy")
+                    : "—",
+                SubmittedAt = s.SubmittedAt,
+                Status = s.Status.ToString(),
+                ErrorCount = s.ValidationReport?.ErrorCount ?? 0,
+                WarningCount = s.ValidationReport?.WarningCount ?? 0,
+                ProcessingDurationMs = s.ProcessingDurationMs
+            }).OrderByDescending(s => s.SubmittedAt).ToList();
+
+            availableReturnCodes = submissions
+                .Select(s => s.ReturnCode)
+                .Distinct()
+                .OrderBy(c => c)
+                .ToList();
+
+            ApplyFilters();
+        }
+        catch
+        {
+            // Silently handle — empty list shown
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ApplyFilters()
+    {
+        var query = submissions.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(searchQuery))
+        {
+            var q = searchQuery.Trim();
+            query = query.Where(s =>
+                s.ReturnCode.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                s.Id.ToString().Contains(q) ||
+                (s.TemplateName?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false)
+            );
+        }
+
+        if (!string.IsNullOrEmpty(filterStatus))
+        {
+            query = query.Where(s => s.Status.Equals(filterStatus, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrEmpty(filterReturnCode))
+        {
+            query = query.Where(s => s.ReturnCode.Equals(filterReturnCode, StringComparison.OrdinalIgnoreCase));
+        }
+
+        query = sortBy switch
+        {
+            "date-asc" => query.OrderBy(s => s.SubmittedAt),
+            "status" => query.OrderBy(s => s.Status).ThenByDescending(s => s.SubmittedAt),
+            "returncode" => query.OrderBy(s => s.ReturnCode).ThenByDescending(s => s.SubmittedAt),
+            _ => query.OrderByDescending(s => s.SubmittedAt)
+        };
+
+        filteredSubmissions = query.ToList();
+        currentPage = 1;
+        StateHasChanged();
+    }
+
+    private void ClearAllFilters()
+    {
+        searchQuery = "";
+        filterStatus = "";
+        filterReturnCode = "";
+        sortBy = "date-desc";
+        ApplyFilters();
+    }
+
+    private void ViewDetail(int submissionId)
+    {
+        Navigation.NavigateTo($"/submissions/{submissionId}");
+    }
+
+    private void GoToPage(int page)
+    {
+        if (page >= 1 && page <= totalPages)
+        {
+            currentPage = page;
+            StateHasChanged();
+        }
+    }
+
+    private bool ShouldShowPageButton(int page)
+    {
+        return page == 1 || page == totalPages ||
+               (page >= currentPage - 1 && page <= currentPage + 1);
+    }
+
+    private bool ShouldShowEllipsis(int page)
+    {
+        return page == currentPage - 2 || page == currentPage + 2;
+    }
+
+    private static string GetStatusBadgeClass(string status)
+    {
+        if (status == "Accepted") return "portal-badge-success";
+        if (status == "AcceptedWithWarnings") return "portal-badge-warning";
+        if (status == "Rejected") return "portal-badge-danger";
+        if (status == "PendingApproval") return "portal-badge-info";
+        if (status == "ApprovalRejected") return "portal-badge-danger";
+        return "portal-badge-neutral";
+    }
+
+    private static string GetStatusIcon(string status)
+    {
+        if (status == "Accepted") return "✓ ";
+        if (status == "AcceptedWithWarnings") return "⚠ ";
+        if (status == "Rejected") return "✗ ";
+        if (status == "PendingApproval") return "◷ ";
+        if (status == "ApprovalRejected") return "↩ ";
+        return "";
+    }
+
+    private static string GetStatusLabel(string status)
+    {
+        if (status == "AcceptedWithWarnings") return "Accepted (Warnings)";
+        if (status == "PendingApproval") return "Pending Approval";
+        if (status == "ApprovalRejected") return "Approval Rejected";
+        return status;
+    }
+
+    private static string FormatDuration(int? durationMs)
+    {
+        if (durationMs is null) return "—";
+        if (durationMs.Value < 1000) return $"{durationMs}ms";
+        if (durationMs.Value < 60000) return $"{durationMs.Value / 1000.0:F1}s";
+        return $"{durationMs.Value / 60000.0:F1}m";
+    }
+
+    private class SubmissionListItem
+    {
+        public int Id { get; set; }
+        public string ReturnCode { get; set; } = "";
+        public string TemplateName { get; set; } = "";
+        public string PeriodLabel { get; set; } = "";
+        public DateTime SubmittedAt { get; set; }
+        public string Status { get; set; } = "";
+        public int ErrorCount { get; set; }
+        public int WarningCount { get; set; }
+        public int? ProcessingDurationMs { get; set; }
+    }
+}

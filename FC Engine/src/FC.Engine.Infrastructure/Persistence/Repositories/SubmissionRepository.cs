@@ -36,6 +36,7 @@ public class SubmissionRepository : ISubmissionRepository
             .Where(s => s.InstitutionId == institutionId)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
+                .ThenInclude(r => r!.Errors)
             .OrderByDescending(s => s.SubmittedAt)
             .ToListAsync(ct);
     }
