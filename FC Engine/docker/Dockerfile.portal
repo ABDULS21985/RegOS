@@ -1,0 +1,19 @@
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-preview AS base
+WORKDIR /app
+EXPOSE 8080
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
+WORKDIR /src
+COPY ["src/FC.Engine.Portal/FC.Engine.Portal.csproj", "src/FC.Engine.Portal/"]
+COPY ["src/FC.Engine.Application/FC.Engine.Application.csproj", "src/FC.Engine.Application/"]
+COPY ["src/FC.Engine.Infrastructure/FC.Engine.Infrastructure.csproj", "src/FC.Engine.Infrastructure/"]
+COPY ["src/FC.Engine.Domain/FC.Engine.Domain.csproj", "src/FC.Engine.Domain/"]
+RUN dotnet restore "src/FC.Engine.Portal/FC.Engine.Portal.csproj"
+COPY . .
+WORKDIR "/src/src/FC.Engine.Portal"
+RUN dotnet publish "FC.Engine.Portal.csproj" -c Release -o /app/publish /p:UseAppHost=false
+
+FROM base AS final
+WORKDIR /app
+COPY --from=build /app/publish .
+ENTRYPOINT ["dotnet", "FC.Engine.Portal.dll"]

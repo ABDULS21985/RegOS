@@ -10,423 +10,904 @@ namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class AuthServiceTests
 {
-    private readonly Mock<IPortalUserRepository> _portalUserRepositoryMock;
+    private readonly Mock<IPortalUserRepository> _userRepoMock;
+    private readonly Mock<ILoginAttemptRepository> _loginAttemptRepoMock;
+    private readonly Mock<IPasswordResetTokenRepository> _resetTokenRepoMock;
     private readonly AuthService _sut;
 
     public AuthServiceTests()
     {
-        _portalUserRepositoryMock = new Mock<IPortalUserRepository>();
-        _sut = new AuthService(_portalUserRepositoryMock.Object);
-    }
+        _userRepoMock = new Mock<IPortalUserRepository>();
+        _loginAttemptRepoMock = new Mock<ILoginAttemptRepository>();
+        _resetTokenRepoMock = new Mock<IPasswordResetTokenRepository>();
 
-    // ──────────────────────────────────────────────
-    // ValidateLogin
-    // ──────────────────────────────────────────────
-
-    [Fact]
-    public async Task ValidateLogin_WithValidCredentials_ReturnsUserAndUpdatesLastLoginAt()
-    {
-        // Arrange
-        var password = "SecureP@ssw0rd!";
-        var hashedPassword = AuthService.HashPassword(password);
-        var user = new PortalUser
-        {
-            Id = 1,
-            Username = "testuser",
-            DisplayName = "Test User",
-            Email = "test@example.com",
-            PasswordHash = hashedPassword,
-            Role = PortalRole.Admin,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow.AddDays(-30),
-            LastLoginAt = null
-        };
-
-        _portalUserRepositoryMock
-            .Setup(r => r.GetByUsername("testuser", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user);
-
-        _portalUserRepositoryMock
-            .Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()))
+        _loginAttemptRepoMock
+            .Setup(r => r.Create(It.IsAny<LoginAttempt>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        // Act
-        var result = await _sut.ValidateLogin("testuser", password);
+        _sut = new AuthService(
+            _userRepoMock.Object,
+            _loginAttemptRepoMock.Object,
+            _resetTokenRepoMock.Object);
+    }
 
-        // Assert
+    private PortalUser CreateTestUser(string username = "testuser", string password = "SecureP@ss1!",
+        PortalRole role = PortalRole.Admin, bool isActive = true, int failedAttempts = 0,
+        DateTime? lockoutEnd = null)
+    {
+        return new PortalUser
+        {
+            Id = 1,
+            Username = username,
+            DisplayName = "Test User",
+            Email = $"{username}@fcengine.local",
+            PasswordHash = AuthService.HashPassword(password),
+            Role = role,
+            IsActive = isActive,
+            CreatedAt = DateTime.UtcNow.AddDays(-30),
+            LastLoginAt = null,
+            FailedLoginAttempts = failedAttempts,
+            LockoutEnd = lockoutEnd
+        };
+    }
+
+    private void SetupUserLookup(PortalUser? user, string? username = null)
+    {
+        var name = username ?? user?.Username ?? "testuser";
+        _userRepoMock
+            .Setup(r => r.GetByUsername(name, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(user);
+        _userRepoMock
+            .Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ValidateLogin — Successful authentication
+    // ═══════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ValidateLogin_ValidCredentials_ReturnsUserWithNoError()
+    {
+        var password = "SecureP@ss1!";
+        var user = CreateTestUser(password: password);
+        SetupUserLookup(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", password);
+
         result.Should().NotBeNull();
         result!.Id.Should().Be(1);
         result.Username.Should().Be("testuser");
-        result.LastLoginAt.Should().NotBeNull();
-        result.LastLoginAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
-
-        _portalUserRepositoryMock.Verify(
-            r => r.Update(It.Is<PortalUser>(u => u.Id == 1 && u.LastLoginAt != null), It.IsAny<CancellationToken>()),
-            Times.Once);
+        errorCode.Should().BeNull();
     }
 
     [Fact]
-    public async Task ValidateLogin_WithNonExistentUser_ReturnsNull()
+    public async Task ValidateLogin_ValidCredentials_UpdatesLastLoginAt()
     {
-        // Arrange
-        _portalUserRepositoryMock
-            .Setup(r => r.GetByUsername("nonexistent", It.IsAny<CancellationToken>()))
+        var password = "SecureP@ss1!";
+        var user = CreateTestUser(password: password);
+        SetupUserLookup(user);
+
+        var (result, _) = await _sut.ValidateLogin("testuser", password);
+
+        result!.LastLoginAt.Should().NotBeNull();
+        result.LastLoginAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
+        _userRepoMock.Verify(r => r.Update(It.Is<PortalUser>(u => u.LastLoginAt != null), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ValidateLogin_ValidCredentials_ResetsFailedAttemptsCounter()
+    {
+        var password = "SecureP@ss1!";
+        var user = CreateTestUser(password: password, failedAttempts: 3);
+        SetupUserLookup(user);
+
+        var (result, _) = await _sut.ValidateLogin("testuser", password);
+
+        result.Should().NotBeNull();
+        result!.FailedLoginAttempts.Should().Be(0);
+        result.LockoutEnd.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ValidateLogin_ValidCredentials_RecordsSuccessfulAttempt()
+    {
+        var password = "SecureP@ss1!";
+        var user = CreateTestUser(password: password);
+        SetupUserLookup(user);
+
+        await _sut.ValidateLogin("testuser", password, "192.168.1.1");
+
+        _loginAttemptRepoMock.Verify(r => r.Create(
+            It.Is<LoginAttempt>(a =>
+                a.Username == "testuser" &&
+                a.Succeeded == true &&
+                a.IpAddress == "192.168.1.1" &&
+                a.FailureReason == null),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ValidateLogin — Failed authentication
+    // ═══════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ValidateLogin_NonExistentUser_ReturnsInvalidError()
+    {
+        _userRepoMock
+            .Setup(r => r.GetByUsername("ghost", It.IsAny<CancellationToken>()))
             .ReturnsAsync((PortalUser?)null);
 
-        // Act
-        var result = await _sut.ValidateLogin("nonexistent", "anypassword");
+        var (result, errorCode) = await _sut.ValidateLogin("ghost", "anypassword");
 
-        // Assert
         result.Should().BeNull();
-
-        _portalUserRepositoryMock.Verify(
-            r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        errorCode.Should().Be("invalid");
     }
 
     [Fact]
-    public async Task ValidateLogin_WithInactiveUser_ReturnsNull()
+    public async Task ValidateLogin_NonExistentUser_RecordsAttemptWithUserNotFoundReason()
     {
-        // Arrange
-        var password = "SecureP@ssw0rd!";
-        var hashedPassword = AuthService.HashPassword(password);
-        var user = new PortalUser
-        {
-            Id = 2,
-            Username = "inactiveuser",
-            DisplayName = "Inactive User",
-            Email = "inactive@example.com",
-            PasswordHash = hashedPassword,
-            Role = PortalRole.Viewer,
-            IsActive = false,
-            CreatedAt = DateTime.UtcNow.AddDays(-60),
-            LastLoginAt = null
-        };
+        _userRepoMock
+            .Setup(r => r.GetByUsername("ghost", It.IsAny<CancellationToken>()))
+            .ReturnsAsync((PortalUser?)null);
 
-        _portalUserRepositoryMock
-            .Setup(r => r.GetByUsername("inactiveuser", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user);
+        await _sut.ValidateLogin("ghost", "anypassword", "10.0.0.1");
 
-        // Act
-        var result = await _sut.ValidateLogin("inactiveuser", password);
-
-        // Assert
-        result.Should().BeNull();
-
-        _portalUserRepositoryMock.Verify(
-            r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _loginAttemptRepoMock.Verify(r => r.Create(
+            It.Is<LoginAttempt>(a =>
+                a.Username == "ghost" &&
+                a.Succeeded == false &&
+                a.FailureReason == "user_not_found"),
+            It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
-    public async Task ValidateLogin_WithWrongPassword_ReturnsNull()
+    public async Task ValidateLogin_InactiveUser_ReturnsDeniedError()
     {
-        // Arrange
-        var correctPassword = "CorrectP@ssw0rd!";
-        var wrongPassword = "WrongP@ssw0rd!";
-        var hashedPassword = AuthService.HashPassword(correctPassword);
-        var user = new PortalUser
-        {
-            Id = 3,
-            Username = "testuser",
-            DisplayName = "Test User",
-            Email = "test@example.com",
-            PasswordHash = hashedPassword,
-            Role = PortalRole.Approver,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow.AddDays(-10),
-            LastLoginAt = null
-        };
+        var user = CreateTestUser(isActive: false);
+        SetupUserLookup(user);
 
-        _portalUserRepositoryMock
-            .Setup(r => r.GetByUsername("testuser", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user);
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", "SecureP@ss1!");
 
-        // Act
-        var result = await _sut.ValidateLogin("testuser", wrongPassword);
-
-        // Assert
         result.Should().BeNull();
-
-        _portalUserRepositoryMock.Verify(
-            r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        errorCode.Should().Be("denied");
     }
 
-    // ──────────────────────────────────────────────
+    [Fact]
+    public async Task ValidateLogin_WrongPassword_ReturnsInvalidError()
+    {
+        var user = CreateTestUser(password: "CorrectP@ss1!");
+        SetupUserLookup(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", "WrongPassword!");
+
+        result.Should().BeNull();
+        errorCode.Should().Be("invalid");
+    }
+
+    [Fact]
+    public async Task ValidateLogin_WrongPassword_IncrementsFailedAttempts()
+    {
+        var user = CreateTestUser(password: "CorrectP@ss1!", failedAttempts: 0);
+        SetupUserLookup(user);
+
+        await _sut.ValidateLogin("testuser", "WrongPassword!");
+
+        user.FailedLoginAttempts.Should().Be(1);
+        _userRepoMock.Verify(r => r.Update(
+            It.Is<PortalUser>(u => u.FailedLoginAttempts == 1),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ValidateLogin_WrongPassword_RecordsAttemptWithBadPasswordReason()
+    {
+        var user = CreateTestUser(password: "CorrectP@ss1!");
+        SetupUserLookup(user);
+
+        await _sut.ValidateLogin("testuser", "WrongPassword!", "172.16.0.5");
+
+        _loginAttemptRepoMock.Verify(r => r.Create(
+            It.Is<LoginAttempt>(a =>
+                a.Username == "testuser" &&
+                a.Succeeded == false &&
+                a.FailureReason == "bad_password" &&
+                a.IpAddress == "172.16.0.5"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ValidateLogin — Lockout / rate-limiting
+    // ═══════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ValidateLogin_FifthFailedAttempt_TriggersLockout()
+    {
+        var user = CreateTestUser(password: "CorrectP@ss1!", failedAttempts: 4);
+        SetupUserLookup(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", "WrongPassword!");
+
+        result.Should().BeNull();
+        errorCode.Should().Be("locked");
+        user.FailedLoginAttempts.Should().Be(5);
+        user.LockoutEnd.Should().NotBeNull();
+        user.LockoutEnd.Should().BeCloseTo(DateTime.UtcNow.AddMinutes(15), TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task ValidateLogin_AlreadyLockedAccount_ReturnsLockedError()
+    {
+        var user = CreateTestUser(password: "CorrectP@ss1!",
+            failedAttempts: 5,
+            lockoutEnd: DateTime.UtcNow.AddMinutes(10));
+        SetupUserLookup(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", "CorrectP@ss1!");
+
+        result.Should().BeNull();
+        errorCode.Should().Be("locked");
+    }
+
+    [Fact]
+    public async Task ValidateLogin_LockedAccountWithCorrectPassword_StillReturnsLocked()
+    {
+        var password = "CorrectP@ss1!";
+        var user = CreateTestUser(password: password,
+            failedAttempts: 5,
+            lockoutEnd: DateTime.UtcNow.AddMinutes(10));
+        SetupUserLookup(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", password);
+
+        result.Should().BeNull();
+        errorCode.Should().Be("locked");
+    }
+
+    [Fact]
+    public async Task ValidateLogin_ExpiredLockout_AllowsLogin()
+    {
+        var password = "CorrectP@ss1!";
+        var user = CreateTestUser(password: password,
+            failedAttempts: 5,
+            lockoutEnd: DateTime.UtcNow.AddMinutes(-1));
+        SetupUserLookup(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", password);
+
+        result.Should().NotBeNull();
+        errorCode.Should().BeNull();
+        result!.FailedLoginAttempts.Should().Be(0);
+        result.LockoutEnd.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ValidateLogin_ExpiredLockoutWrongPassword_RelocksImmediately()
+    {
+        // After expired lockout, wrong password still increments counter.
+        // Since counter was already 5, going to 6 triggers re-lock immediately.
+        var user = CreateTestUser(password: "CorrectP@ss1!",
+            failedAttempts: 5,
+            lockoutEnd: DateTime.UtcNow.AddMinutes(-1));
+        SetupUserLookup(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", "StillWrong!");
+
+        result.Should().BeNull();
+        errorCode.Should().Be("locked");
+        user.FailedLoginAttempts.Should().Be(6);
+        user.LockoutEnd.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task ValidateLogin_LockedAccount_RecordsAttemptWithLockedReason()
+    {
+        var user = CreateTestUser(
+            failedAttempts: 5,
+            lockoutEnd: DateTime.UtcNow.AddMinutes(10));
+        SetupUserLookup(user);
+
+        await _sut.ValidateLogin("testuser", "anything");
+
+        _loginAttemptRepoMock.Verify(r => r.Create(
+            It.Is<LoginAttempt>(a => a.FailureReason == "locked"),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ValidateLogin_ProgressiveFailures_LocksOnFifthAttempt()
+    {
+        var password = "CorrectP@ss1!";
+        var user = CreateTestUser(password: password, failedAttempts: 0);
+        SetupUserLookup(user);
+
+        for (int i = 1; i <= 4; i++)
+        {
+            var (r, err) = await _sut.ValidateLogin("testuser", "wrong");
+            r.Should().BeNull();
+            err.Should().Be("invalid", $"attempt {i} of 5 should be 'invalid'");
+            user.FailedLoginAttempts.Should().Be(i);
+        }
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", "wrong");
+        result.Should().BeNull();
+        errorCode.Should().Be("locked");
+        user.FailedLoginAttempts.Should().Be(5);
+        user.LockoutEnd.Should().NotBeNull();
+    }
+
+    // ═══════════════════════════════════════════════════
     // CreateUser
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════
 
     [Fact]
-    public async Task CreateUser_WithValidData_CreatesUserWithHashedPassword()
+    public async Task CreateUser_ValidData_CreatesUserWithHashedPassword()
     {
-        // Arrange
-        var username = "newuser";
-        var displayName = "New User";
-        var email = "newuser@example.com";
-        var password = "NewUserP@ss1!";
-        var role = PortalRole.Approver;
-
-        _portalUserRepositoryMock
-            .Setup(r => r.UsernameExists(username, It.IsAny<CancellationToken>()))
+        _userRepoMock
+            .Setup(r => r.UsernameExists("newuser", It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
-        PortalUser? capturedUser = null;
-        _portalUserRepositoryMock
+        PortalUser? captured = null;
+        _userRepoMock
             .Setup(r => r.Create(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()))
-            .Callback<PortalUser, CancellationToken>((u, _) => capturedUser = u)
+            .Callback<PortalUser, CancellationToken>((u, _) => captured = u)
             .ReturnsAsync((PortalUser u, CancellationToken _) => u);
 
-        // Act
-        var result = await _sut.CreateUser(username, displayName, email, password, role);
+        var result = await _sut.CreateUser("newuser", "New User", "new@fcengine.local", "NewPass1!", PortalRole.Approver);
 
-        // Assert
-        _portalUserRepositoryMock.Verify(
-            r => r.Create(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()),
-            Times.Once);
-
-        capturedUser.Should().NotBeNull();
-        capturedUser!.Username.Should().Be(username);
-        capturedUser.DisplayName.Should().Be(displayName);
-        capturedUser.Email.Should().Be(email);
-        capturedUser.Role.Should().Be(role);
-        capturedUser.IsActive.Should().BeTrue();
-        capturedUser.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
-        capturedUser.PasswordHash.Should().NotBeNullOrWhiteSpace();
-        capturedUser.PasswordHash.Should().NotBe(password);
-        capturedUser.PasswordHash.Should().Contain(":");
+        captured.Should().NotBeNull();
+        captured!.Username.Should().Be("newuser");
+        captured.DisplayName.Should().Be("New User");
+        captured.Email.Should().Be("new@fcengine.local");
+        captured.Role.Should().Be(PortalRole.Approver);
+        captured.IsActive.Should().BeTrue();
+        captured.PasswordHash.Should().NotBe("NewPass1!");
+        captured.PasswordHash.Should().Contain(":");
+        captured.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
     }
 
     [Fact]
-    public async Task CreateUser_WithDuplicateUsername_ThrowsInvalidOperationException()
+    public async Task CreateUser_DuplicateUsername_ThrowsInvalidOperationException()
     {
-        // Arrange
-        var username = "existinguser";
-
-        _portalUserRepositoryMock
-            .Setup(r => r.UsernameExists(username, It.IsAny<CancellationToken>()))
+        _userRepoMock
+            .Setup(r => r.UsernameExists("existing", It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        // Act
-        var act = () => _sut.CreateUser(username, "Display", "email@example.com", "P@ssw0rd!", PortalRole.Viewer);
+        var act = () => _sut.CreateUser("existing", "Name", "e@e.com", "P@ss1!", PortalRole.Viewer);
 
-        // Assert
         await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage($"*'{username}'*");
+            .WithMessage("*'existing'*");
 
-        _portalUserRepositoryMock.Verify(
-            r => r.Create(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _userRepoMock.Verify(r => r.Create(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
-    public async Task CreateUser_HashedPasswordFormat_IsSaltColonHashBase64()
+    public async Task CreateUser_PasswordRoundtrip_CanBeValidatedViaLogin()
     {
-        // Arrange
-        var username = "formatuser";
-        var password = "F0rmatP@ss!";
+        var password = "R0undTr!pP@ss";
+        PortalUser? createdUser = null;
 
-        _portalUserRepositoryMock
-            .Setup(r => r.UsernameExists(username, It.IsAny<CancellationToken>()))
+        _userRepoMock
+            .Setup(r => r.UsernameExists("roundtrip", It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
-        PortalUser? capturedUser = null;
-        _portalUserRepositoryMock
+        _userRepoMock
             .Setup(r => r.Create(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()))
-            .Callback<PortalUser, CancellationToken>((u, _) => capturedUser = u)
+            .Callback<PortalUser, CancellationToken>((u, _) => createdUser = u)
             .ReturnsAsync((PortalUser u, CancellationToken _) => u);
 
-        // Act
-        await _sut.CreateUser(username, "Format User", "format@example.com", password, PortalRole.Viewer);
+        await _sut.CreateUser("roundtrip", "Roundtrip", "rt@test.com", password, PortalRole.Admin);
 
-        // Assert
-        capturedUser.Should().NotBeNull();
-
-        var parts = capturedUser!.PasswordHash.Split(':');
-        parts.Should().HaveCount(2, "password hash should be in the format 'base64salt:base64hash'");
-
-        // Verify both parts are valid Base64 strings
-        var saltAction = () => Convert.FromBase64String(parts[0]);
-        saltAction.Should().NotThrow("the salt portion should be valid Base64");
-
-        var hashAction = () => Convert.FromBase64String(parts[1]);
-        hashAction.Should().NotThrow("the hash portion should be valid Base64");
-
-        // Salt and hash should have non-trivial lengths
-        Convert.FromBase64String(parts[0]).Length.Should().BeGreaterThan(0);
-        Convert.FromBase64String(parts[1]).Length.Should().BeGreaterThan(0);
-    }
-
-    // ──────────────────────────────────────────────
-    // ChangePassword
-    // ──────────────────────────────────────────────
-
-    [Fact]
-    public async Task ChangePassword_WithValidUser_UpdatesPasswordHash()
-    {
-        // Arrange
-        var userId = 10;
-        var oldPassword = "OldP@ssw0rd!";
-        var newPassword = "NewP@ssw0rd!";
-        var oldHash = AuthService.HashPassword(oldPassword);
-
-        var user = new PortalUser
-        {
-            Id = userId,
-            Username = "changeuser",
-            DisplayName = "Change User",
-            Email = "change@example.com",
-            PasswordHash = oldHash,
-            Role = PortalRole.Admin,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow.AddDays(-20),
-            LastLoginAt = DateTime.UtcNow.AddDays(-1)
-        };
-
-        _portalUserRepositoryMock
-            .Setup(r => r.GetById(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user);
-
-        _portalUserRepositoryMock
+        _userRepoMock
+            .Setup(r => r.GetByUsername("roundtrip", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(createdUser);
+        _userRepoMock
             .Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
-        // Act
-        await _sut.ChangePassword(userId, newPassword);
+        var (result, errorCode) = await _sut.ValidateLogin("roundtrip", password);
 
-        // Assert
-        _portalUserRepositoryMock.Verify(
-            r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()),
-            Times.Once);
+        result.Should().NotBeNull("created user should be able to log in with the same password");
+        errorCode.Should().BeNull();
+        result!.Username.Should().Be("roundtrip");
+    }
 
-        user.PasswordHash.Should().NotBe(oldHash, "the password hash should have been updated");
+    // ═══════════════════════════════════════════════════
+    // ChangePassword
+    // ═══════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ChangePassword_ValidUser_UpdatesHash()
+    {
+        var oldHash = AuthService.HashPassword("OldPass1!");
+        var user = new PortalUser
+        {
+            Id = 10, Username = "pwduser", DisplayName = "Pwd User",
+            Email = "pwd@test.com", PasswordHash = oldHash,
+            Role = PortalRole.Admin, IsActive = true,
+            CreatedAt = DateTime.UtcNow.AddDays(-20),
+            FailedLoginAttempts = 3, LockoutEnd = DateTime.UtcNow.AddMinutes(5)
+        };
+
+        _userRepoMock.Setup(r => r.GetById(10, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await _sut.ChangePassword(10, "NewPass1!");
+
+        user.PasswordHash.Should().NotBe(oldHash);
         user.PasswordHash.Should().Contain(":");
-
-        // Verify the new hash is valid Base64 salt:hash format
-        var parts = user.PasswordHash.Split(':');
-        parts.Should().HaveCount(2);
-        var saltAction = () => Convert.FromBase64String(parts[0]);
-        saltAction.Should().NotThrow();
-        var hashAction = () => Convert.FromBase64String(parts[1]);
-        hashAction.Should().NotThrow();
     }
 
     [Fact]
-    public async Task ChangePassword_WithNonExistentUser_ThrowsInvalidOperationException()
+    public async Task ChangePassword_ResetsLockoutCounters()
     {
-        // Arrange
-        var userId = 999;
+        var user = new PortalUser
+        {
+            Id = 10, Username = "lockeduser", DisplayName = "Locked User",
+            Email = "locked@test.com", PasswordHash = AuthService.HashPassword("OldPass1!"),
+            Role = PortalRole.Admin, IsActive = true,
+            CreatedAt = DateTime.UtcNow.AddDays(-20),
+            FailedLoginAttempts = 5, LockoutEnd = DateTime.UtcNow.AddMinutes(10)
+        };
 
-        _portalUserRepositoryMock
-            .Setup(r => r.GetById(userId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync((PortalUser?)null);
+        _userRepoMock.Setup(r => r.GetById(10, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        // Act
-        var act = () => _sut.ChangePassword(userId, "SomeP@ss!");
+        await _sut.ChangePassword(10, "NewPass1!");
 
-        // Assert
-        await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("*User not found*");
-
-        _portalUserRepositoryMock.Verify(
-            r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        user.FailedLoginAttempts.Should().Be(0);
+        user.LockoutEnd.Should().BeNull();
     }
 
-    // ──────────────────────────────────────────────
+    [Fact]
+    public async Task ChangePassword_NonExistentUser_Throws()
+    {
+        _userRepoMock.Setup(r => r.GetById(999, It.IsAny<CancellationToken>())).ReturnsAsync((PortalUser?)null);
+
+        var act = () => _sut.ChangePassword(999, "NewPass1!");
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*User not found*");
+    }
+
+    [Fact]
+    public async Task ChangePassword_CanLoginWithNewPassword()
+    {
+        var user = new PortalUser
+        {
+            Id = 10, Username = "pwdchange", DisplayName = "Pwd Change",
+            Email = "pwdc@test.com", PasswordHash = AuthService.HashPassword("OldPass1!"),
+            Role = PortalRole.Viewer, IsActive = true, CreatedAt = DateTime.UtcNow.AddDays(-5)
+        };
+
+        _userRepoMock.Setup(r => r.GetById(10, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var newPassword = "BrandNewP@ss1!";
+        await _sut.ChangePassword(10, newPassword);
+
+        _userRepoMock.Setup(r => r.GetByUsername("pwdchange", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("pwdchange", newPassword);
+
+        result.Should().NotBeNull();
+        errorCode.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ChangePassword_OldPasswordNoLongerWorks()
+    {
+        var oldPassword = "OldPass1!";
+        var user = new PortalUser
+        {
+            Id = 10, Username = "pwdchange2", DisplayName = "Pwd Change2",
+            Email = "pwdc2@test.com", PasswordHash = AuthService.HashPassword(oldPassword),
+            Role = PortalRole.Viewer, IsActive = true, CreatedAt = DateTime.UtcNow.AddDays(-5)
+        };
+
+        _userRepoMock.Setup(r => r.GetById(10, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await _sut.ChangePassword(10, "BrandNewP@ss1!");
+
+        _userRepoMock.Setup(r => r.GetByUsername("pwdchange2", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("pwdchange2", oldPassword);
+
+        result.Should().BeNull();
+        errorCode.Should().Be("invalid");
+    }
+
+    // ═══════════════════════════════════════════════════
     // HashPassword (static)
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════
 
     [Fact]
-    public void HashPassword_WithSamePassword_ProducesDifferentHashes()
+    public void HashPassword_SamePassword_ProducesDifferentHashes()
     {
-        // Arrange
-        var password = "SameP@ssw0rd!";
+        var hash1 = AuthService.HashPassword("SameP@ss!");
+        var hash2 = AuthService.HashPassword("SameP@ss!");
 
-        // Act
-        var hash1 = AuthService.HashPassword(password);
-        var hash2 = AuthService.HashPassword(password);
-
-        // Assert
-        hash1.Should().NotBe(hash2, "different salts should produce different hashes for the same password");
-
-        // Also verify the salt portions are different
-        var salt1 = hash1.Split(':')[0];
-        var salt2 = hash2.Split(':')[0];
-        salt1.Should().NotBe(salt2, "each hash operation should use a unique random salt");
+        hash1.Should().NotBe(hash2, "each hash uses a unique random salt");
+        hash1.Split(':')[0].Should().NotBe(hash2.Split(':')[0], "salts should differ");
     }
 
     [Fact]
-    public void HashPassword_OutputFormat_IsTwoBase64StringsSeparatedByColon()
+    public void HashPassword_Format_IsSaltColonHashInBase64()
     {
-        // Arrange
-        var password = "F0rm@tTest!";
-
-        // Act
-        var result = AuthService.HashPassword(password);
-
-        // Assert
-        result.Should().NotBeNullOrWhiteSpace();
-        result.Should().Contain(":");
+        var result = AuthService.HashPassword("TestP@ss!");
 
         var parts = result.Split(':');
-        parts.Should().HaveCount(2, "hash format should be exactly 'base64salt:base64hash'");
+        parts.Should().HaveCount(2);
 
-        // Validate the salt is valid Base64 and has expected length (16 bytes)
-        var saltBytes = Convert.FromBase64String(parts[0]);
-        saltBytes.Should().NotBeEmpty("salt should have content");
-        saltBytes.Should().HaveCount(16, "salt should be 128 bits (16 bytes)");
+        var salt = Convert.FromBase64String(parts[0]);
+        salt.Should().HaveCount(16, "salt should be 128 bits");
 
-        // Validate the hash is valid Base64 and has expected length (32 bytes)
-        var hashBytes = Convert.FromBase64String(parts[1]);
-        hashBytes.Should().NotBeEmpty("hash should have content");
-        hashBytes.Should().HaveCount(32, "hash should be 256 bits (32 bytes)");
+        var hash = Convert.FromBase64String(parts[1]);
+        hash.Should().HaveCount(32, "hash should be 256 bits");
     }
 
-    // ──────────────────────────────────────────────
-    // Roundtrip: HashPassword + ValidateLogin
-    // ──────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════
+    // GeneratePasswordResetToken
+    // ═══════════════════════════════════════════════════
 
     [Fact]
-    public async Task ValidateLogin_WithHashFromHashPassword_ReturnsUserSuccessfully()
+    public async Task GeneratePasswordResetToken_ValidEmail_ReturnsToken()
     {
-        // Arrange
-        var username = "roundtripuser";
-        var password = "R0undTr!pP@ss";
-        var hashedPassword = AuthService.HashPassword(password);
+        var user = CreateTestUser();
+        _userRepoMock.Setup(r => r.GetByEmail("testuser@fcengine.local", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _resetTokenRepoMock.Setup(r => r.InvalidateAllForUser(user.Id, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _resetTokenRepoMock.Setup(r => r.Create(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        var user = new PortalUser
-        {
-            Id = 42,
-            Username = username,
-            DisplayName = "Roundtrip User",
-            Email = "roundtrip@example.com",
-            PasswordHash = hashedPassword,
-            Role = PortalRole.Admin,
-            IsActive = true,
-            CreatedAt = DateTime.UtcNow.AddDays(-5),
-            LastLoginAt = null
-        };
+        var token = await _sut.GeneratePasswordResetToken("testuser@fcengine.local");
 
-        _portalUserRepositoryMock
-            .Setup(r => r.GetByUsername(username, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(user);
+        token.Should().NotBeNullOrWhiteSpace();
+        token!.Length.Should().BeGreaterThan(20, "token should be a long secure string");
+    }
 
-        _portalUserRepositoryMock
-            .Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()))
+    [Fact]
+    public async Task GeneratePasswordResetToken_InvalidatesExistingTokens()
+    {
+        var user = CreateTestUser();
+        _userRepoMock.Setup(r => r.GetByEmail("testuser@fcengine.local", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _resetTokenRepoMock.Setup(r => r.InvalidateAllForUser(user.Id, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _resetTokenRepoMock.Setup(r => r.Create(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await _sut.GeneratePasswordResetToken("testuser@fcengine.local");
+
+        _resetTokenRepoMock.Verify(r => r.InvalidateAllForUser(user.Id, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task GeneratePasswordResetToken_StoresTokenWithOneHourExpiry()
+    {
+        var user = CreateTestUser();
+        _userRepoMock.Setup(r => r.GetByEmail("testuser@fcengine.local", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+        _resetTokenRepoMock.Setup(r => r.InvalidateAllForUser(user.Id, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        PasswordResetToken? captured = null;
+        _resetTokenRepoMock
+            .Setup(r => r.Create(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>()))
+            .Callback<PasswordResetToken, CancellationToken>((t, _) => captured = t)
             .Returns(Task.CompletedTask);
 
-        // Act
-        var result = await _sut.ValidateLogin(username, password);
+        await _sut.GeneratePasswordResetToken("testuser@fcengine.local");
 
-        // Assert
-        result.Should().NotBeNull("the password hash from HashPassword should be verifiable by ValidateLogin");
-        result!.Id.Should().Be(42);
-        result.Username.Should().Be(username);
-        result.LastLoginAt.Should().NotBeNull();
+        captured.Should().NotBeNull();
+        captured!.UserId.Should().Be(user.Id);
+        captured.IsUsed.Should().BeFalse();
+        captured.ExpiresAt.Should().BeCloseTo(DateTime.UtcNow.AddHours(1), TimeSpan.FromSeconds(5));
+        captured.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
+    }
 
-        _portalUserRepositoryMock.Verify(
-            r => r.Update(It.Is<PortalUser>(u => u.Id == 42), It.IsAny<CancellationToken>()),
-            Times.Once);
+    [Fact]
+    public async Task GeneratePasswordResetToken_NonExistentEmail_ReturnsNull()
+    {
+        _userRepoMock.Setup(r => r.GetByEmail("ghost@nowhere.com", It.IsAny<CancellationToken>())).ReturnsAsync((PortalUser?)null);
+
+        var token = await _sut.GeneratePasswordResetToken("ghost@nowhere.com");
+
+        token.Should().BeNull();
+        _resetTokenRepoMock.Verify(r => r.Create(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task GeneratePasswordResetToken_InactiveUser_ReturnsNull()
+    {
+        var user = CreateTestUser(isActive: false);
+        _userRepoMock.Setup(r => r.GetByEmail("testuser@fcengine.local", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var token = await _sut.GeneratePasswordResetToken("testuser@fcengine.local");
+
+        token.Should().BeNull();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ValidateResetToken
+    // ═══════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ValidateResetToken_ValidToken_ReturnsEmail()
+    {
+        var user = CreateTestUser();
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "valid-token-123",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30), IsUsed = false,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-5), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("valid-token-123", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+
+        var email = await _sut.ValidateResetToken("valid-token-123");
+
+        email.Should().Be("testuser@fcengine.local");
+    }
+
+    [Fact]
+    public async Task ValidateResetToken_ExpiredToken_ReturnsNull()
+    {
+        var user = CreateTestUser();
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "expired-token",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(-5), IsUsed = false,
+            CreatedAt = DateTime.UtcNow.AddHours(-2), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("expired-token", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+
+        var email = await _sut.ValidateResetToken("expired-token");
+
+        email.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ValidateResetToken_AlreadyUsedToken_ReturnsNull()
+    {
+        var user = CreateTestUser();
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "used-token",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30), IsUsed = true,
+            UsedAt = DateTime.UtcNow.AddMinutes(-2),
+            CreatedAt = DateTime.UtcNow.AddMinutes(-10), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("used-token", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+
+        var email = await _sut.ValidateResetToken("used-token");
+
+        email.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ValidateResetToken_NonExistentToken_ReturnsNull()
+    {
+        _resetTokenRepoMock.Setup(r => r.GetByToken("fake-token", It.IsAny<CancellationToken>())).ReturnsAsync((PasswordResetToken?)null);
+
+        var email = await _sut.ValidateResetToken("fake-token");
+
+        email.Should().BeNull();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // ResetPasswordWithToken
+    // ═══════════════════════════════════════════════════
+
+    [Fact]
+    public async Task ResetPasswordWithToken_ValidToken_ChangesPasswordAndReturnsTrue()
+    {
+        var user = CreateTestUser(password: "OldPass1!", failedAttempts: 5,
+            lockoutEnd: DateTime.UtcNow.AddMinutes(10));
+        var oldHash = user.PasswordHash;
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "reset-token-123",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30), IsUsed = false,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-5), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("reset-token-123", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _resetTokenRepoMock.Setup(r => r.Update(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var success = await _sut.ResetPasswordWithToken("reset-token-123", "NewResetP@ss1!");
+
+        success.Should().BeTrue();
+        user.PasswordHash.Should().NotBe(oldHash);
+        user.FailedLoginAttempts.Should().Be(0);
+        user.LockoutEnd.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ResetPasswordWithToken_MarksTokenAsUsed()
+    {
+        var user = CreateTestUser();
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "mark-used-token",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30), IsUsed = false,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-5), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("mark-used-token", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _resetTokenRepoMock.Setup(r => r.Update(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await _sut.ResetPasswordWithToken("mark-used-token", "NewP@ss1!");
+
+        resetToken.IsUsed.Should().BeTrue();
+        resetToken.UsedAt.Should().NotBeNull();
+        resetToken.UsedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task ResetPasswordWithToken_CanLoginWithNewPassword()
+    {
+        var user = CreateTestUser(password: "OldPass1!");
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "login-after-reset",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30), IsUsed = false,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-5), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("login-after-reset", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _resetTokenRepoMock.Setup(r => r.Update(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var newPassword = "AfterResetP@ss1!";
+        await _sut.ResetPasswordWithToken("login-after-reset", newPassword);
+
+        _userRepoMock.Setup(r => r.GetByUsername("testuser", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", newPassword);
+
+        result.Should().NotBeNull();
+        errorCode.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task ResetPasswordWithToken_OldPasswordStopsWorking()
+    {
+        var oldPassword = "OldPass1!";
+        var user = CreateTestUser(password: oldPassword);
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "old-pwd-test",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30), IsUsed = false,
+            CreatedAt = DateTime.UtcNow.AddMinutes(-5), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("old-pwd-test", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _resetTokenRepoMock.Setup(r => r.Update(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        await _sut.ResetPasswordWithToken("old-pwd-test", "BrandNew1!");
+
+        _userRepoMock.Setup(r => r.GetByUsername("testuser", It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        var (result, errorCode) = await _sut.ValidateLogin("testuser", oldPassword);
+
+        result.Should().BeNull();
+        errorCode.Should().Be("invalid");
+    }
+
+    [Fact]
+    public async Task ResetPasswordWithToken_ExpiredToken_ReturnsFalse()
+    {
+        var user = CreateTestUser();
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "expired-reset",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(-10), IsUsed = false,
+            CreatedAt = DateTime.UtcNow.AddHours(-2), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("expired-reset", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+
+        var success = await _sut.ResetPasswordWithToken("expired-reset", "NewP@ss1!");
+
+        success.Should().BeFalse();
+        _userRepoMock.Verify(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ResetPasswordWithToken_AlreadyUsedToken_ReturnsFalse()
+    {
+        var user = CreateTestUser();
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = user.Id, Token = "already-used",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30), IsUsed = true,
+            UsedAt = DateTime.UtcNow.AddMinutes(-3),
+            CreatedAt = DateTime.UtcNow.AddMinutes(-10), User = user
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("already-used", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+
+        var success = await _sut.ResetPasswordWithToken("already-used", "NewP@ss1!");
+
+        success.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task ResetPasswordWithToken_NonExistentToken_ReturnsFalse()
+    {
+        _resetTokenRepoMock.Setup(r => r.GetByToken("no-such-token", It.IsAny<CancellationToken>())).ReturnsAsync((PasswordResetToken?)null);
+
+        var success = await _sut.ResetPasswordWithToken("no-such-token", "NewP@ss1!");
+
+        success.Should().BeFalse();
+    }
+
+    // ═══════════════════════════════════════════════════
+    // Full E2E lifecycle
+    // ═══════════════════════════════════════════════════
+
+    [Fact]
+    public async Task FullLifecycle_CreateUser_Login_Lockout_ResetPassword_LoginAgain()
+    {
+        // Step 1: Create user
+        var password = "Initial1!";
+        PortalUser? createdUser = null;
+
+        _userRepoMock.Setup(r => r.UsernameExists("lifecycle", It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        _userRepoMock
+            .Setup(r => r.Create(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>()))
+            .Callback<PortalUser, CancellationToken>((u, _) => createdUser = u)
+            .ReturnsAsync((PortalUser u, CancellationToken _) => u);
+
+        await _sut.CreateUser("lifecycle", "Lifecycle User", "lc@test.com", password, PortalRole.Admin);
+        createdUser.Should().NotBeNull();
+
+        // Step 2: Login successfully
+        _userRepoMock.Setup(r => r.GetByUsername("lifecycle", It.IsAny<CancellationToken>())).ReturnsAsync(createdUser);
+        _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var (user, err) = await _sut.ValidateLogin("lifecycle", password);
+        user.Should().NotBeNull();
+        err.Should().BeNull();
+
+        // Step 3: Fail 5 times → lockout
+        for (int i = 0; i < 5; i++)
+            await _sut.ValidateLogin("lifecycle", "wrong!");
+
+        createdUser!.FailedLoginAttempts.Should().Be(5);
+        createdUser.LockoutEnd.Should().NotBeNull();
+
+        // Step 4: Correct password rejected while locked
+        var (lockedResult, lockedErr) = await _sut.ValidateLogin("lifecycle", password);
+        lockedResult.Should().BeNull();
+        lockedErr.Should().Be("locked");
+
+        // Step 5: Reset password via token
+        var resetToken = new PasswordResetToken
+        {
+            Id = 1, UserId = createdUser.Id, Token = "lifecycle-reset",
+            ExpiresAt = DateTime.UtcNow.AddMinutes(30), IsUsed = false,
+            CreatedAt = DateTime.UtcNow, User = createdUser
+        };
+
+        _resetTokenRepoMock.Setup(r => r.GetByToken("lifecycle-reset", It.IsAny<CancellationToken>())).ReturnsAsync(resetToken);
+        _resetTokenRepoMock.Setup(r => r.Update(It.IsAny<PasswordResetToken>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var newPassword = "AfterReset1!";
+        var resetSuccess = await _sut.ResetPasswordWithToken("lifecycle-reset", newPassword);
+        resetSuccess.Should().BeTrue();
+
+        // Step 6: Lockout cleared
+        createdUser.FailedLoginAttempts.Should().Be(0);
+        createdUser.LockoutEnd.Should().BeNull();
+
+        // Step 7: Login with new password
+        var (finalUser, finalErr) = await _sut.ValidateLogin("lifecycle", newPassword);
+        finalUser.Should().NotBeNull();
+        finalErr.Should().BeNull();
+
+        // Step 8: Old password rejected
+        var (oldPwdResult, oldPwdErr) = await _sut.ValidateLogin("lifecycle", password);
+        oldPwdResult.Should().BeNull();
+        oldPwdErr.Should().Be("invalid");
     }
 }

@@ -15,6 +15,17 @@
                 <p class="login-subtitle">Use your authorized credentials to access the platform</p>
             </div>
 
+            <!-- Password Reset Success -->
+            @if (_resetSuccess)
+            {
+                <div class="login-alert login-alert-success" role="alert">
+                    <svg class="login-alert-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18" aria-hidden="true">
+                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                    </svg>
+                    <span>Your password has been reset successfully. Sign in with your new password.</span>
+                </div>
+            }
+
             <!-- Error Alert -->
             @if (_hasError)
             {
@@ -92,7 +103,7 @@
                         </span>
                         <span class="checkbox-label">Remember me</span>
                     </label>
-                    <a href="#" class="login-forgot-link" onclick="return false;" tabindex="0">Forgot password?</a>
+                    <a href="/forgot-password" class="login-forgot-link" tabindex="0">Forgot password?</a>
                 </div>
 
                 <!-- Submit Button -->
@@ -182,12 +193,16 @@
     [SupplyParameterFromQuery(Name = "error")]
     private string? Error { get; set; }
 
+    [SupplyParameterFromQuery(Name = "reset")]
+    private string? Reset { get; set; }
+
+    private bool _resetSuccess => Reset == "success";
     private bool _hasError => !string.IsNullOrEmpty(Error);
 
     private string _errorMessage => Error switch
     {
         "invalid" => "Invalid username or password. Please try again.",
-        "locked" => "This account has been locked. Contact your administrator.",
+        "locked" => "This account has been temporarily locked due to too many failed attempts. Try again in 15 minutes.",
         "expired" => "Your session has expired. Please sign in again.",
         "denied" => "Access denied. You do not have permission to access this system.",
         _ => "An error occurred during sign in. Please try again."

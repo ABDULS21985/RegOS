@@ -1,0 +1,74 @@
+@page "/login"
+@layout LoginLayout
+
+<PageTitle>Sign In — FC Engine Portal</PageTitle>
+
+<div class="portal-login-container">
+    <div class="portal-login-card">
+        <div class="portal-login-header">
+            <h2 class="portal-login-title">Sign In</h2>
+            <p class="portal-login-subtitle">Financial Institution Portal</p>
+        </div>
+
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="portal-alert portal-alert-error" role="alert">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                </svg>
+                <span>@errorMessage</span>
+            </div>
+        }
+
+        <form method="post" action="/account/login" class="portal-login-form">
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+            <AntiforgeryToken />
+
+            <div class="portal-form-group">
+                <label for="username" class="portal-form-label">Username</label>
+                <input type="text" id="username" name="username" class="portal-form-input"
+                       placeholder="Enter your username" required autocomplete="username" autofocus />
+            </div>
+
+            <div class="portal-form-group">
+                <label for="password" class="portal-form-label">Password</label>
+                <input type="password" id="password" name="password" class="portal-form-input"
+                       placeholder="Enter your password" required autocomplete="current-password" />
+            </div>
+
+            <button type="submit" class="portal-btn portal-btn-primary portal-btn-full">
+                Sign In
+            </button>
+        </form>
+
+        <div class="portal-login-help">
+            <p>Having trouble signing in? Contact your institution administrator.</p>
+        </div>
+
+        <div class="portal-login-footer">
+            <p>&copy; @DateTime.UtcNow.Year Central Bank of Nigeria. All rights reserved.</p>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? error { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? returnUrl { get; set; }
+
+    private string errorMessage = "";
+
+    protected override void OnInitialized()
+    {
+        errorMessage = error switch
+        {
+            "invalid" => "Invalid username or password.",
+            "locked" => "Account is locked. Please try again later.",
+            "inactive" => "Account has been deactivated. Contact your institution administrator.",
+            "not-configured" => "Institution authentication is being configured. Please try again later.",
+            _ => ""
+        };
+    }
+}
