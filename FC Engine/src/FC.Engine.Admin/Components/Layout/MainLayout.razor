@@ -3,9 +3,17 @@
 @inject NavigationManager Navigation
 @implements IDisposable
 
+<!-- Skip to content link for accessibility -->
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<!-- Global progress bar -->
+<div class="global-progress @(_navigating ? "is-loading" : (_progressComplete ? "is-complete" : ""))" aria-hidden="true">
+    <div class="global-progress-bar"></div>
+</div>
+
 <div class="app-shell @(_sidebarOpen ? "sidebar-open" : "")">
     <!-- Sidebar -->
-    <aside class="shell-sidebar" aria-label="Main navigation">
+    <aside class="shell-sidebar" aria-label="Main navigation" @onkeydown="HandleSidebarKeyDown">
         <div class="sidebar-brand">
             <img src="images/cbn-logo.svg" alt="Central Bank of Nigeria" class="sidebar-brand-logo" width="40" height="33" />
             <div class="sidebar-brand-text">
@@ -49,17 +57,25 @@
     </aside>
 
     <!-- Sidebar overlay for mobile -->
-    <div class="sidebar-overlay" @onclick="CloseSidebar"></div>
+    <div class="sidebar-overlay" @onclick="CloseSidebar" role="presentation" aria-hidden="true"></div>
 
     <!-- Main Area -->
     <div class="shell-main">
-        <header class="shell-topbar">
+        <header class="shell-topbar" role="banner">
             <div class="topbar-left">
-                <button class="topbar-toggle" @onclick="ToggleSidebar" aria-label="Toggle navigation">
+                <button class="topbar-toggle" @onclick="ToggleSidebar" aria-label="@(_sidebarOpen ? "Close navigation" : "Open navigation")" aria-expanded="@_sidebarOpen">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" aria-hidden="true">
-                        <line x1="3" y1="12" x2="21" y2="12"/>
-                        <line x1="3" y1="6" x2="21" y2="6"/>
-                        <line x1="3" y1="18" x2="21" y2="18"/>
+                        @if (_sidebarOpen)
+                        {
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        }
+                        else
+                        {
+                            <line x1="3" y1="12" x2="21" y2="12"/>
+                            <line x1="3" y1="6" x2="21" y2="6"/>
+                            <line x1="3" y1="18" x2="21" y2="18"/>
+                        }
                     </svg>
                 </button>
                 <nav class="topbar-breadcrumb" aria-label="Breadcrumb">
@@ -90,8 +106,20 @@
             </div>
         </header>
 
-        <main class="shell-content">
+        <main id="main-content" class="shell-content" role="main">
+            <!-- Print letterhead (visible only in print) -->
+            <div class="print-letterhead" aria-hidden="true">
+                <div class="print-letterhead-title">Central Bank of Nigeria</div>
+                <div class="print-letterhead-sub">FC Engine &mdash; @_currentPageName</div>
+                <span class="print-letterhead-accent"></span>
+            </div>
+
             @Body
+
+            <!-- Print footer (visible only in print) -->
+            <div class="print-footer" aria-hidden="true">
+                FC Engine Admin Portal &bull; Central Bank of Nigeria &bull; Printed @DateTime.UtcNow.ToString("dd MMM yyyy HH:mm") UTC
+            </div>
         </main>
     </div>
 </div>
@@ -102,6 +130,8 @@
 
 @code {
     private bool _sidebarOpen;
+    private bool _navigating;
+    private bool _progressComplete;
     private string _currentPageName = "Dashboard";
 
     protected override void OnInitialized()
@@ -110,10 +140,21 @@
         UpdatePageName(Navigation.Uri);
     }
 
-    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
+        _navigating = true;
+        _progressComplete = false;
         UpdatePageName(e.Location);
         _sidebarOpen = false;
+        StateHasChanged();
+
+        await Task.Delay(300);
+        _navigating = false;
+        _progressComplete = true;
+        StateHasChanged();
+
+        await Task.Delay(500);
+        _progressComplete = false;
         StateHasChanged();
     }
 
@@ -139,6 +180,12 @@
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
     private void CloseSidebar() => _sidebarOpen = false;
+
+    private void HandleSidebarKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && _sidebarOpen)
+            _sidebarOpen = false;
+    }
 
     private static string GetInitials(string name)
     {

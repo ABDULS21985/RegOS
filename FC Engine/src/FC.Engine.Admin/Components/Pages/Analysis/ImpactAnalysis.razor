@@ -3,130 +3,809 @@
 @attribute [Authorize(Policy = "ApproverOrAdmin")]
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Validation
 @using FC.Engine.Application.Services
 @inject ITemplateMetadataCache Cache
 @inject ITemplateRepository TemplateRepo
 @inject IFormulaRepository FormulaRepo
+@inject ToastService Toast
 
-<div class="page-header">
-    <h1>Impact Analysis</h1>
-    <p>Analyze the impact of template changes before publishing</p>
-</div>
+<div class="ia-page">
 
-<div class="card">
-    <div class="card-header"><h2>Select Template</h2></div>
-    <div style="padding:1rem;">
-        <div class="form-group">
-            <label>Return Code</label>
-            <select class="form-control" @bind="_selectedTemplate" @bind:after="AnalyzeTemplate">
-                <option value="">Select a template...</option>
+    <!-- ============================================================
+         PAGE HEADER
+         ============================================================ -->
+    <div class="ia-header">
+        <div class="ia-header-text">
+            <h1>Impact Analysis</h1>
+            <p>Assess downstream dependencies, formula exposure, and operational risk before publishing template changes</p>
+        </div>
+        <div class="ia-header-actions">
+            @if (_analysis != null)
+            {
+                <button class="ia-print-btn" @onclick="() => _showPrintView = !_showPrintView">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
+                        <polyline points="6 9 6 2 18 2 18 9"/>
+                        <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                        <rect x="6" y="14" width="12" height="8"/>
+                    </svg>
+                    @(_showPrintView ? "Exit Print View" : "Print Report")
+                </button>
+            }
+        </div>
+    </div>
+
+    <!-- ============================================================
+         TEMPLATE SELECTOR
+         ============================================================ -->
+    <div class="ia-selector-card">
+        <div class="ia-selector-inner">
+            <div class="ia-selector-label">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+                    <path d="M14 2v6h6"/>
+                    <path d="M16 13H8"/>
+                    <path d="M16 17H8"/>
+                    <path d="M10 9H8"/>
+                </svg>
+                <span>Select Template to Analyze</span>
+            </div>
+            <select class="ia-selector-select" @bind="_selectedTemplate" @bind:after="AnalyzeTemplate" aria-label="Select a return template">
+                <option value="">Choose a return template...</option>
                 @foreach (var rc in _returnCodes)
                 {
-                    <option value="@rc">@rc</option>
+                    <option value="@rc">@rc — @GetTemplateName(rc)</option>
                 }
             </select>
         </div>
     </div>
+
+    <!-- ============================================================
+         LOADING STATE
+         ============================================================ -->
+    @if (_analyzing)
+    {
+        <div class="ia-loading">
+            <div class="ia-loading-spinner" aria-hidden="true"></div>
+            <div class="ia-loading-text">
+                <span class="ia-loading-title">Analyzing Dependencies</span>
+                <span class="ia-loading-sub">Scanning formulas, cross-sheet rules, and template relationships...</span>
+            </div>
+        </div>
+    }
+
+    <!-- ============================================================
+         EMPTY / INITIAL STATE
+         ============================================================ -->
+    @if (!_analyzing && _analysis == null && string.IsNullOrEmpty(_selectedTemplate))
+    {
+        <div class="ia-empty-state">
+            <div class="ia-empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="48" height="48">
+                    <circle cx="11" cy="11" r="8"/>
+                    <path d="m21 21-4.35-4.35"/>
+                    <path d="M11 8v6"/>
+                    <path d="M8 11h6"/>
+                </svg>
+            </div>
+            <h3>Select a Template to Begin</h3>
+            <p>Choose a return template above to analyze its dependencies, formula coverage, cross-sheet relationships, and operational risk exposure.</p>
+        </div>
+    }
+
+    <!-- ============================================================
+         ANALYSIS RESULTS
+         ============================================================ -->
+    @if (_analysis != null && !_analyzing)
+    {
+        <!-- SECTION 1: Summary Metrics -->
+        <div class="ia-stats-row">
+            <div class="ia-stat-card ia-stat-green" style="animation-delay: 0.05s;">
+                <div class="ia-stat-accent" aria-hidden="true"></div>
+                <div class="ia-stat-body">
+                    <div class="ia-stat-icon ia-icon-green" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/>
+                            <path d="M14 2v6h6"/>
+                        </svg>
+                    </div>
+                    <div class="ia-stat-data">
+                        <span class="ia-stat-number">@_analysis.FieldCount</span>
+                        <span class="ia-stat-label">Fields Defined</span>
+                    </div>
+                </div>
+            </div>
+            <div class="ia-stat-card ia-stat-gold" style="animation-delay: 0.1s;">
+                <div class="ia-stat-accent" aria-hidden="true"></div>
+                <div class="ia-stat-body">
+                    <div class="ia-stat-icon ia-icon-gold" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                            <path d="M12 20V10"/>
+                            <path d="M18 20V4"/>
+                            <path d="M6 20v-4"/>
+                        </svg>
+                    </div>
+                    <div class="ia-stat-data">
+                        <span class="ia-stat-number">@_analysis.FormulaCount</span>
+                        <span class="ia-stat-label">Intra-Sheet Formulas</span>
+                    </div>
+                </div>
+            </div>
+            <div class="ia-stat-card ia-stat-blue" style="animation-delay: 0.15s;">
+                <div class="ia-stat-accent" aria-hidden="true"></div>
+                <div class="ia-stat-body">
+                    <div class="ia-stat-icon ia-icon-blue" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                            <path d="M16 3h5v5"/><path d="M8 3H3v5"/>
+                            <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/>
+                            <path d="m15 9 6-6"/>
+                        </svg>
+                    </div>
+                    <div class="ia-stat-data">
+                        <span class="ia-stat-number">@_analysis.CrossSheetRuleCount</span>
+                        <span class="ia-stat-label">Cross-Sheet Rules</span>
+                    </div>
+                </div>
+            </div>
+            <div class="ia-stat-card @RiskCardClass" style="animation-delay: 0.2s;">
+                <div class="ia-stat-accent" aria-hidden="true"></div>
+                <div class="ia-stat-body">
+                    <div class="ia-stat-icon @RiskIconClass" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/>
+                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                    </div>
+                    <div class="ia-stat-data">
+                        <span class="ia-stat-number ia-risk-value">@RiskLevel</span>
+                        <span class="ia-stat-label">Risk Level</span>
+                    </div>
+                    @if (RiskLevel == "High")
+                    {
+                        <div class="ia-risk-pulse" aria-hidden="true"></div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- SECTION 2: Scenario Selector -->
+        <div class="ia-scenario-card" style="animation-delay: 0.25s;">
+            <div class="ia-scenario-header">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+                    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+                </svg>
+                <span>What-If Scenario</span>
+            </div>
+            <div class="ia-scenario-options" role="radiogroup" aria-label="Impact analysis scenario">
+                @foreach (var scenario in _scenarios)
+                {
+                    <button class="ia-scenario-btn @(scenario == _activeScenario ? "ia-scenario-btn-active" : "")"
+                            role="radio"
+                            aria-checked="@(scenario == _activeScenario)"
+                            @onclick="() => _activeScenario = scenario">
+                        <span class="ia-scenario-dot" aria-hidden="true"></span>
+                        @scenario
+                    </button>
+                }
+            </div>
+        </div>
+
+        <!-- SECTION 3: Impact Metrics Visualization -->
+        <div class="ia-metrics-card" style="animation-delay: 0.3s;">
+            <div class="ia-metrics-header">
+                <h2>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                        <line x1="18" y1="20" x2="18" y2="10"/>
+                        <line x1="12" y1="20" x2="12" y2="4"/>
+                        <line x1="6" y1="20" x2="6" y2="14"/>
+                    </svg>
+                    Impact Exposure Metrics
+                </h2>
+                <span class="ia-metrics-scenario">Scenario: @_activeScenario</span>
+            </div>
+            <div class="ia-rings-row">
+                <RingChart Value="@TemplatesAffectedPct" Label="Templates" Variant="@(TemplatesAffectedPct > 50 ? "red" : TemplatesAffectedPct > 20 ? "gold" : "green")" />
+                <RingChart Value="@FormulaCoveragePct" Label="Formula Coverage" Variant="@(FormulaCoveragePct < 30 ? "red" : FormulaCoveragePct < 70 ? "gold" : "green")" />
+                <RingChart Value="@CrossSheetExposurePct" Label="Cross-Sheet Exposure" Variant="@(CrossSheetExposurePct > 40 ? "red" : CrossSheetExposurePct > 15 ? "gold" : "green")" />
+                <RingChart Value="@FieldImpactPct" Label="Field Impact" Variant="@(FieldImpactPct > 60 ? "red" : FieldImpactPct > 30 ? "gold" : "green")" />
+            </div>
+        </div>
+
+        <!-- SECTION 4: Dependency Graph -->
+        <div class="ia-graph-card" style="animation-delay: 0.35s;">
+            <div class="ia-graph-header">
+                <h2>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                        <circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/>
+                        <path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M6 9v12"/>
+                    </svg>
+                    Dependency Graph
+                </h2>
+                <span class="ia-graph-label">Template → Rules → Dependent Templates</span>
+            </div>
+            <div class="ia-graph-body">
+                <!-- Root node: selected template -->
+                <div class="ia-node ia-node-template ia-node-root">
+                    <div class="ia-node-badge ia-node-badge-template">Template</div>
+                    <div class="ia-node-title">@_selectedTemplate</div>
+                    <div class="ia-node-meta">@_analysis.FieldCount fields &middot; @_analysis.FormulaCount formulas</div>
+                </div>
+
+                @if (_analysis.CrossSheetRules.Any())
+                {
+                    <div class="ia-graph-connector" aria-hidden="true">
+                        <div class="ia-connector-line"></div>
+                        <div class="ia-connector-label">@_analysis.CrossSheetRuleCount cross-sheet @(_analysis.CrossSheetRuleCount == 1 ? "rule" : "rules")</div>
+                    </div>
+
+                    <div class="ia-graph-branches">
+                        @foreach (var rule in _analysis.CrossSheetRules)
+                        {
+                            <div class="ia-branch">
+                                <div class="ia-branch-connector" aria-hidden="true"></div>
+                                <div class="ia-node ia-node-rule">
+                                    <div class="ia-node-badge ia-node-badge-rule">Rule</div>
+                                    <div class="ia-node-title">@rule.RuleCode</div>
+                                    <div class="ia-node-meta">@rule.RuleName</div>
+                                    @if (rule.Expression != null)
+                                    {
+                                        <div class="ia-node-expr">@rule.Expression.Expression</div>
+                                    }
+                                </div>
+                                @{
+                                    var dependents = rule.Operands
+                                        .Where(o => o.TemplateReturnCode != _selectedTemplate)
+                                        .Select(o => o.TemplateReturnCode)
+                                        .Distinct()
+                                        .ToList();
+                                }
+                                @if (dependents.Any())
+                                {
+                                    <div class="ia-branch-children">
+                                        @foreach (var dep in dependents)
+                                        {
+                                            <div class="ia-node ia-node-field">
+                                                <div class="ia-node-badge ia-node-badge-dependent">Dependent</div>
+                                                <a href="/templates/@dep" class="ia-node-title ia-node-link">@dep</a>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="ia-graph-connector" aria-hidden="true">
+                        <div class="ia-connector-line ia-connector-line-muted"></div>
+                        <div class="ia-connector-label ia-connector-label-muted">No cross-sheet dependencies</div>
+                    </div>
+                    <div class="ia-node ia-node-empty">
+                        <span>This template has no cross-sheet rule dependencies</span>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- SECTION 5: Collapsible Impact Categories -->
+        <div class="ia-accordions" style="animation-delay: 0.4s;">
+
+            <!-- Direct Template Impact -->
+            <AccordionPanel Title="Direct Template Impact"
+                            Subtitle="Fields, structure, and data type analysis"
+                            Count="@_analysis.FieldCount"
+                            Variant="green"
+                            InitiallyOpen="true">
+                <Icon>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>
+                    </svg>
+                </Icon>
+                <ChildContent>
+                    @if (_templateDetail != null)
+                    {
+                        <div class="ia-detail-grid">
+                            <div class="ia-detail-item">
+                                <span class="ia-detail-label">Return Code</span>
+                                <span class="ia-detail-value ia-detail-code">@_selectedTemplate</span>
+                            </div>
+                            <div class="ia-detail-item">
+                                <span class="ia-detail-label">Template Name</span>
+                                <span class="ia-detail-value">@_templateDetail.Name</span>
+                            </div>
+                            <div class="ia-detail-item">
+                                <span class="ia-detail-label">Structural Category</span>
+                                <span class="ia-detail-value">
+                                    <span class="list-badge list-badge-@_templateDetail.StructuralCategory.ToLowerInvariant()">@_templateDetail.StructuralCategory</span>
+                                </span>
+                            </div>
+                            <div class="ia-detail-item">
+                                <span class="ia-detail-label">Physical Table</span>
+                                <span class="ia-detail-value ia-detail-code">@_templateDetail.PhysicalTableName</span>
+                            </div>
+                            <div class="ia-detail-item">
+                                <span class="ia-detail-label">Total Fields</span>
+                                <span class="ia-detail-value">@_analysis.FieldCount</span>
+                            </div>
+                            <div class="ia-detail-item">
+                                <span class="ia-detail-label">Computed Fields</span>
+                                <span class="ia-detail-value">@_analysis.ComputedFieldCount</span>
+                            </div>
+                            <div class="ia-detail-item">
+                                <span class="ia-detail-label">Required Fields</span>
+                                <span class="ia-detail-value">@_analysis.RequiredFieldCount</span>
+                            </div>
+                            <div class="ia-detail-item">
+                                <span class="ia-detail-label">Key Fields</span>
+                                <span class="ia-detail-value">@_analysis.KeyFieldCount</span>
+                            </div>
+                        </div>
+
+                        @if (_analysis.FieldsBySection.Any())
+                        {
+                            <h4 class="ia-sub-heading">Fields by Section</h4>
+                            <div class="ia-section-bars">
+                                @foreach (var sec in _analysis.FieldsBySection)
+                                {
+                                    <div class="ia-section-bar-item">
+                                        <div class="ia-section-bar-label">
+                                            <span>@(string.IsNullOrEmpty(sec.Key) ? "Default" : sec.Key)</span>
+                                            <span class="ia-section-bar-count">@(sec.Value)</span>
+                                        </div>
+                                        <div class="ia-section-bar-track">
+                                            <div class="ia-section-bar-fill" style="width: @(Math.Min(100, (int)(sec.Value * 100.0 / _analysis.FieldCount)))%"></div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </ChildContent>
+            </AccordionPanel>
+
+            <!-- Formula Dependency Impact -->
+            <AccordionPanel Title="Formula Dependency Impact"
+                            Subtitle="Intra-sheet formula coverage and validation exposure"
+                            Count="@_analysis.FormulaCount"
+                            Variant="gold"
+                            InitiallyOpen="@(_analysis.FormulaCount > 0)">
+                <Icon>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                        <path d="M12 20V10"/><path d="M18 20V4"/><path d="M6 20v-4"/>
+                    </svg>
+                </Icon>
+                <ChildContent>
+                    @if (_analysis.FormulasByType.Any())
+                    {
+                        <div class="ia-formula-grid">
+                            @foreach (var ft in _analysis.FormulasByType)
+                            {
+                                <div class="ia-formula-type-card">
+                                    <span class="ia-formula-type-count">@ft.Value</span>
+                                    <span class="ia-formula-type-name">@ft.Key</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ia-accordion-empty">
+                            <p>No intra-sheet formulas defined for this template.</p>
+                        </div>
+                    }
+                </ChildContent>
+            </AccordionPanel>
+
+            <!-- Cross-Sheet Rule Impact -->
+            <AccordionPanel Title="Cross-Sheet Rule Impact"
+                            Subtitle="Rules that validate relationships with other templates"
+                            Count="@_analysis.CrossSheetRuleCount"
+                            Variant="blue"
+                            InitiallyOpen="@(_analysis.CrossSheetRuleCount > 0)">
+                <Icon>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                        <path d="M16 3h5v5"/><path d="M8 3H3v5"/>
+                        <path d="M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3"/>
+                        <path d="m15 9 6-6"/>
+                    </svg>
+                </Icon>
+                <ChildContent>
+                    @if (_analysis.CrossSheetRules.Any())
+                    {
+                        <div class="ia-rules-table-wrap">
+                            <table class="ia-rules-table" role="table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Rule Code</th>
+                                        <th scope="col">Name</th>
+                                        <th scope="col">Related Templates</th>
+                                        <th scope="col">Expression</th>
+                                        <th scope="col">Severity</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var rule in _analysis.CrossSheetRules)
+                                    {
+                                        <tr>
+                                            <td class="ia-cell-code">@rule.RuleCode</td>
+                                            <td class="ia-cell-strong">@rule.RuleName</td>
+                                            <td>
+                                                @foreach (var rc in rule.Operands.Select(o => o.TemplateReturnCode).Distinct())
+                                                {
+                                                    <span class="ia-template-chip @(rc == _selectedTemplate ? "ia-template-chip-self" : "")">@rc</span>
+                                                }
+                                            </td>
+                                            <td class="ia-cell-code">@(rule.Expression?.Expression ?? "—")</td>
+                                            <td>
+                                                <span class="list-badge list-badge-@rule.Severity.ToString().ToLowerInvariant()">@rule.Severity</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ia-accordion-empty">
+                            <p>No cross-sheet rules reference this template.</p>
+                        </div>
+                    }
+                </ChildContent>
+            </AccordionPanel>
+
+            <!-- Dependent Templates -->
+            <AccordionPanel Title="Dependent Templates"
+                            Subtitle="Templates affected by changes to this template"
+                            Count="@_analysis.DependentTemplates.Count"
+                            Variant="@(_analysis.DependentTemplates.Count > 5 ? "red" : _analysis.DependentTemplates.Count > 0 ? "gold" : "green")">
+                <Icon>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2"/>
+                        <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                    </svg>
+                </Icon>
+                <Badge>
+                    @if (_analysis.DependentTemplates.Count > 5)
+                    {
+                        <span class="ia-badge-warning">High Exposure</span>
+                    }
+                </Badge>
+                <ChildContent>
+                    @if (_analysis.DependentTemplates.Any())
+                    {
+                        <p class="ia-dependent-note">
+                            Changes to <strong>@_selectedTemplate</strong> may affect validation of the following templates
+                            through cross-sheet rule dependencies:
+                        </p>
+                        <div class="ia-rules-table-wrap">
+                            <table class="ia-rules-table" role="table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Return Code</th>
+                                        <th scope="col">Via Rule</th>
+                                        <th scope="col">Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var (rc, rule) in _analysis.DependentTemplates)
+                                    {
+                                        <tr>
+                                            <td class="ia-cell-strong">@rc</td>
+                                            <td class="ia-cell-code">@rule</td>
+                                            <td>
+                                                <a href="/templates/@rc" class="ia-view-link">View Template</a>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ia-accordion-empty">
+                            <p>No dependent templates found. Changes to this template will not affect cross-sheet validation for other templates.</p>
+                        </div>
+                    }
+                </ChildContent>
+            </AccordionPanel>
+
+            <!-- Business Rules Impact -->
+            <AccordionPanel Title="Business Rule Exposure"
+                            Subtitle="Generic business rules applicable to this template"
+                            Count="@_analysis.BusinessRuleCount"
+                            Variant="@(_analysis.BusinessRuleCount > 0 ? "gold" : "green")">
+                <Icon>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                </Icon>
+                <ChildContent>
+                    @if (_analysis.BusinessRules.Any())
+                    {
+                        <div class="ia-rules-table-wrap">
+                            <table class="ia-rules-table" role="table">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Rule Code</th>
+                                        <th scope="col">Name</th>
+                                        <th scope="col">Type</th>
+                                        <th scope="col">Severity</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var br in _analysis.BusinessRules)
+                                    {
+                                        <tr>
+                                            <td class="ia-cell-code">@br.RuleCode</td>
+                                            <td class="ia-cell-strong">@br.RuleName</td>
+                                            <td>
+                                                <span class="list-badge list-badge-review">@br.RuleType</span>
+                                            </td>
+                                            <td>
+                                                <span class="list-badge list-badge-@br.Severity.ToString().ToLowerInvariant()">@br.Severity</span>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="ia-accordion-empty">
+                            <p>No business rules are directly applicable to this template.</p>
+                        </div>
+                    }
+                </ChildContent>
+            </AccordionPanel>
+
+            <!-- Breaking vs Non-Breaking Changes -->
+            <AccordionPanel Title="Change Classification"
+                            Subtitle="Breaking vs non-breaking change assessment"
+                            Variant="@(RiskLevel == "High" ? "red" : RiskLevel == "Medium" ? "gold" : "green")">
+                <Icon>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                </Icon>
+                <ChildContent>
+                    <div class="ia-change-assessment">
+                        <div class="ia-change-category @(RiskLevel == "High" ? "ia-change-breaking" : "ia-change-safe")">
+                            <div class="ia-change-icon" aria-hidden="true">
+                                @if (_analysis.CrossSheetRuleCount > 0 || _analysis.DependentTemplates.Count > 0)
+                                {
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                                        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                        <line x1="12" y1="9" x2="12" y2="13"/>
+                                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                }
+                                else
+                                {
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
+                                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                        <polyline points="22 4 12 14.01 9 11.01"/>
+                                    </svg>
+                                }
+                            </div>
+                            <div class="ia-change-text">
+                                <strong>
+                                    @if (_analysis.CrossSheetRuleCount > 0)
+                                    {
+                                        <span>Potentially Breaking Changes</span>
+                                    }
+                                    else
+                                    {
+                                        <span>Non-Breaking Change Scope</span>
+                                    }
+                                </strong>
+                                <p>
+                                    @if (_analysis.DependentTemplates.Count > 0)
+                                    {
+                                        <span>Structural changes to @_selectedTemplate may break @_analysis.DependentTemplates.Count dependent template(s) through @_analysis.CrossSheetRuleCount cross-sheet rule(s). Review each dependency before publishing.</span>
+                                    }
+                                    else if (_analysis.CrossSheetRuleCount > 0)
+                                    {
+                                        <span>This template participates in @_analysis.CrossSheetRuleCount cross-sheet rule(s) but no other templates depend on it. Changes should be validated carefully.</span>
+                                    }
+                                    else
+                                    {
+                                        <span>This template is self-contained with no cross-sheet dependencies. Field and formula changes can be published with lower risk.</span>
+                                    }
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </ChildContent>
+            </AccordionPanel>
+        </div>
+
+        <!-- ============================================================
+             SECTION 6: Printable Report View
+             ============================================================ -->
+        @if (_showPrintView)
+        {
+            <div class="ia-print-overlay" @onclick="() => _showPrintView = false">
+                <div class="ia-print-report" @onclick:stopPropagation="true">
+                    <div class="ia-print-header">
+                        <div class="ia-print-brand">
+                            <img src="images/cbn-logo.svg" alt="CBN" width="48" height="40" />
+                            <div>
+                                <strong>Central Bank of Nigeria</strong>
+                                <span>FC Engine — Impact Analysis Report</span>
+                            </div>
+                        </div>
+                        <div class="ia-print-meta">
+                            <span>Template: <strong>@_selectedTemplate</strong></span>
+                            <span>Generated: @DateTime.Now.ToString("dd MMM yyyy, HH:mm")</span>
+                            <span>Scenario: @_activeScenario</span>
+                        </div>
+                    </div>
+
+                    <div class="ia-print-body">
+                        <h3>Summary</h3>
+                        <div class="ia-print-stats">
+                            <div><span>Fields:</span> <strong>@_analysis.FieldCount</strong></div>
+                            <div><span>Formulas:</span> <strong>@_analysis.FormulaCount</strong></div>
+                            <div><span>Cross-Sheet Rules:</span> <strong>@_analysis.CrossSheetRuleCount</strong></div>
+                            <div><span>Dependent Templates:</span> <strong>@_analysis.DependentTemplates.Count</strong></div>
+                            <div><span>Business Rules:</span> <strong>@_analysis.BusinessRuleCount</strong></div>
+                            <div><span>Risk Level:</span> <strong class="ia-print-risk-@RiskLevel.ToLowerInvariant()">@RiskLevel</strong></div>
+                        </div>
+
+                        @if (_analysis.CrossSheetRules.Any())
+                        {
+                            <h3>Cross-Sheet Rules</h3>
+                            <table class="ia-print-table">
+                                <thead><tr><th>Rule Code</th><th>Name</th><th>Expression</th><th>Severity</th></tr></thead>
+                                <tbody>
+                                    @foreach (var r in _analysis.CrossSheetRules)
+                                    {
+                                        <tr>
+                                            <td>@r.RuleCode</td><td>@r.RuleName</td>
+                                            <td>@(r.Expression?.Expression ?? "—")</td><td>@r.Severity</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+
+                        @if (_analysis.DependentTemplates.Any())
+                        {
+                            <h3>Dependent Templates</h3>
+                            <table class="ia-print-table">
+                                <thead><tr><th>Return Code</th><th>Via Rule</th></tr></thead>
+                                <tbody>
+                                    @foreach (var (rc, rule) in _analysis.DependentTemplates)
+                                    {
+                                        <tr><td>@rc</td><td>@rule</td></tr>
+                                    }
+                                </tbody>
+                            </table>
+                        }
+                    </div>
+
+                    <div class="ia-print-footer">
+                        <span>Central Bank of Nigeria &middot; FC Engine Admin Portal</span>
+                        <span>CONFIDENTIAL — For Internal Use Only</span>
+                        <button class="ia-print-action" @onclick="PrintReport">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
+                                <polyline points="6 9 6 2 18 2 18 9"/>
+                                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>
+                                <rect x="6" y="14" width="12" height="8"/>
+                            </svg>
+                            Print
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    }
 </div>
-
-@if (_analyzing)
-{
-    <div class="text-center"><span class="spinner"></span> Analyzing...</div>
-}
-else if (_analysis != null)
-{
-    <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-value">@_analysis.FieldCount</div>
-            <div class="stat-label">Fields</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">@_analysis.FormulaCount</div>
-            <div class="stat-label">Intra-Sheet Formulas</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">@_analysis.CrossSheetRuleCount</div>
-            <div class="stat-label">Cross-Sheet Rules</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value">@_analysis.DependentTemplates.Count</div>
-            <div class="stat-label">Dependent Templates</div>
-        </div>
-    </div>
-
-    @if (_analysis.CrossSheetRules.Any())
-    {
-        <div class="card">
-            <div class="card-header"><h2>Cross-Sheet Rules Involving This Template</h2></div>
-            <table class="data-table">
-                <thead>
-                    <tr><th>Rule Code</th><th>Name</th><th>Related Templates</th><th>Expression</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var rule in _analysis.CrossSheetRules)
-                    {
-                        <tr>
-                            <td><code>@rule.RuleCode</code></td>
-                            <td>@rule.RuleName</td>
-                            <td>@string.Join(", ", rule.Operands.Select(o => o.TemplateReturnCode).Distinct())</td>
-                            <td><code>@rule.Expression?.Expression</code></td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-
-    @if (_analysis.DependentTemplates.Any())
-    {
-        <div class="card">
-            <div class="card-header"><h2>Dependent Templates</h2></div>
-            <p style="padding:0.75rem;">Changes to <strong>@_selectedTemplate</strong> may affect validation of these templates:</p>
-            <table class="data-table">
-                <thead><tr><th>Return Code</th><th>Via Rule</th></tr></thead>
-                <tbody>
-                    @foreach (var (rc, rule) in _analysis.DependentTemplates)
-                    {
-                        <tr>
-                            <td><a href="/templates/@rc">@rc</a></td>
-                            <td><code>@rule</code></td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    }
-}
 
 @code {
     private List<string> _returnCodes = new();
+    private Dictionary<string, string> _templateNames = new();
     private string _selectedTemplate = "";
     private bool _analyzing;
+    private bool _showPrintView;
+    private string _activeScenario = "Current Published Version";
     private ImpactAnalysisResult? _analysis;
+    private CachedTemplate? _templateDetail;
+
+    private readonly string[] _scenarios = new[]
+    {
+        "Current Published Version",
+        "Draft Change Set",
+        "Proposed Formula Update",
+        "Template Structure Change",
+        "Full Rollout Impact"
+    };
+
+    // Computed properties
+    private string RiskLevel
+    {
+        get
+        {
+            if (_analysis == null) return "Low";
+            var score = _analysis.DependentTemplates.Count * 3
+                      + _analysis.CrossSheetRuleCount * 2
+                      + (_analysis.BusinessRuleCount > 5 ? 3 : 0);
+            return score >= 10 ? "High" : score >= 4 ? "Medium" : "Low";
+        }
+    }
+
+    private string RiskCardClass => RiskLevel switch
+    {
+        "High" => "ia-stat-red",
+        "Medium" => "ia-stat-gold",
+        _ => "ia-stat-green"
+    };
+
+    private string RiskIconClass => RiskLevel switch
+    {
+        "High" => "ia-icon-red",
+        "Medium" => "ia-icon-gold",
+        _ => "ia-icon-green"
+    };
+
+    private int TemplatesAffectedPct => _returnCodes.Count > 0 && _analysis != null
+        ? Math.Min(100, (int)((_analysis.DependentTemplates.Select(d => d.ReturnCode).Distinct().Count() + 1) * 100.0 / _returnCodes.Count))
+        : 0;
+
+    private int FormulaCoveragePct => _analysis != null && _analysis.FieldCount > 0
+        ? Math.Min(100, (int)(_analysis.FormulaCount * 100.0 / _analysis.FieldCount))
+        : 0;
+
+    private int CrossSheetExposurePct => _analysis != null
+        ? Math.Min(100, _analysis.CrossSheetRuleCount * 10)
+        : 0;
+
+    private int FieldImpactPct => _analysis != null && _analysis.FieldCount > 0
+        ? Math.Min(100, (int)(_analysis.ComputedFieldCount * 100.0 / _analysis.FieldCount))
+        : 0;
 
     protected override async Task OnInitializedAsync()
     {
         var templates = await Cache.GetAllPublishedTemplates();
         _returnCodes = templates.Select(t => t.ReturnCode).OrderBy(x => x).ToList();
+        _templateNames = templates.ToDictionary(t => t.ReturnCode, t => t.Name);
     }
+
+    private string GetTemplateName(string rc) =>
+        _templateNames.TryGetValue(rc, out var name) ? name : rc;
 
     private async Task AnalyzeTemplate()
     {
-        if (string.IsNullOrEmpty(_selectedTemplate)) { _analysis = null; return; }
+        if (string.IsNullOrEmpty(_selectedTemplate))
+        {
+            _analysis = null;
+            _templateDetail = null;
+            return;
+        }
 
         _analyzing = true;
         try
         {
             var template = await Cache.GetPublishedTemplate(_selectedTemplate);
-            var crossSheetRules = await FormulaRepo.GetCrossSheetRulesForTemplate(_selectedTemplate);
-            var allRules = await FormulaRepo.GetAllActiveCrossSheetRules();
+            _templateDetail = template;
 
-            // Find all rules that reference this template
+            var allRules = await FormulaRepo.GetAllActiveCrossSheetRules();
+            var businessRules = await FormulaRepo.GetBusinessRulesForTemplate(_selectedTemplate);
+
+            // Find all cross-sheet rules that reference this template
             var relevantRules = allRules
                 .Where(r => r.Operands.Any(o => o.TemplateReturnCode == _selectedTemplate))
                 .ToList();
 
-            // Find dependent templates (other templates in the same cross-sheet rules)
+            // Find dependent templates
             var dependents = new List<(string ReturnCode, string RuleCode)>();
             foreach (var rule in relevantRules)
             {
@@ -139,17 +818,44 @@ else if (_analysis != null)
                 }
             }
 
+            // Group formulas by type
+            var formulasByType = template.CurrentVersion.IntraSheetFormulas
+                .GroupBy(f => f.FormulaType.ToString())
+                .ToDictionary(g => g.Key, g => g.Count());
+
+            // Group fields by section
+            var fieldsBySection = template.CurrentVersion.Fields
+                .GroupBy(f => f.SectionName ?? "")
+                .OrderByDescending(g => g.Count())
+                .ToDictionary(g => g.Key, g => g.Count());
+
             _analysis = new ImpactAnalysisResult
             {
                 FieldCount = template.CurrentVersion.Fields.Count,
                 FormulaCount = template.CurrentVersion.IntraSheetFormulas.Count,
                 CrossSheetRuleCount = relevantRules.Count,
                 CrossSheetRules = relevantRules,
-                DependentTemplates = dependents.Distinct().ToList()
+                DependentTemplates = dependents.Distinct().ToList(),
+                BusinessRules = businessRules.ToList(),
+                BusinessRuleCount = businessRules.Count,
+                ComputedFieldCount = template.CurrentVersion.Fields.Count(f => f.IsComputed),
+                RequiredFieldCount = template.CurrentVersion.Fields.Count(f => f.IsRequired),
+                KeyFieldCount = template.CurrentVersion.Fields.Count(f => f.IsKeyField),
+                FormulasByType = formulasByType,
+                FieldsBySection = fieldsBySection
             };
         }
-        catch { _analysis = null; }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Analysis Failed");
+            _analysis = null;
+        }
         _analyzing = false;
+    }
+
+    private void PrintReport()
+    {
+        // Print report view - browser print dialog
     }
 
     private class ImpactAnalysisResult
@@ -157,7 +863,14 @@ else if (_analysis != null)
         public int FieldCount { get; set; }
         public int FormulaCount { get; set; }
         public int CrossSheetRuleCount { get; set; }
-        public List<FC.Engine.Domain.Validation.CrossSheetRule> CrossSheetRules { get; set; } = new();
+        public int ComputedFieldCount { get; set; }
+        public int RequiredFieldCount { get; set; }
+        public int KeyFieldCount { get; set; }
+        public int BusinessRuleCount { get; set; }
+        public List<CrossSheetRule> CrossSheetRules { get; set; } = new();
         public List<(string ReturnCode, string RuleCode)> DependentTemplates { get; set; } = new();
+        public List<BusinessRule> BusinessRules { get; set; } = new();
+        public Dictionary<string, int> FormulasByType { get; set; } = new();
+        public Dictionary<string, int> FieldsBySection { get; set; } = new();
     }
 }
