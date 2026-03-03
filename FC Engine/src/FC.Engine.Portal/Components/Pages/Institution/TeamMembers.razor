@@ -1,0 +1,407 @@
+@page "/institution/team"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Domain.Enums
+
+<PageTitle>Team Members — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-page-header">
+        <div class="portal-page-header-main">
+            <h1 class="portal-page-title">Team Members</h1>
+            <p class="portal-page-subtitle">Manage your institution's users and roles</p>
+        </div>
+    </div>
+
+    <!-- Sub-nav -->
+    <nav class="portal-inst-subnav" aria-label="Institution sections">
+        <a href="/institution" class="portal-inst-subnav-item">Profile</a>
+        <a href="/institution/team" class="portal-inst-subnav-item portal-inst-subnav-item-active">
+            Team Members
+            <span class="portal-badge portal-badge-sm portal-badge-neutral">@teamMembers.Count</span>
+        </a>
+        @if (isAdmin)
+        {
+            <a href="/institution/settings" class="portal-inst-subnav-item">Settings</a>
+        }
+    </nav>
+
+    @if (isLoading)
+    {
+        <div class="portal-card" style="padding: 2rem;">
+            <div class="portal-skeleton portal-skeleton-block" style="height: 250px;"></div>
+        </div>
+    }
+    else
+    {
+        <!-- User Limit Meter -->
+        <div class="portal-card portal-inst-user-meter-card">
+            <div class="portal-inst-user-meter-header">
+                <span class="portal-inst-user-meter-label">
+                    <strong>@userCount.current</strong> of <strong>@userCount.max</strong> user slots used
+                </span>
+                @if (isAdmin && userCount.current < userCount.max)
+                {
+                    <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="ShowAddMemberForm">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        Add Member
+                    </button>
+                }
+                @if (isAdmin && userCount.current >= userCount.max)
+                {
+                    <span class="portal-badge portal-badge-danger portal-badge-sm">Limit Reached</span>
+                }
+            </div>
+            <div class="portal-inst-user-meter-bar">
+                <div class="portal-inst-user-meter-fill @GetMeterClass()"
+                     style="width: @GetMeterPercent()%;"></div>
+            </div>
+        </div>
+
+        <!-- Action Messages -->
+        @if (!string.IsNullOrEmpty(actionMessage))
+        {
+            <div class="portal-alert @(actionSuccess ? "portal-alert-success" : "portal-alert-error")" role="alert" style="margin-bottom: 1rem;">
+                @actionMessage
+            </div>
+        }
+
+        <!-- Add Member Form (inline, admin only) -->
+        @if (showAddForm && isAdmin)
+        {
+            <div class="portal-card portal-form-section portal-inst-add-form">
+                <h3 class="portal-form-section-title">Add New Team Member</h3>
+                <div class="portal-form-grid" style="max-width: 700px;">
+                    <div class="portal-form-group">
+                        <label for="newName" class="portal-form-label">Full Name <span class="portal-form-required">*</span></label>
+                        <input id="newName" type="text" class="portal-form-input" @bind="newName" placeholder="e.g. John Doe" />
+                    </div>
+                    <div class="portal-form-group">
+                        <label for="newUsername" class="portal-form-label">Username <span class="portal-form-required">*</span></label>
+                        <input id="newUsername" type="text" class="portal-form-input" @bind="newUsername" placeholder="e.g. john.doe" />
+                    </div>
+                    <div class="portal-form-group">
+                        <label for="newEmail" class="portal-form-label">Email <span class="portal-form-required">*</span></label>
+                        <input id="newEmail" type="email" class="portal-form-input" @bind="newEmail" placeholder="e.g. user@institution.com" />
+                    </div>
+                    <div class="portal-form-group">
+                        <label for="newRole" class="portal-form-label">Role <span class="portal-form-required">*</span></label>
+                        <select id="newRole" class="portal-form-select" @bind="newRole">
+                            <option value="">Select role...</option>
+                            @foreach (var r in Enum.GetNames<InstitutionRole>())
+                            {
+                                <option value="@r">@r</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="portal-form-group">
+                        <label for="newPwd" class="portal-form-label">Temporary Password <span class="portal-form-required">*</span></label>
+                        <input id="newPwd" type="password" class="portal-form-input" @bind="newPassword" placeholder="Min 8 characters" />
+                        <span class="portal-form-hint">User will be asked to change this on first login.</span>
+                    </div>
+                </div>
+                @if (!string.IsNullOrEmpty(addFormError))
+                {
+                    <div class="portal-alert portal-alert-error" style="margin-top: 0.75rem;">@addFormError</div>
+                }
+                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                    <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="AddMember" disabled="@isAddingMember">
+                        @if (isAddingMember)
+                        {
+                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                            <span>Adding...</span>
+                        }
+                        else { <span>Add Member</span> }
+                    </button>
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="() => showAddForm = false">Cancel</button>
+                </div>
+            </div>
+        }
+
+        <!-- Team Table -->
+        <div class="portal-card portal-card-flush">
+            <div class="portal-table-responsive">
+                <table class="portal-table" aria-label="Team members">
+                    <thead>
+                        <tr>
+                            <th>Member</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Last Login</th>
+                            <th>Joined</th>
+                            @if (isAdmin)
+                            {
+                                <th class="portal-table-th-actions">Actions</th>
+                            }
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var member in teamMembers)
+                        {
+                            <tr class="@(!member.IsActive ? "portal-table-row-dimmed" : "")">
+                                <td>
+                                    <div class="portal-inst-member-cell">
+                                        <span class="portal-settings-avatar-initials-sm">@member.Initials</span>
+                                        <span class="portal-inst-member-name">
+                                            @member.DisplayName
+                                            @if (member.Id == currentUserId)
+                                            {
+                                                <span class="portal-badge portal-badge-sm portal-badge-info">You</span>
+                                            }
+                                        </span>
+                                    </div>
+                                </td>
+                                <td class="portal-text-muted">@member.Email</td>
+                                <td>
+                                    @if (isAdmin && editingRoleUserId == member.Id)
+                                    {
+                                        <div style="display: flex; align-items: center; gap: 0.25rem;">
+                                            <select class="portal-form-select portal-form-select-sm"
+                                                    @bind="editRoleValue" style="width: 120px;">
+                                                @foreach (var r in Enum.GetNames<InstitutionRole>())
+                                                {
+                                                    <option value="@r">@r</option>
+                                                }
+                                            </select>
+                                            <button class="portal-btn portal-btn-xs portal-btn-primary"
+                                                    @onclick="() => SaveRole(member.Id)">Save</button>
+                                            <button class="portal-btn portal-btn-xs portal-btn-ghost"
+                                                    @onclick="() => editingRoleUserId = null">Cancel</button>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-badge @GetRoleBadgeClass(member.Role) portal-badge-sm">
+                                            @member.Role
+                                        </span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="portal-badge @(member.IsActive ? "portal-badge-success" : "portal-badge-danger") portal-badge-sm">
+                                        @(member.IsActive ? "Active" : "Inactive")
+                                    </span>
+                                </td>
+                                <td class="portal-text-muted" style="font-size: 0.75rem;">
+                                    @(member.LastLoginAt?.ToString("d MMM yyyy") ?? "Never")
+                                </td>
+                                <td class="portal-text-muted" style="font-size: 0.75rem;">
+                                    @member.CreatedAt.ToString("d MMM yyyy")
+                                </td>
+                                @if (isAdmin)
+                                {
+                                    <td class="portal-table-th-actions">
+                                        @if (member.Id != currentUserId)
+                                        {
+                                            <div class="portal-approval-quick-actions">
+                                                <button class="portal-btn portal-btn-ghost portal-btn-xs" title="Change role"
+                                                        @onclick="() => StartEditRole(member)">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                                    </svg>
+                                                </button>
+                                                @if (member.IsActive)
+                                                {
+                                                    <button class="portal-btn portal-btn-ghost portal-btn-xs portal-btn-danger-text"
+                                                            title="Deactivate" @onclick="() => ToggleStatus(member, false)">
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                            <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                                                        </svg>
+                                                    </button>
+                                                }
+                                                else
+                                                {
+                                                    <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                                            title="Reactivate" style="color: var(--cbn-success);"
+                                                            @onclick="() => ToggleStatus(member, true)">
+                                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                                            <polyline points="22 4 12 14.01 9 11.01"/>
+                                                        </svg>
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                }
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private bool isAdmin;
+    private int currentUserId;
+    private int institutionId;
+    private List<TeamMemberDetailModel> teamMembers = new();
+    private (int current, int max) userCount;
+
+    // Add member form
+    private bool showAddForm;
+    private bool isAddingMember;
+    private string newName = "", newUsername = "", newEmail = "", newRole = "", newPassword = "";
+    private string? addFormError;
+
+    // Role editing
+    private int? editingRoleUserId;
+    private string editRoleValue = "";
+
+    // Action messages
+    private string? actionMessage;
+    private bool actionSuccess;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Inject] private InstitutionManagementService MgmtSvc { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            var role = state.User.FindFirst(ClaimTypes.Role)?.Value;
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            var userIdStr = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+            int.TryParse(instIdStr, out institutionId);
+            int.TryParse(userIdStr, out currentUserId);
+            isAdmin = role == "Admin";
+
+            await LoadData();
+        }
+        catch { }
+        finally { isLoading = false; }
+    }
+
+    private async Task LoadData()
+    {
+        teamMembers = await MgmtSvc.GetTeamMembers(institutionId);
+        userCount = await MgmtSvc.GetUserCount(institutionId);
+    }
+
+    private void ShowAddMemberForm()
+    {
+        newName = ""; newUsername = ""; newEmail = ""; newRole = ""; newPassword = "";
+        addFormError = null;
+        showAddForm = true;
+    }
+
+    private async Task AddMember()
+    {
+        addFormError = null;
+        if (string.IsNullOrWhiteSpace(newName) || string.IsNullOrWhiteSpace(newUsername)
+            || string.IsNullOrWhiteSpace(newEmail) || string.IsNullOrWhiteSpace(newRole)
+            || string.IsNullOrWhiteSpace(newPassword))
+        {
+            addFormError = "All fields are required.";
+            return;
+        }
+        if (newPassword.Length < 8)
+        {
+            addFormError = "Password must be at least 8 characters.";
+            return;
+        }
+
+        isAddingMember = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await MgmtSvc.AddMember(
+                institutionId, newName.Trim(), newUsername.Trim(), newEmail.Trim(),
+                newRole, newPassword);
+
+            if (result.Success)
+            {
+                showAddForm = false;
+                actionMessage = result.Message;
+                actionSuccess = true;
+                await LoadData();
+            }
+            else
+            {
+                addFormError = result.Error;
+            }
+        }
+        catch (Exception ex)
+        {
+            addFormError = $"An error occurred: {ex.Message}";
+        }
+        finally { isAddingMember = false; StateHasChanged(); }
+    }
+
+    private void StartEditRole(TeamMemberDetailModel member)
+    {
+        editingRoleUserId = member.Id;
+        editRoleValue = member.Role;
+    }
+
+    private async Task SaveRole(int userId)
+    {
+        var ok = await MgmtSvc.UpdateMemberRole(userId, editRoleValue, institutionId);
+        editingRoleUserId = null;
+        if (ok)
+        {
+            actionMessage = "Role updated successfully.";
+            actionSuccess = true;
+            await LoadData();
+        }
+        else
+        {
+            actionMessage = "Failed to update role.";
+            actionSuccess = false;
+        }
+        StateHasChanged();
+    }
+
+    private async Task ToggleStatus(TeamMemberDetailModel member, bool activate)
+    {
+        var ok = await MgmtSvc.ToggleMemberStatus(member.Id, activate, institutionId);
+        if (ok)
+        {
+            actionMessage = activate
+                ? $"{member.DisplayName} has been reactivated."
+                : $"{member.DisplayName} has been deactivated.";
+            actionSuccess = true;
+            await LoadData();
+        }
+        else
+        {
+            actionMessage = "Failed to update user status.";
+            actionSuccess = false;
+        }
+        StateHasChanged();
+    }
+
+    private string GetRoleBadgeClass(string role) => role switch
+    {
+        "Admin" => "portal-badge-accent",
+        "Maker" => "portal-badge-success",
+        "Checker" => "portal-badge-warning",
+        "Viewer" => "portal-badge-info",
+        _ => "portal-badge-neutral"
+    };
+
+    private string GetMeterClass()
+    {
+        if (userCount.max == 0) return "";
+        var pct = (double)userCount.current / userCount.max * 100;
+        return pct >= 90 ? "portal-inst-user-meter-fill-danger"
+            : pct >= 70 ? "portal-inst-user-meter-fill-warning"
+            : "";
+    }
+
+    private int GetMeterPercent()
+    {
+        if (userCount.max == 0) return 0;
+        return (int)Math.Min(100, (double)userCount.current / userCount.max * 100);
+    }
+}
