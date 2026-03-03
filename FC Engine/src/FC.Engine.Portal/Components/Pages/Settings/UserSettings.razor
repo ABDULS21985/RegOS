@@ -1,0 +1,725 @@
+@page "/settings"
+@using System.Security.Claims
+@using FC.Engine.Portal.Services
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Policy = "InstitutionUser")]
+
+<PageTitle>Settings — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+
+    <div class="portal-page-header">
+        <div class="portal-page-header-main">
+            <h1 class="portal-page-title">Settings</h1>
+            <p class="portal-page-subtitle">Manage your profile, security, and institution details</p>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="portal-settings-layout">
+            <div class="portal-skeleton portal-skeleton-block" style="height: 60px;"></div>
+            <div class="portal-skeleton portal-skeleton-block" style="height: 400px;"></div>
+        </div>
+    }
+    else
+    {
+        <div class="portal-settings-layout">
+            <nav class="portal-settings-nav" aria-label="Settings sections">
+                <button class="portal-settings-nav-item @ActiveNavClass("profile")"
+                        @onclick="@(() => SetSection("profile"))" type="button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                    </svg>
+                    My Profile
+                </button>
+                <button class="portal-settings-nav-item @ActiveNavClass("security")"
+                        @onclick="@(() => SetSection("security"))" type="button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    Security
+                </button>
+                <button class="portal-settings-nav-item @ActiveNavClass("institution")"
+                        @onclick="@(() => SetSection("institution"))" type="button">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+                    </svg>
+                    Institution
+                </button>
+                @if (isAdmin)
+                {
+                    <button class="portal-settings-nav-item @ActiveNavClass("team")"
+                            @onclick="LoadTeamSection" type="button">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                        Team
+                    </button>
+                }
+            </nav>
+
+            @* ═══════════════════════════════════════════════════════════
+               SECTION: MY PROFILE
+               ═══════════════════════════════════════════════════════════ *@
+            @if (activeSection == "profile" && userProfile is not null)
+            {
+                <div class="portal-settings-section" role="tabpanel" aria-label="My Profile">
+                    <div class="portal-card portal-settings-profile-card">
+                        <div class="portal-settings-avatar">
+                            <span class="portal-settings-avatar-initials">@userProfile.Initials</span>
+                        </div>
+                        <div class="portal-settings-profile-info">
+                            <h2 class="portal-settings-profile-name">@userProfile.DisplayName</h2>
+                            <span class="portal-settings-profile-email">@userProfile.Email</span>
+                            <div class="portal-settings-profile-badges">
+                                <span class="portal-badge @GetRoleBadgeClass(userProfile.Role)">@userProfile.Role</span>
+                                @if (userProfile.IsActive)
+                                {
+                                    <span class="portal-badge portal-badge-success">Active</span>
+                                }
+                                else
+                                {
+                                    <span class="portal-badge portal-badge-danger">Inactive</span>
+                                }
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="portal-card portal-form-section">
+                        <h3 class="portal-form-section-title">Edit Profile</h3>
+
+                        @if (!string.IsNullOrEmpty(profileSuccessMsg))
+                        {
+                            <div class="portal-alert portal-alert-success" role="alert">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                                @profileSuccessMsg
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(profileErrorMsg))
+                        {
+                            <div class="portal-alert portal-alert-error" role="alert">
+                                @profileErrorMsg
+                            </div>
+                        }
+
+                        <div class="portal-form-grid" style="max-width: 600px;">
+                            <div class="portal-form-group">
+                                <label for="profileName" class="portal-form-label">Display Name</label>
+                                <input id="profileName" type="text" class="portal-form-input"
+                                       @bind="editDisplayName" placeholder="Your full name" />
+                            </div>
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Username</label>
+                                <input type="text" class="portal-form-input" value="@userProfile.Username" disabled
+                                       title="Username cannot be changed." />
+                                <span class="portal-form-hint">Managed by CBN administrators</span>
+                            </div>
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Email Address</label>
+                                <input type="email" class="portal-form-input" value="@userProfile.Email" disabled
+                                       title="Email cannot be changed. Contact your administrator." />
+                                <span class="portal-form-hint">Managed by CBN administrators</span>
+                            </div>
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Role</label>
+                                <input type="text" class="portal-form-input" value="@userProfile.Role" disabled
+                                       title="Role is assigned by CBN administrators." />
+                                <span class="portal-form-hint">Assigned by CBN administrators</span>
+                            </div>
+                        </div>
+
+                        <div class="portal-settings-form-actions">
+                            <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="SaveProfile" disabled="@isSavingProfile">
+                                @if (isSavingProfile)
+                                {
+                                    <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                    <span>Saving...</span>
+                                }
+                                else
+                                {
+                                    <span>Save Changes</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="portal-card portal-form-section">
+                        <h3 class="portal-form-section-title">Account Information</h3>
+                        <div class="portal-settings-info-grid">
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">User ID</span>
+                                <span class="portal-settings-info-value">#@userProfile.Id</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Institution ID</span>
+                                <span class="portal-settings-info-value">#@userProfile.InstitutionId</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Account Created</span>
+                                <span class="portal-settings-info-value">@userProfile.CreatedAt.ToString("d MMM yyyy")</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Last Login</span>
+                                <span class="portal-settings-info-value">@FormatLastLogin(userProfile.LastLoginAt)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* ═══════════════════════════════════════════════════════════
+               SECTION: SECURITY (Password Change)
+               ═══════════════════════════════════════════════════════════ *@
+            @if (activeSection == "security")
+            {
+                <div class="portal-settings-section" role="tabpanel" aria-label="Security">
+                    <div class="portal-card portal-form-section">
+                        <h3 class="portal-form-section-title">Change Password</h3>
+                        <p class="portal-settings-section-desc">
+                            Enter your current password and choose a new one. Passwords must be at least 8 characters
+                            and include uppercase, lowercase, and a number.
+                        </p>
+
+                        @if (!string.IsNullOrEmpty(passwordSuccessMsg))
+                        {
+                            <div class="portal-alert portal-alert-success" role="alert">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                                @passwordSuccessMsg
+                            </div>
+                        }
+                        @if (!string.IsNullOrEmpty(passwordErrorMsg))
+                        {
+                            <div class="portal-alert portal-alert-error" role="alert">
+                                @passwordErrorMsg
+                            </div>
+                        }
+
+                        <div style="max-width: 400px;">
+                            <div class="portal-form-group" style="margin-bottom: 1rem;">
+                                <label for="currentPwd" class="portal-form-label">Current Password</label>
+                                <input id="currentPwd" type="password" class="portal-form-input"
+                                       @bind="currentPassword" placeholder="Enter current password" autocomplete="current-password" />
+                            </div>
+                            <div class="portal-form-group" style="margin-bottom: 1rem;">
+                                <label for="newPwd" class="portal-form-label">New Password</label>
+                                <input id="newPwd" type="password" class="portal-form-input @NewPasswordInputClass()"
+                                       @bind="newPassword" @bind:event="oninput" placeholder="Enter new password" autocomplete="new-password" />
+                                @if (newPasswordError is not null)
+                                {
+                                    <span class="portal-form-error">@newPasswordError</span>
+                                }
+                                else if (!string.IsNullOrEmpty(newPassword))
+                                {
+                                    <div class="portal-password-strength">
+                                        <div class="portal-password-strength-bar">
+                                            <div class="portal-password-strength-fill @GetPasswordStrengthClass()" style="@PasswordStrengthWidth()"></div>
+                                        </div>
+                                        <span class="portal-password-strength-label @GetPasswordStrengthClass()">@GetPasswordStrengthLabel()</span>
+                                    </div>
+                                }
+                            </div>
+                            <div class="portal-form-group" style="margin-bottom: 1.5rem;">
+                                <label for="confirmPwd" class="portal-form-label">Confirm New Password</label>
+                                <input id="confirmPwd" type="password" class="portal-form-input @ConfirmPasswordInputClass()"
+                                       @bind="confirmPassword" placeholder="Confirm new password" autocomplete="new-password" />
+                                @if (confirmPasswordError is not null)
+                                {
+                                    <span class="portal-form-error">@confirmPasswordError</span>
+                                }
+                            </div>
+                        </div>
+
+                        <div class="portal-settings-form-actions">
+                            <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="HandleChangePassword" disabled="@isChangingPassword">
+                                @if (isChangingPassword)
+                                {
+                                    <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                    <span>Changing...</span>
+                                }
+                                else
+                                {
+                                    <span>Change Password</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="portal-card portal-form-section">
+                        <h3 class="portal-form-section-title">Session Information</h3>
+                        <div class="portal-settings-info-grid">
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Current Session</span>
+                                <span class="portal-settings-info-value portal-text-success">Active</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Last Login</span>
+                                <span class="portal-settings-info-value">@FormatLastLogin(userProfile?.LastLoginAt)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* ═══════════════════════════════════════════════════════════
+               SECTION: INSTITUTION DETAILS
+               ═══════════════════════════════════════════════════════════ *@
+            @if (activeSection == "institution" && institution is not null)
+            {
+                <div class="portal-settings-section" role="tabpanel" aria-label="Institution">
+                    <div class="portal-card portal-form-section">
+                        <div class="portal-settings-inst-header">
+                            <div class="portal-settings-inst-icon">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                                    <polyline points="9 22 9 12 15 12 15 22"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h2 class="portal-settings-inst-name">@institution.Name</h2>
+                                <span class="portal-settings-inst-code">@institution.Code</span>
+                            </div>
+                            @if (institution.IsActive)
+                            {
+                                <span class="portal-badge portal-badge-success portal-badge-lg">Active</span>
+                            }
+                            else
+                            {
+                                <span class="portal-badge portal-badge-danger portal-badge-lg">Inactive</span>
+                            }
+                        </div>
+
+                        <div class="portal-settings-info-grid portal-settings-info-grid-wide">
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">License Type</span>
+                                <span class="portal-settings-info-value">@ValueOrDash(institution.LicenseType)</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Institution Code</span>
+                                <span class="portal-settings-info-value portal-table-mono">@institution.Code</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Subscription Tier</span>
+                                <span class="portal-settings-info-value">@institution.SubscriptionTier</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Max Users Allowed</span>
+                                <span class="portal-settings-info-value">@institution.MaxUsersAllowed</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Address</span>
+                                <span class="portal-settings-info-value">@ValueOrDash(institution.Address)</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Phone</span>
+                                <span class="portal-settings-info-value">@ValueOrDash(institution.ContactPhone)</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Email</span>
+                                <span class="portal-settings-info-value">@ValueOrDash(institution.ContactEmail)</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Registered Since</span>
+                                <span class="portal-settings-info-value">@institution.CreatedAt.ToString("d MMM yyyy")</span>
+                            </div>
+                            <div class="portal-settings-info-item">
+                                <span class="portal-settings-info-label">Last Submission</span>
+                                <span class="portal-settings-info-value">@FormatLastLogin(institution.LastSubmissionAt)</span>
+                            </div>
+                        </div>
+
+                        <div class="portal-settings-inst-note">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                            </svg>
+                            <span>Institution details are managed by CBN administrators. Contact support if any information needs updating.</span>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            @* ═══════════════════════════════════════════════════════════
+               SECTION: TEAM (Admin-only)
+               ═══════════════════════════════════════════════════════════ *@
+            @if (activeSection == "team" && isAdmin)
+            {
+                <div class="portal-settings-section" role="tabpanel" aria-label="Team">
+                    <div class="portal-card portal-form-section">
+                        <div class="portal-form-section-header">
+                            <h3 class="portal-form-section-title" style="margin: 0;">Team Members</h3>
+                            <span class="portal-badge portal-badge-neutral">@teamMembers.Count users</span>
+                        </div>
+
+                        @if (isLoadingTeam)
+                        {
+                            <div class="portal-skeleton portal-skeleton-block" style="height: 150px;"></div>
+                        }
+                        else if (teamMembers.Any())
+                        {
+                            <div class="portal-settings-team-list">
+                                @foreach (var member in teamMembers)
+                                {
+                                    var m = member;
+                                    <div class="portal-settings-team-card @TeamCardInactiveClass(m)">
+                                        <div class="portal-settings-team-avatar">
+                                            <span class="portal-settings-avatar-initials-sm">@m.Initials</span>
+                                        </div>
+                                        <div class="portal-settings-team-info">
+                                            <span class="portal-settings-team-name">
+                                                @m.DisplayName
+                                                @if (m.Id == userProfile?.Id)
+                                                {
+                                                    <span class="portal-badge portal-badge-sm portal-badge-info">You</span>
+                                                }
+                                            </span>
+                                            <span class="portal-settings-team-email">@m.Email</span>
+                                        </div>
+                                        <div class="portal-settings-team-meta">
+                                            <span class="portal-badge @GetRoleBadgeClass(m.Role) portal-badge-sm">@m.Role</span>
+                                            @if (m.IsActive)
+                                            {
+                                                <span class="portal-badge portal-badge-success portal-badge-sm">Active</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="portal-badge portal-badge-danger portal-badge-sm">Inactive</span>
+                                            }
+                                        </div>
+                                        <div class="portal-settings-team-last-login">
+                                            @if (m.LastLoginAt.HasValue)
+                                            {
+                                                <span class="portal-text-muted" style="font-size: 0.6875rem;">
+                                                    Last active @m.LastLoginAt.Value.ToString("d MMM yyyy")
+                                                </span>
+                                            }
+                                            else
+                                            {
+                                                <span class="portal-text-muted" style="font-size: 0.6875rem;">Never logged in</span>
+                                            }
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="portal-empty-state" style="padding: 2rem;">
+                                <p class="portal-empty-state-desc">No team members found.</p>
+                            </div>
+                        }
+
+                        <div class="portal-settings-inst-note">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                            </svg>
+                            <span>User management (adding, removing, or changing roles) is handled by CBN administrators.</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    // ── State ────────────────────────────────────────────────────
+    private bool isLoading = true;
+    private string activeSection = "profile";
+    private bool isAdmin;
+    private int userId;
+
+    // Profile
+    private UserProfileModel? userProfile;
+    private string editDisplayName = "";
+    private bool isSavingProfile;
+    private string? profileSuccessMsg;
+    private string? profileErrorMsg;
+
+    // Password
+    private string currentPassword = "";
+    private string newPassword = "";
+    private string confirmPassword = "";
+    private bool isChangingPassword;
+    private string? passwordSuccessMsg;
+    private string? passwordErrorMsg;
+    private string? newPasswordError;
+    private string? confirmPasswordError;
+    private int passwordStrength;
+
+    // Institution
+    private InstitutionDetailModel? institution;
+
+    // Team
+    private List<TeamMemberModel> teamMembers = new();
+    private bool isLoadingTeam;
+    private bool teamLoaded;
+
+    // ── Services ─────────────────────────────────────────────────
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    [Inject] private UserSettingsService SettingsSvc { get; set; } = default!;
+
+    // ── Lifecycle ────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            var userIdStr = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var role = state.User.FindFirst(ClaimTypes.Role)?.Value;
+
+            int.TryParse(userIdStr, out userId);
+            isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
+
+            userProfile = await SettingsSvc.GetUserProfile(userId);
+            if (userProfile is not null)
+            {
+                editDisplayName = userProfile.DisplayName;
+            }
+
+            institution = await SettingsSvc.GetInstitutionDetail(userId);
+        }
+        catch
+        {
+            // Logged via Serilog pipeline
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ── Navigation ───────────────────────────────────────────────
+
+    private void SetSection(string section)
+    {
+        activeSection = section;
+    }
+
+    private string ActiveNavClass(string section)
+    {
+        return activeSection == section ? "portal-settings-nav-item-active" : "";
+    }
+
+    // ── Profile Actions ──────────────────────────────────────────
+
+    private async Task SaveProfile()
+    {
+        profileSuccessMsg = null;
+        profileErrorMsg = null;
+
+        if (string.IsNullOrWhiteSpace(editDisplayName))
+        {
+            profileErrorMsg = "Display name is required.";
+            return;
+        }
+
+        isSavingProfile = true;
+        StateHasChanged();
+
+        try
+        {
+            var success = await SettingsSvc.UpdateProfile(userId, editDisplayName.Trim());
+
+            if (success)
+            {
+                profileSuccessMsg = "Profile updated successfully.";
+                userProfile!.DisplayName = editDisplayName.Trim();
+            }
+            else
+            {
+                profileErrorMsg = "Failed to update profile. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            profileErrorMsg = "Error: " + ex.Message;
+        }
+        finally
+        {
+            isSavingProfile = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Password Change ──────────────────────────────────────────
+
+    private async Task HandleChangePassword()
+    {
+        passwordSuccessMsg = null;
+        passwordErrorMsg = null;
+        newPasswordError = null;
+        confirmPasswordError = null;
+
+        if (string.IsNullOrEmpty(currentPassword))
+        {
+            passwordErrorMsg = "Please enter your current password.";
+            return;
+        }
+
+        if (string.IsNullOrEmpty(newPassword))
+        {
+            newPasswordError = "Please enter a new password.";
+            return;
+        }
+
+        if (newPassword.Length < 8)
+        {
+            newPasswordError = "Password must be at least 8 characters.";
+            return;
+        }
+
+        if (passwordStrength < 50)
+        {
+            newPasswordError = "Password is too weak. Add uppercase, numbers, or special characters.";
+            return;
+        }
+
+        if (newPassword != confirmPassword)
+        {
+            confirmPasswordError = "Passwords do not match.";
+            return;
+        }
+
+        if (newPassword == currentPassword)
+        {
+            newPasswordError = "New password must be different from current password.";
+            return;
+        }
+
+        isChangingPassword = true;
+        StateHasChanged();
+
+        try
+        {
+            var success = await SettingsSvc.ChangePassword(userId, currentPassword, newPassword);
+
+            if (success)
+            {
+                passwordSuccessMsg = "Password changed successfully.";
+                currentPassword = "";
+                newPassword = "";
+                confirmPassword = "";
+            }
+            else
+            {
+                passwordErrorMsg = "The current password is incorrect.";
+            }
+        }
+        catch (Exception ex)
+        {
+            passwordErrorMsg = "Error: " + ex.Message;
+        }
+        finally
+        {
+            isChangingPassword = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Team Section (lazy-loaded) ───────────────────────────────
+
+    private async Task LoadTeamSection()
+    {
+        activeSection = "team";
+        if (teamLoaded) return;
+
+        isLoadingTeam = true;
+        StateHasChanged();
+
+        try
+        {
+            teamMembers = await SettingsSvc.GetTeamRoster(userProfile!.InstitutionId);
+            teamLoaded = true;
+        }
+        catch
+        {
+            teamMembers = new();
+        }
+        finally
+        {
+            isLoadingTeam = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Password Strength ────────────────────────────────────────
+
+    private int CalculatePasswordStrength()
+    {
+        if (string.IsNullOrEmpty(newPassword)) return 0;
+
+        int score = 0;
+        if (newPassword.Length >= 8) score += 25;
+        if (newPassword.Length >= 12) score += 10;
+        if (newPassword.Any(char.IsUpper)) score += 20;
+        if (newPassword.Any(char.IsLower)) score += 10;
+        if (newPassword.Any(char.IsDigit)) score += 20;
+        if (newPassword.Any(c => !char.IsLetterOrDigit(c))) score += 15;
+        return Math.Min(100, score);
+    }
+
+    private string GetPasswordStrengthClass()
+    {
+        passwordStrength = CalculatePasswordStrength();
+        if (passwordStrength >= 80) return "portal-password-strong";
+        if (passwordStrength >= 60) return "portal-password-good";
+        if (passwordStrength >= 30) return "portal-password-fair";
+        return "portal-password-weak";
+    }
+
+    private string GetPasswordStrengthLabel()
+    {
+        if (passwordStrength >= 80) return "Strong";
+        if (passwordStrength >= 60) return "Good";
+        if (passwordStrength >= 30) return "Fair";
+        return "Weak";
+    }
+
+    private string PasswordStrengthWidth()
+    {
+        return "width: " + passwordStrength + "%;";
+    }
+
+    // ── Display Helpers ──────────────────────────────────────────
+
+    private static string GetRoleBadgeClass(string role)
+    {
+        var lower = role.ToLowerInvariant();
+        if (lower == "admin") return "portal-badge-info";
+        if (lower == "maker") return "portal-badge-success";
+        if (lower == "checker") return "portal-badge-warning";
+        return "portal-badge-neutral";
+    }
+
+    private static string FormatLastLogin(DateTime? dt)
+    {
+        return dt.HasValue ? dt.Value.ToString("d MMM yyyy, HH:mm") : "Never";
+    }
+
+    private static string ValueOrDash(string? val)
+    {
+        return string.IsNullOrEmpty(val) ? "\u2014" : val;
+    }
+
+    private string NewPasswordInputClass()
+    {
+        return newPasswordError is not null ? "portal-form-input-error" : "";
+    }
+
+    private string ConfirmPasswordInputClass()
+    {
+        return confirmPasswordError is not null ? "portal-form-input-error" : "";
+    }
+
+    private static string TeamCardInactiveClass(TeamMemberModel m)
+    {
+        return !m.IsActive ? "portal-settings-team-card-inactive" : "";
+    }
+}

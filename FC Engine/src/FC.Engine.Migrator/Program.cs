@@ -15,6 +15,7 @@ builder.Services.AddScoped<SeedService>();
 builder.Services.AddScoped<FormulaSeedService>();
 builder.Services.AddScoped<FormulaCatalogSeeder>();
 builder.Services.AddScoped<CrossSheetRuleSeedService>();
+builder.Services.AddScoped<BusinessRuleSeedService>();
 builder.Services.AddScoped<AuthService>();
 
 var host = builder.Build();
@@ -180,6 +181,12 @@ try
             defaultPassword, PortalRole.Admin);
         logger.LogInformation("Default admin user created (username: admin)");
     }
+
+    // Step 8: Seed default business rules
+    logger.LogInformation("Seeding default business rules...");
+    var businessRuleSeeder = scope.ServiceProvider.GetRequiredService<BusinessRuleSeedService>();
+    var rulesCreated = await businessRuleSeeder.SeedDefaultRules();
+    logger.LogInformation("Business rules seeded: {Created} created", rulesCreated);
 
     logger.LogInformation("FC Engine Migrator completed successfully");
 }

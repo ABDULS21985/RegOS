@@ -30,6 +30,7 @@ builder.Services.AddScoped<FC.Engine.Portal.Services.SubmissionService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.CalendarService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.TemplateBrowserService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.FormDataToXmlService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.UserSettingsService>();
 
 // Caching
 builder.Services.AddMemoryCache();

@@ -28,16 +28,16 @@
             <div class="list-toolbar-filters">
                 <div class="list-search-wrap">
                     <svg class="list-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                    <input class="list-search-input" placeholder="Search by rule code or name..." @bind="_search" @bind:event="oninput" />
+                    <input class="list-search-input" placeholder="Search by rule code or name..." @bind="_search" @bind:event="oninput" @bind:after="ResetPage" />
                 </div>
-                <select class="list-filter-select" @bind="_typeFilter">
+                <select class="list-filter-select" @bind="_typeFilter" @bind:after="ResetPage">
                     <option value="">All Types</option>
                     <option value="Completeness">Completeness</option>
                     <option value="DateCheck">DateCheck</option>
                     <option value="ThresholdCheck">ThresholdCheck</option>
                     <option value="Custom">Custom</option>
                 </select>
-                <select class="list-filter-select" @bind="_severityFilter">
+                <select class="list-filter-select" @bind="_severityFilter" @bind:after="ResetPage">
                     <option value="">All Severities</option>
                     @foreach (var s in Enum.GetValues<ValidationSeverity>())
                     {
@@ -143,7 +143,7 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var rule in FilteredRules)
+                        @foreach (var rule in PagedRules)
                         {
                             <tr>
                                 <td class="list-cell-code">@rule.RuleCode</td>
@@ -174,8 +174,46 @@
 
             <div class="list-footer">
                 <div class="list-footer-summary">
-                    Showing <strong>@FilteredRules.Count()</strong> of <strong>@_rules.Count</strong> business rules
+                    Showing <strong>@(_startIndex + 1)–@(_startIndex + PagedRules.Count())</strong> of <strong>@_filteredCount</strong> business rules
+                    @if (_filteredCount != _rules.Count)
+                    {
+                        <span> (filtered from @_rules.Count)</span>
+                    }
                 </div>
+                @if (TotalPages > 1)
+                {
+                    <div class="list-pagination">
+                        <button class="list-page-btn" disabled="@(_currentPage == 1)" @onclick="() => GoToPage(1)" title="First page">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="11 17 6 12 11 7"/><polyline points="18 17 13 12 18 7"/></svg>
+                        </button>
+                        <button class="list-page-btn" disabled="@(_currentPage == 1)" @onclick="() => GoToPage(_currentPage - 1)" title="Previous page">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                        </button>
+                        @foreach (var p in VisiblePages)
+                        {
+                            @if (p == -1)
+                            {
+                                <span class="list-page-btn" style="border:none;cursor:default;">…</span>
+                            }
+                            else
+                            {
+                                <button class="list-page-btn @(p == _currentPage ? "list-page-btn-active" : "")" @onclick="() => GoToPage(p)">@p</button>
+                            }
+                        }
+                        <button class="list-page-btn" disabled="@(_currentPage == TotalPages)" @onclick="() => GoToPage(_currentPage + 1)" title="Next page">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                        </button>
+                        <button class="list-page-btn" disabled="@(_currentPage == TotalPages)" @onclick="() => GoToPage(TotalPages)" title="Last page">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>
+                        </button>
+                        <select class="list-filter-select" style="margin-left:8px;min-width:auto;padding:4px 8px;font-size:12px;" @bind="_pageSize" @bind:after="OnPageSizeChanged">
+                            <option value="15">15 / page</option>
+                            <option value="25">25 / page</option>
+                            <option value="50">50 / page</option>
+                            <option value="100">100 / page</option>
+                        </select>
+                    </div>
+                }
             </div>
         }
     </div>
@@ -185,6 +223,8 @@
     private bool _loading = true;
     private IReadOnlyList<BusinessRule> _rules = Array.Empty<BusinessRule>();
     private string _search = "", _typeFilter = "", _severityFilter = "";
+    private int _currentPage = 1;
+    private int _pageSize = 15;
 
     // Add form
     private bool _showAddForm;
@@ -199,10 +239,56 @@
         .Where(r => string.IsNullOrEmpty(_typeFilter) || r.RuleType == _typeFilter)
         .Where(r => string.IsNullOrEmpty(_severityFilter) || r.Severity.ToString() == _severityFilter);
 
+    private int _filteredCount => FilteredRules.Count();
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling((double)_filteredCount / _pageSize));
+    private int _startIndex => (_currentPage - 1) * _pageSize;
+
+    private IEnumerable<BusinessRule> PagedRules => FilteredRules
+        .Skip(_startIndex)
+        .Take(_pageSize);
+
+    private IEnumerable<int> VisiblePages
+    {
+        get
+        {
+            var pages = new List<int>();
+            var total = TotalPages;
+            if (total <= 7)
+            {
+                for (var i = 1; i <= total; i++) pages.Add(i);
+            }
+            else
+            {
+                pages.Add(1);
+                if (_currentPage > 3) pages.Add(-1); // ellipsis
+                for (var i = Math.Max(2, _currentPage - 1); i <= Math.Min(total - 1, _currentPage + 1); i++)
+                    pages.Add(i);
+                if (_currentPage < total - 2) pages.Add(-1); // ellipsis
+                pages.Add(total);
+            }
+            return pages;
+        }
+    }
+
+    private void GoToPage(int page)
+    {
+        _currentPage = Math.Clamp(page, 1, TotalPages);
+    }
+
+    private void OnPageSizeChanged() => _currentPage = 1;
+    private void ResetPage() => _currentPage = 1;
+
     protected override async Task OnInitializedAsync()
     {
         _rules = await FormulaRepo.GetActiveBusinessRules();
         _loading = false;
+    }
+
+    // Reset to page 1 when filters change
+    protected override void OnParametersSet()
+    {
+        if (_currentPage > TotalPages)
+            _currentPage = 1;
     }
 
     private void ShowAddRule() => _showAddForm = true;
@@ -221,6 +307,7 @@
             Toast.Success($"Business rule '{_addCode}' created.", "Rule Created");
             _showAddForm = false;
             _rules = await FormulaRepo.GetActiveBusinessRules();
+            _currentPage = 1;
         }
         catch (Exception ex)
         {
