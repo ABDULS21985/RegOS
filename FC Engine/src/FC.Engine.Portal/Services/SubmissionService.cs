@@ -20,19 +20,22 @@ public class SubmissionService
     private readonly ISubmissionApprovalRepository _approvalRepo;
     private readonly IngestionOrchestrator _orchestrator;
     private readonly MetadataDbContext _db;
+    private readonly NotificationService _notificationSvc;
 
     public SubmissionService(
         TemplateService templateService,
         ISubmissionRepository submissionRepo,
         ISubmissionApprovalRepository approvalRepo,
         IngestionOrchestrator orchestrator,
-        MetadataDbContext db)
+        MetadataDbContext db,
+        NotificationService notificationSvc)
     {
         _templateService = templateService;
         _submissionRepo = submissionRepo;
         _approvalRepo = approvalRepo;
         _orchestrator = orchestrator;
         _db = db;
+        _notificationSvc = notificationSvc;
     }
 
     /// <summary>
@@ -118,7 +121,24 @@ public class SubmissionService
         // Check if maker-checker routing is needed
         var isAccepted = result.Status == "Accepted" || result.Status == "AcceptedWithWarnings";
         if (!isAccepted || submittedByUserId is null)
+        {
+            // Notify of submission result (rejected or non-user submissions)
+            if (submittedByUserId.HasValue)
+            {
+                try
+                {
+                    var period = await _db.ReturnPeriods.FindAsync(returnPeriodId);
+                    var periodStr = period is not null
+                        ? new DateTime(period.Year, period.Month, 1).ToString("MMM yyyy") : "";
+                    var status = Enum.TryParse<SubmissionStatus>(result.Status, out var s) ? s : SubmissionStatus.Rejected;
+                    await _notificationSvc.NotifySubmissionResult(
+                        submittedByUserId.Value, institutionId, result.SubmissionId,
+                        returnCode, periodStr, status, result.ValidationReport?.ErrorCount ?? 0, result.ValidationReport?.WarningCount ?? 0);
+                }
+                catch { }
+            }
             return result;
+        }
 
         var makerCheckerEnabled = await IsMakerCheckerEnabled(institutionId);
         if (!makerCheckerEnabled)
@@ -130,6 +150,20 @@ public class SubmissionService
                 sub.SubmittedByUserId = submittedByUserId;
                 await _submissionRepo.Update(sub);
             }
+
+            // Notify of direct acceptance
+            try
+            {
+                var period = await _db.ReturnPeriods.FindAsync(returnPeriodId);
+                var periodStr = period is not null
+                    ? new DateTime(period.Year, period.Month, 1).ToString("MMM yyyy") : "";
+                var status = Enum.TryParse<SubmissionStatus>(result.Status, out var s) ? s : SubmissionStatus.Accepted;
+                await _notificationSvc.NotifySubmissionResult(
+                    submittedByUserId.Value, institutionId, result.SubmissionId,
+                    returnCode, periodStr, status, result.ValidationReport?.ErrorCount ?? 0, result.ValidationReport?.WarningCount ?? 0);
+            }
+            catch { }
+
             return result;
         }
 
@@ -156,6 +190,20 @@ public class SubmissionService
 
             // Update the result DTO
             result.Status = "PendingApproval";
+
+            // Notify checkers
+            try
+            {
+                var submitter = await _db.InstitutionUsers.FindAsync(submittedByUserId.Value);
+                var period = await _db.ReturnPeriods.FindAsync(returnPeriodId);
+                var periodStr = period is not null
+                    ? new DateTime(period.Year, period.Month, 1).ToString("MMM yyyy") : "";
+
+                await _notificationSvc.NotifyApprovalRequest(
+                    institutionId, submission.Id, returnCode, periodStr,
+                    submitter?.DisplayName ?? "Maker");
+            }
+            catch { }
         }
 
         return result;

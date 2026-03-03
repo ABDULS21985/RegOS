@@ -1,0 +1,279 @@
+@page "/notifications"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+
+<PageTitle>Notifications — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-page-header">
+        <div class="portal-page-header-main">
+            <h1 class="portal-page-title">Notifications</h1>
+            <p class="portal-page-subtitle">Stay updated on submissions, approvals, and deadlines</p>
+        </div>
+        <div class="portal-page-header-actions">
+            @if (model is not null && model.UnreadCount > 0)
+            {
+                <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="MarkAllRead" disabled="@isMarkingAll">
+                    @if (isMarkingAll)
+                    {
+                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                    }
+                    Mark all as read
+                </button>
+            }
+            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ClearOld" disabled="@isClearing"
+                    title="Remove read notifications older than 30 days">
+                Clear old
+            </button>
+        </div>
+    </div>
+
+    <!-- Filter Tabs -->
+    <div class="portal-notif-filter-tabs" role="tablist">
+        <button class="portal-notif-filter-tab @(activeFilter == null ? "active" : "")"
+                @onclick="() => SetFilter(null)" role="tab">
+            All
+            @if (model is not null && model.UnreadCount > 0)
+            {
+                <span class="portal-badge portal-badge-sm portal-badge-danger">@model.UnreadCount</span>
+            }
+        </button>
+        <button class="portal-notif-filter-tab @(activeFilter == NotificationType.SubmissionResult ? "active" : "")"
+                @onclick="() => SetFilter(NotificationType.SubmissionResult)" role="tab">
+            Submissions
+        </button>
+        <button class="portal-notif-filter-tab @(activeFilter == NotificationType.ApprovalRequest ? "active" : "")"
+                @onclick="() => SetFilter(NotificationType.ApprovalRequest)" role="tab">
+            Approvals
+        </button>
+        <button class="portal-notif-filter-tab @(activeFilter == NotificationType.DeadlineApproaching ? "active" : "")"
+                @onclick="() => SetFilter(NotificationType.DeadlineApproaching)" role="tab">
+            Deadlines
+        </button>
+        <button class="portal-notif-filter-tab @(activeFilter == NotificationType.SystemAnnouncement ? "active" : "")"
+                @onclick="() => SetFilter(NotificationType.SystemAnnouncement)" role="tab">
+            System
+        </button>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="portal-card" style="padding: 2rem;">
+            <div class="portal-skeleton portal-skeleton-block" style="height: 80px; margin-bottom: 0.75rem;"></div>
+            <div class="portal-skeleton portal-skeleton-block" style="height: 80px; margin-bottom: 0.75rem;"></div>
+            <div class="portal-skeleton portal-skeleton-block" style="height: 80px;"></div>
+        </div>
+    }
+    else if (filteredNotifications.Count == 0)
+    {
+        <div class="portal-empty-state portal-card" style="padding: 3rem;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5" aria-hidden="true">
+                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 01-3.46 0"/>
+            </svg>
+            <h3 class="portal-empty-state-title">No notifications</h3>
+            <p class="portal-empty-state-desc">
+                @if (activeFilter.HasValue)
+                {
+                    @:No notifications in this category.
+                }
+                else
+                {
+                    @:You're all caught up! Notifications will appear here when there are updates.
+                }
+            </p>
+        </div>
+    }
+    else
+    {
+        <div class="portal-notif-list">
+            @foreach (var notif in filteredNotifications)
+            {
+                <div class="portal-notif-card @(notif.IsRead ? "portal-notif-card-read" : "")">
+                    <div class="portal-notif-card-icon @GetNotifTypeClass(notif.Type)">
+                        @GetNotifTypeIcon(notif.Type)
+                    </div>
+                    <div class="portal-notif-card-body">
+                        <div class="portal-notif-card-header">
+                            <span class="portal-notif-card-title">@notif.Title</span>
+                            <span class="portal-notif-card-time">@notif.TimeAgo</span>
+                        </div>
+                        <p class="portal-notif-card-message">@notif.Message</p>
+                        <div class="portal-notif-card-actions">
+                            @if (!string.IsNullOrEmpty(notif.Link))
+                            {
+                                <a href="@notif.Link" class="portal-btn portal-btn-outline portal-btn-xs"
+                                   @onclick="() => MarkRead(notif)">
+                                    View Details
+                                </a>
+                            }
+                            @if (!notif.IsRead)
+                            {
+                                <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                        @onclick="() => MarkRead(notif)">
+                                    Mark read
+                                </button>
+                            }
+                        </div>
+                    </div>
+                    @if (!notif.IsRead)
+                    {
+                        <span class="portal-notif-card-unread-dot" aria-label="Unread"></span>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (model is not null && model.HasNextPage)
+        {
+            <div style="display: flex; justify-content: center; margin-top: 1.5rem;">
+                <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="LoadMore" disabled="@isLoadingMore">
+                    @if (isLoadingMore)
+                    {
+                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                    }
+                    Load more
+                </button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private bool isLoadingMore;
+    private bool isMarkingAll;
+    private bool isClearing;
+    private int userId;
+    private int institutionId;
+    private int currentPage = 1;
+    private NotificationType? activeFilter;
+    private NotificationListModel? model;
+    private List<NotificationModel> allNotifications = new();
+    private List<NotificationModel> filteredNotifications = new();
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Inject] private NotificationService NotifSvc { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            var userIdStr = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            int.TryParse(userIdStr, out userId);
+            int.TryParse(instIdStr, out institutionId);
+
+            await LoadNotifications();
+        }
+        catch { }
+        finally { isLoading = false; }
+    }
+
+    private async Task LoadNotifications()
+    {
+        model = await NotifSvc.GetNotifications(userId, institutionId, currentPage);
+        allNotifications = model.Notifications;
+        ApplyFilter();
+    }
+
+    private void SetFilter(NotificationType? type)
+    {
+        activeFilter = type;
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        filteredNotifications = activeFilter.HasValue
+            ? allNotifications.Where(n => n.Type == activeFilter.Value
+                || (activeFilter.Value == NotificationType.ApprovalRequest && n.Type == NotificationType.ApprovalResult))
+                .ToList()
+            : allNotifications.ToList();
+    }
+
+    private async Task LoadMore()
+    {
+        isLoadingMore = true;
+        StateHasChanged();
+
+        try
+        {
+            currentPage++;
+            var next = await NotifSvc.GetNotifications(userId, institutionId, currentPage);
+            allNotifications.AddRange(next.Notifications);
+            model = next;
+            ApplyFilter();
+        }
+        catch { currentPage--; }
+        finally { isLoadingMore = false; StateHasChanged(); }
+    }
+
+    private async Task MarkRead(NotificationModel notif)
+    {
+        if (!notif.IsRead)
+        {
+            await NotifSvc.MarkAsRead(notif.Id);
+            notif.IsRead = true;
+            if (model is not null) model.UnreadCount = Math.Max(0, model.UnreadCount - 1);
+            StateHasChanged();
+        }
+    }
+
+    private async Task MarkAllRead()
+    {
+        isMarkingAll = true;
+        StateHasChanged();
+
+        try
+        {
+            await NotifSvc.MarkAllAsRead(userId, institutionId);
+            foreach (var n in allNotifications) n.IsRead = true;
+            if (model is not null) model.UnreadCount = 0;
+        }
+        catch { }
+        finally { isMarkingAll = false; StateHasChanged(); }
+    }
+
+    private async Task ClearOld()
+    {
+        isClearing = true;
+        StateHasChanged();
+
+        try
+        {
+            await NotifSvc.ClearOldRead(userId, institutionId);
+            currentPage = 1;
+            await LoadNotifications();
+        }
+        catch { }
+        finally { isClearing = false; StateHasChanged(); }
+    }
+
+    private static string GetNotifTypeClass(NotificationType type) => type switch
+    {
+        NotificationType.SubmissionResult => "portal-notif-icon-submission",
+        NotificationType.DeadlineApproaching => "portal-notif-icon-deadline",
+        NotificationType.ApprovalRequest or NotificationType.ApprovalResult => "portal-notif-icon-approval",
+        NotificationType.SystemAnnouncement => "portal-notif-icon-system",
+        NotificationType.TeamUpdate => "portal-notif-icon-team",
+        _ => "portal-notif-icon-system"
+    };
+
+    private static MarkupString GetNotifTypeIcon(NotificationType type) => type switch
+    {
+        NotificationType.SubmissionResult => new(
+            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/></svg>"),
+        NotificationType.DeadlineApproaching => new(
+            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>"),
+        NotificationType.ApprovalRequest or NotificationType.ApprovalResult => new(
+            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"/></svg>"),
+        NotificationType.SystemAnnouncement => new(
+            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" y1=\"16\" x2=\"12\" y2=\"12\"/><line x1=\"12\" y1=\"8\" x2=\"12.01\" y2=\"8\"/></svg>"),
+        NotificationType.TeamUpdate => new(
+            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M23 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/></svg>"),
+        _ => new("")
+    };
+}

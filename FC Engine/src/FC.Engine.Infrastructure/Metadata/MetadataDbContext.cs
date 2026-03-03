@@ -34,6 +34,7 @@ public class MetadataDbContext : DbContext
     // FI Portal
     public DbSet<InstitutionUser> InstitutionUsers => Set<InstitutionUser>();
     public DbSet<SubmissionApproval> SubmissionApprovals => Set<SubmissionApproval>();
+    public DbSet<PortalNotification> PortalNotifications => Set<PortalNotification>();
 
     // Security
     public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>();

@@ -1,0 +1,58 @@
+namespace FC.Engine.Domain.Entities;
+
+/// <summary>
+/// Persistent in-app notification for an FI Portal user.
+/// Created by submission events, approval actions, deadline checks, and system announcements.
+/// </summary>
+public class PortalNotification
+{
+    public int Id { get; set; }
+
+    // ── Targeting ──
+
+    /// <summary>The institution user this notification is for. Null = broadcast to all users of the institution.</summary>
+    public int? UserId { get; set; }
+
+    /// <summary>The institution this notification belongs to.</summary>
+    public int InstitutionId { get; set; }
+
+    // ── Content ──
+
+    public NotificationType Type { get; set; }
+    public string Title { get; set; } = "";
+    public string Message { get; set; } = "";
+
+    /// <summary>Relative URL for the notification's action (e.g., "/submissions/123"). Null = no link.</summary>
+    public string? Link { get; set; }
+
+    /// <summary>Optional JSON metadata for additional context.</summary>
+    public string? MetadataJson { get; set; }
+
+    // ── State ──
+
+    public bool IsRead { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public DateTime? ReadAt { get; set; }
+}
+
+/// <summary>Categories of portal notifications. Used for filtering and icon/color assignment.</summary>
+public enum NotificationType
+{
+    /// <summary>Submission accepted, rejected, or accepted with warnings.</summary>
+    SubmissionResult,
+
+    /// <summary>A reporting deadline is approaching.</summary>
+    DeadlineApproaching,
+
+    /// <summary>A new submission is pending the user's review (Checker).</summary>
+    ApprovalRequest,
+
+    /// <summary>A submission the user created was approved or rejected by a Checker.</summary>
+    ApprovalResult,
+
+    /// <summary>System-wide announcement.</summary>
+    SystemAnnouncement,
+
+    /// <summary>A team member was added, deactivated, or role-changed (Admin only).</summary>
+    TeamUpdate
+}

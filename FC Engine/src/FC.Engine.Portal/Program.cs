@@ -33,6 +33,7 @@ builder.Services.AddScoped<FC.Engine.Portal.Services.FormDataToXmlService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.UserSettingsService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.ApprovalService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.InstitutionManagementService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.NotificationService>();
 
 // Caching
 builder.Services.AddMemoryCache();

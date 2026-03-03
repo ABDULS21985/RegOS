@@ -46,6 +46,7 @@ public static class DependencyInjection
         services.AddScoped<IInstitutionUserRepository, InstitutionUserRepository>();
         services.AddScoped<IInstitutionRepository, InstitutionRepository>();
         services.AddScoped<ISubmissionApprovalRepository, SubmissionApprovalRepository>();
+        services.AddScoped<IPortalNotificationRepository, PortalNotificationRepository>();
 
         // Dynamic SQL
         services.AddSingleton<DynamicSqlBuilder>();

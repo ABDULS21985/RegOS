@@ -14,17 +14,20 @@ public class ApprovalService
     private readonly ISubmissionApprovalRepository _approvalRepo;
     private readonly IInstitutionUserRepository _userRepo;
     private readonly ITemplateMetadataCache _cache;
+    private readonly NotificationService _notificationSvc;
 
     public ApprovalService(
         ISubmissionRepository submissionRepo,
         ISubmissionApprovalRepository approvalRepo,
         IInstitutionUserRepository userRepo,
-        ITemplateMetadataCache cache)
+        ITemplateMetadataCache cache,
+        NotificationService notificationSvc)
     {
         _submissionRepo = submissionRepo;
         _approvalRepo = approvalRepo;
         _userRepo = userRepo;
         _cache = cache;
+        _notificationSvc = notificationSvc;
     }
 
     // ── Query Methods ────────────────────────────────────────────
@@ -249,6 +252,27 @@ public class ApprovalService
 
         await _submissionRepo.Update(submission, ct);
 
+        // Send notification to maker
+        try
+        {
+            var reviewer = await _userRepo.GetById(reviewerUserId, ct);
+            string period = "";
+            if (submission.ReturnPeriod is not null)
+                period = new DateTime(submission.ReturnPeriod.Year, submission.ReturnPeriod.Month, 1).ToString("MMM yyyy");
+
+            await _notificationSvc.NotifyApprovalResult(
+                approval.RequestedByUserId,
+                submission.InstitutionId,
+                submissionId,
+                submission.ReturnCode,
+                period,
+                approved: true,
+                reviewer?.DisplayName ?? "Reviewer",
+                comments,
+                ct);
+        }
+        catch { /* Notification failure should not break approval */ }
+
         return ApprovalActionResult.Success;
     }
 
@@ -283,6 +307,27 @@ public class ApprovalService
         {
             submission.MarkApprovalRejected();
             await _submissionRepo.Update(submission, ct);
+
+            // Send notification to maker
+            try
+            {
+                var reviewer = await _userRepo.GetById(reviewerUserId, ct);
+                string period = "";
+                if (submission.ReturnPeriod is not null)
+                    period = new DateTime(submission.ReturnPeriod.Year, submission.ReturnPeriod.Month, 1).ToString("MMM yyyy");
+
+                await _notificationSvc.NotifyApprovalResult(
+                    approval.RequestedByUserId,
+                    submission.InstitutionId,
+                    submissionId,
+                    submission.ReturnCode,
+                    period,
+                    approved: false,
+                    reviewer?.DisplayName ?? "Reviewer",
+                    comments,
+                    ct);
+            }
+            catch { /* Notification failure should not break rejection */ }
         }
 
         return ApprovalActionResult.Success;

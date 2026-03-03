@@ -1,0 +1,211 @@
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@inject NotificationService NotificationSvc
+@inject NavigationManager Navigation
+
+<div class="portal-notif-bell-wrapper">
+    <button class="portal-topbar-notification"
+            @onclick="ToggleDropdown"
+            aria-label="Notifications (@unreadCount unread)"
+            aria-expanded="@isOpen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 01-3.46 0"/>
+        </svg>
+        @if (unreadCount > 0)
+        {
+            <span class="portal-notif-bell-badge" aria-hidden="true">
+                @(unreadCount > 99 ? "99+" : unreadCount.ToString())
+            </span>
+        }
+    </button>
+
+    @if (isOpen)
+    {
+        <div class="portal-notif-dropdown" role="region" aria-label="Recent notifications">
+            <div class="portal-notif-dropdown-header">
+                <span class="portal-notif-dropdown-title">Notifications</span>
+                @if (unreadCount > 0)
+                {
+                    <button class="portal-notif-dropdown-action" @onclick="MarkAllRead">
+                        Mark all read
+                    </button>
+                }
+            </div>
+
+            @if (isLoadingDropdown)
+            {
+                <div class="portal-notif-dropdown-loading">
+                    <div class="portal-skeleton portal-skeleton-block" style="height: 60px; margin: 0.5rem;"></div>
+                    <div class="portal-skeleton portal-skeleton-block" style="height: 60px; margin: 0.5rem;"></div>
+                </div>
+            }
+            else if (recentNotifications.Count == 0)
+            {
+                <div class="portal-notif-dropdown-empty">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d1d5db"
+                         stroke-width="1.5" aria-hidden="true">
+                        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                        <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                    </svg>
+                    <span>No new notifications</span>
+                </div>
+            }
+            else
+            {
+                <div class="portal-notif-dropdown-list">
+                    @foreach (var notif in recentNotifications)
+                    {
+                        <a href="@(notif.Link ?? "/notifications")"
+                           class="portal-notif-dropdown-item @(notif.IsRead ? "" : "portal-notif-dropdown-item-unread")"
+                           @onclick="() => HandleNotifClick(notif)">
+                            <div class="portal-notif-dropdown-item-icon @GetNotifTypeIconClass(notif.Type)">
+                                @GetNotifTypeIcon(notif.Type)
+                            </div>
+                            <div class="portal-notif-dropdown-item-content">
+                                <span class="portal-notif-dropdown-item-title">@notif.Title</span>
+                                <span class="portal-notif-dropdown-item-msg">@TruncateMessage(notif.Message, 80)</span>
+                                <span class="portal-notif-dropdown-item-time">@notif.TimeAgo</span>
+                            </div>
+                            @if (!notif.IsRead)
+                            {
+                                <span class="portal-notif-dropdown-item-dot" aria-hidden="true"></span>
+                            }
+                        </a>
+                    }
+                </div>
+            }
+
+            <a href="/notifications" class="portal-notif-dropdown-footer" @onclick="CloseDropdown">
+                View all notifications
+            </a>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isOpen;
+    private bool isLoadingDropdown;
+    private int unreadCount;
+    private List<NotificationModel> recentNotifications = new();
+
+    private int userId;
+    private int institutionId;
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            var userIdStr = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            int.TryParse(userIdStr, out userId);
+            int.TryParse(instIdStr, out institutionId);
+
+            if (userId > 0 && institutionId > 0)
+                unreadCount = await NotificationSvc.GetUnreadCount(userId, institutionId);
+        }
+        catch { }
+    }
+
+    private async Task ToggleDropdown()
+    {
+        if (isOpen)
+        {
+            isOpen = false;
+            return;
+        }
+
+        isOpen = true;
+        isLoadingDropdown = true;
+        StateHasChanged();
+
+        try
+        {
+            if (userId > 0 && institutionId > 0)
+            {
+                recentNotifications = await NotificationSvc.GetRecentUnread(userId, institutionId, 5);
+
+                // If fewer than 5 unread, pad with recent ones
+                if (recentNotifications.Count < 5)
+                {
+                    var all = await NotificationSvc.GetNotifications(userId, institutionId, 1, 5);
+                    foreach (var n in all.Notifications)
+                    {
+                        if (recentNotifications.All(r => r.Id != n.Id))
+                        {
+                            recentNotifications.Add(n);
+                            if (recentNotifications.Count >= 5) break;
+                        }
+                    }
+                }
+            }
+        }
+        catch { }
+        finally
+        {
+            isLoadingDropdown = false;
+            StateHasChanged();
+        }
+    }
+
+    private void CloseDropdown() => isOpen = false;
+
+    private async Task HandleNotifClick(NotificationModel notif)
+    {
+        if (!notif.IsRead)
+        {
+            await NotificationSvc.MarkAsRead(notif.Id);
+            notif.IsRead = true;
+            unreadCount = Math.Max(0, unreadCount - 1);
+        }
+        isOpen = false;
+    }
+
+    private async Task MarkAllRead()
+    {
+        try
+        {
+            await NotificationSvc.MarkAllAsRead(userId, institutionId);
+            unreadCount = 0;
+            foreach (var n in recentNotifications) n.IsRead = true;
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private static string TruncateMessage(string msg, int maxLen)
+    {
+        if (string.IsNullOrEmpty(msg) || msg.Length <= maxLen) return msg;
+        return msg[..maxLen] + "...";
+    }
+
+    private static string GetNotifTypeIconClass(NotificationType type) => type switch
+    {
+        NotificationType.SubmissionResult => "portal-notif-icon-submission",
+        NotificationType.DeadlineApproaching => "portal-notif-icon-deadline",
+        NotificationType.ApprovalRequest or NotificationType.ApprovalResult => "portal-notif-icon-approval",
+        NotificationType.SystemAnnouncement => "portal-notif-icon-system",
+        NotificationType.TeamUpdate => "portal-notif-icon-team",
+        _ => "portal-notif-icon-system"
+    };
+
+    private static MarkupString GetNotifTypeIcon(NotificationType type) => type switch
+    {
+        NotificationType.SubmissionResult => new(
+            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/></svg>"),
+        NotificationType.DeadlineApproaching => new(
+            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>"),
+        NotificationType.ApprovalRequest or NotificationType.ApprovalResult => new(
+            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"/></svg>"),
+        NotificationType.SystemAnnouncement => new(
+            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" y1=\"16\" x2=\"12\" y2=\"12\"/><line x1=\"12\" y1=\"8\" x2=\"12.01\" y2=\"8\"/></svg>"),
+        NotificationType.TeamUpdate => new(
+            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M23 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/></svg>"),
+        _ => new("")
+    };
+}
