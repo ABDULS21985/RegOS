@@ -1,0 +1,677 @@
+@page "/templates/{ReturnCode}"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>@(template?.ReturnCode ?? "Template") — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+
+    @if (isLoading)
+    {
+        <div class="portal-skeleton portal-skeleton-block" style="height: 120px; margin-bottom: 1.5rem;"></div>
+        <div class="portal-skeleton portal-skeleton-block" style="height: 400px;"></div>
+    }
+    else if (template is null)
+    {
+        <div class="portal-empty-state portal-card" style="padding: 3rem;">
+            <h3 class="portal-empty-state-title">Template Not Found</h3>
+            <p class="portal-empty-state-desc">The template "@ReturnCode" does not exist or is not published.</p>
+            <a href="/templates" class="portal-btn portal-btn-primary">Back to Templates</a>
+        </div>
+    }
+    else
+    {
+        <!-- ═══════════════════════════════════════════════════════════
+             BREADCRUMB
+             ═══════════════════════════════════════════════════════════ -->
+        <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+            <a href="/" class="portal-breadcrumb-link">Dashboard</a>
+            <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
+            <a href="/templates" class="portal-breadcrumb-link">Templates</a>
+            <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
+            <span class="portal-breadcrumb-current">@template.ReturnCode</span>
+        </nav>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             TEMPLATE HEADER
+             ═══════════════════════════════════════════════════════════ -->
+        <div class="portal-detail-hero">
+            <div class="portal-detail-hero-main">
+                <div class="portal-detail-hero-title-row">
+                    <h1 class="portal-detail-hero-title">@template.ReturnCode</h1>
+                    <span class="portal-badge portal-badge-lg @GetFrequencyBadgeClass(template.Frequency)">@FormatFrequency(template.Frequency)</span>
+                    <span class="portal-badge portal-badge-lg portal-badge-neutral">@GetCategoryLabel(template.StructuralCategory)</span>
+                </div>
+                <p class="portal-detail-hero-subtitle">@template.TemplateName</p>
+                <div class="portal-detail-hero-meta">
+                    <span class="portal-detail-meta-item">
+                        <strong>@template.FieldCount</strong> fields
+                    </span>
+                    <span class="portal-detail-meta-item">
+                        <strong>@template.FormulaCount</strong> validation rules
+                    </span>
+                    @if (template.ItemCodeCount > 0)
+                    {
+                        <span class="portal-detail-meta-item">
+                            <strong>@template.ItemCodeCount</strong> item codes
+                        </span>
+                    }
+                </div>
+            </div>
+            <div class="portal-detail-hero-actions">
+                <a href="/submit?returnCode=@template.ReturnCode" class="portal-btn portal-btn-primary portal-btn-sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Submit This Return
+                </a>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             TABBED CONTENT
+             ═══════════════════════════════════════════════════════════ -->
+        <div class="portal-tabs" role="tablist" aria-label="Template details">
+            <button class="portal-tab @(activeTab == "fields" ? "portal-tab-active" : "")"
+                    role="tab" aria-selected="@(activeTab == "fields")"
+                    @onclick='() => activeTab = "fields"'>
+                Fields
+                <span class="portal-badge portal-badge-sm portal-badge-neutral">@template.FieldCount</span>
+            </button>
+            <button class="portal-tab @(activeTab == "formulas" ? "portal-tab-active" : "")"
+                    role="tab" aria-selected="@(activeTab == "formulas")"
+                    @onclick='() => activeTab = "formulas"'>
+                Validation Rules
+                <span class="portal-badge portal-badge-sm portal-badge-neutral">@template.FormulaCount</span>
+            </button>
+            @if (template.ItemCodeCount > 0)
+            {
+                <button class="portal-tab @(activeTab == "itemcodes" ? "portal-tab-active" : "")"
+                        role="tab" aria-selected="@(activeTab == "itemcodes")"
+                        @onclick='() => activeTab = "itemcodes"'>
+                    Item Codes
+                    <span class="portal-badge portal-badge-sm portal-badge-neutral">@template.ItemCodeCount</span>
+                </button>
+            }
+            <button class="portal-tab @(activeTab == "schema" ? "portal-tab-active" : "")"
+                    role="tab" aria-selected="@(activeTab == "schema")"
+                    @onclick="() => LoadSchemaTab()">
+                Schema (XSD)
+            </button>
+            <button class="portal-tab @(activeTab == "sample" ? "portal-tab-active" : "")"
+                    role="tab" aria-selected="@(activeTab == "sample")"
+                    @onclick="() => LoadSampleTab()">
+                Sample XML
+            </button>
+            <button class="portal-tab @(activeTab == "history" ? "portal-tab-active" : "")"
+                    role="tab" aria-selected="@(activeTab == "history")"
+                    @onclick="() => LoadHistoryTab()">
+                Submission History
+            </button>
+        </div>
+
+        <div class="portal-tab-content">
+
+            <!-- ══ Tab 1: Fields ═══════════════════════════════════ -->
+            @if (activeTab == "fields")
+            {
+                <div role="tabpanel" aria-label="Template fields">
+                    @foreach (var sectionGroup in template.Fields.GroupBy(f => f.SectionName))
+                    {
+                        <div class="portal-tmpl-section">
+                            <h3 class="portal-tmpl-section-title">
+                                @sectionGroup.Key
+                                <span class="portal-badge portal-badge-sm portal-badge-neutral">@sectionGroup.Count() fields</span>
+                            </h3>
+                            <div class="portal-card portal-card-flush">
+                                <div class="portal-table-responsive">
+                                    <table class="portal-table" aria-label="@sectionGroup.Key fields">
+                                        <thead>
+                                            <tr>
+                                                <th>Field Name</th>
+                                                <th>Display Name</th>
+                                                <th>XML Element</th>
+                                                <th>Data Type</th>
+                                                <th style="width: 80px;">Required</th>
+                                                <th>Constraints</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var field in sectionGroup)
+                                            {
+                                                <tr>
+                                                    <td class="portal-table-mono">@field.FieldName</td>
+                                                    <td>@field.DisplayName</td>
+                                                    <td class="portal-table-mono portal-text-muted">@field.XmlElementName</td>
+                                                    <td>
+                                                        <span class="portal-badge portal-badge-sm @GetDataTypeBadgeClass(field.DataType)">
+                                                            @field.DataType
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        @if (field.IsRequired)
+                                                        {
+                                                            <span class="portal-badge portal-badge-sm portal-badge-danger">Required</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="portal-text-muted">Optional</span>
+                                                        }
+                                                    </td>
+                                                    <td class="portal-text-muted portal-text-sm">@field.ConstraintsSummary</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- ══ Tab 2: Validation Rules ═════════════════════════ -->
+            @if (activeTab == "formulas")
+            {
+                <div role="tabpanel" aria-label="Validation rules">
+                    @if (!template.Formulas.Any())
+                    {
+                        <div class="portal-empty-state portal-card" style="padding: 2rem;">
+                            <p class="portal-empty-state-desc">No validation rules defined for this template.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="portal-card portal-card-flush">
+                            <div class="portal-table-responsive">
+                                <table class="portal-table" aria-label="Validation rules">
+                                    <thead>
+                                        <tr>
+                                            <th>Rule Code</th>
+                                            <th>Rule Name</th>
+                                            <th>Type</th>
+                                            <th>Target Field</th>
+                                            <th>Expression / Operands</th>
+                                            <th>Severity</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var formula in template.Formulas)
+                                        {
+                                            <tr>
+                                                <td class="portal-table-mono">@formula.RuleCode</td>
+                                                <td>@formula.RuleName</td>
+                                                <td><span class="portal-badge portal-badge-sm @GetFormulaTypeBadgeClass(formula.Type)">@formula.Type</span></td>
+                                                <td class="portal-table-mono">@formula.TargetField</td>
+                                                <td class="portal-text-sm">
+                                                    @if (!string.IsNullOrEmpty(formula.Expression))
+                                                    {
+                                                        <code class="portal-code-inline">@formula.Expression</code>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="portal-text-muted">@formula.OperandFields</span>
+                                                    }
+                                                </td>
+                                                <td>
+                                                    <span class="portal-badge portal-badge-sm @GetSeverityBadgeClass(formula.Severity)">
+                                                        @formula.Severity
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- ══ Tab 3: Item Codes (if applicable) ═══════════════ -->
+            @if (activeTab == "itemcodes" && template.ItemCodeCount > 0)
+            {
+                <div role="tabpanel" aria-label="Item codes">
+                    <div class="portal-card portal-card-flush">
+                        <div class="portal-table-responsive">
+                            <table class="portal-table" aria-label="Item codes">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 120px;">Item Code</th>
+                                        <th>Description</th>
+                                        <th style="width: 100px;">Type</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var ic in template.ItemCodes)
+                                    {
+                                        <tr class="@(ic.IsTotalRow ? "portal-tmpl-total-row" : "")">
+                                            <td class="portal-table-mono">@ic.ItemCode</td>
+                                            <td>@ic.Description</td>
+                                            <td>
+                                                @if (ic.IsTotalRow)
+                                                {
+                                                    <span class="portal-badge portal-badge-sm portal-badge-warning">Total</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="portal-text-muted">Data</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+
+            <!-- ══ Tab 4: Schema (XSD) ═════════════════════════════ -->
+            @if (activeTab == "schema")
+            {
+                <div role="tabpanel" aria-label="XSD Schema">
+                    @if (isLoadingSchema)
+                    {
+                        <div class="portal-skeleton portal-skeleton-block" style="height: 300px;"></div>
+                    }
+                    else if (string.IsNullOrEmpty(schemaXml))
+                    {
+                        <div class="portal-empty-state portal-card" style="padding: 2rem;">
+                            <p class="portal-empty-state-desc">Schema could not be generated for this template.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="portal-card">
+                            <div class="portal-code-header">
+                                <span class="portal-code-header-label">@(template.ReturnCode).xsd</span>
+                                <div class="portal-code-header-actions">
+                                    <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => CopyToClipboard(schemaXml)">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                        </svg>
+                                        @(copiedSchema ? "Copied!" : "Copy")
+                                    </button>
+                                    <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="DownloadSchema">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                        </svg>
+                                        Download
+                                    </button>
+                                </div>
+                            </div>
+                            <pre class="portal-code-block"><code>@schemaXml</code></pre>
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- ══ Tab 5: Sample XML ═══════════════════════════════ -->
+            @if (activeTab == "sample")
+            {
+                <div role="tabpanel" aria-label="Sample XML">
+                    @if (isLoadingSample)
+                    {
+                        <div class="portal-skeleton portal-skeleton-block" style="height: 300px;"></div>
+                    }
+                    else if (string.IsNullOrEmpty(sampleXml))
+                    {
+                        <div class="portal-empty-state portal-card" style="padding: 2rem;">
+                            <p class="portal-empty-state-desc">Sample XML could not be generated for this template.</p>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="portal-card">
+                            <div class="portal-code-header">
+                                <span class="portal-code-header-label">@(template.ReturnCode)_sample.xml</span>
+                                <div class="portal-code-header-actions">
+                                    <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => CopyToClipboard(sampleXml)">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                                        </svg>
+                                        @(copiedSample ? "Copied!" : "Copy")
+                                    </button>
+                                    <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="DownloadSample">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                        </svg>
+                                        Download
+                                    </button>
+                                </div>
+                            </div>
+                            <pre class="portal-code-block"><code>@sampleXml</code></pre>
+                        </div>
+                    }
+                </div>
+            }
+
+            <!-- ══ Tab 6: Submission History ═══════════════════════ -->
+            @if (activeTab == "history")
+            {
+                <div role="tabpanel" aria-label="Submission history">
+                    @if (isLoadingHistory)
+                    {
+                        <div class="portal-skeleton portal-skeleton-block" style="height: 200px;"></div>
+                    }
+                    else if (!submissionHistory.Any())
+                    {
+                        <div class="portal-empty-state portal-card" style="padding: 2rem;">
+                            <p class="portal-empty-state-desc">No submissions found for this template.</p>
+                            <a href="/submit?returnCode=@template.ReturnCode" class="portal-btn portal-btn-primary portal-btn-sm" style="margin-top: 1rem;">
+                                Submit Your First Return
+                            </a>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="portal-card portal-card-flush">
+                            <div class="portal-table-responsive">
+                                <table class="portal-table portal-table-hover" aria-label="Submission history">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Period</th>
+                                            <th>Submitted</th>
+                                            <th>Status</th>
+                                            <th class="portal-table-th-num">Errors</th>
+                                            <th class="portal-table-th-num">Warnings</th>
+                                            <th class="portal-table-th-actions">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var sub in submissionHistory)
+                                        {
+                                            <tr>
+                                                <td class="portal-table-mono">#@sub.SubmissionId</td>
+                                                <td>@sub.PeriodLabel</td>
+                                                <td>@sub.SubmittedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                                <td>
+                                                    <span class="portal-badge portal-badge-sm @GetSubmissionStatusBadgeClass(sub.Status)">
+                                                        @FormatSubmissionStatus(sub.Status)
+                                                    </span>
+                                                </td>
+                                                <td class="portal-table-th-num">
+                                                    @if (sub.ErrorCount > 0)
+                                                    {
+                                                        <span class="portal-text-danger">@sub.ErrorCount</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="portal-text-muted">0</span>
+                                                    }
+                                                </td>
+                                                <td class="portal-table-th-num">
+                                                    @if (sub.WarningCount > 0)
+                                                    {
+                                                        <span class="portal-text-warning">@sub.WarningCount</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="portal-text-muted">0</span>
+                                                    }
+                                                </td>
+                                                <td class="portal-table-th-actions">
+                                                    <a href="/submissions/@sub.SubmissionId" class="portal-btn portal-btn-ghost portal-btn-xs">
+                                                        View
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ReturnCode { get; set; } = "";
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthStateTask { get; set; }
+
+    [Inject] private TemplateBrowserService BrowserSvc { get; set; } = default!;
+
+    // ── State ─────────────────────────────────────────────────────
+    private bool isLoading = true;
+    private TemplateDetailModel? template;
+    private string activeTab = "fields";
+
+    // Schema tab
+    private bool isLoadingSchema;
+    private bool schemaLoaded;
+    private string? schemaXml;
+    private bool copiedSchema;
+
+    // Sample XML tab
+    private bool isLoadingSample;
+    private bool sampleLoaded;
+    private string? sampleXml;
+    private bool copiedSample;
+
+    // History tab
+    private bool isLoadingHistory;
+    private bool historyLoaded;
+    private List<TemplateSubmissionHistoryItem> submissionHistory = new();
+    private int institutionId;
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        // Extract InstitutionId from claims
+        if (AuthStateTask is not null)
+        {
+            var authState = await AuthStateTask;
+            var instClaim = authState.User.FindFirst("InstitutionId");
+            if (instClaim is not null)
+                int.TryParse(instClaim.Value, out institutionId);
+        }
+
+        try
+        {
+            template = await BrowserSvc.GetTemplateDetail(ReturnCode);
+        }
+        catch
+        {
+            template = null;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ── Lazy Tab Loaders ──────────────────────────────────────────
+
+    private async Task LoadSchemaTab()
+    {
+        activeTab = "schema";
+        if (schemaLoaded) return;
+
+        isLoadingSchema = true;
+        StateHasChanged();
+
+        try
+        {
+            schemaXml = await BrowserSvc.GetSchemaXml(ReturnCode);
+        }
+        catch
+        {
+            schemaXml = null;
+        }
+        finally
+        {
+            isLoadingSchema = false;
+            schemaLoaded = true;
+        }
+    }
+
+    private async Task LoadSampleTab()
+    {
+        activeTab = "sample";
+        if (sampleLoaded) return;
+
+        isLoadingSample = true;
+        StateHasChanged();
+
+        try
+        {
+            sampleXml = await BrowserSvc.GenerateSampleXml(ReturnCode);
+        }
+        catch
+        {
+            sampleXml = null;
+        }
+        finally
+        {
+            isLoadingSample = false;
+            sampleLoaded = true;
+        }
+    }
+
+    private async Task LoadHistoryTab()
+    {
+        activeTab = "history";
+        if (historyLoaded) return;
+
+        isLoadingHistory = true;
+        StateHasChanged();
+
+        try
+        {
+            submissionHistory = await BrowserSvc.GetSubmissionHistory(institutionId, ReturnCode);
+        }
+        catch
+        {
+            submissionHistory = new();
+        }
+        finally
+        {
+            isLoadingHistory = false;
+            historyLoaded = true;
+        }
+    }
+
+    // ── Download Wrappers ─────────────────────────────────────────
+
+    private async Task DownloadSchema()
+    {
+        if (template is null) return;
+        await DownloadContent(schemaXml, template.ReturnCode + ".xsd", "application/xml");
+    }
+
+    private async Task DownloadSample()
+    {
+        if (template is null) return;
+        await DownloadContent(sampleXml, template.ReturnCode + "_sample.xml", "application/xml");
+    }
+
+    // ── Clipboard & Download ──────────────────────────────────────
+
+    private async Task CopyToClipboard(string? content)
+    {
+        if (string.IsNullOrEmpty(content)) return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("portalCopyToClipboard", content);
+
+            if (activeTab == "schema") { copiedSchema = true; StateHasChanged(); await Task.Delay(2000); copiedSchema = false; }
+            if (activeTab == "sample") { copiedSample = true; StateHasChanged(); await Task.Delay(2000); copiedSample = false; }
+        }
+        catch
+        {
+            // Clipboard API may not be available
+        }
+    }
+
+    private async Task DownloadContent(string? content, string filename, string contentType)
+    {
+        if (string.IsNullOrEmpty(content)) return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("portalDownloadFile", content, filename, contentType);
+        }
+        catch
+        {
+            // Download not available
+        }
+    }
+
+    // ── Display Helpers ───────────────────────────────────────────
+
+    private static string GetFrequencyBadgeClass(string freq)
+    {
+        if (freq.Equals("Monthly", StringComparison.OrdinalIgnoreCase)) return "portal-badge-info";
+        if (freq.Equals("Quarterly", StringComparison.OrdinalIgnoreCase)) return "portal-badge-warning";
+        if (freq.Equals("SemiAnnual", StringComparison.OrdinalIgnoreCase)) return "portal-badge-accent";
+        return "portal-badge-neutral";
+    }
+
+    private static string GetCategoryLabel(string cat)
+    {
+        if (cat == "FixedRow") return "Fixed Row";
+        if (cat == "MultiRow") return "Multi Row";
+        if (cat == "ItemCoded") return "Item Coded";
+        return cat;
+    }
+
+    private static string FormatFrequency(string freq)
+    {
+        if (freq == "SemiAnnual") return "Semi-Annual";
+        return freq;
+    }
+
+    private static string GetDataTypeBadgeClass(string dt)
+    {
+        if (dt == "Money" || dt == "Decimal") return "portal-badge-info";
+        if (dt == "Percentage") return "portal-badge-accent";
+        if (dt == "Integer") return "portal-badge-warning";
+        if (dt == "Text") return "portal-badge-neutral";
+        if (dt == "Date") return "portal-badge-success";
+        if (dt == "Boolean") return "portal-badge-neutral";
+        return "portal-badge-neutral";
+    }
+
+    private static string GetFormulaTypeBadgeClass(string ftype)
+    {
+        if (ftype == "Sum" || ftype == "Difference") return "portal-badge-info";
+        if (ftype == "Equals") return "portal-badge-success";
+        if (ftype == "Custom") return "portal-badge-accent";
+        if (ftype == "Ratio") return "portal-badge-warning";
+        return "portal-badge-neutral";
+    }
+
+    private static string GetSeverityBadgeClass(string severity)
+    {
+        if (severity == "Error") return "portal-badge-danger";
+        if (severity == "Warning") return "portal-badge-warning";
+        if (severity == "Info") return "portal-badge-info";
+        return "portal-badge-neutral";
+    }
+
+    private static string GetSubmissionStatusBadgeClass(string status)
+    {
+        if (status == "Accepted" || status == "AcceptedWithWarnings") return "portal-badge-success";
+        if (status == "Rejected" || status == "ApprovalRejected") return "portal-badge-danger";
+        if (status == "PendingApproval") return "portal-badge-warning";
+        if (status == "Validating" || status == "Parsing") return "portal-badge-info";
+        return "portal-badge-neutral";
+    }
+
+    private static string FormatSubmissionStatus(string status)
+    {
+        if (status == "AcceptedWithWarnings") return "Accepted (Warnings)";
+        if (status == "ApprovalRejected") return "Approval Rejected";
+        if (status == "PendingApproval") return "Pending Approval";
+        return status;
+    }
+}

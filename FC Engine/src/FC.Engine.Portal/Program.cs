@@ -28,6 +28,7 @@ builder.Services.AddScoped<FC.Engine.Portal.Services.DialogService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.DashboardService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.SubmissionService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.CalendarService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.TemplateBrowserService>();
 
 // Caching
 builder.Services.AddMemoryCache();

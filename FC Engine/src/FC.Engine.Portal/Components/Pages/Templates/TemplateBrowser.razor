@@ -1,0 +1,246 @@
+@page "/templates"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@inject NavigationManager Navigation
+
+<PageTitle>Template Browser — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-page-header">
+        <div class="portal-page-header-main">
+            <h1 class="portal-page-title">Template Browser</h1>
+            <p class="portal-page-subtitle">Browse all return templates, view field requirements, and download schemas for XML generation</p>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         SEARCH & FILTERS
+         ═══════════════════════════════════════════════════════════════ -->
+    <div class="portal-toolbar">
+        <div class="portal-toolbar-row">
+            <div class="portal-toolbar-search">
+                <div class="portal-input-wrapper">
+                    <span class="portal-input-icon" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                    </span>
+                    <input type="text"
+                           class="portal-form-input portal-form-input-icon"
+                           placeholder="Search by code or name..."
+                           @bind="searchQuery"
+                           @bind:event="oninput"
+                           aria-label="Search templates" />
+                </div>
+            </div>
+
+            <div class="portal-toolbar-filter">
+                <label for="filterFreq" class="portal-form-label-sr">Frequency</label>
+                <select id="filterFreq" class="portal-form-select" @bind="filterFrequency">
+                    <option value="">All Frequencies</option>
+                    <option value="Monthly">Monthly</option>
+                    <option value="Quarterly">Quarterly</option>
+                    <option value="SemiAnnual">Semi-Annual</option>
+                </select>
+            </div>
+
+            <div class="portal-toolbar-filter">
+                <label for="filterCat" class="portal-form-label-sr">Category</label>
+                <select id="filterCat" class="portal-form-select" @bind="filterCategory">
+                    <option value="">All Categories</option>
+                    <option value="FixedRow">Fixed Row</option>
+                    <option value="MultiRow">Multi Row</option>
+                    <option value="ItemCoded">Item Coded</option>
+                </select>
+            </div>
+
+            <div class="portal-template-view-toggle">
+                <button class="portal-calendar-view-btn @(viewMode == "card" ? "portal-calendar-view-btn-active" : "")"
+                        @onclick='() => viewMode = "card"' title="Card view" aria-label="Card view">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                    </svg>
+                </button>
+                <button class="portal-calendar-view-btn @(viewMode == "table" ? "portal-calendar-view-btn-active" : "")"
+                        @onclick='() => viewMode = "table"' title="Table view" aria-label="Table view">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
+                        <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         TEMPLATE DISPLAY
+         ═══════════════════════════════════════════════════════════════ -->
+    @if (isLoading)
+    {
+        <div class="portal-template-grid">
+            @for (int i = 0; i < 6; i++)
+            {
+                <div class="portal-skeleton portal-skeleton-block" style="height: 160px; border-radius: 12px;"></div>
+            }
+        </div>
+    }
+    else if (!FilteredTemplates.Any())
+    {
+        <div class="portal-empty-state portal-card" style="padding: 3rem;">
+            <h3 class="portal-empty-state-title">No Templates Found</h3>
+            <p class="portal-empty-state-desc">Try adjusting your search or filters.</p>
+        </div>
+    }
+    else
+    {
+        @if (viewMode == "card")
+        {
+            <div class="portal-template-grid">
+                @foreach (var template in FilteredTemplates)
+                {
+                    <a href="/templates/@template.ReturnCode" class="portal-tmpl-card">
+                        <div class="portal-tmpl-card-accent @GetCategoryAccentClass(template.StructuralCategory)"></div>
+                        <div class="portal-tmpl-card-body">
+                            <div class="portal-tmpl-card-header">
+                                <span class="portal-tmpl-card-code">@template.ReturnCode</span>
+                                <span class="portal-badge @GetFrequencyBadgeClass(template.Frequency)">@FormatFrequency(template.Frequency)</span>
+                            </div>
+                            <span class="portal-tmpl-card-name">@template.TemplateName</span>
+                            <div class="portal-tmpl-card-footer">
+                                <span class="portal-badge portal-badge-neutral portal-badge-sm">
+                                    @GetCategoryLabel(template.StructuralCategory)
+                                </span>
+                                <span class="portal-tmpl-card-stat">
+                                    @template.FieldCount fields · @template.FormulaCount rules
+                                </span>
+                            </div>
+                        </div>
+                    </a>
+                }
+            </div>
+        }
+
+        @if (viewMode == "table")
+        {
+            <div class="portal-card portal-card-flush">
+                <div class="portal-table-responsive">
+                    <table class="portal-table portal-table-hover" aria-label="Templates">
+                        <thead>
+                            <tr>
+                                <th>Return Code</th>
+                                <th>Template Name</th>
+                                <th>Frequency</th>
+                                <th>Category</th>
+                                <th class="portal-table-th-num">Fields</th>
+                                <th class="portal-table-th-num">Rules</th>
+                                <th class="portal-table-th-actions">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var template in FilteredTemplates)
+                            {
+                                <tr class="portal-table-row-clickable" @onclick="() => NavigateToTemplate(template.ReturnCode)">
+                                    <td><span class="portal-table-code">@template.ReturnCode</span></td>
+                                    <td class="portal-table-truncate">@template.TemplateName</td>
+                                    <td><span class="portal-badge @GetFrequencyBadgeClass(template.Frequency)">@FormatFrequency(template.Frequency)</span></td>
+                                    <td><span class="portal-badge portal-badge-neutral portal-badge-sm">@GetCategoryLabel(template.StructuralCategory)</span></td>
+                                    <td class="portal-table-th-num">@template.FieldCount</td>
+                                    <td class="portal-table-th-num">@template.FormulaCount</td>
+                                    <td class="portal-table-th-actions" @onclick:stopPropagation>
+                                        <a href="/templates/@template.ReturnCode" class="portal-btn portal-btn-ghost portal-btn-xs">
+                                            View
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <div class="portal-template-count">
+            Showing @FilteredTemplates.Count() of @allTemplates.Count templates
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private List<TemplateBrowseItem> allTemplates = new();
+    private string searchQuery = "";
+    private string filterFrequency = "";
+    private string filterCategory = "";
+    private string viewMode = "card";
+
+    [Inject] private TemplateBrowserService BrowserSvc { get; set; } = default!;
+
+    private IEnumerable<TemplateBrowseItem> FilteredTemplates =>
+        allTemplates.Where(t =>
+        {
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var q = searchQuery.Trim();
+                if (!t.ReturnCode.Contains(q, StringComparison.OrdinalIgnoreCase) &&
+                    !t.TemplateName.Contains(q, StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+            if (!string.IsNullOrEmpty(filterFrequency) &&
+                !t.Frequency.Equals(filterFrequency, StringComparison.OrdinalIgnoreCase))
+                return false;
+            if (!string.IsNullOrEmpty(filterCategory) &&
+                !t.StructuralCategory.Equals(filterCategory, StringComparison.OrdinalIgnoreCase))
+                return false;
+            return true;
+        });
+
+    private void NavigateToTemplate(string returnCode) => Navigation.NavigateTo($"/templates/{returnCode}");
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            allTemplates = await BrowserSvc.GetAllTemplates();
+        }
+        catch
+        {
+            // Template loading failed — empty grid will show
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ── Display Helpers ──────────────────────────────────────────
+
+    private static string GetFrequencyBadgeClass(string freq)
+    {
+        if (freq.Equals("Monthly", StringComparison.OrdinalIgnoreCase)) return "portal-badge-info";
+        if (freq.Equals("Quarterly", StringComparison.OrdinalIgnoreCase)) return "portal-badge-warning";
+        if (freq.Equals("SemiAnnual", StringComparison.OrdinalIgnoreCase)) return "portal-badge-accent";
+        return "portal-badge-neutral";
+    }
+
+    private static string GetCategoryAccentClass(string cat)
+    {
+        if (cat.Equals("FixedRow", StringComparison.OrdinalIgnoreCase)) return "portal-tmpl-accent-fixed";
+        if (cat.Equals("MultiRow", StringComparison.OrdinalIgnoreCase)) return "portal-tmpl-accent-multi";
+        if (cat.Equals("ItemCoded", StringComparison.OrdinalIgnoreCase)) return "portal-tmpl-accent-item";
+        return "portal-tmpl-accent-fixed";
+    }
+
+    private static string GetCategoryLabel(string cat)
+    {
+        if (cat == "FixedRow") return "Fixed Row";
+        if (cat == "MultiRow") return "Multi Row";
+        if (cat == "ItemCoded") return "Item Coded";
+        return cat;
+    }
+
+    private static string FormatFrequency(string freq)
+    {
+        if (freq == "SemiAnnual") return "Semi-Annual";
+        return freq;
+    }
+}
