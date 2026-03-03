@@ -44,6 +44,7 @@ public static class DependencyInjection
         services.AddScoped<ILoginAttemptRepository, LoginAttemptRepository>();
         services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
         services.AddScoped<IInstitutionUserRepository, InstitutionUserRepository>();
+        services.AddScoped<IInstitutionRepository, InstitutionRepository>();
         services.AddScoped<ISubmissionApprovalRepository, SubmissionApprovalRepository>();
 
         // Dynamic SQL

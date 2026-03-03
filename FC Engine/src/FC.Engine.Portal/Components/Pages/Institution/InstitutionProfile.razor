@@ -1,0 +1,241 @@
+@page "/institution"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+
+<PageTitle>Institution Profile — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+
+    <div class="portal-page-header">
+        <div class="portal-page-header-main">
+            <h1 class="portal-page-title">Institution Profile</h1>
+            <p class="portal-page-subtitle">View and manage your institution's details</p>
+        </div>
+    </div>
+
+    <!-- Institution Sub-Nav -->
+    <nav class="portal-inst-subnav" aria-label="Institution sections">
+        <a href="/institution" class="portal-inst-subnav-item portal-inst-subnav-item-active">Profile</a>
+        <a href="/institution/team" class="portal-inst-subnav-item">
+            Team Members
+            @if (profile is not null)
+            {
+                <span class="portal-badge portal-badge-sm portal-badge-neutral">@profile.TotalUsers</span>
+            }
+        </a>
+        @if (isAdmin)
+        {
+            <a href="/institution/settings" class="portal-inst-subnav-item">Settings</a>
+        }
+    </nav>
+
+    @if (isLoading)
+    {
+        <div class="portal-skeleton portal-skeleton-block" style="height: 200px; margin-bottom: 1rem;"></div>
+        <div class="portal-skeleton portal-skeleton-block" style="height: 300px;"></div>
+    }
+    else if (profile is null)
+    {
+        <div class="portal-empty-state portal-card" style="padding: 3rem;">
+            <h3 class="portal-empty-state-title">Institution Not Found</h3>
+            <p class="portal-empty-state-desc">Unable to load institution details.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Institution Hero Card -->
+        <div class="portal-card portal-inst-hero">
+            <div class="portal-inst-hero-top">
+                <div class="portal-inst-hero-icon">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                        <polyline points="9 22 9 12 15 12 15 22"/>
+                    </svg>
+                </div>
+                <div class="portal-inst-hero-title-section">
+                    <h2 class="portal-inst-hero-name">@profile.Name</h2>
+                    <span class="portal-inst-hero-code">@profile.Code</span>
+                </div>
+                <div class="portal-inst-hero-badges">
+                    <span class="portal-badge portal-badge-lg @(profile.IsActive ? "portal-badge-success" : "portal-badge-danger")">
+                        @(profile.IsActive ? "Active" : "Suspended")
+                    </span>
+                    <span class="portal-badge portal-badge-lg portal-badge-info">@profile.SubscriptionTier</span>
+                    @if (profile.MakerCheckerEnabled)
+                    {
+                        <span class="portal-badge portal-badge-lg portal-badge-warning">Maker-Checker</span>
+                    }
+                </div>
+            </div>
+
+            <!-- Stats Row -->
+            <div class="portal-inst-stats-row">
+                <div class="portal-inst-stat">
+                    <span class="portal-inst-stat-value">
+                        @profile.ActiveUsers<span class="portal-inst-stat-secondary">/@profile.MaxUsersAllowed</span>
+                    </span>
+                    <span class="portal-inst-stat-label">Active Users</span>
+                </div>
+                <div class="portal-inst-stat">
+                    <span class="portal-inst-stat-value">@profile.TotalSubmissions</span>
+                    <span class="portal-inst-stat-label">Total Submissions</span>
+                </div>
+                <div class="portal-inst-stat">
+                    <span class="portal-inst-stat-value">@(profile.LastSubmissionDate?.ToString("d MMM yyyy") ?? "None")</span>
+                    <span class="portal-inst-stat-label">Last Submission</span>
+                </div>
+                <div class="portal-inst-stat">
+                    <span class="portal-inst-stat-value">@profile.CreatedAt.ToString("MMM yyyy")</span>
+                    <span class="portal-inst-stat-label">Member Since</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contact Details (editable by Admin) -->
+        <div class="portal-card portal-form-section">
+            <div class="portal-form-section-header">
+                <h3 class="portal-form-section-title">Contact Details</h3>
+                @if (isAdmin && !isEditingContact)
+                {
+                    <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="StartEditContact">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                        Edit
+                    </button>
+                }
+            </div>
+
+            @if (!string.IsNullOrEmpty(contactSuccessMsg))
+            {
+                <div class="portal-alert portal-alert-success" role="alert">@contactSuccessMsg</div>
+            }
+
+            @if (isEditingContact)
+            {
+                <div class="portal-form-grid" style="max-width: 600px;">
+                    <div class="portal-form-group">
+                        <label for="instEmail" class="portal-form-label">Email</label>
+                        <input id="instEmail" type="email" class="portal-form-input" @bind="editEmail" />
+                    </div>
+                    <div class="portal-form-group">
+                        <label for="instPhone" class="portal-form-label">Phone</label>
+                        <input id="instPhone" type="tel" class="portal-form-input" @bind="editPhone" />
+                    </div>
+                    <div class="portal-form-group" style="grid-column: 1 / -1;">
+                        <label for="instAddress" class="portal-form-label">Address</label>
+                        <textarea id="instAddress" class="portal-form-input" rows="2" @bind="editAddress"></textarea>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                    <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="SaveContact" disabled="@isSavingContact">
+                        @if (isSavingContact)
+                        {
+                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                            <span>Saving...</span>
+                        }
+                        else { <span>Save Changes</span> }
+                    </button>
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="CancelEditContact">Cancel</button>
+                </div>
+            }
+            else
+            {
+                <div class="portal-settings-info-grid portal-settings-info-grid-wide">
+                    <div class="portal-settings-info-item">
+                        <span class="portal-settings-info-label">Email</span>
+                        <span class="portal-settings-info-value">@(string.IsNullOrEmpty(profile.Email) ? "\u2014" : profile.Email)</span>
+                    </div>
+                    <div class="portal-settings-info-item">
+                        <span class="portal-settings-info-label">Phone</span>
+                        <span class="portal-settings-info-value">@(string.IsNullOrEmpty(profile.PhoneNumber) ? "\u2014" : profile.PhoneNumber)</span>
+                    </div>
+                    <div class="portal-settings-info-item">
+                        <span class="portal-settings-info-label">Address</span>
+                        <span class="portal-settings-info-value">@(string.IsNullOrEmpty(profile.Address) ? "\u2014" : profile.Address)</span>
+                    </div>
+                    <div class="portal-settings-info-item">
+                        <span class="portal-settings-info-label">License Type</span>
+                        <span class="portal-settings-info-value">@(string.IsNullOrEmpty(profile.LicenseType) ? "\u2014" : profile.LicenseType)</span>
+                    </div>
+                    <div class="portal-settings-info-item">
+                        <span class="portal-settings-info-label">Institution ID</span>
+                        <span class="portal-settings-info-value portal-table-mono">#@profile.Id</span>
+                    </div>
+                    <div class="portal-settings-info-item">
+                        <span class="portal-settings-info-label">Registered</span>
+                        <span class="portal-settings-info-value">@profile.CreatedAt.ToString("d MMMM yyyy")</span>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private bool isAdmin;
+    private InstitutionProfileModel? profile;
+
+    // Contact editing
+    private bool isEditingContact;
+    private bool isSavingContact;
+    private string editEmail = "", editPhone = "", editAddress = "";
+    private string? contactSuccessMsg;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Inject] private InstitutionManagementService MgmtSvc { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            var role = state.User.FindFirst(ClaimTypes.Role)?.Value;
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            int.TryParse(instIdStr, out var institutionId);
+
+            isAdmin = role == "Admin";
+            profile = await MgmtSvc.GetProfile(institutionId);
+        }
+        catch { profile = null; }
+        finally { isLoading = false; }
+    }
+
+    private void StartEditContact()
+    {
+        if (profile is null) return;
+        editEmail = profile.Email;
+        editPhone = profile.PhoneNumber;
+        editAddress = profile.Address;
+        contactSuccessMsg = null;
+        isEditingContact = true;
+    }
+
+    private void CancelEditContact() => isEditingContact = false;
+
+    private async Task SaveContact()
+    {
+        if (profile is null) return;
+        isSavingContact = true;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await MgmtSvc.UpdateContactDetails(
+                profile.Id, editEmail.Trim(), editPhone.Trim(), editAddress.Trim());
+            if (ok)
+            {
+                profile.Email = editEmail.Trim();
+                profile.PhoneNumber = editPhone.Trim();
+                profile.Address = editAddress.Trim();
+                isEditingContact = false;
+                contactSuccessMsg = "Contact details updated successfully.";
+            }
+        }
+        catch { /* show error */ }
+        finally { isSavingContact = false; StateHasChanged(); }
+    }
+}

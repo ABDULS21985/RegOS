@@ -32,6 +32,9 @@ public class Institution
     /// </summary>
     public bool MakerCheckerEnabled { get; set; }
 
+    /// <summary>JSON-serialized portal preferences for this institution.</summary>
+    public string? SettingsJson { get; set; }
+
     // ── Navigation (FI Portal) ──
 
     /// <summary>FI Portal users belonging to this institution.</summary>
