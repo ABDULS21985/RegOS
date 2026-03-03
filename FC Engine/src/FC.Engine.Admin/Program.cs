@@ -79,11 +79,13 @@ app.MapPost("/account/login", async (HttpContext context, AuthService authServic
     var form = await context.Request.ReadFormAsync();
     var username = form["username"].ToString();
     var password = form["password"].ToString();
+    var rememberMe = form["rememberMe"].ToString() == "true";
+    var ipAddress = context.Connection.RemoteIpAddress?.ToString();
 
-    var user = await authService.ValidateLogin(username, password);
+    var (user, errorCode) = await authService.ValidateLogin(username, password, ipAddress);
     if (user is null)
     {
-        context.Response.Redirect("/login?error=invalid");
+        context.Response.Redirect($"/login?error={errorCode ?? "invalid"}");
         return;
     }
 
@@ -104,8 +106,10 @@ app.MapPost("/account/login", async (HttpContext context, AuthService authServic
         principal,
         new AuthenticationProperties
         {
-            IsPersistent = true,
-            ExpiresUtc = DateTimeOffset.UtcNow.AddHours(8)
+            IsPersistent = rememberMe,
+            ExpiresUtc = rememberMe
+                ? DateTimeOffset.UtcNow.AddDays(14)
+                : DateTimeOffset.UtcNow.AddHours(8)
         });
 
     context.Response.Redirect("/");
@@ -115,6 +119,67 @@ app.MapGet("/account/logout", async (HttpContext context) =>
 {
     await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     context.Response.Redirect("/login");
+});
+
+// Forgot password — generates a reset token
+app.MapPost("/account/forgot-password", async (HttpContext context, AuthService authService) =>
+{
+    var form = await context.Request.ReadFormAsync();
+    var email = form["email"].ToString().Trim();
+
+    if (string.IsNullOrEmpty(email))
+    {
+        context.Response.Redirect("/forgot-password?error=missing");
+        return;
+    }
+
+    var token = await authService.GeneratePasswordResetToken(email);
+
+    if (token is not null)
+    {
+        // In production, send this via email. For now, log it.
+        var resetUrl = $"{context.Request.Scheme}://{context.Request.Host}/reset-password?token={token}";
+        Log.Information("Password reset link generated for {Email}: {ResetUrl}", email, resetUrl);
+    }
+
+    // Always show success message to prevent email enumeration
+    context.Response.Redirect("/forgot-password?sent=true");
+});
+
+// Reset password — validates token and changes password
+app.MapPost("/account/reset-password", async (HttpContext context, AuthService authService) =>
+{
+    var form = await context.Request.ReadFormAsync();
+    var token = form["token"].ToString();
+    var newPassword = form["newPassword"].ToString();
+    var confirmPassword = form["confirmPassword"].ToString();
+
+    if (string.IsNullOrEmpty(token))
+    {
+        context.Response.Redirect("/reset-password?error=invalid");
+        return;
+    }
+
+    if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 8)
+    {
+        context.Response.Redirect($"/reset-password?token={token}&error=weak");
+        return;
+    }
+
+    if (newPassword != confirmPassword)
+    {
+        context.Response.Redirect($"/reset-password?token={token}&error=mismatch");
+        return;
+    }
+
+    var success = await authService.ResetPasswordWithToken(token, newPassword);
+    if (!success)
+    {
+        context.Response.Redirect("/reset-password?error=expired");
+        return;
+    }
+
+    context.Response.Redirect("/login?reset=success");
 });
 
 app.MapRazorComponents<FC.Engine.Admin.Components.App>()

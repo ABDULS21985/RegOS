@@ -41,6 +41,8 @@ public static class DependencyInjection
         services.AddScoped<ISubmissionRepository, SubmissionRepository>();
         services.AddScoped<IGenericDataRepository, GenericDataRepository>();
         services.AddScoped<IPortalUserRepository, PortalUserRepository>();
+        services.AddScoped<ILoginAttemptRepository, LoginAttemptRepository>();
+        services.AddScoped<IPasswordResetTokenRepository, PasswordResetTokenRepository>();
 
         // Dynamic SQL
         services.AddSingleton<DynamicSqlBuilder>();

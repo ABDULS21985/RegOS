@@ -19,6 +19,12 @@ public class PortalUserRepository : IPortalUserRepository
             .FirstOrDefaultAsync(u => u.Username == username, ct);
     }
 
+    public async Task<PortalUser?> GetByEmail(string email, CancellationToken ct = default)
+    {
+        return await _db.PortalUsers
+            .FirstOrDefaultAsync(u => u.Email == email, ct);
+    }
+
     public async Task<PortalUser?> GetById(int id, CancellationToken ct = default)
     {
         return await _db.PortalUsers.FindAsync([id], ct);

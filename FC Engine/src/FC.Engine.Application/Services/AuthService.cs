@@ -9,25 +9,148 @@ namespace FC.Engine.Application.Services;
 public class AuthService
 {
     private readonly IPortalUserRepository _userRepo;
+    private readonly ILoginAttemptRepository _loginAttemptRepo;
+    private readonly IPasswordResetTokenRepository _resetTokenRepo;
 
-    public AuthService(IPortalUserRepository userRepo)
+    // Lockout policy
+    private const int MaxFailedAttempts = 5;
+    private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan FailureWindow = TimeSpan.FromMinutes(30);
+
+    // Reset token validity
+    private static readonly TimeSpan ResetTokenLifetime = TimeSpan.FromHours(1);
+
+    public AuthService(
+        IPortalUserRepository userRepo,
+        ILoginAttemptRepository loginAttemptRepo,
+        IPasswordResetTokenRepository resetTokenRepo)
     {
         _userRepo = userRepo;
+        _loginAttemptRepo = loginAttemptRepo;
+        _resetTokenRepo = resetTokenRepo;
     }
 
-    public async Task<PortalUser?> ValidateLogin(string username, string password, CancellationToken ct = default)
+    /// <summary>
+    /// Validates login credentials with lockout enforcement.
+    /// Returns (User, ErrorCode) where ErrorCode is null on success.
+    /// </summary>
+    public async Task<(PortalUser? User, string? ErrorCode)> ValidateLogin(
+        string username, string password, string? ipAddress = null, CancellationToken ct = default)
     {
         var user = await _userRepo.GetByUsername(username, ct);
+
+        // User not found — record attempt but don't reveal user doesn't exist
+        if (user is null)
+        {
+            await RecordAttempt(username, ipAddress, false, "user_not_found", ct);
+            return (null, "invalid");
+        }
+
+        // Account inactive
+        if (!user.IsActive)
+        {
+            await RecordAttempt(username, ipAddress, false, "inactive", ct);
+            return (null, "denied");
+        }
+
+        // Check lockout
+        if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
+        {
+            await RecordAttempt(username, ipAddress, false, "locked", ct);
+            return (null, "locked");
+        }
+
+        // Verify password
+        if (!VerifyPassword(password, user.PasswordHash))
+        {
+            user.FailedLoginAttempts++;
+
+            if (user.FailedLoginAttempts >= MaxFailedAttempts)
+            {
+                user.LockoutEnd = DateTime.UtcNow.Add(LockoutDuration);
+            }
+
+            await _userRepo.Update(user, ct);
+            await RecordAttempt(username, ipAddress, false, "bad_password", ct);
+
+            return user.FailedLoginAttempts >= MaxFailedAttempts
+                ? (null, "locked")
+                : (null, "invalid");
+        }
+
+        // Success — reset lockout counters
+        user.FailedLoginAttempts = 0;
+        user.LockoutEnd = null;
+        user.LastLoginAt = DateTime.UtcNow;
+        await _userRepo.Update(user, ct);
+        await RecordAttempt(username, ipAddress, true, null, ct);
+
+        return (user, null);
+    }
+
+    /// <summary>
+    /// Generates a password reset token for the given email address.
+    /// Returns the token string, or null if the email is not found.
+    /// </summary>
+    public async Task<string?> GeneratePasswordResetToken(string email, CancellationToken ct = default)
+    {
+        var user = await _userRepo.GetByEmail(email, ct);
         if (user is null || !user.IsActive)
             return null;
 
-        if (!VerifyPassword(password, user.PasswordHash))
+        // Invalidate any existing tokens for this user
+        await _resetTokenRepo.InvalidateAllForUser(user.Id, ct);
+
+        var token = GenerateSecureToken();
+        var resetToken = new PasswordResetToken
+        {
+            UserId = user.Id,
+            Token = token,
+            ExpiresAt = DateTime.UtcNow.Add(ResetTokenLifetime),
+            IsUsed = false,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        await _resetTokenRepo.Create(resetToken, ct);
+        return token;
+    }
+
+    /// <summary>
+    /// Validates a reset token without consuming it.
+    /// Returns the associated user email if valid.
+    /// </summary>
+    public async Task<string?> ValidateResetToken(string token, CancellationToken ct = default)
+    {
+        var resetToken = await _resetTokenRepo.GetByToken(token, ct);
+        if (resetToken is null || resetToken.IsUsed || resetToken.ExpiresAt <= DateTime.UtcNow)
             return null;
 
-        user.LastLoginAt = DateTime.UtcNow;
+        return resetToken.User.Email;
+    }
+
+    /// <summary>
+    /// Resets the password using a valid token.
+    /// Returns true if the reset succeeded.
+    /// </summary>
+    public async Task<bool> ResetPasswordWithToken(string token, string newPassword, CancellationToken ct = default)
+    {
+        var resetToken = await _resetTokenRepo.GetByToken(token, ct);
+        if (resetToken is null || resetToken.IsUsed || resetToken.ExpiresAt <= DateTime.UtcNow)
+            return false;
+
+        // Change password
+        var user = resetToken.User;
+        user.PasswordHash = HashPassword(newPassword);
+        user.FailedLoginAttempts = 0;
+        user.LockoutEnd = null;
         await _userRepo.Update(user, ct);
 
-        return user;
+        // Mark token as used
+        resetToken.IsUsed = true;
+        resetToken.UsedAt = DateTime.UtcNow;
+        await _resetTokenRepo.Update(resetToken, ct);
+
+        return true;
     }
 
     public async Task<PortalUser> CreateUser(
@@ -57,6 +180,8 @@ public class AuthService
             ?? throw new InvalidOperationException("User not found");
 
         user.PasswordHash = HashPassword(newPassword);
+        user.FailedLoginAttempts = 0;
+        user.LockoutEnd = null;
         await _userRepo.Update(user, ct);
     }
 
@@ -90,5 +215,26 @@ public class AuthService
             numBytesRequested: 32);
 
         return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
+    }
+
+    private async Task RecordAttempt(string username, string? ipAddress, bool succeeded, string? reason, CancellationToken ct)
+    {
+        await _loginAttemptRepo.Create(new LoginAttempt
+        {
+            Username = username,
+            IpAddress = ipAddress,
+            Succeeded = succeeded,
+            FailureReason = reason,
+            AttemptedAt = DateTime.UtcNow
+        }, ct);
+    }
+
+    private static string GenerateSecureToken()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(48);
+        return Convert.ToBase64String(bytes)
+            .Replace("+", "-")
+            .Replace("/", "_")
+            .TrimEnd('=');
     }
 }

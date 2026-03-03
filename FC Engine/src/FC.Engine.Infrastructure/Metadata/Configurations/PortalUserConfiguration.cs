@@ -17,6 +17,9 @@ public class PortalUserConfiguration : IEntityTypeConfiguration<PortalUser>
         builder.Property(u => u.Role).HasMaxLength(20).IsRequired()
             .HasConversion<string>();
 
+        builder.Property(u => u.FailedLoginAttempts).HasDefaultValue(0);
+        builder.Property(u => u.LockoutEnd);
+
         builder.HasIndex(u => u.Username).IsUnique();
         builder.HasIndex(u => u.Email).IsUnique();
     }

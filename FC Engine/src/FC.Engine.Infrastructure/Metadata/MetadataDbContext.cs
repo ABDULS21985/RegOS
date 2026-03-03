@@ -31,6 +31,10 @@ public class MetadataDbContext : DbContext
     // Portal users
     public DbSet<PortalUser> PortalUsers => Set<PortalUser>();
 
+    // Security
+    public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>();
+    public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();
+
     // Audit
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
     public DbSet<DdlMigrationRecord> DdlMigrations => Set<DdlMigrationRecord>();
