@@ -1,0 +1,829 @@
+@page "/submit/form/{ReturnCode}"
+@attribute [Authorize(Policy = "InstitutionMaker")]
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Data Entry: @ReturnCode — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+
+    @if (isLoadingTemplate)
+    {
+        <div class="portal-skeleton portal-skeleton-block" style="height: 120px; margin-bottom: 1.5rem;"></div>
+        <div class="portal-skeleton portal-skeleton-block" style="height: 400px;"></div>
+    }
+    else if (templateDetail is null)
+    {
+        <div class="portal-empty-state portal-card" style="padding: 3rem;">
+            <h3 class="portal-empty-state-title">Template Not Found</h3>
+            <p class="portal-empty-state-desc">The template "@ReturnCode" does not exist or is not published.</p>
+            <a href="/submit" class="portal-btn portal-btn-primary">Back to Submit</a>
+        </div>
+    }
+    else if (submissionComplete)
+    {
+        <!-- ═══════════════════════════════════════════════════════════
+             SUCCESS STATE
+             ═══════════════════════════════════════════════════════════ -->
+        <div class="portal-card" style="padding: 3rem; text-align: center;">
+            <div style="margin-bottom: 1.5rem;">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="var(--cbn-success-text, #16a34a)" stroke-width="1.5" aria-hidden="true">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+            </div>
+            <h2 class="portal-page-title">Submission Complete</h2>
+            <p class="portal-page-subtitle" style="margin-bottom: 0.5rem;">
+                Your return for <strong>@ReturnCode</strong> has been submitted successfully.
+            </p>
+            <p class="portal-text-muted" style="margin-bottom: 2rem;">Submission ID: <strong>#@submittedId</strong></p>
+
+            @if (submissionResult is not null && submissionResult.ValidationReport is not null)
+            {
+                <div class="portal-form-result-stats">
+                    <span class="portal-badge portal-badge-lg @(submissionResult.Status == "Accepted" ? "portal-badge-success" : "portal-badge-warning")">
+                        @submissionResult.Status
+                    </span>
+                    @if (submissionResult.ValidationReport.ErrorCount > 0)
+                    {
+                        <span class="portal-text-danger">@submissionResult.ValidationReport.ErrorCount errors</span>
+                    }
+                    @if (submissionResult.ValidationReport.WarningCount > 0)
+                    {
+                        <span class="portal-text-warning">@submissionResult.ValidationReport.WarningCount warnings</span>
+                    }
+                </div>
+            }
+
+            <div style="display: flex; gap: var(--space-3); justify-content: center; margin-top: 2rem;">
+                <a href="/submissions/@submittedId" class="portal-btn portal-btn-primary">View Submission</a>
+                <a href="/submit" class="portal-btn portal-btn-outline">Submit Another</a>
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- ═══════════════════════════════════════════════════════════
+             BREADCRUMB
+             ═══════════════════════════════════════════════════════════ -->
+        <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+            <a href="/" class="portal-breadcrumb-link">Dashboard</a>
+            <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
+            <a href="/submit" class="portal-breadcrumb-link">Submit Return</a>
+            <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
+            <span class="portal-breadcrumb-current">Data Entry — @ReturnCode</span>
+        </nav>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             FORM HEADER
+             ═══════════════════════════════════════════════════════════ -->
+        <div class="portal-detail-hero">
+            <div class="portal-detail-hero-main">
+                <div class="portal-detail-hero-title-row">
+                    <h1 class="portal-detail-hero-title">@ReturnCode — Data Entry</h1>
+                    <span class="portal-badge portal-badge-lg portal-badge-info">Manual Entry</span>
+                </div>
+                <p class="portal-detail-hero-subtitle">@templateDetail.TemplateName</p>
+                <div class="portal-detail-hero-meta">
+                    <span class="portal-detail-meta-item"><strong>@templateDetail.FieldCount</strong> fields</span>
+                    <span class="portal-detail-meta-item">Category: <strong>@GetCategoryLabel(structuralCategory)</strong></span>
+                    <span class="portal-detail-meta-item">Frequency: <strong>@FormatFrequency(templateDetail.Frequency)</strong></span>
+                </div>
+            </div>
+            <div class="portal-detail-hero-actions">
+                <a href="/submit" class="portal-btn portal-btn-outline portal-btn-sm">Switch to XML Upload</a>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             PERIOD SELECTOR
+             ═══════════════════════════════════════════════════════════ -->
+        <div class="portal-card portal-form-section">
+            <h3 class="portal-form-section-title">Reporting Period</h3>
+            @if (isLoadingPeriods)
+            {
+                <div class="portal-skeleton portal-skeleton-block" style="height: 40px; max-width: 300px;"></div>
+            }
+            else
+            {
+                <div class="portal-form-row">
+                    <div class="portal-form-group" style="max-width: 300px;">
+                        <label for="periodSelect" class="portal-form-label">Select Period</label>
+                        <select id="periodSelect" class="portal-form-select" @bind="selectedPeriodId">
+                            <option value="0">Choose a period...</option>
+                            @foreach (var period in availablePeriods)
+                            {
+                                <option value="@period.ReturnPeriodId" disabled="@period.HasExistingSubmission">
+                                    @period.Label @(period.HasExistingSubmission ? "(Already Submitted)" : "")
+                                </option>
+                            }
+                        </select>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             DYNAMIC FORM BODY
+             ═══════════════════════════════════════════════════════════ -->
+
+        @if (structuralCategory == "FixedRow")
+        {
+            <div class="portal-card portal-form-section">
+                <h3 class="portal-form-section-title">Return Data</h3>
+                @foreach (var sectionGroup in fieldGroups)
+                {
+                    @if (fieldGroups.Count > 1)
+                    {
+                        <h4 class="portal-form-subsection-title">@sectionGroup.Key</h4>
+                    }
+                    <div class="portal-form-grid">
+                        @foreach (var field in sectionGroup.Value)
+                        {
+                            var fld = field;
+                            <div class="portal-form-group @GetFieldWidthClass(fld)">
+                                <label class="portal-form-label">
+                                    @fld.DisplayName
+                                    @if (fld.IsRequired)
+                                    {
+                                        <span class="portal-form-required" aria-label="required">*</span>
+                                    }
+                                </label>
+                                @RenderInput(fld, 0)
+                                @if (!string.IsNullOrEmpty(fld.HelpText))
+                                {
+                                    <span class="portal-form-hint">@fld.HelpText</span>
+                                }
+                                @RenderFieldError(fld, 0)
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+        else if (structuralCategory == "MultiRow")
+        {
+            <div class="portal-card portal-form-section">
+                <div class="portal-form-section-header">
+                    <h3 class="portal-form-section-title">Return Data — @formRows.Count row(s)</h3>
+                    <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="AddRow" type="button">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        Add Row
+                    </button>
+                </div>
+
+                @if (!formRows.Any())
+                {
+                    <div class="portal-empty-state" style="padding: 2rem;">
+                        <p class="portal-empty-state-desc">No rows added yet. Click "Add Row" to start entering data.</p>
+                    </div>
+                }
+                else
+                {
+                    <div class="portal-form-table-wrapper">
+                        <table class="portal-table portal-form-table" aria-label="Data entry rows">
+                            <thead>
+                                <tr>
+                                    <th class="portal-form-table-rownum">#</th>
+                                    @foreach (var field in nonKeyFields)
+                                    {
+                                        <th>
+                                            @field.DisplayName
+                                            @if (field.IsRequired) { <span class="portal-form-required">*</span> }
+                                        </th>
+                                    }
+                                    <th style="width: 48px;"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @for (int rowIdx = 0; rowIdx < formRows.Count; rowIdx++)
+                                {
+                                    var idx = rowIdx;
+                                    <tr>
+                                        <td class="portal-form-table-rownum portal-text-muted">@(idx + 1)</td>
+                                        @foreach (var field in nonKeyFields)
+                                        {
+                                            var fld = field;
+                                            <td>
+                                                @RenderInput(fld, idx)
+                                                @RenderFieldError(fld, idx)
+                                            </td>
+                                        }
+                                        <td>
+                                            @if (formRows.Count > 1)
+                                            {
+                                                <button class="portal-btn portal-btn-ghost portal-btn-xs portal-btn-danger-text"
+                                                        @onclick="() => RemoveRow(idx)" type="button" title="Remove row" aria-label="Remove row">
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                        <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                                    </svg>
+                                                </button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        }
+        else if (structuralCategory == "ItemCoded")
+        {
+            <div class="portal-card portal-form-section">
+                <h3 class="portal-form-section-title">Return Data — @itemCodes.Count item codes</h3>
+
+                <div class="portal-form-table-wrapper">
+                    <table class="portal-table portal-form-table" aria-label="Item code data entry">
+                        <thead>
+                            <tr>
+                                <th class="portal-form-table-itemcode">Item Code</th>
+                                @foreach (var field in nonKeyFields)
+                                {
+                                    <th>
+                                        @field.DisplayName
+                                        @if (field.IsRequired) { <span class="portal-form-required">*</span> }
+                                    </th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @for (int rowIdx = 0; rowIdx < formRows.Count; rowIdx++)
+                            {
+                                var idx = rowIdx;
+                                var isTotalRow = idx < itemCodes.Count && itemCodes[idx].IsTotalRow;
+                                <tr class="@(isTotalRow ? "portal-tmpl-total-row" : "")">
+                                    <td class="portal-form-table-itemcode">
+                                        <span class="portal-table-code">@(idx < itemCodes.Count ? itemCodes[idx].ItemCode : "")</span>
+                                        @if (idx < itemCodes.Count && !string.IsNullOrEmpty(itemCodes[idx].Description))
+                                        {
+                                            <span class="portal-form-item-desc">@itemCodes[idx].Description</span>
+                                        }
+                                    </td>
+                                    @foreach (var field in nonKeyFields)
+                                    {
+                                        var fld = field;
+                                        <td>
+                                            @{ RenderInput(fld, idx); }
+                                            @{ RenderFieldError(fld, idx); }
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- ═══════════════════════════════════════════════════════════
+             FORM ACTIONS
+             ═══════════════════════════════════════════════════════════ -->
+        <div class="portal-form-actions">
+            <div class="portal-form-actions-left">
+                <button class="portal-btn portal-btn-ghost" @onclick="ClearForm" disabled="@isSubmitting" type="button">
+                    Clear All
+                </button>
+                <button class="portal-btn portal-btn-outline" @onclick="ExportAsXml" disabled="@isSubmitting" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Export as XML
+                </button>
+            </div>
+            <div class="portal-form-actions-right">
+                <button class="portal-btn portal-btn-primary" @onclick="SubmitForm"
+                        disabled="@(isSubmitting || selectedPeriodId == 0)" type="button">
+                    @if (isSubmitting)
+                    {
+                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                        <span>Submitting...</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                        <span>Submit Return</span>
+                    }
+                </button>
+            </div>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             VALIDATION RESULT
+             ═══════════════════════════════════════════════════════════ -->
+        @if (showValidationResult && serverErrors.Any())
+        {
+            <div class="portal-card portal-form-validation-result" role="alert">
+                <div class="portal-validation-banner portal-validation-banner-error">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                    </svg>
+                    <div>
+                        <strong>@serverErrors.Count validation issue(s) found</strong>
+                        <span class="portal-validation-banner-note">Fix the issues below and try again.</span>
+                    </div>
+                </div>
+                <div class="portal-table-responsive">
+                    <table class="portal-table portal-validation-table" aria-label="Validation errors">
+                        <thead>
+                            <tr>
+                                <th>Severity</th>
+                                <th>Rule</th>
+                                <th>Field</th>
+                                <th>Message</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var err in serverErrors)
+                            {
+                                <tr>
+                                    <td><span class="portal-badge portal-badge-sm @(err.Severity == "Error" ? "portal-badge-danger" : "portal-badge-warning")">@err.Severity</span></td>
+                                    <td class="portal-table-mono">@err.RuleId</td>
+                                    <td class="portal-table-mono">@err.Field</td>
+                                    <td>@err.Message</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        @if (!string.IsNullOrEmpty(submitError))
+        {
+            <div class="portal-card portal-form-validation-result" role="alert">
+                <div class="portal-validation-banner portal-validation-banner-error">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                    </svg>
+                    <strong>@submitError</strong>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string ReturnCode { get; set; } = "";
+
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    [Inject] private TemplateBrowserService BrowserSvc { get; set; } = default!;
+    [Inject] private SubmissionService SubmissionSvc { get; set; } = default!;
+    [Inject] private FormDataToXmlService XmlSvc { get; set; } = default!;
+
+    // ── State ─────────────────────────────────────────────────────
+    private bool isLoadingTemplate = true;
+    private bool isLoadingPeriods = true;
+    private bool isSubmitting;
+    private bool submissionComplete;
+    private bool showValidationResult;
+    private string submitError = "";
+    private TemplateDetailModel? templateDetail;
+    private string structuralCategory = "FixedRow";
+
+    // Auth
+    private int institutionId;
+    private string institutionCode = "";
+    private bool requiresApproval;
+
+    // Period
+    private int selectedPeriodId;
+    private List<PeriodSelectItem> availablePeriods = new();
+
+    // Template metadata
+    private List<FieldDisplayItem> allFields = new();
+    private List<FieldDisplayItem> nonKeyFields = new();
+    private Dictionary<string, List<FieldDisplayItem>> fieldGroups = new();
+    private List<FormulaDisplayItem> sumFormulas = new();
+    private List<ItemCodeDisplayItem> itemCodes = new();
+
+    // Form data: each row is FieldName → user value
+    private List<Dictionary<string, string>> formRows = new();
+
+    // Validation
+    private Dictionary<string, string> fieldErrors = new();
+    private List<ValidationErrorDto> serverErrors = new();
+
+    // Submission result
+    private SubmissionResultDto? submissionResult;
+    private int submittedId;
+
+    // ── Lifecycle ─────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Extract auth context
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            var user = state.User;
+
+            var instIdStr = user.FindFirst("InstitutionId")?.Value;
+            int.TryParse(instIdStr, out institutionId);
+
+            institutionCode = user.FindFirst("InstitutionName")?.Value ?? "INST001";
+
+            var role = user.FindFirst(ClaimTypes.Role)?.Value ?? "";
+            requiresApproval = role.Equals("Maker", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // Load template detail
+        try
+        {
+            templateDetail = await BrowserSvc.GetTemplateDetail(ReturnCode);
+            if (templateDetail is not null)
+            {
+                structuralCategory = templateDetail.StructuralCategory;
+                allFields = templateDetail.Fields;
+                nonKeyFields = allFields.Where(f => !f.IsKeyField).ToList();
+                fieldGroups = allFields.GroupBy(f => f.SectionName)
+                    .ToDictionary(g => g.Key, g => g.ToList());
+
+                sumFormulas = templateDetail.Formulas
+                    .Where(f => f.Type.Equals("Sum", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                itemCodes = templateDetail.ItemCodes;
+
+                InitializeFormRows();
+            }
+        }
+        catch
+        {
+            templateDetail = null;
+        }
+        finally
+        {
+            isLoadingTemplate = false;
+        }
+
+        // Load periods
+        try
+        {
+            availablePeriods = await SubmissionSvc.GetOpenPeriods(institutionId, ReturnCode);
+        }
+        catch
+        {
+            availablePeriods = new();
+        }
+        finally
+        {
+            isLoadingPeriods = false;
+        }
+    }
+
+    // ── Initialization ────────────────────────────────────────────
+
+    private void InitializeFormRows()
+    {
+        formRows.Clear();
+
+        if (structuralCategory == "FixedRow")
+        {
+            formRows.Add(CreateEmptyRow());
+        }
+        else if (structuralCategory == "MultiRow")
+        {
+            formRows.Add(CreateEmptyRow());
+        }
+        else if (structuralCategory == "ItemCoded")
+        {
+            foreach (var ic in itemCodes)
+            {
+                var row = CreateEmptyRow();
+                // Pre-fill key field with item code
+                var keyField = allFields.FirstOrDefault(f => f.IsKeyField);
+                if (keyField is not null)
+                    row[keyField.FieldName] = ic.ItemCode;
+                formRows.Add(row);
+            }
+        }
+    }
+
+    private Dictionary<string, string> CreateEmptyRow()
+    {
+        return allFields.ToDictionary(f => f.FieldName, _ => "");
+    }
+
+    // ── Row Management (MultiRow) ─────────────────────────────────
+
+    private void AddRow()
+    {
+        formRows.Add(CreateEmptyRow());
+    }
+
+    private void RemoveRow(int index)
+    {
+        if (index >= 0 && index < formRows.Count && formRows.Count > 1)
+        {
+            formRows.RemoveAt(index);
+            // Clean up errors for removed and renumbered rows
+            fieldErrors.Clear();
+        }
+    }
+
+    // ── Field Value Handling ──────────────────────────────────────
+
+    private void OnFieldChanged(int rowIndex, string fieldName, string value)
+    {
+        if (rowIndex >= 0 && rowIndex < formRows.Count)
+        {
+            formRows[rowIndex][fieldName] = value;
+            fieldErrors.Remove(GetFieldErrorKey(rowIndex, fieldName));
+            RecalculateSumFormulas(rowIndex);
+        }
+    }
+
+    private string GetFieldValue(int rowIndex, string fieldName)
+    {
+        if (rowIndex >= 0 && rowIndex < formRows.Count && formRows[rowIndex].TryGetValue(fieldName, out var val))
+            return val;
+        return "";
+    }
+
+    // ── Auto-Calculate Sum Formulas ───────────────────────────────
+
+    private void RecalculateSumFormulas(int rowIndex)
+    {
+        foreach (var formula in sumFormulas)
+        {
+            try
+            {
+                var operands = ParseOperandFields(formula.OperandFields);
+                if (!operands.Any()) continue;
+
+                decimal sum = 0;
+                foreach (var opField in operands)
+                {
+                    var rawValue = GetFieldValue(rowIndex, opField);
+                    if (decimal.TryParse(rawValue, out var numValue))
+                        sum += numValue;
+                }
+
+                if (rowIndex < formRows.Count && formRows[rowIndex].ContainsKey(formula.TargetField))
+                {
+                    formRows[rowIndex][formula.TargetField] = sum.ToString("F2");
+                }
+            }
+            catch
+            {
+                // Silently fail on auto-calculation errors
+            }
+        }
+    }
+
+    private static List<string> ParseOperandFields(string operandFieldsJson)
+    {
+        // OperandFields is stored as JSON array: ["field1","field2","field3"]
+        if (string.IsNullOrWhiteSpace(operandFieldsJson)) return new();
+        try
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(operandFieldsJson) ?? new();
+        }
+        catch
+        {
+            return new();
+        }
+    }
+
+    // ── Client-Side Validation ────────────────────────────────────
+
+    private bool ValidateClientSide()
+    {
+        fieldErrors.Clear();
+        var isValid = true;
+
+        for (int rowIdx = 0; rowIdx < formRows.Count; rowIdx++)
+        {
+            var fieldsToValidate = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+
+            foreach (var field in fieldsToValidate)
+            {
+                var value = GetFieldValue(rowIdx, field.FieldName);
+                var key = GetFieldErrorKey(rowIdx, field.FieldName);
+
+                if (field.IsRequired && string.IsNullOrWhiteSpace(value))
+                {
+                    fieldErrors[key] = "Required";
+                    isValid = false;
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(value)) continue;
+
+                var dt = field.DataType;
+
+                if (dt == "Money" || dt == "Decimal" || dt == "Percentage")
+                {
+                    if (!decimal.TryParse(value, out var numVal))
+                    {
+                        fieldErrors[key] = "Invalid number";
+                        isValid = false;
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrEmpty(field.MinValue) && decimal.TryParse(field.MinValue, out var min) && numVal < min)
+                        { fieldErrors[key] = $"Min: {min}"; isValid = false; }
+                        else if (!string.IsNullOrEmpty(field.MaxValue) && decimal.TryParse(field.MaxValue, out var max) && numVal > max)
+                        { fieldErrors[key] = $"Max: {max}"; isValid = false; }
+                    }
+                }
+                else if (dt == "Integer")
+                {
+                    if (!long.TryParse(value, out _))
+                    { fieldErrors[key] = "Whole number required"; isValid = false; }
+                }
+                else if (dt == "Date")
+                {
+                    if (!DateTime.TryParse(value, out _))
+                    { fieldErrors[key] = "Invalid date"; isValid = false; }
+                }
+            }
+        }
+
+        return isValid;
+    }
+
+    // ── Form Actions ──────────────────────────────────────────────
+
+    private async Task SubmitForm()
+    {
+        showValidationResult = false;
+        serverErrors.Clear();
+        submitError = "";
+
+        if (!ValidateClientSide())
+        {
+            submitError = "Please fix the highlighted field errors before submitting.";
+            return;
+        }
+
+        if (selectedPeriodId == 0)
+        {
+            submitError = "Please select a reporting period.";
+            return;
+        }
+
+        isSubmitting = true;
+        StateHasChanged();
+
+        try
+        {
+            var selectedPeriod = availablePeriods.FirstOrDefault(p => p.ReturnPeriodId == selectedPeriodId);
+            var reportingDate = selectedPeriod is not null
+                ? selectedPeriod.ReportingDate.ToString("yyyy-MM-dd")
+                : DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+            await using var xmlStream = await XmlSvc.ConvertToStream(
+                ReturnCode, institutionCode, reportingDate, formRows);
+
+            var result = await SubmissionSvc.ProcessSubmission(
+                xmlStream, ReturnCode, institutionId, selectedPeriodId);
+
+            submissionResult = result;
+            submittedId = result.SubmissionId;
+
+            if (result.ValidationReport is not null && result.ValidationReport.Errors.Any())
+            {
+                serverErrors = result.ValidationReport.Errors;
+                showValidationResult = true;
+
+                if (!result.ValidationReport.IsValid)
+                {
+                    // Rejected — stay on form
+                    return;
+                }
+            }
+
+            // Accepted or AcceptedWithWarnings
+            submissionComplete = true;
+        }
+        catch (Exception ex)
+        {
+            submitError = $"Submission failed: {ex.Message}";
+        }
+        finally
+        {
+            isSubmitting = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ExportAsXml()
+    {
+        try
+        {
+            var selectedPeriod = availablePeriods.FirstOrDefault(p => p.ReturnPeriodId == selectedPeriodId);
+            var reportingDate = selectedPeriod is not null
+                ? selectedPeriod.ReportingDate.ToString("yyyy-MM-dd")
+                : DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+            var xml = await XmlSvc.ConvertToXml(
+                ReturnCode, institutionCode, reportingDate, formRows);
+
+            await JS.InvokeVoidAsync("portalDownloadFile", xml,
+                ReturnCode.Replace(" ", "") + "_data.xml", "application/xml");
+        }
+        catch (Exception ex)
+        {
+            submitError = $"Export failed: {ex.Message}";
+        }
+    }
+
+    private void ClearForm()
+    {
+        fieldErrors.Clear();
+        serverErrors.Clear();
+        showValidationResult = false;
+        submitError = "";
+        InitializeFormRows();
+    }
+
+    // ── Render Helpers ────────────────────────────────────────────
+
+    private RenderFragment RenderInput(FieldDisplayItem field, int rowIdx) => __builder =>
+    {
+        var val = GetFieldValue(rowIdx, field.FieldName);
+        var hasError = fieldErrors.ContainsKey(GetFieldErrorKey(rowIdx, field.FieldName));
+        var cssClass = "portal-form-input portal-form-input-sm" + (hasError ? " portal-form-input-error" : "");
+        var isComputedTarget = sumFormulas.Any(f => f.TargetField == field.FieldName);
+
+        var dt = field.DataType;
+        string inputType;
+        string step = "";
+        string placeholder = "";
+
+        if (dt == "Money" || dt == "Decimal" || dt == "Percentage")
+        { inputType = "number"; step = "0.01"; placeholder = "0.00"; }
+        else if (dt == "Integer")
+        { inputType = "number"; step = "1"; placeholder = "0"; }
+        else if (dt == "Date")
+        { inputType = "date"; }
+        else if (dt == "Boolean")
+        { inputType = "checkbox"; }
+        else
+        { inputType = "text"; placeholder = ""; }
+
+        if (dt == "Boolean")
+        {
+            <label class="portal-form-checkbox">
+                <input type="checkbox"
+                       checked="@(val == "true")"
+                       @onchange="@(e => OnFieldChanged(rowIdx, field.FieldName, ((bool)(e.Value ?? false)) ? "true" : "false"))" />
+                <span>@field.DisplayName</span>
+            </label>
+        }
+        else
+        {
+            <input type="@inputType"
+                   class="@cssClass"
+                   value="@val"
+                   step="@step"
+                   placeholder="@placeholder"
+                   readonly="@isComputedTarget"
+                   @onchange="@(e => OnFieldChanged(rowIdx, field.FieldName, e.Value?.ToString() ?? ""))"
+                   aria-label="@field.DisplayName" />
+        }
+    };
+
+    private RenderFragment RenderFieldError(FieldDisplayItem field, int rowIdx) => __builder =>
+    {
+        var key = GetFieldErrorKey(rowIdx, field.FieldName);
+        if (fieldErrors.ContainsKey(key))
+        {
+            <span class="portal-form-error portal-form-error-inline" role="alert">@fieldErrors[key]</span>
+        }
+    };
+
+    private static string GetFieldErrorKey(int rowIdx, string fieldName) => rowIdx + "_" + fieldName;
+
+    // ── Display Helpers ───────────────────────────────────────────
+
+    private static string GetFieldWidthClass(FieldDisplayItem field)
+    {
+        if (field.DataType == "Boolean") return "portal-form-group-sm";
+        if (field.DataType == "Date") return "portal-form-group-md";
+        if (field.DataType == "Text") return "portal-form-group-lg";
+        return "portal-form-group-md";
+    }
+
+    private static string GetCategoryLabel(string cat)
+    {
+        if (cat == "FixedRow") return "Fixed Row";
+        if (cat == "MultiRow") return "Multi Row";
+        if (cat == "ItemCoded") return "Item Coded";
+        return cat;
+    }
+
+    private static string FormatFrequency(string freq)
+    {
+        if (freq == "SemiAnnual") return "Semi-Annual";
+        return freq;
+    }
+}
