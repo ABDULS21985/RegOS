@@ -20,12 +20,21 @@ public class SubmissionApproval
 
     public ApprovalStatus Status { get; set; } = ApprovalStatus.Pending;
 
+    /// <summary>Optional notes from the Maker to the Checker.</summary>
+    public string? SubmitterNotes { get; set; }
+
     /// <summary>Checker's comments (required when rejecting).</summary>
     public string? ReviewerComments { get; set; }
 
     public DateTime RequestedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? ReviewedAt { get; set; }
+
+    /// <summary>
+    /// If this submission was re-submitted after rejection,
+    /// links back to the original rejected submission.
+    /// </summary>
+    public int? OriginalSubmissionId { get; set; }
 
     // Navigation
     public Submission? Submission { get; set; }

@@ -295,7 +295,7 @@
                 <button class="portal-btn portal-btn-primary"
                         disabled="@(uploadedFile is null && string.IsNullOrEmpty(pastedXml))"
                         @onclick="StartValidation">
-                    Validate &amp; Submit
+                    @(requiresApproval ? "Validate & Submit for Approval" : "Validate & Submit")
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                         <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
                     </svg>
@@ -639,7 +639,9 @@
         if (int.TryParse(userIdStr, out var uid)) userId = uid;
 
         var role = user.FindFirst(ClaimTypes.Role)?.Value ?? "";
-        requiresApproval = role.Equals("Maker", StringComparison.OrdinalIgnoreCase);
+        var isMaker = role.Equals("Maker", StringComparison.OrdinalIgnoreCase);
+        var makerCheckerEnabled = await SubmissionService.IsMakerCheckerEnabled(institutionId);
+        requiresApproval = isMaker && makerCheckerEnabled;
 
         await LoadTemplates();
     }
@@ -806,7 +808,8 @@
             StateHasChanged();
 
             var result = await SubmissionService.ProcessSubmission(
-                xmlStream, selectedReturnCode, institutionId, selectedReturnPeriodId);
+                xmlStream, selectedReturnCode, institutionId, selectedReturnPeriodId,
+                submittedByUserId: userId);
 
             // All phases done
             currentPhase = validationPhases.Length;
@@ -843,7 +846,8 @@
             }
             else
             {
-                validationPassed = result.Status == "Accepted" || result.Status == "AcceptedWithWarnings";
+                validationPassed = result.Status == "Accepted" || result.Status == "AcceptedWithWarnings"
+                    || result.Status == "PendingApproval";
             }
         }
         catch (Exception ex)

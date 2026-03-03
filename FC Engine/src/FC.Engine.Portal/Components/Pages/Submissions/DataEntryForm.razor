@@ -306,7 +306,7 @@
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <polyline points="20 6 9 17 4 12"/>
                         </svg>
-                        <span>Submit Return</span>
+                        <span>@(requiresApproval ? "Submit for Approval" : "Submit Return")</span>
                     }
                 </button>
             </div>
@@ -430,7 +430,9 @@
             institutionCode = user.FindFirst("InstitutionName")?.Value ?? "INST001";
 
             var role = user.FindFirst(ClaimTypes.Role)?.Value ?? "";
-            requiresApproval = role.Equals("Maker", StringComparison.OrdinalIgnoreCase);
+            var isMaker = role.Equals("Maker", StringComparison.OrdinalIgnoreCase);
+            var makerCheckerEnabled = await SubmissionSvc.IsMakerCheckerEnabled(institutionId);
+            requiresApproval = isMaker && makerCheckerEnabled;
         }
 
         // Load template detail

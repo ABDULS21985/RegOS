@@ -13,6 +13,7 @@ public class SubmissionApprovalConfiguration : IEntityTypeConfiguration<Submissi
 
         builder.Property(e => e.Status).HasMaxLength(20).IsRequired()
             .HasConversion<string>();
+        builder.Property(e => e.SubmitterNotes).HasMaxLength(1000);
         builder.Property(e => e.ReviewerComments).HasMaxLength(2000);
 
         // Relationships

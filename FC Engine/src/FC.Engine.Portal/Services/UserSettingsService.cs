@@ -87,6 +87,7 @@ public class UserSettingsService
             Address = inst.Address ?? "",
             SubscriptionTier = inst.SubscriptionTier,
             MaxUsersAllowed = inst.MaxUsersAllowed,
+            MakerCheckerEnabled = inst.MakerCheckerEnabled,
             IsActive = inst.IsActive,
             CreatedAt = inst.CreatedAt,
             LastSubmissionAt = inst.LastSubmissionAt
@@ -153,6 +154,7 @@ public class InstitutionDetailModel
     public string Address { get; set; } = "";
     public string SubscriptionTier { get; set; } = "";
     public int MaxUsersAllowed { get; set; }
+    public bool MakerCheckerEnabled { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastSubmissionAt { get; set; }

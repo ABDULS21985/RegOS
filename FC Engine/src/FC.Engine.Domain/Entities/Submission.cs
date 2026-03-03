@@ -51,6 +51,8 @@ public class Submission
     public void MarkAccepted() => Status = SubmissionStatus.Accepted;
     public void MarkAcceptedWithWarnings() => Status = SubmissionStatus.AcceptedWithWarnings;
     public void MarkRejected() => Status = SubmissionStatus.Rejected;
+    public void MarkPendingApproval() => Status = SubmissionStatus.PendingApproval;
+    public void MarkApprovalRejected() => Status = SubmissionStatus.ApprovalRejected;
     public void AttachValidationReport(ValidationReport report) => ValidationReport = report;
     public void StoreRawXml(string xml) => RawXml = xml;
 }

@@ -41,6 +41,7 @@ public class InstitutionConfiguration : IEntityTypeConfiguration<Institution>
         builder.Property(i => i.Address).HasMaxLength(500);
         builder.Property(i => i.MaxUsersAllowed).HasDefaultValue(10);
         builder.Property(i => i.SubscriptionTier).HasMaxLength(50).HasDefaultValue("Basic");
+        builder.Property(i => i.MakerCheckerEnabled).HasDefaultValue(false);
         // Navigation to InstitutionUsers is configured in InstitutionUserConfiguration
     }
 }

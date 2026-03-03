@@ -26,6 +26,12 @@ public class Institution
     /// <summary>Timestamp of the most recent submission from this institution.</summary>
     public DateTime? LastSubmissionAt { get; set; }
 
+    /// <summary>
+    /// When true, submissions from this institution require Checker approval
+    /// before being officially accepted (maker-checker workflow).
+    /// </summary>
+    public bool MakerCheckerEnabled { get; set; }
+
     // ── Navigation (FI Portal) ──
 
     /// <summary>FI Portal users belonging to this institution.</summary>

@@ -3,6 +3,7 @@ namespace FC.Engine.Portal.Services;
 using FC.Engine.Application.DTOs;
 using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
@@ -10,22 +11,26 @@ using Microsoft.EntityFrameworkCore;
 /// <summary>
 /// Portal service that orchestrates the submission wizard workflow:
 /// template listing, period queries, and delegating to IngestionOrchestrator.
+/// Handles maker-checker routing after validation completes.
 /// </summary>
 public class SubmissionService
 {
     private readonly TemplateService _templateService;
     private readonly ISubmissionRepository _submissionRepo;
+    private readonly ISubmissionApprovalRepository _approvalRepo;
     private readonly IngestionOrchestrator _orchestrator;
     private readonly MetadataDbContext _db;
 
     public SubmissionService(
         TemplateService templateService,
         ISubmissionRepository submissionRepo,
+        ISubmissionApprovalRepository approvalRepo,
         IngestionOrchestrator orchestrator,
         MetadataDbContext db)
     {
         _templateService = templateService;
         _submissionRepo = submissionRepo;
+        _approvalRepo = approvalRepo;
         _orchestrator = orchestrator;
         _db = db;
     }
@@ -91,11 +96,68 @@ public class SubmissionService
     }
 
     /// <summary>
+    /// Check if an institution has maker-checker enabled.
+    /// </summary>
+    public async Task<bool> IsMakerCheckerEnabled(int institutionId)
+    {
+        var inst = await _db.Institutions.FindAsync(institutionId);
+        return inst?.MakerCheckerEnabled ?? false;
+    }
+
+    /// <summary>
     /// Delegates to IngestionOrchestrator.Process — validates and persists the return.
+    /// If maker-checker is enabled and validation passes, routes to PendingApproval.
     /// </summary>
     public async Task<SubmissionResultDto> ProcessSubmission(
-        Stream xmlStream, string returnCode, int institutionId, int returnPeriodId)
+        Stream xmlStream, string returnCode, int institutionId, int returnPeriodId,
+        int? submittedByUserId = null, string? submitterNotes = null,
+        int? originalSubmissionId = null)
     {
-        return await _orchestrator.Process(xmlStream, returnCode, institutionId, returnPeriodId);
+        var result = await _orchestrator.Process(xmlStream, returnCode, institutionId, returnPeriodId);
+
+        // Check if maker-checker routing is needed
+        var isAccepted = result.Status == "Accepted" || result.Status == "AcceptedWithWarnings";
+        if (!isAccepted || submittedByUserId is null)
+            return result;
+
+        var makerCheckerEnabled = await IsMakerCheckerEnabled(institutionId);
+        if (!makerCheckerEnabled)
+        {
+            // Even without maker-checker, record who submitted
+            var sub = await _submissionRepo.GetById(result.SubmissionId);
+            if (sub is not null)
+            {
+                sub.SubmittedByUserId = submittedByUserId;
+                await _submissionRepo.Update(sub);
+            }
+            return result;
+        }
+
+        // Route to PendingApproval
+        var submission = await _submissionRepo.GetById(result.SubmissionId);
+        if (submission is not null)
+        {
+            submission.SubmittedByUserId = submittedByUserId;
+            submission.ApprovalRequired = true;
+            submission.MarkPendingApproval();
+            await _submissionRepo.Update(submission);
+
+            // Create approval record
+            var approval = new SubmissionApproval
+            {
+                SubmissionId = submission.Id,
+                RequestedByUserId = submittedByUserId.Value,
+                RequestedAt = DateTime.UtcNow,
+                SubmitterNotes = submitterNotes,
+                Status = ApprovalStatus.Pending,
+                OriginalSubmissionId = originalSubmissionId
+            };
+            await _approvalRepo.Create(approval);
+
+            // Update the result DTO
+            result.Status = "PendingApproval";
+        }
+
+        return result;
     }
 }

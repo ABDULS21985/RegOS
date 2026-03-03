@@ -5,6 +5,7 @@
 @inject IGenericDataRepository DataRepo
 @inject IInstitutionUserRepository UserRepo
 @inject ISubmissionApprovalRepository ApprovalRepo
+@inject ApprovalService ApprovalSvc
 @inject NavigationManager Navigation
 
 <PageTitle>Submission #@SubmissionId — FC Engine Portal</PageTitle>
@@ -130,15 +131,38 @@
         @if (approval is not null)
         {
             <div class="portal-card portal-detail-approval">
-                <h3 class="portal-detail-section-title">Approval Status</h3>
+                <div class="portal-approval-panel-header">
+                    <h3 class="portal-detail-section-title" style="margin: 0;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="vertical-align: text-bottom;">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        </svg>
+                        Approval Workflow
+                    </h3>
+                    <span class="portal-badge portal-badge-lg @GetApprovalStatusBadgeClass()">
+                        @GetApprovalStatusLabel()
+                    </span>
+                </div>
+
                 <div class="portal-approval-timeline">
+                    <!-- Step 1: Submitted for Review -->
                     <div class="portal-approval-step portal-approval-step-done">
                         <div class="portal-approval-step-dot"></div>
                         <div class="portal-approval-step-content">
                             <span class="portal-approval-step-title">Submitted for Review</span>
                             <span class="portal-approval-step-meta">by @submitterName · @approval.RequestedAt.ToString("d MMM yyyy HH:mm")</span>
+                            @if (!string.IsNullOrEmpty(approval.SubmitterNotes))
+                            {
+                                <div class="portal-approval-comments" style="margin-top: 0.5rem;">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="vertical-align: text-bottom;">
+                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                    </svg>
+                                    <em>@approval.SubmitterNotes</em>
+                                </div>
+                            }
                         </div>
                     </div>
+
+                    <!-- Step 2: Review Status -->
                     <div class="portal-approval-step @GetApprovalStepClass()">
                         <div class="portal-approval-step-dot"></div>
                         <div class="portal-approval-step-content">
@@ -147,7 +171,7 @@
                                 <span class="portal-approval-step-title">Awaiting Checker Review</span>
                                 <span class="portal-approval-step-meta">Pending review</span>
 
-                                @if (isChecker)
+                                @if (isChecker && !isSelfSubmission)
                                 {
                                     <div class="portal-approval-actions">
                                         <div class="portal-form-group">
@@ -158,16 +182,34 @@
                                                       rows="3"
                                                       placeholder="Add comments (required for rejection)..."></textarea>
                                         </div>
+                                        @if (!string.IsNullOrEmpty(approvalError))
+                                        {
+                                            <div class="portal-alert portal-alert-error" style="margin-bottom: 0.75rem;" role="alert">@approvalError</div>
+                                        }
                                         <div class="portal-approval-action-buttons">
                                             <button class="portal-btn portal-btn-success portal-btn-sm" @onclick="ApproveSubmission" disabled="@isProcessingApproval">
+                                                @if (isProcessingApproval && processingApprovalAction == "approve")
+                                                {
+                                                    <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                                }
                                                 Approve
                                             </button>
                                             <button class="portal-btn portal-btn-danger portal-btn-sm"
                                                     @onclick="RejectSubmission"
                                                     disabled="@(isProcessingApproval || string.IsNullOrWhiteSpace(approvalComments))">
+                                                @if (isProcessingApproval && processingApprovalAction == "reject")
+                                                {
+                                                    <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                                }
                                                 Reject
                                             </button>
                                         </div>
+                                    </div>
+                                }
+                                else if (isSelfSubmission)
+                                {
+                                    <div class="portal-alert portal-alert-info" style="margin-top: 0.75rem;">
+                                        You submitted this return. A different Checker must review it.
                                     </div>
                                 }
                             }
@@ -463,6 +505,9 @@
 
     private string approvalComments = "";
     private bool isProcessingApproval;
+    private string? processingApprovalAction;
+    private string? approvalError;
+    private bool isSelfSubmission;
 
     private List<ValidationError> allErrors = new();
     private Dictionary<string, List<ValidationError>> errorsByCategory = new();
@@ -531,10 +576,16 @@
             submission.Status == SubmissionStatus.ApprovalRejected)
         {
             approval = await ApprovalRepo.GetBySubmission(submission.Id);
-            if (approval?.ReviewedByUserId.HasValue == true)
+            if (approval is not null)
             {
-                var reviewer = await UserRepo.GetById(approval.ReviewedByUserId.Value);
-                reviewerName = reviewer?.DisplayName ?? "Unknown";
+                isSelfSubmission = currentUserId.HasValue &&
+                    approval.RequestedByUserId == currentUserId.Value;
+
+                if (approval.ReviewedByUserId.HasValue)
+                {
+                    var reviewer = await UserRepo.GetById(approval.ReviewedByUserId.Value);
+                    reviewerName = reviewer?.DisplayName ?? "Unknown";
+                }
             }
         }
 
@@ -601,47 +652,82 @@
 
     private async Task ApproveSubmission()
     {
-        if (approval is null || isProcessingApproval) return;
+        if (approval is null || isProcessingApproval || !currentUserId.HasValue) return;
         isProcessingApproval = true;
-
-        approval.Status = ApprovalStatus.Approved;
-        approval.ReviewedByUserId = currentUserId;
-        approval.ReviewedAt = DateTime.UtcNow;
-        approval.ReviewerComments = approvalComments;
-        await ApprovalRepo.Update(approval);
-
-        if (submission!.ValidationReport?.HasWarnings == true)
-        {
-            submission.MarkAcceptedWithWarnings();
-        }
-        else
-        {
-            submission.MarkAccepted();
-        }
-        await SubmissionRepo.Update(submission);
-
-        reviewerName = "You";
-        isProcessingApproval = false;
+        processingApprovalAction = "approve";
+        approvalError = null;
         StateHasChanged();
+
+        try
+        {
+            var comments = string.IsNullOrWhiteSpace(approvalComments) ? null : approvalComments;
+            var result = await ApprovalSvc.Approve(SubmissionId, currentUserId.Value, comments);
+
+            if (result == ApprovalActionResult.Success)
+            {
+                // Reload to reflect new state
+                await LoadSubmission();
+            }
+            else
+            {
+                approvalError = result switch
+                {
+                    ApprovalActionResult.SelfApprovalNotAllowed => "You cannot approve your own submission.",
+                    ApprovalActionResult.AlreadyProcessed => "This submission has already been reviewed.",
+                    _ => "Failed to approve. Please try again."
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            approvalError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isProcessingApproval = false;
+            processingApprovalAction = null;
+            StateHasChanged();
+        }
     }
 
     private async Task RejectSubmission()
     {
-        if (approval is null || isProcessingApproval || string.IsNullOrWhiteSpace(approvalComments)) return;
+        if (approval is null || isProcessingApproval || !currentUserId.HasValue
+            || string.IsNullOrWhiteSpace(approvalComments)) return;
         isProcessingApproval = true;
-
-        approval.Status = ApprovalStatus.Rejected;
-        approval.ReviewedByUserId = currentUserId;
-        approval.ReviewedAt = DateTime.UtcNow;
-        approval.ReviewerComments = approvalComments;
-        await ApprovalRepo.Update(approval);
-
-        submission!.Status = SubmissionStatus.ApprovalRejected;
-        await SubmissionRepo.Update(submission);
-
-        reviewerName = "You";
-        isProcessingApproval = false;
+        processingApprovalAction = "reject";
+        approvalError = null;
         StateHasChanged();
+
+        try
+        {
+            var result = await ApprovalSvc.Reject(SubmissionId, currentUserId.Value, approvalComments);
+
+            if (result == ApprovalActionResult.Success)
+            {
+                await LoadSubmission();
+            }
+            else
+            {
+                approvalError = result switch
+                {
+                    ApprovalActionResult.SelfApprovalNotAllowed => "You cannot reject your own submission.",
+                    ApprovalActionResult.AlreadyProcessed => "This submission has already been reviewed.",
+                    ApprovalActionResult.CommentsRequired => "Comments are required when rejecting.",
+                    _ => "Failed to reject. Please try again."
+                };
+            }
+        }
+        catch (Exception ex)
+        {
+            approvalError = $"Error: {ex.Message}";
+        }
+        finally
+        {
+            isProcessingApproval = false;
+            processingApprovalAction = null;
+            StateHasChanged();
+        }
     }
 
     // ── Display Helpers ─────────────────────────────────────
@@ -717,5 +803,29 @@
         if (approval is null) return "";
         if (approval.Status == ApprovalStatus.Pending) return "portal-approval-step-active";
         return "portal-approval-step-done";
+    }
+
+    private string GetApprovalStatusBadgeClass()
+    {
+        if (approval is null) return "portal-badge-neutral";
+        return approval.Status switch
+        {
+            ApprovalStatus.Pending => "portal-badge-info",
+            ApprovalStatus.Approved => "portal-badge-success",
+            ApprovalStatus.Rejected => "portal-badge-danger",
+            _ => "portal-badge-neutral"
+        };
+    }
+
+    private string GetApprovalStatusLabel()
+    {
+        if (approval is null) return "";
+        return approval.Status switch
+        {
+            ApprovalStatus.Pending => "Pending Review",
+            ApprovalStatus.Approved => "Approved",
+            ApprovalStatus.Rejected => "Rejected",
+            _ => approval.Status.ToString()
+        };
     }
 }
