@@ -17,6 +17,7 @@ public class MetadataDbContext : DbContext
     public DbSet<Module> Modules => Set<Module>();
     public DbSet<LicenceModuleMatrix> LicenceModuleMatrix => Set<LicenceModuleMatrix>();
     public DbSet<TenantLicenceType> TenantLicenceTypes => Set<TenantLicenceType>();
+    public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
 
     // Metadata tables
     public DbSet<ReturnTemplate> ReturnTemplates => Set<ReturnTemplate>();

@@ -14,23 +14,44 @@ public class TemplateBrowserService
     private readonly ITemplateMetadataCache _templateCache;
     private readonly ISubmissionRepository _submissionRepo;
     private readonly IXsdGenerator _xsdGenerator;
+    private readonly IEntitlementService _entitlementService;
+    private readonly ITenantContext _tenantContext;
 
     public TemplateBrowserService(
         ITemplateMetadataCache templateCache,
         ISubmissionRepository submissionRepo,
-        IXsdGenerator xsdGenerator)
+        IXsdGenerator xsdGenerator,
+        IEntitlementService entitlementService,
+        ITenantContext tenantContext)
     {
         _templateCache = templateCache;
         _submissionRepo = submissionRepo;
         _xsdGenerator = xsdGenerator;
+        _entitlementService = entitlementService;
+        _tenantContext = tenantContext;
     }
 
     /// <summary>
-    /// Get all published templates for card display.
+    /// Get all published templates for card display, filtered by the tenant's entitled modules.
     /// </summary>
     public async Task<List<TemplateBrowseItem>> GetAllTemplates(CancellationToken ct = default)
     {
         var templates = await _templateCache.GetAllPublishedTemplates(ct);
+
+        // Filter by module entitlement if we have a tenant context
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (tenantId.HasValue)
+        {
+            var entitlement = await _entitlementService.ResolveEntitlements(tenantId.Value, ct);
+            var activeModuleCodes = entitlement.ActiveModules
+                .Select(m => m.ModuleCode)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            templates = templates
+                .Where(t => t.ModuleCode is null || activeModuleCodes.Contains(t.ModuleCode))
+                .ToList()
+                .AsReadOnly();
+        }
 
         return templates.Select(t => new TemplateBrowseItem
         {

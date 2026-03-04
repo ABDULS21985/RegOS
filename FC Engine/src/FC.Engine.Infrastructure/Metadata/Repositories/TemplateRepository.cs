@@ -79,4 +79,36 @@ public class TemplateRepository : ITemplateRepository
     {
         return await _db.ReturnTemplates.AnyAsync(t => t.ReturnCode == returnCode, ct);
     }
+
+    public async Task<IReadOnlyList<ReturnTemplate>> GetAllForTenant(Guid tenantId, CancellationToken ct = default)
+    {
+        return await _db.ReturnTemplates
+            .Include(t => t.Versions)
+            .Where(t => t.TenantId == tenantId || t.TenantId == null)
+            .OrderBy(t => t.ReturnCode)
+            .ToListAsync(ct);
+    }
+
+    public async Task<ReturnTemplate?> GetByReturnCodeForTenant(string returnCode, Guid tenantId, CancellationToken ct = default)
+    {
+        return await _db.ReturnTemplates
+            .Include(t => t.Versions)
+                .ThenInclude(v => v.Fields)
+            .Include(t => t.Versions)
+                .ThenInclude(v => v.ItemCodes)
+            .Include(t => t.Versions)
+                .ThenInclude(v => v.IntraSheetFormulas)
+            .Where(t => t.TenantId == tenantId || t.TenantId == null)
+            .FirstOrDefaultAsync(t => t.ReturnCode == returnCode, ct);
+    }
+
+    public async Task<IReadOnlyList<ReturnTemplate>> GetByModuleIds(IEnumerable<int> moduleIds, CancellationToken ct = default)
+    {
+        var ids = moduleIds.ToList();
+        return await _db.ReturnTemplates
+            .Include(t => t.Versions)
+            .Where(t => t.ModuleId.HasValue && ids.Contains(t.ModuleId.Value))
+            .OrderBy(t => t.ReturnCode)
+            .ToListAsync(ct);
+    }
 }

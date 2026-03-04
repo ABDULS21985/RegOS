@@ -132,7 +132,12 @@ public class TenantOnboardingService : ITenantOnboardingService
             var entitlement = await _entitlementService.ResolveEntitlements(tenant.TenantId, ct);
             result.ActivatedModules = entitlement.ActiveModules.Select(m => m.ModuleCode).ToList();
 
-            // ── Step 8: Create Welcome Notification ──
+            // ── Step 8: Create Return Periods & Filing Calendar ──
+            var periodsCreated = await CreateInitialReturnPeriods(
+                tenant.TenantId, tenant.FiscalYearStartMonth, entitlement.ActiveModules, ct);
+            result.ReturnPeriodsCreated = periodsCreated;
+
+            // ── Step 9: Create Welcome Notification ──
             var notification = new PortalNotification
             {
                 TenantId = tenant.TenantId,
@@ -140,13 +145,13 @@ public class TenantOnboardingService : ITenantOnboardingService
                 UserId = adminUser.Id,
                 Type = NotificationType.SystemAnnouncement,
                 Title = "Welcome to RegOS",
-                Message = $"Your account has been set up with {result.ActivatedModules.Count} regulatory module(s). Please change your password on first login.",
+                Message = $"Your account has been set up with {result.ActivatedModules.Count} regulatory module(s) and {periodsCreated} filing period(s). Please change your password on first login.",
                 CreatedAt = DateTime.UtcNow
             };
             _db.PortalNotifications.Add(notification);
             await _db.SaveChangesAsync(ct);
 
-            // ── Step 9: Commit ──
+            // ── Step 10: Commit ──
             await transaction.CommitAsync(ct);
 
             result.Success = true;
@@ -163,6 +168,118 @@ public class TenantOnboardingService : ITenantOnboardingService
             result.Errors.Add($"Onboarding failed: {ex.Message}");
             return result;
         }
+    }
+
+    /// <summary>
+    /// Creates initial return periods for each activated module based on its default frequency.
+    /// Generates the current period plus the next 2 upcoming periods.
+    /// </summary>
+    private async Task<int> CreateInitialReturnPeriods(
+        Guid tenantId,
+        int fiscalYearStartMonth,
+        IReadOnlyList<Domain.ValueObjects.EntitledModule> activeModules,
+        CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        var periodsCreated = 0;
+
+        // Determine distinct frequencies from active modules
+        var frequencies = activeModules
+            .Select(m => m.DefaultFrequency)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var frequency in frequencies)
+        {
+            var periods = GeneratePeriodsForFrequency(frequency, now, fiscalYearStartMonth);
+            foreach (var (year, month) in periods)
+            {
+                // Check for duplicates (same tenant + year + month + frequency)
+                var exists = await _db.ReturnPeriods.AnyAsync(
+                    rp => rp.TenantId == tenantId && rp.Year == year && rp.Month == month && rp.Frequency == frequency, ct);
+                if (exists) continue;
+
+                _db.ReturnPeriods.Add(new ReturnPeriod
+                {
+                    TenantId = tenantId,
+                    Year = year,
+                    Month = month,
+                    Frequency = frequency,
+                    ReportingDate = new DateTime(year, month, DateTime.DaysInMonth(year, month)),
+                    IsOpen = true,
+                    CreatedAt = DateTime.UtcNow
+                });
+                periodsCreated++;
+            }
+        }
+
+        if (periodsCreated > 0)
+            await _db.SaveChangesAsync(ct);
+
+        return periodsCreated;
+    }
+
+    /// <summary>
+    /// Generates (year, month) tuples for the current period plus 2 future periods
+    /// based on the reporting frequency.
+    /// </summary>
+    internal static List<(int Year, int Month)> GeneratePeriodsForFrequency(
+        string frequency, DateTime referenceDate, int fiscalYearStartMonth = 1)
+    {
+        var periods = new List<(int Year, int Month)>();
+
+        switch (frequency.ToUpperInvariant())
+        {
+            case "MONTHLY":
+                for (var i = 0; i < 3; i++)
+                {
+                    var dt = referenceDate.AddMonths(i);
+                    periods.Add((dt.Year, dt.Month));
+                }
+                break;
+
+            case "QUARTERLY":
+                // Find current quarter end month
+                var qMonth = ((referenceDate.Month - 1) / 3 + 1) * 3;
+                var qDate = new DateTime(referenceDate.Year, qMonth, 1);
+                for (var i = 0; i < 3; i++)
+                {
+                    var dt = qDate.AddMonths(i * 3);
+                    periods.Add((dt.Year, dt.Month));
+                }
+                break;
+
+            case "SEMIANNUAL":
+                var saMonth = referenceDate.Month <= 6 ? 6 : 12;
+                var saDate = new DateTime(referenceDate.Year, saMonth, 1);
+                for (var i = 0; i < 3; i++)
+                {
+                    var dt = saDate.AddMonths(i * 6);
+                    periods.Add((dt.Year, dt.Month));
+                }
+                break;
+
+            case "ANNUAL":
+                // Use fiscal year end month (default: December)
+                var annualMonth = fiscalYearStartMonth == 1 ? 12 : fiscalYearStartMonth - 1;
+                var baseYear = referenceDate.Year;
+                for (var i = 0; i < 3; i++)
+                {
+                    periods.Add((baseYear + i, annualMonth));
+                }
+                break;
+
+            default:
+                // Default to monthly
+                for (var i = 0; i < 3; i++)
+                {
+                    var dt = referenceDate.AddMonths(i);
+                    periods.Add((dt.Year, dt.Month));
+                }
+                break;
+        }
+
+        return periods;
     }
 
     private static string GenerateSlug(string name)

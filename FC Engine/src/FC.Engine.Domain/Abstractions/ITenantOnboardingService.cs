@@ -36,5 +36,6 @@ public class TenantOnboardingResult
     public int InstitutionId { get; set; }
     public string AdminTemporaryPassword { get; set; } = string.Empty;
     public List<string> ActivatedModules { get; set; } = new();
+    public int ReturnPeriodsCreated { get; set; }
     public List<string> Errors { get; set; } = new();
 }

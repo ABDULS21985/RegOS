@@ -207,6 +207,75 @@ public class TenantOnboardingServiceTests : IDisposable
         notification.Should().NotBeNull();
         notification!.Title.Should().Be("Welcome to RegOS");
         notification.Type.Should().Be(NotificationType.SystemAnnouncement);
+        notification.Message.Should().Contain("filing period");
+    }
+
+    [Fact]
+    public async Task OnboardTenant_CreatesReturnPeriods()
+    {
+        var request = CreateValidRequest();
+
+        var result = await _sut.OnboardTenant(request);
+
+        result.Success.Should().BeTrue();
+        result.ReturnPeriodsCreated.Should().BeGreaterThan(0);
+        var periods = await _db.ReturnPeriods
+            .Where(rp => rp.TenantId == result.TenantId)
+            .ToListAsync();
+        periods.Should().NotBeEmpty();
+        periods.Should().AllSatisfy(p => p.IsOpen.Should().BeTrue());
+    }
+
+    [Fact]
+    public async Task OnboardTenant_ReturnPeriods_MatchModuleFrequencies()
+    {
+        var request = CreateValidRequest();
+
+        var result = await _sut.OnboardTenant(request);
+
+        var periods = await _db.ReturnPeriods
+            .Where(rp => rp.TenantId == result.TenantId)
+            .ToListAsync();
+        // FC_RETURNS module has Monthly default frequency
+        periods.Should().OnlyContain(p => p.Frequency == "Monthly");
+        // Should create 3 periods (current + 2 future)
+        periods.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void GeneratePeriodsForFrequency_Monthly_Returns3Periods()
+    {
+        var referenceDate = new DateTime(2026, 3, 15);
+        var periods = TenantOnboardingService.GeneratePeriodsForFrequency("Monthly", referenceDate);
+
+        periods.Should().HaveCount(3);
+        periods[0].Should().Be((2026, 3));
+        periods[1].Should().Be((2026, 4));
+        periods[2].Should().Be((2026, 5));
+    }
+
+    [Fact]
+    public void GeneratePeriodsForFrequency_Quarterly_Returns3Periods()
+    {
+        var referenceDate = new DateTime(2026, 2, 15);
+        var periods = TenantOnboardingService.GeneratePeriodsForFrequency("Quarterly", referenceDate);
+
+        periods.Should().HaveCount(3);
+        periods[0].Should().Be((2026, 3));  // Q1 end
+        periods[1].Should().Be((2026, 6));  // Q2 end
+        periods[2].Should().Be((2026, 9));  // Q3 end
+    }
+
+    [Fact]
+    public void GeneratePeriodsForFrequency_Annual_Returns3Periods()
+    {
+        var referenceDate = new DateTime(2026, 6, 1);
+        var periods = TenantOnboardingService.GeneratePeriodsForFrequency("Annual", referenceDate);
+
+        periods.Should().HaveCount(3);
+        periods[0].Should().Be((2026, 12));
+        periods[1].Should().Be((2027, 12));
+        periods[2].Should().Be((2028, 12));
     }
 
     [Fact]
