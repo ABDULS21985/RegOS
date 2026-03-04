@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
-namespace FC.Engine.Application.Services;
+namespace FC.Engine.Infrastructure.Services;
 
 public class EntitlementService : IEntitlementService
 {
