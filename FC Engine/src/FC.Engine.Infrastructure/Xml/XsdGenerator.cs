@@ -1,51 +1,91 @@
 using System.Collections.Concurrent;
 using System.Text;
-using System.Xml;
 using System.Xml.Schema;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Enums;
-using FC.Engine.Domain.Metadata;
 
 namespace FC.Engine.Infrastructure.Xml;
 
 public class XsdGenerator : IXsdGenerator
 {
     private readonly ITemplateMetadataCache _cache;
+    private readonly ITenantContext _tenantContext;
     private readonly ConcurrentDictionary<string, XmlSchemaSet> _xsdCache = new();
 
-    public XsdGenerator(ITemplateMetadataCache cache) => _cache = cache;
+    public XsdGenerator(ITemplateMetadataCache cache, ITenantContext tenantContext)
+    {
+        _cache = cache;
+        _tenantContext = tenantContext;
+    }
 
     public async Task<XmlSchemaSet> GenerateSchema(string returnCode, CancellationToken ct = default)
     {
-        if (_xsdCache.TryGetValue(returnCode.ToUpperInvariant(), out var cached))
-            return cached;
+        var tenantId = _tenantContext.CurrentTenantId;
+        var requestedKey = BuildCacheKey(tenantId, returnCode);
 
-        var xml = await GenerateSchemaXml(returnCode, ct);
+        if (_xsdCache.TryGetValue(requestedKey, out var cached))
+        {
+            return cached;
+        }
+
+        if (tenantId.HasValue)
+        {
+            var globalKey = BuildCacheKey(null, returnCode);
+            if (_xsdCache.TryGetValue(globalKey, out cached))
+            {
+                return cached;
+            }
+        }
+
+        var template = await _cache.GetPublishedTemplate(returnCode, ct);
+        var xml = BuildSchemaXml(template);
 
         var schemaSet = new XmlSchemaSet();
         using var reader = new StringReader(xml);
         schemaSet.Add(XmlSchema.Read(reader, null)!);
         schemaSet.Compile();
 
-        _xsdCache[returnCode.ToUpperInvariant()] = schemaSet;
+        _xsdCache[BuildCacheKey(template.TenantId, returnCode)] = schemaSet;
         return schemaSet;
     }
 
     public async Task<string> GenerateSchemaXml(string returnCode, CancellationToken ct = default)
     {
         var template = await _cache.GetPublishedTemplate(returnCode, ct);
+        return BuildSchemaXml(template);
+    }
+
+    public void InvalidateCache(string returnCode)
+    {
+        InvalidateCache(_tenantContext.CurrentTenantId, returnCode);
+    }
+
+    public void InvalidateCache(Guid? tenantId, string returnCode)
+    {
+        _xsdCache.TryRemove(BuildCacheKey(tenantId, returnCode), out _);
+    }
+
+    private static string BuildCacheKey(Guid? tenantId, string returnCode)
+    {
+        var prefix = tenantId.HasValue
+            ? tenantId.Value.ToString().ToUpperInvariant()
+            : "GLOBAL";
+        return $"{prefix}:{returnCode.ToUpperInvariant()}";
+    }
+
+    private static string BuildSchemaXml(CachedTemplate template)
+    {
         var version = template.CurrentVersion;
         var fields = version.Fields;
         var category = Enum.Parse<StructuralCategory>(template.StructuralCategory);
 
         var xsd = new StringBuilder();
         xsd.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-        xsd.AppendLine($"<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"");
+        xsd.AppendLine("<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"");
         xsd.AppendLine($"           targetNamespace=\"{template.XmlNamespace}\"");
         xsd.AppendLine($"           xmlns:tns=\"{template.XmlNamespace}\"");
         xsd.AppendLine("           elementFormDefault=\"qualified\">");
 
-        // Root element
         xsd.AppendLine($"  <xs:element name=\"{template.XmlRootElement}\">");
         xsd.AppendLine("    <xs:complexType>");
         xsd.AppendLine("      <xs:sequence>");
@@ -71,16 +111,14 @@ public class XsdGenerator : IXsdGenerator
         xsd.AppendLine("    </xs:complexType>");
         xsd.AppendLine("  </xs:element>");
 
-        // Header type
         xsd.AppendLine("  <xs:complexType name=\"HeaderType\">");
         xsd.AppendLine("    <xs:sequence>");
         xsd.AppendLine("      <xs:element name=\"InstitutionCode\" type=\"xs:string\"/>");
         xsd.AppendLine("      <xs:element name=\"ReportingDate\" type=\"xs:date\"/>");
-        xsd.AppendLine($"      <xs:element name=\"ReturnCode\" type=\"xs:string\"/>");
+        xsd.AppendLine("      <xs:element name=\"ReturnCode\" type=\"xs:string\"/>");
         xsd.AppendLine("    </xs:sequence>");
         xsd.AppendLine("  </xs:complexType>");
 
-        // Data/Row type
         var typeName = category == StructuralCategory.FixedRow ? "DataType" : "RowType";
         xsd.AppendLine($"  <xs:complexType name=\"{typeName}\">");
         xsd.AppendLine("    <xs:sequence>");
@@ -95,7 +133,6 @@ public class XsdGenerator : IXsdGenerator
         xsd.AppendLine("    </xs:sequence>");
         xsd.AppendLine("  </xs:complexType>");
 
-        // Custom types
         xsd.AppendLine("  <xs:simpleType name=\"MoneyType\">");
         xsd.AppendLine("    <xs:restriction base=\"xs:decimal\">");
         xsd.AppendLine("      <xs:fractionDigits value=\"2\"/>");
@@ -106,11 +143,6 @@ public class XsdGenerator : IXsdGenerator
         xsd.AppendLine("</xs:schema>");
 
         return xsd.ToString();
-    }
-
-    public void InvalidateCache(string returnCode)
-    {
-        _xsdCache.TryRemove(returnCode.ToUpperInvariant(), out _);
     }
 
     private static string MapToXsdType(FieldDataType dataType) => dataType switch

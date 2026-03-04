@@ -1,3 +1,4 @@
+using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Metadata;
 using FC.Engine.Domain.Validation;
@@ -7,7 +8,13 @@ namespace FC.Engine.Infrastructure.Metadata;
 
 public class MetadataDbContext : DbContext
 {
-    public MetadataDbContext(DbContextOptions<MetadataDbContext> options) : base(options) { }
+    private readonly ITenantContext? _tenantContext;
+
+    public MetadataDbContext(DbContextOptions<MetadataDbContext> options, ITenantContext? tenantContext = null)
+        : base(options)
+    {
+        _tenantContext = tenantContext;
+    }
 
     // Multi-tenancy
     public DbSet<Tenant> Tenants => Set<Tenant>();
@@ -57,6 +64,54 @@ public class MetadataDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(MetadataDbContext).Assembly);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ApplyTenantContextDefaults();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
+    {
+        ApplyTenantContextDefaults();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void ApplyTenantContextDefaults()
+    {
+        var currentTenantId = _tenantContext?.CurrentTenantId;
+        if (!currentTenantId.HasValue)
+        {
+            return;
+        }
+
+        foreach (var entry in ChangeTracker.Entries()
+                     .Where(e => e.State == EntityState.Added))
+        {
+            var tenantProperty = entry.Properties.FirstOrDefault(p => p.Metadata.Name == "TenantId");
+            if (tenantProperty is null)
+            {
+                continue;
+            }
+
+            if (tenantProperty.Metadata.ClrType == typeof(Guid))
+            {
+                var currentValue = tenantProperty.CurrentValue as Guid? ?? Guid.Empty;
+                if (currentValue == Guid.Empty)
+                {
+                    tenantProperty.CurrentValue = currentTenantId.Value;
+                }
+            }
+            else if (tenantProperty.Metadata.ClrType == typeof(Guid?))
+            {
+                var currentValue = tenantProperty.CurrentValue as Guid?;
+                if (!currentValue.HasValue)
+                {
+                    tenantProperty.CurrentValue = currentTenantId.Value;
+                }
+            }
+        }
     }
 }
 

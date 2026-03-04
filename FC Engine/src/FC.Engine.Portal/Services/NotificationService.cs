@@ -15,15 +15,18 @@ public class NotificationService
     private readonly IPortalNotificationRepository _notificationRepo;
     private readonly IInstitutionUserRepository _userRepo;
     private readonly IInstitutionRepository _institutionRepo;
+    private readonly ITenantContext _tenantContext;
 
     public NotificationService(
         IPortalNotificationRepository notificationRepo,
         IInstitutionUserRepository userRepo,
-        IInstitutionRepository institutionRepo)
+        IInstitutionRepository institutionRepo,
+        ITenantContext tenantContext)
     {
         _notificationRepo = notificationRepo;
         _userRepo = userRepo;
         _institutionRepo = institutionRepo;
+        _tenantContext = tenantContext;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -101,6 +104,7 @@ public class NotificationService
         // Check institution settings
         var settings = await GetInstitutionSettings(institutionId, ct);
         if (!settings.EmailOnSubmissionResult) return;
+        var tenantId = await ResolveTenantId(institutionId, ct);
 
         var (title, message) = status switch
         {
@@ -118,6 +122,7 @@ public class NotificationService
 
         await _notificationRepo.Add(new PortalNotification
         {
+            TenantId = tenantId,
             UserId = submittedByUserId,
             InstitutionId = institutionId,
             Type = NotificationType.SubmissionResult,
@@ -148,11 +153,13 @@ public class NotificationService
     {
         var settings = await GetInstitutionSettings(institutionId, ct);
         if (!settings.EmailOnDeadlineApproaching) return;
+        var tenantId = await ResolveTenantId(institutionId, ct);
 
         var urgency = daysRemaining <= 1 ? "URGENT: " : "";
 
         await _notificationRepo.Add(new PortalNotification
         {
+            TenantId = tenantId,
             UserId = null, // Broadcast
             InstitutionId = institutionId,
             Type = NotificationType.DeadlineApproaching,
@@ -181,6 +188,7 @@ public class NotificationService
         string submittedByName,
         CancellationToken ct = default)
     {
+        var tenantId = await ResolveTenantId(institutionId, ct);
         var users = await _userRepo.GetByInstitution(institutionId, ct);
         var checkers = users
             .Where(u => u.IsActive && (u.Role == InstitutionRole.Checker || u.Role == InstitutionRole.Admin))
@@ -190,6 +198,7 @@ public class NotificationService
 
         var notifications = checkers.Select(checker => new PortalNotification
         {
+            TenantId = tenantId,
             UserId = checker.Id,
             InstitutionId = institutionId,
             Type = NotificationType.ApprovalRequest,
@@ -222,6 +231,7 @@ public class NotificationService
         string? reviewerComments,
         CancellationToken ct = default)
     {
+        var tenantId = await ResolveTenantId(institutionId, ct);
         var title = approved ? "Submission Approved" : "Submission Rejected";
 
         var message = approved
@@ -231,6 +241,7 @@ public class NotificationService
 
         await _notificationRepo.Add(new PortalNotification
         {
+            TenantId = tenantId,
             UserId = makerUserId,
             InstitutionId = institutionId,
             Type = NotificationType.ApprovalResult,
@@ -253,8 +264,10 @@ public class NotificationService
         int institutionId, string title, string message, string? link = null,
         CancellationToken ct = default)
     {
+        var tenantId = await ResolveTenantId(institutionId, ct);
         await _notificationRepo.Add(new PortalNotification
         {
+            TenantId = tenantId,
             UserId = null, // Broadcast
             InstitutionId = institutionId,
             Type = NotificationType.SystemAnnouncement,
@@ -273,6 +286,7 @@ public class NotificationService
         int institutionId, string title, string message,
         int? excludeUserId = null, CancellationToken ct = default)
     {
+        var tenantId = await ResolveTenantId(institutionId, ct);
         var users = await _userRepo.GetByInstitution(institutionId, ct);
         var admins = users
             .Where(u => u.IsActive && u.Role == InstitutionRole.Admin && u.Id != (excludeUserId ?? -1))
@@ -282,6 +296,7 @@ public class NotificationService
 
         var notifications = admins.Select(admin => new PortalNotification
         {
+            TenantId = tenantId,
             UserId = admin.Id,
             InstitutionId = institutionId,
             Type = NotificationType.TeamUpdate,
@@ -311,6 +326,19 @@ public class NotificationService
                    ?? new InstitutionPortalSettings();
         }
         catch { return new InstitutionPortalSettings(); }
+    }
+
+    private async Task<Guid> ResolveTenantId(int institutionId, CancellationToken ct)
+    {
+        if (_tenantContext.CurrentTenantId.HasValue)
+        {
+            return _tenantContext.CurrentTenantId.Value;
+        }
+
+        var institution = await _institutionRepo.GetById(institutionId, ct)
+            ?? throw new InvalidOperationException($"Institution {institutionId} not found.");
+
+        return institution.TenantId;
     }
 
     private static NotificationModel MapToModel(PortalNotification n) => new()

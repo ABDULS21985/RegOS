@@ -31,7 +31,7 @@ public class ValidationOrchestrator
         int returnPeriodId,
         CancellationToken ct = default)
     {
-        var report = ValidationReport.Create(submission.Id);
+        var report = ValidationReport.Create(submission.Id, submission.TenantId);
         var template = await _cache.GetPublishedTemplate(record.ReturnCode, ct);
 
         // Phase 1: Type/Range validation

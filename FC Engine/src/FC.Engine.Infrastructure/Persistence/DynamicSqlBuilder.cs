@@ -49,7 +49,7 @@ public partial class DynamicSqlBuilder
         return (sql, parameters);
     }
 
-    public string BuildSelect(string tableName, IReadOnlyList<TemplateField> fields)
+    public string BuildSelect(string tableName, IReadOnlyList<TemplateField> fields, Guid? tenantId = null)
     {
         ValidateName(tableName);
 
@@ -60,12 +60,13 @@ public partial class DynamicSqlBuilder
             columns.Add($"[{f.FieldName}]");
         }
 
-        // RLS handles tenant filtering; submission_id WHERE is for data specificity
+        // RLS handles tenant filtering; explicit TenantId filter helps index usage.
+        var tenantFilter = tenantId.HasValue ? " AND TenantId = @TenantId" : "";
         return $"SELECT {string.Join(", ", columns)} FROM dbo.[{tableName}] " +
-               "WHERE submission_id = @submissionId ORDER BY id";
+               $"WHERE submission_id = @submissionId{tenantFilter} ORDER BY id";
     }
 
-    public string BuildSelectByInstitutionAndPeriod(string tableName, IReadOnlyList<TemplateField> fields)
+    public string BuildSelectByInstitutionAndPeriod(string tableName, IReadOnlyList<TemplateField> fields, Guid? tenantId = null)
     {
         ValidateName(tableName);
 
@@ -76,10 +77,21 @@ public partial class DynamicSqlBuilder
             columns.Add($"d.[{f.FieldName}]");
         }
 
+        var tenantFilter = tenantId.HasValue
+            ? " AND d.TenantId = @TenantId AND s.TenantId = @TenantId"
+            : "";
+
         return $"SELECT {string.Join(", ", columns)} FROM dbo.[{tableName}] d " +
                "INNER JOIN dbo.return_submissions s ON d.submission_id = s.id " +
-               "WHERE s.InstitutionId = @institutionId AND s.ReturnPeriodId = @returnPeriodId " +
+               $"WHERE s.InstitutionId = @institutionId AND s.ReturnPeriodId = @returnPeriodId{tenantFilter} " +
                "ORDER BY d.id";
+    }
+
+    public string BuildDeleteBySubmission(string tableName, Guid? tenantId = null)
+    {
+        ValidateName(tableName);
+        var tenantFilter = tenantId.HasValue ? " AND TenantId = @TenantId" : "";
+        return $"DELETE FROM dbo.[{tableName}] WHERE submission_id = @submissionId{tenantFilter}";
     }
 
     private static void ValidateName(string name)

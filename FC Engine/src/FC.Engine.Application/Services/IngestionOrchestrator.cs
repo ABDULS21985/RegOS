@@ -42,9 +42,10 @@ public class IngestionOrchestrator
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
+        var tenantId = _tenantContext?.CurrentTenantId;
 
         // 1. Create submission record
-        var submission = Submission.Create(institutionId, returnPeriodId, returnCode);
+        var submission = Submission.Create(institutionId, returnPeriodId, returnCode, tenantId);
         await _submissionRepo.Add(submission, ct);
 
         try
@@ -61,7 +62,7 @@ public class IngestionOrchestrator
                     _tenantContext.CurrentTenantId.Value, template.ModuleCode, ct);
                 if (!hasAccess)
                 {
-                    var entitlementReport = ValidationReport.Create(submission.Id);
+                    var entitlementReport = ValidationReport.Create(submission.Id, submission.TenantId);
                     entitlementReport.AddError(new ValidationError
                     {
                         RuleId = "MODULE_NOT_ENTITLED",
@@ -91,7 +92,7 @@ public class IngestionOrchestrator
             var schemaErrors = await ValidateXsd(bufferedStream, returnCode, ct);
             if (schemaErrors.Count > 0)
             {
-                var schemaReport = ValidationReport.Create(submission.Id);
+                var schemaReport = ValidationReport.Create(submission.Id, submission.TenantId);
                 foreach (var err in schemaErrors)
                     schemaReport.AddError(err);
                 schemaReport.FinalizeAt(DateTime.UtcNow);
@@ -144,7 +145,7 @@ public class IngestionOrchestrator
             submission.MarkRejected();
             submission.ProcessingDurationMs = (int)sw.ElapsedMilliseconds;
 
-            var errorReport = ValidationReport.Create(submission.Id);
+            var errorReport = ValidationReport.Create(submission.Id, submission.TenantId);
             errorReport.AddError(new ValidationError
             {
                 RuleId = "SYSTEM",

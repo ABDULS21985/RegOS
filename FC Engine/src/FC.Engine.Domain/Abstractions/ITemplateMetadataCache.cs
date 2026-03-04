@@ -6,8 +6,11 @@ namespace FC.Engine.Domain.Abstractions;
 public interface ITemplateMetadataCache
 {
     Task<CachedTemplate> GetPublishedTemplate(string returnCode, CancellationToken ct = default);
+    Task<CachedTemplate> GetPublishedTemplate(Guid tenantId, string returnCode, CancellationToken ct = default);
     Task<IReadOnlyList<CachedTemplate>> GetAllPublishedTemplates(CancellationToken ct = default);
+    Task<IReadOnlyList<CachedTemplate>> GetAllPublishedTemplates(Guid tenantId, CancellationToken ct = default);
     void Invalidate(string returnCode);
+    void Invalidate(Guid? tenantId, string returnCode);
     void InvalidateAll();
 }
 
@@ -17,6 +20,7 @@ public interface ITemplateMetadataCache
 public class CachedTemplate
 {
     public int TemplateId { get; set; }
+    public Guid? TenantId { get; set; }
     public string ReturnCode { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public ReturnFrequency Frequency { get; set; }

@@ -39,8 +39,16 @@ public class HttpTenantContext : ITenantContext
                 return tenantId;
             }
 
+            if (httpContext.Items.TryGetValue("TenantId", out tenantObj) &&
+                tenantObj is string tenantStr &&
+                Guid.TryParse(tenantStr, out var parsedTenantId))
+            {
+                return parsedTenantId;
+            }
+
             // Fallback: resolve from claims
-            var claim = httpContext.User?.FindFirst("TenantId");
+            var claim = httpContext.User?.FindFirst("TenantId")
+                        ?? httpContext.User?.FindFirst("tid");
             if (claim != null && Guid.TryParse(claim.Value, out var claimTenantId))
             {
                 return claimTenantId;

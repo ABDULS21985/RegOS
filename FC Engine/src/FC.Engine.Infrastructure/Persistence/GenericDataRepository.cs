@@ -30,11 +30,12 @@ public class GenericDataRepository : IGenericDataRepository
         var template = await _cache.GetPublishedTemplate(record.ReturnCode, ct);
         var tableName = template.PhysicalTableName;
         var fields = template.CurrentVersion.Fields;
+        var tenantId = _tenantContext.CurrentTenantId;
 
         using var connection = await CreateConnectionAsync(ct);
         foreach (var row in record.Rows)
         {
-            var (sql, parameters) = _sqlBuilder.BuildInsert(tableName, fields, row, submissionId, _tenantContext.CurrentTenantId);
+            var (sql, parameters) = _sqlBuilder.BuildInsert(tableName, fields, row, submissionId, tenantId);
             await connection.ExecuteAsync(new CommandDefinition(sql, parameters, cancellationToken: ct));
         }
     }
@@ -46,12 +47,16 @@ public class GenericDataRepository : IGenericDataRepository
         var tableName = template.PhysicalTableName;
         var fields = template.CurrentVersion.Fields;
         var category = Enum.Parse<StructuralCategory>(template.StructuralCategory);
+        var tenantId = _tenantContext.CurrentTenantId;
 
-        var sql = _sqlBuilder.BuildSelect(tableName, fields);
+        var sql = _sqlBuilder.BuildSelect(tableName, fields, tenantId);
+        var queryParams = tenantId.HasValue
+            ? new { submissionId, TenantId = tenantId.Value }
+            : new { submissionId };
 
         using var connection = await CreateConnectionAsync(ct);
         var rows = await connection.QueryAsync(
-            new CommandDefinition(sql, new { submissionId }, cancellationToken: ct));
+            new CommandDefinition(sql, queryParams, cancellationToken: ct));
 
         var rowList = rows.ToList();
         if (!rowList.Any()) return null;
@@ -86,12 +91,16 @@ public class GenericDataRepository : IGenericDataRepository
         var tableName = template.PhysicalTableName;
         var fields = template.CurrentVersion.Fields;
         var category = Enum.Parse<StructuralCategory>(template.StructuralCategory);
+        var tenantId = _tenantContext.CurrentTenantId;
 
-        var sql = _sqlBuilder.BuildSelectByInstitutionAndPeriod(tableName, fields);
+        var sql = _sqlBuilder.BuildSelectByInstitutionAndPeriod(tableName, fields, tenantId);
+        var queryParams = tenantId.HasValue
+            ? new { institutionId, returnPeriodId, TenantId = tenantId.Value }
+            : new { institutionId, returnPeriodId };
 
         using var connection = await CreateConnectionAsync(ct);
         var rows = await connection.QueryAsync(
-            new CommandDefinition(sql, new { institutionId, returnPeriodId }, cancellationToken: ct));
+            new CommandDefinition(sql, queryParams, cancellationToken: ct));
 
         var rowList = rows.ToList();
         if (!rowList.Any()) return null;
@@ -122,11 +131,15 @@ public class GenericDataRepository : IGenericDataRepository
     public async Task DeleteBySubmission(string returnCode, int submissionId, CancellationToken ct = default)
     {
         var template = await _cache.GetPublishedTemplate(returnCode, ct);
-        var sql = $"DELETE FROM dbo.[{template.PhysicalTableName}] WHERE submission_id = @submissionId";
+        var tenantId = _tenantContext.CurrentTenantId;
+        var sql = _sqlBuilder.BuildDeleteBySubmission(template.PhysicalTableName, tenantId);
+        var parameters = tenantId.HasValue
+            ? new { submissionId, TenantId = tenantId.Value }
+            : new { submissionId };
 
         using var connection = await CreateConnectionAsync(ct);
         await connection.ExecuteAsync(
-            new CommandDefinition(sql, new { submissionId }, cancellationToken: ct));
+            new CommandDefinition(sql, parameters, cancellationToken: ct));
     }
 
     private async Task<IDbConnection> CreateConnectionAsync(CancellationToken ct)

@@ -1,33 +1,81 @@
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace FC.Engine.Infrastructure.Caching;
 
-public class CacheWarmupService : IHostedService
+public class CacheWarmupService : BackgroundService
 {
+    private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(5);
+
     private readonly ITemplateMetadataCache _cache;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<CacheWarmupService> _logger;
 
-    public CacheWarmupService(ITemplateMetadataCache cache, ILogger<CacheWarmupService> logger)
+    public CacheWarmupService(
+        ITemplateMetadataCache cache,
+        IServiceProvider serviceProvider,
+        ILogger<CacheWarmupService> logger)
     {
         _cache = cache;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
-    public async Task StartAsync(CancellationToken cancellationToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Warming template metadata cache...");
-        try
+        while (!stoppingToken.IsCancellationRequested)
         {
-            var templates = await _cache.GetAllPublishedTemplates(cancellationToken);
-            _logger.LogInformation("Cache warmed: {Count} templates loaded", templates.Count);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Cache warmup failed — templates will be loaded on demand");
+            await WarmCache(stoppingToken);
+
+            try
+            {
+                await Task.Delay(RefreshInterval, stoppingToken);
+            }
+            catch (TaskCanceledException)
+            {
+                // Host is shutting down.
+            }
         }
     }
 
-    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    private async Task WarmCache(CancellationToken ct)
+    {
+        _logger.LogInformation("Warming template metadata cache for active tenants...");
+
+        try
+        {
+            _cache.InvalidateAll();
+
+            // Warm global + platform view.
+            var globalTemplates = await _cache.GetAllPublishedTemplates(ct);
+
+            List<Guid> activeTenantIds;
+            using (var scope = _serviceProvider.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
+                activeTenantIds = await db.Tenants
+                    .Where(t => t.TenantStatus == "Active")
+                    .Select(t => t.TenantId)
+                    .ToListAsync(ct);
+            }
+
+            foreach (var tenantId in activeTenantIds)
+            {
+                await _cache.GetAllPublishedTemplates(tenantId, ct);
+            }
+
+            _logger.LogInformation(
+                "Template metadata cache warmed: {GlobalCount} global/platform templates, {TenantCount} active tenants",
+                globalTemplates.Count,
+                activeTenantIds.Count);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Template metadata cache warmup failed; cache will continue loading on demand");
+        }
+    }
 }

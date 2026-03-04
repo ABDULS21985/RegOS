@@ -179,6 +179,7 @@ public class SubmissionService
             // Create approval record
             var approval = new SubmissionApproval
             {
+                TenantId = submission.TenantId,
                 SubmissionId = submission.Id,
                 RequestedByUserId = submittedByUserId.Value,
                 RequestedAt = DateTime.UtcNow,

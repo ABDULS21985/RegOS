@@ -36,9 +36,9 @@ public class Submission
     /// <summary>Maker-checker approval record, if applicable.</summary>
     public SubmissionApproval? Approval { get; set; }
 
-    public static Submission Create(int institutionId, int returnPeriodId, string returnCode)
+    public static Submission Create(int institutionId, int returnPeriodId, string returnCode, Guid? tenantId = null)
     {
-        return new Submission
+        var submission = new Submission
         {
             InstitutionId = institutionId,
             ReturnPeriodId = returnPeriodId,
@@ -47,6 +47,13 @@ public class Submission
             SubmittedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow
         };
+
+        if (tenantId.HasValue)
+        {
+            submission.TenantId = tenantId.Value;
+        }
+
+        return submission;
     }
 
     public void SetTemplateVersion(int templateVersionId) => TemplateVersionId = templateVersionId;

@@ -23,27 +23,25 @@ public class TenantSessionContextInterceptor : DbConnectionInterceptor
         ConnectionEndEventData eventData,
         CancellationToken cancellationToken = default)
     {
-        if (_tenantContext.CurrentTenantId.HasValue)
-        {
-            await using var cmd = connection.CreateCommand();
-            cmd.CommandText = "EXEC sp_set_session_context @key=N'TenantId', @value=@tid, @read_only=1";
-            var param = new SqlParameter("@tid", _tenantContext.CurrentTenantId.Value);
-            cmd.Parameters.Add(param);
-            await cmd.ExecuteNonQueryAsync(cancellationToken);
-        }
+        await using var cmd = connection.CreateCommand();
+        cmd.CommandText = "EXEC sp_set_session_context @key=N'TenantId', @value=@tid";
+        var param = new SqlParameter("@tid", _tenantContext.CurrentTenantId.HasValue
+            ? _tenantContext.CurrentTenantId.Value
+            : DBNull.Value);
+        cmd.Parameters.Add(param);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public override void ConnectionOpened(
         DbConnection connection,
         ConnectionEndEventData eventData)
     {
-        if (_tenantContext.CurrentTenantId.HasValue)
-        {
-            using var cmd = connection.CreateCommand();
-            cmd.CommandText = "EXEC sp_set_session_context @key=N'TenantId', @value=@tid, @read_only=1";
-            var param = new SqlParameter("@tid", _tenantContext.CurrentTenantId.Value);
-            cmd.Parameters.Add(param);
-            cmd.ExecuteNonQuery();
-        }
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "EXEC sp_set_session_context @key=N'TenantId', @value=@tid";
+        var param = new SqlParameter("@tid", _tenantContext.CurrentTenantId.HasValue
+            ? _tenantContext.CurrentTenantId.Value
+            : DBNull.Value);
+        cmd.Parameters.Add(param);
+        cmd.ExecuteNonQuery();
     }
 }

@@ -1,8 +1,12 @@
 #nullable enable
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace FC.Engine.Infrastructure.Metadata.Migrations;
 
+[DbContext(typeof(MetadataDbContext))]
+[Migration("20260304200000_AddTenantManagementAndModules")]
 public partial class AddTenantManagementAndModules : Migration
 {
     private static readonly Guid LegacyTenantId = Guid.Parse("00000000-0000-0000-0000-000000000001");

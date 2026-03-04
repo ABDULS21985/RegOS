@@ -1,4 +1,6 @@
 using System;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable enable
@@ -12,6 +14,8 @@ namespace FC.Engine.Infrastructure.Metadata.Migrations
     /// and adds TenantId to all DdlEngine-managed dynamic tables.
     /// FULLY REVERSIBLE.
     /// </summary>
+    [DbContext(typeof(MetadataDbContext))]
+    [Migration("20260304100000_AddMultiTenancy")]
     public partial class AddMultiTenancy : Migration
     {
         // Default tenant ID — deterministic GUID for reproducibility
@@ -125,6 +129,7 @@ namespace FC.Engine.Infrastructure.Metadata.Migrations
                 RETURNS TABLE WITH SCHEMABINDING
                 AS RETURN SELECT 1 AS result
                     WHERE @TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS UNIQUEIDENTIFIER)
+                       OR @TenantId IS NULL
                        OR SESSION_CONTEXT(N'TenantId') IS NULL;
             ");
 

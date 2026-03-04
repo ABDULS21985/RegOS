@@ -135,8 +135,8 @@ public class TemplateVersioningService
         await _templateRepo.Update(template, ct);
 
         // Invalidate caches
-        _cache.Invalidate(template.ReturnCode);
-        _xsdGenerator.InvalidateCache(template.ReturnCode);
+        _cache.Invalidate(template.TenantId, template.ReturnCode);
+        _xsdGenerator.InvalidateCache(template.TenantId, template.ReturnCode);
 
         await _audit.Log("TemplateVersion", versionId, "Published", null,
             new { template.ReturnCode, version.VersionNumber, migrationType }, approvedBy, ct);

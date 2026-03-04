@@ -1,8 +1,12 @@
 #nullable enable
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace FC.Engine.Infrastructure.Metadata.Migrations;
 
+[DbContext(typeof(MetadataDbContext))]
+[Migration("20260304300000_AddSubscriptionPlansAndOnboardingEnhancements")]
 public partial class AddSubscriptionPlansAndOnboardingEnhancements : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)

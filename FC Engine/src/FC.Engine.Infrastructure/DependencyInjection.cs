@@ -24,6 +24,8 @@ public static class DependencyInjection
         var connectionString = configuration.GetConnectionString("FcEngine")
             ?? throw new InvalidOperationException("Connection string 'FcEngine' not found");
 
+        services.AddHttpContextAccessor();
+
         // ── Multi-Tenancy ──
         services.AddScoped<ITenantContext, HttpTenantContext>();
         services.AddScoped<IDbConnectionFactory, TenantAwareConnectionFactory>();

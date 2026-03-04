@@ -13,14 +13,21 @@ namespace FC.Engine.Application.Services;
 public class InstitutionAuthService
 {
     private readonly IInstitutionUserRepository _userRepo;
+    private readonly IInstitutionRepository _institutionRepo;
+    private readonly ITenantContext _tenantContext;
 
     // Lockout policy (matches AuthService)
     private const int MaxFailedAttempts = 5;
     private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(15);
 
-    public InstitutionAuthService(IInstitutionUserRepository userRepo)
+    public InstitutionAuthService(
+        IInstitutionUserRepository userRepo,
+        IInstitutionRepository institutionRepo,
+        ITenantContext tenantContext)
     {
         _userRepo = userRepo;
+        _institutionRepo = institutionRepo;
+        _tenantContext = tenantContext;
     }
 
     /// <summary>
@@ -92,8 +99,17 @@ public class InstitutionAuthService
         if (await _userRepo.EmailExists(email, ct))
             throw new InvalidOperationException($"Email '{email}' is already registered.");
 
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (!tenantId.HasValue)
+        {
+            var institution = await _institutionRepo.GetById(institutionId, ct)
+                ?? throw new InvalidOperationException($"Institution {institutionId} not found.");
+            tenantId = institution.TenantId;
+        }
+
         var user = new InstitutionUser
         {
+            TenantId = tenantId.Value,
             InstitutionId = institutionId,
             Username = username,
             Email = email,

@@ -22,13 +22,20 @@ public class ValidationReport
     public int ErrorCount => _errors.Count(e => e.Severity == ValidationSeverity.Error);
     public int WarningCount => _errors.Count(e => e.Severity == ValidationSeverity.Warning);
 
-    public static ValidationReport Create(int submissionId)
+    public static ValidationReport Create(int submissionId, Guid? tenantId = null)
     {
-        return new ValidationReport
+        var report = new ValidationReport
         {
             SubmissionId = submissionId,
             CreatedAt = DateTime.UtcNow
         };
+
+        if (tenantId.HasValue)
+        {
+            report.TenantId = tenantId.Value;
+        }
+
+        return report;
     }
 
     public void AddError(ValidationError error) => _errors.Add(error);

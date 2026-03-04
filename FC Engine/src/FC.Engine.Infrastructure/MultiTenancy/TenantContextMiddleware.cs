@@ -35,6 +35,22 @@ public class TenantContextMiddleware
         // Skip for unauthenticated requests (login pages, etc.)
         if (context.User?.Identity?.IsAuthenticated != true)
         {
+            // API key middleware may already have resolved tenant context for this request.
+            if (context.Items.ContainsKey("TenantId"))
+            {
+                await _next(context);
+                return;
+            }
+
+            // API request authenticated by key but missing tenant resolution.
+            if (context.Items.TryGetValue("ApiKeyValidated", out var apiKeyValidated) &&
+                apiKeyValidated is true)
+            {
+                context.Response.StatusCode = 403;
+                await context.Response.WriteAsJsonAsync(new { error = "No tenant context available for API key request" });
+                return;
+            }
+
             await _next(context);
             return;
         }
@@ -60,7 +76,7 @@ public class TenantContextMiddleware
         }
 
         // Normal user: resolve TenantId from claims
-        var tenantClaim = context.User.FindFirst("TenantId");
+        var tenantClaim = context.User.FindFirst("TenantId") ?? context.User.FindFirst("tid");
         if (tenantClaim != null && Guid.TryParse(tenantClaim.Value, out var tenantId))
         {
             context.Items["TenantId"] = tenantId;

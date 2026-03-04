@@ -25,12 +25,10 @@ public class TenantAwareConnectionFactory : IDbConnectionFactory
         var connection = new SqlConnection(_connectionString);
         await connection.OpenAsync(ct);
 
-        if (tenantId.HasValue)
-        {
-            await connection.ExecuteAsync(
-                "EXEC sp_set_session_context @key=N'TenantId', @value=@tenantId, @read_only=1",
-                new { tenantId = tenantId.Value });
-        }
+        // Always set the key on open. Passing NULL clears stale TenantId on pooled connections.
+        await connection.ExecuteAsync(
+            "EXEC sp_set_session_context @key=N'TenantId', @value=@tenantId",
+            new { tenantId });
 
         return connection;
     }
