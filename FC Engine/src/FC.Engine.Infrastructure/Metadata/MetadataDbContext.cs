@@ -25,6 +25,13 @@ public class MetadataDbContext : DbContext
     public DbSet<LicenceModuleMatrix> LicenceModuleMatrix => Set<LicenceModuleMatrix>();
     public DbSet<TenantLicenceType> TenantLicenceTypes => Set<TenantLicenceType>();
     public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
+    public DbSet<PlanModulePricing> PlanModulePricing => Set<PlanModulePricing>();
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+    public DbSet<SubscriptionModule> SubscriptionModules => Set<SubscriptionModule>();
+    public DbSet<Invoice> Invoices => Set<Invoice>();
+    public DbSet<InvoiceLineItem> InvoiceLineItems => Set<InvoiceLineItem>();
+    public DbSet<Payment> Payments => Set<Payment>();
+    public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
 
     // Metadata tables
     public DbSet<ReturnTemplate> ReturnTemplates => Set<ReturnTemplate>();

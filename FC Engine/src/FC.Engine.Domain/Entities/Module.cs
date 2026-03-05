@@ -15,4 +15,6 @@ public class Module
 
     // Navigation
     public List<LicenceModuleMatrix> LicenceModuleEntries { get; set; } = new();
+    public List<PlanModulePricing> PlanModulePricing { get; set; } = new();
+    public List<SubscriptionModule> SubscriptionModules { get; set; } = new();
 }

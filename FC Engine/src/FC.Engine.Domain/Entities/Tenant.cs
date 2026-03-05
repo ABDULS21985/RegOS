@@ -36,6 +36,7 @@ public class Tenant
     // Navigation
     public List<Institution> Institutions { get; set; } = new();
     public List<TenantLicenceType> TenantLicenceTypes { get; set; } = new();
+    public List<Subscription> Subscriptions { get; set; } = new();
 
     // Required by EF Core
     private Tenant() { }

@@ -60,5 +60,9 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.HasMany(t => t.TenantLicenceTypes)
             .WithOne(tlt => tlt.Tenant)
             .HasForeignKey(tlt => tlt.TenantId);
+
+        builder.HasMany(t => t.Subscriptions)
+            .WithOne(s => s.Tenant)
+            .HasForeignKey(s => s.TenantId);
     }
 }

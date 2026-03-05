@@ -14,15 +14,18 @@ public class TenantOnboardingService : ITenantOnboardingService
 {
     private readonly MetadataDbContext _db;
     private readonly IEntitlementService _entitlementService;
+    private readonly ISubscriptionService _subscriptionService;
     private readonly ILogger<TenantOnboardingService> _logger;
 
     public TenantOnboardingService(
         MetadataDbContext db,
         IEntitlementService entitlementService,
+        ISubscriptionService subscriptionService,
         ILogger<TenantOnboardingService> logger)
     {
         _db = db;
         _entitlementService = entitlementService;
+        _subscriptionService = subscriptionService;
         _logger = logger;
     }
 
@@ -64,19 +67,19 @@ public class TenantOnboardingService : ITenantOnboardingService
                 return result;
             }
 
-            SubscriptionPlan? selectedPlan = null;
-            if (!string.IsNullOrWhiteSpace(request.SubscriptionPlanCode))
-            {
-                selectedPlan = await _db.SubscriptionPlans
-                    .FirstOrDefaultAsync(
-                        p => p.PlanCode == request.SubscriptionPlanCode && p.IsActive,
-                        ct);
+            var selectedPlanCode = string.IsNullOrWhiteSpace(request.SubscriptionPlanCode)
+                ? "STARTER"
+                : request.SubscriptionPlanCode.Trim().ToUpperInvariant();
 
-                if (selectedPlan is null)
-                {
-                    result.Errors.Add($"Invalid subscription plan code: {request.SubscriptionPlanCode}");
-                    return result;
-                }
+            var selectedPlan = await _db.SubscriptionPlans
+                .FirstOrDefaultAsync(
+                    p => p.PlanCode == selectedPlanCode && p.IsActive,
+                    ct);
+
+            if (selectedPlan is null)
+            {
+                result.Errors.Add($"Invalid subscription plan code: {selectedPlanCode}");
+                return result;
             }
 
             // ── Step 2: Create Tenant ──
@@ -85,11 +88,8 @@ public class TenantOnboardingService : ITenantOnboardingService
             tenant.Address = request.Address;
             tenant.RcNumber = request.RcNumber;
             tenant.TaxId = request.TaxId;
-            if (selectedPlan is not null)
-            {
-                tenant.MaxInstitutions = selectedPlan.MaxInstitutions;
-                tenant.MaxUsersPerEntity = selectedPlan.MaxUsersPerEntity;
-            }
+            tenant.MaxInstitutions = selectedPlan.MaxEntities;
+            tenant.MaxUsersPerEntity = selectedPlan.MaxUsersPerEntity;
 
             _db.Tenants.Add(tenant);
             await _db.SaveChangesAsync(ct);
@@ -120,7 +120,7 @@ public class TenantOnboardingService : ITenantOnboardingService
                 IsActive = true,
                 EntityType = EntityType.HeadOffice,
                 CreatedAt = DateTime.UtcNow,
-                MaxUsersAllowed = selectedPlan?.MaxUsersPerEntity ?? 10
+                MaxUsersAllowed = selectedPlan.MaxUsersPerEntity
             };
             _db.Institutions.Add(institution);
             await _db.SaveChangesAsync(ct);
@@ -151,20 +151,46 @@ public class TenantOnboardingService : ITenantOnboardingService
 
             result.AdminTemporaryPassword = tempPassword;
 
-            // ── Step 6: Resolve Entitlements ──
+            // ── Step 6: Create Subscription + auto-activate required modules ──
+            await _subscriptionService.CreateSubscription(
+                tenant.TenantId,
+                selectedPlan.PlanCode,
+                BillingFrequency.Monthly,
+                ct);
+
+            var baselineEntitlement = await _entitlementService.ResolveEntitlements(tenant.TenantId, ct);
+            foreach (var requiredModule in baselineEntitlement.EligibleModules.Where(m => m.IsRequired))
+            {
+                try
+                {
+                    await _subscriptionService.ActivateModule(tenant.TenantId, requiredModule.ModuleCode, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(
+                        ex,
+                        "Auto-activate module {ModuleCode} failed for tenant {TenantId}",
+                        requiredModule.ModuleCode,
+                        tenant.TenantId);
+                }
+            }
+
+            await _entitlementService.InvalidateCache(tenant.TenantId);
+
+            // ── Step 7: Resolve Entitlements ──
             var entitlement = await _entitlementService.ResolveEntitlements(tenant.TenantId, ct);
             result.ActivatedModules = entitlement.ActiveModules.Select(m => m.ModuleCode).ToList();
 
-            // ── Step 7: Create Return Periods & Filing Calendar ──
+            // ── Step 8: Create Return Periods & Filing Calendar ──
             var periodsCreated = await CreateInitialReturnPeriods(
                 tenant.TenantId, tenant.FiscalYearStartMonth, entitlement.ActiveModules, ct);
             result.ReturnPeriodsCreated = periodsCreated;
 
-            // ── Step 8: Activate Tenant ──
+            // ── Step 9: Activate Tenant ──
             tenant.Activate();
             await _db.SaveChangesAsync(ct);
 
-            // ── Step 9: Create Welcome Notification ──
+            // ── Step 10: Create Welcome Notification ──
             var notification = new PortalNotification
             {
                 TenantId = tenant.TenantId,
@@ -178,7 +204,7 @@ public class TenantOnboardingService : ITenantOnboardingService
             _db.PortalNotifications.Add(notification);
             await _db.SaveChangesAsync(ct);
 
-            // ── Step 10: Commit ──
+            // ── Step 11: Commit ──
             await transaction.CommitAsync(ct);
 
             result.Success = true;
