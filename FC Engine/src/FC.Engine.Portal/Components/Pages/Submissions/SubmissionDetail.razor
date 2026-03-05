@@ -786,7 +786,13 @@
         showExportMenu = false;
         var csv = await ExportSvc.ExportValidationErrorsCsvAsync(SubmissionId, institutionId);
         if (!string.IsNullOrEmpty(csv))
+        {
             await JS.InvokeVoidAsync("portalDownloadFile", csv, $"validation-errors-{SubmissionId}.csv", "text/csv");
+            if (currentUserId.HasValue)
+            {
+                await ExportSvc.NotifyExportReady(institutionId, currentUserId.Value, "Validation errors CSV", $"/submissions/{SubmissionId}");
+            }
+        }
     }
 
     private async Task DownloadXml()
@@ -794,7 +800,13 @@
         showExportMenu = false;
         var xml = await ExportSvc.GetSubmissionXmlAsync(SubmissionId, institutionId);
         if (!string.IsNullOrEmpty(xml))
+        {
             await JS.InvokeVoidAsync("portalDownloadFile", xml, $"submission-{SubmissionId}.xml", "application/xml");
+            if (currentUserId.HasValue)
+            {
+                await ExportSvc.NotifyExportReady(institutionId, currentUserId.Value, "Original XML", $"/submissions/{SubmissionId}");
+            }
+        }
     }
 
     // ── Display Helpers ─────────────────────────────────────

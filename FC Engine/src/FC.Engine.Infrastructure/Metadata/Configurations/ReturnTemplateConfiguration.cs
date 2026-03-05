@@ -30,9 +30,9 @@ public class ReturnTemplateConfiguration : IEntityTypeConfiguration<ReturnTempla
         builder.HasIndex(t => t.TenantId);
 
         builder.HasOne(t => t.Module)
-            .WithMany()
+            .WithMany(m => m.Templates)
             .HasForeignKey(t => t.ModuleId)
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(t => t.Versions)
             .WithOne()

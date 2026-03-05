@@ -4,6 +4,7 @@ using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -15,17 +16,20 @@ public class TenantOnboardingService : ITenantOnboardingService
     private readonly MetadataDbContext _db;
     private readonly IEntitlementService _entitlementService;
     private readonly ISubscriptionService _subscriptionService;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
     private readonly ILogger<TenantOnboardingService> _logger;
 
     public TenantOnboardingService(
         MetadataDbContext db,
         IEntitlementService entitlementService,
         ISubscriptionService subscriptionService,
-        ILogger<TenantOnboardingService> logger)
+        ILogger<TenantOnboardingService> logger,
+        INotificationOrchestrator? notificationOrchestrator = null)
     {
         _db = db;
         _entitlementService = entitlementService;
         _subscriptionService = subscriptionService;
+        _notificationOrchestrator = notificationOrchestrator;
         _logger = logger;
     }
 
@@ -203,6 +207,34 @@ public class TenantOnboardingService : ITenantOnboardingService
             };
             _db.PortalNotifications.Add(notification);
             await _db.SaveChangesAsync(ct);
+
+            if (_notificationOrchestrator is not null)
+            {
+                try
+                {
+                    await _notificationOrchestrator.Notify(new NotificationRequest
+                    {
+                        TenantId = tenant.TenantId,
+                        EventType = NotificationEvents.UserInvited,
+                        Title = $"You've been invited to {tenant.TenantName}",
+                        Message = $"Welcome to RegOS. Your account for {tenant.TenantName} is ready.",
+                        Priority = NotificationPriority.Normal,
+                        RecipientUserIds = new List<int> { adminUser.Id },
+                        ActionUrl = "/login",
+                        Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["InvitedBy"] = "RegOS Platform",
+                            ["CompanyName"] = tenant.TenantName,
+                            ["Role"] = "Admin",
+                            ["SetupUrl"] = "https://portal.regos.app/login"
+                        }
+                    }, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to emit onboarding invitation notification for tenant {TenantId}", tenant.TenantId);
+                }
+            }
 
             // ── Step 11: Commit ──
             await transaction.CommitAsync(ct);

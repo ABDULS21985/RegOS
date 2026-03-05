@@ -147,6 +147,7 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     private bool isLoading = true;
     private int institutionId;
+    private int currentUserId;
     private ValidationReportModel? report;
 
     protected override async Task OnInitializedAsync()
@@ -155,6 +156,7 @@
         {
             var state = await AuthState!;
             int.TryParse(state.User.FindFirst("InstitutionId")?.Value, out institutionId);
+            int.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out currentUserId);
             report = await ExportSvc.BuildValidationReportAsync(SubmissionId, institutionId);
         }
         catch { }
@@ -167,7 +169,13 @@
     {
         var csv = await ExportSvc.ExportValidationErrorsCsvAsync(SubmissionId, institutionId);
         if (!string.IsNullOrEmpty(csv))
+        {
             await JS.InvokeVoidAsync("portalDownloadFile", csv, $"validation-errors-{SubmissionId}.csv", "text/csv");
+            if (currentUserId > 0)
+            {
+                await ExportSvc.NotifyExportReady(institutionId, currentUserId, "Validation errors CSV", $"/reports/validation/{SubmissionId}");
+            }
+        }
     }
 
     private static string FormatStatus(SubmissionStatus s) => s switch

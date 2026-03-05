@@ -36,6 +36,7 @@ public static class AuthEndpoints
             {
                 if (string.IsNullOrWhiteSpace(request.MfaCode) && string.IsNullOrWhiteSpace(request.BackupCode))
                 {
+                    await mfaService.SendMfaCodeSms(user.UserId, user.UserType, ct);
                     return Results.Json(new { requiresMfa = true, mfaChallenge = "totp" });
                 }
 

@@ -94,6 +94,37 @@ public partial class DynamicSqlBuilder
         return $"DELETE FROM dbo.[{tableName}] WHERE submission_id = @submissionId{tenantFilter}";
     }
 
+    public string BuildSelectFieldBySubmission(string tableName, string fieldName, Guid? tenantId = null)
+    {
+        ValidateName(tableName);
+        ValidateName(fieldName);
+        var tenantFilter = tenantId.HasValue ? " AND TenantId = @TenantId" : "";
+        return $"SELECT TOP 1 [{fieldName}] FROM dbo.[{tableName}] " +
+               $"WHERE submission_id = @submissionId{tenantFilter} ORDER BY id";
+    }
+
+    public string BuildUpdateFieldBySubmission(string tableName, string fieldName, Guid? tenantId = null)
+    {
+        ValidateName(tableName);
+        ValidateName(fieldName);
+        var tenantFilter = tenantId.HasValue ? " AND TenantId = @TenantId" : "";
+        return $"UPDATE dbo.[{tableName}] SET [{fieldName}] = @value " +
+               $"WHERE submission_id = @submissionId{tenantFilter}";
+    }
+
+    public string BuildInsertSingleField(string tableName, string fieldName, Guid? tenantId = null)
+    {
+        ValidateName(tableName);
+        ValidateName(fieldName);
+        if (tenantId.HasValue)
+        {
+            return $"INSERT INTO dbo.[{tableName}] (submission_id, TenantId, [{fieldName}]) " +
+                   "VALUES (@submissionId, @TenantId, @value)";
+        }
+
+        return $"INSERT INTO dbo.[{tableName}] (submission_id, [{fieldName}]) VALUES (@submissionId, @value)";
+    }
+
     private static void ValidateName(string name)
     {
         if (!SafeNameRegex().IsMatch(name))

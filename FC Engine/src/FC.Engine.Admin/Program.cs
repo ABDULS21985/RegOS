@@ -172,6 +172,8 @@ app.MapPost("/account/login", async (
             Username = user.Username
         }, context.RequestAborted);
 
+        await mfaService.SendMfaCodeSms(user.Id, "PortalUser", context.RequestAborted);
+
         context.Response.Redirect($"/login?mfa=required&challenge={Uri.EscapeDataString(pendingChallenge)}");
         return;
     }

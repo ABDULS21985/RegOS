@@ -22,6 +22,8 @@ public class MetadataDbContext : DbContext
     // Licensing & modules
     public DbSet<LicenceType> LicenceTypes => Set<LicenceType>();
     public DbSet<Module> Modules => Set<Module>();
+    public DbSet<ModuleVersion> ModuleVersions => Set<ModuleVersion>();
+    public DbSet<InterModuleDataFlow> InterModuleDataFlows => Set<InterModuleDataFlow>();
     public DbSet<LicenceModuleMatrix> LicenceModuleMatrix => Set<LicenceModuleMatrix>();
     public DbSet<TenantLicenceType> TenantLicenceTypes => Set<TenantLicenceType>();
     public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
@@ -70,6 +72,9 @@ public class MetadataDbContext : DbContext
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<TenantSsoConfig> TenantSsoConfigs => Set<TenantSsoConfig>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
+    public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
+    public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
 
     // Audit
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();

@@ -16,6 +16,7 @@ public class IngestionOrchestrator
     private readonly ValidationOrchestrator _validationOrchestrator;
     private readonly IEntitlementService? _entitlementService;
     private readonly ITenantContext? _tenantContext;
+    private readonly IInterModuleDataFlowEngine? _dataFlowEngine;
 
     public IngestionOrchestrator(
         ITemplateMetadataCache cache,
@@ -25,7 +26,8 @@ public class IngestionOrchestrator
         ISubmissionRepository submissionRepo,
         ValidationOrchestrator validationOrchestrator,
         IEntitlementService? entitlementService = null,
-        ITenantContext? tenantContext = null)
+        ITenantContext? tenantContext = null,
+        IInterModuleDataFlowEngine? dataFlowEngine = null)
     {
         _cache = cache;
         _xsdGenerator = xsdGenerator;
@@ -35,6 +37,7 @@ public class IngestionOrchestrator
         _validationOrchestrator = validationOrchestrator;
         _entitlementService = entitlementService;
         _tenantContext = tenantContext;
+        _dataFlowEngine = dataFlowEngine;
     }
 
     public async Task<SubmissionResultDto> Process(
@@ -124,6 +127,20 @@ public class IngestionOrchestrator
                 // Delete any previous data for this submission
                 await _dataRepo.DeleteBySubmission(returnCode, submission.Id, ct);
                 await _dataRepo.Save(record, submission.Id, ct);
+
+                if (_dataFlowEngine != null
+                    && tenantId.HasValue
+                    && !string.IsNullOrWhiteSpace(template.ModuleCode))
+                {
+                    await _dataFlowEngine.ProcessDataFlows(
+                        tenantId.Value,
+                        submission.Id,
+                        template.ModuleCode,
+                        returnCode,
+                        institutionId,
+                        returnPeriodId,
+                        ct);
+                }
 
                 submission.MarkAccepted();
                 if (report.HasWarnings)

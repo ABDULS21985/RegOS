@@ -2,6 +2,7 @@ using System.Text.Json;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 
 namespace FC.Engine.Portal.Services;
 
@@ -13,6 +14,7 @@ namespace FC.Engine.Portal.Services;
 public class NotificationService
 {
     private readonly IPortalNotificationRepository _notificationRepo;
+    private readonly INotificationOrchestrator _notificationOrchestrator;
     private readonly IInstitutionUserRepository _userRepo;
     private readonly IInstitutionRepository _institutionRepo;
     private readonly ITenantContext _tenantContext;
@@ -20,12 +22,14 @@ public class NotificationService
 
     public NotificationService(
         IPortalNotificationRepository notificationRepo,
+        INotificationOrchestrator notificationOrchestrator,
         IInstitutionUserRepository userRepo,
         IInstitutionRepository institutionRepo,
         ITenantContext tenantContext,
         ITenantBrandingService brandingService)
     {
         _notificationRepo = notificationRepo;
+        _notificationOrchestrator = notificationOrchestrator;
         _userRepo = userRepo;
         _institutionRepo = institutionRepo;
         _tenantContext = tenantContext;
@@ -123,22 +127,26 @@ public class NotificationService
                 ("Submission Update", $"Your {returnCode} return for {period} has been updated to {status}.")
         };
 
-        await _notificationRepo.Add(new PortalNotification
+        await _notificationOrchestrator.Notify(new NotificationRequest
         {
             TenantId = tenantId,
-            UserId = submittedByUserId,
-            InstitutionId = institutionId,
-            Type = NotificationType.SubmissionResult,
+            EventType = status == SubmissionStatus.Rejected
+                ? NotificationEvents.ReturnRejected
+                : NotificationEvents.ReturnSubmittedToRegulator,
             Title = title,
             Message = message,
-            Link = $"/submissions/{submissionId}",
-            MetadataJson = JsonSerializer.Serialize(new
+            Priority = status == SubmissionStatus.Rejected ? NotificationPriority.High : NotificationPriority.Normal,
+            ActionUrl = $"/submissions/{submissionId}",
+            RecipientUserIds = new List<int> { submittedByUserId },
+            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                returnCode, period, submissionId,
-                status = status.ToString(),
-                errorCount, warningCount
-            }),
-            CreatedAt = DateTime.UtcNow
+                ["ReturnCode"] = returnCode,
+                ["PeriodLabel"] = period,
+                ["SubmissionId"] = submissionId.ToString(),
+                ["Status"] = status.ToString(),
+                ["ErrorCount"] = errorCount.ToString(),
+                ["WarningCount"] = warningCount.ToString()
+            }
         }, ct);
     }
 
@@ -160,22 +168,35 @@ public class NotificationService
 
         var urgency = daysRemaining <= 1 ? "URGENT: " : "";
 
-        await _notificationRepo.Add(new PortalNotification
+        var deadlineEvent = daysRemaining switch
+        {
+            30 => NotificationEvents.DeadlineT30,
+            14 => NotificationEvents.DeadlineT14,
+            7 => NotificationEvents.DeadlineT7,
+            3 => NotificationEvents.DeadlineT3,
+            1 => NotificationEvents.DeadlineT1,
+            < 0 => NotificationEvents.DeadlineOverdue,
+            _ => NotificationEvents.DeadlineT3
+        };
+
+        await _notificationOrchestrator.Notify(new NotificationRequest
         {
             TenantId = tenantId,
-            UserId = null, // Broadcast
-            InstitutionId = institutionId,
-            Type = NotificationType.DeadlineApproaching,
+            EventType = deadlineEvent,
             Title = $"{urgency}Deadline Approaching \u2014 {returnCode}",
             Message = $"{templateName} is due in {daysRemaining} day(s) on {deadline:d MMM yyyy}. Submit your return before the deadline.",
-            Link = "/submit",
-            MetadataJson = JsonSerializer.Serialize(new
+            Priority = daysRemaining <= 1 ? NotificationPriority.Critical : NotificationPriority.Normal,
+            IsMandatory = deadlineEvent == NotificationEvents.DeadlineOverdue,
+            ActionUrl = "/submit",
+            RecipientInstitutionId = institutionId,
+            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                returnCode, templateName,
-                deadline = deadline.ToString("o"),
-                daysRemaining
-            }),
-            CreatedAt = DateTime.UtcNow
+                ["ReturnCode"] = returnCode,
+                ["ModuleName"] = templateName,
+                ["Deadline"] = deadline.ToString("dd MMM yyyy"),
+                ["DaysRemaining"] = daysRemaining.ToString(),
+                ["DaysOverdue"] = Math.Max(0, -daysRemaining).ToString()
+            }
         }, ct);
     }
 
@@ -199,24 +220,23 @@ public class NotificationService
 
         if (checkers.Count == 0) return;
 
-        var notifications = checkers.Select(checker => new PortalNotification
+        await _notificationOrchestrator.Notify(new NotificationRequest
         {
             TenantId = tenantId,
-            UserId = checker.Id,
-            InstitutionId = institutionId,
-            Type = NotificationType.ApprovalRequest,
+            EventType = NotificationEvents.ReturnSubmittedForReview,
             Title = "Submission Pending Your Approval",
             Message = $"{submittedByName} submitted {returnCode} for {period}. Please review and approve or reject.",
-            Link = $"/submissions/{submissionId}",
-            MetadataJson = JsonSerializer.Serialize(new
+            Priority = NotificationPriority.Normal,
+            ActionUrl = $"/submissions/{submissionId}",
+            RecipientUserIds = checkers.Select(c => c.Id).ToList(),
+            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                returnCode, period, submissionId,
-                submittedBy = submittedByName
-            }),
-            CreatedAt = DateTime.UtcNow
-        }).ToList();
-
-        await _notificationRepo.AddRange(notifications, ct);
+                ["ReturnCode"] = returnCode,
+                ["PeriodLabel"] = period,
+                ["SubmissionId"] = submissionId.ToString(),
+                ["UserName"] = submittedByName
+            }
+        }, ct);
     }
 
     /// <summary>
@@ -242,21 +262,24 @@ public class NotificationService
             : $"Your {returnCode} return for {period} was rejected by {reviewerName}." +
               (string.IsNullOrEmpty(reviewerComments) ? "" : $" Reason: \"{reviewerComments}\"");
 
-        await _notificationRepo.Add(new PortalNotification
+        await _notificationOrchestrator.Notify(new NotificationRequest
         {
             TenantId = tenantId,
-            UserId = makerUserId,
-            InstitutionId = institutionId,
-            Type = NotificationType.ApprovalResult,
+            EventType = approved ? NotificationEvents.ReturnApproved : NotificationEvents.ReturnRejected,
             Title = title,
             Message = message,
-            Link = $"/submissions/{submissionId}",
-            MetadataJson = JsonSerializer.Serialize(new
+            Priority = approved ? NotificationPriority.Normal : NotificationPriority.High,
+            ActionUrl = $"/submissions/{submissionId}",
+            RecipientUserIds = new List<int> { makerUserId },
+            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
-                returnCode, period, submissionId,
-                approved, reviewerName, reviewerComments
-            }),
-            CreatedAt = DateTime.UtcNow
+                ["ReturnCode"] = returnCode,
+                ["PeriodLabel"] = period,
+                ["SubmissionId"] = submissionId.ToString(),
+                ["ApprovedBy"] = reviewerName,
+                ["RejectedBy"] = reviewerName,
+                ["RejectionReason"] = reviewerComments ?? string.Empty
+            }
         }, ct);
     }
 
@@ -268,16 +291,15 @@ public class NotificationService
         CancellationToken ct = default)
     {
         var tenantId = await ResolveTenantId(institutionId, ct);
-        await _notificationRepo.Add(new PortalNotification
+        await _notificationOrchestrator.Notify(new NotificationRequest
         {
             TenantId = tenantId,
-            UserId = null, // Broadcast
-            InstitutionId = institutionId,
-            Type = NotificationType.SystemAnnouncement,
+            EventType = NotificationEvents.SystemAnnouncement,
             Title = title,
             Message = message,
-            Link = link,
-            CreatedAt = DateTime.UtcNow
+            Priority = NotificationPriority.Normal,
+            ActionUrl = link,
+            RecipientInstitutionId = institutionId
         }, ct);
     }
 
@@ -297,19 +319,16 @@ public class NotificationService
 
         if (admins.Count == 0) return;
 
-        var notifications = admins.Select(admin => new PortalNotification
+        await _notificationOrchestrator.Notify(new NotificationRequest
         {
             TenantId = tenantId,
-            UserId = admin.Id,
-            InstitutionId = institutionId,
-            Type = NotificationType.TeamUpdate,
+            EventType = NotificationEvents.SystemAnnouncement,
             Title = title,
             Message = message,
-            Link = "/institution/team",
-            CreatedAt = DateTime.UtcNow
-        }).ToList();
-
-        await _notificationRepo.AddRange(notifications, ct);
+            Priority = NotificationPriority.Normal,
+            ActionUrl = "/institution/team",
+            RecipientUserIds = admins.Select(a => a.Id).ToList()
+        }, ct);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -367,6 +386,8 @@ public class NotificationService
     {
         Id = n.Id,
         Type = n.Type,
+        EventType = n.EventType,
+        Priority = n.Priority,
         Title = n.Title,
         Message = n.Message,
         Link = n.Link,
@@ -394,6 +415,8 @@ public class NotificationModel
 {
     public int Id { get; set; }
     public NotificationType Type { get; set; }
+    public string EventType { get; set; } = string.Empty;
+    public NotificationPriority Priority { get; set; } = NotificationPriority.Normal;
     public string Title { get; set; } = "";
     public string Message { get; set; } = "";
     public string? Link { get; set; }

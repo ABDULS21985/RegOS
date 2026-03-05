@@ -1,0 +1,232 @@
+@page "/modules/{ModuleCode}"
+@attribute [Authorize(Roles = "PlatformAdmin")]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Metadata
+@using FC.Engine.Infrastructure.Metadata
+@using Microsoft.EntityFrameworkCore
+@inject MetadataDbContext Db
+@inject IModuleImportService ModuleImportService
+@inject NavigationManager Navigation
+@inject ToastService Toast
+
+<div class="list-page">
+    <div class="list-page-header">
+        <div class="list-page-header-text">
+            <h1>Module Detail: @ModuleCode</h1>
+            @if (_module != null)
+            {
+                <p>@_module.ModuleName (@_module.RegulatorCode)</p>
+            }
+        </div>
+        <div class="list-toolbar-actions">
+            <button class="btn btn-outline" @onclick="BackToList">Back</button>
+            <button class="btn btn-primary" @onclick="OpenImport">Import Update</button>
+            <button class="btn btn-gold" disabled="@_publishing" @onclick="PublishDrafts">Publish Drafts</button>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <p>Loading module details...</p>
+    }
+    else if (_module == null)
+    {
+        <div class="alert alert-danger">Module not found.</div>
+    }
+    else
+    {
+        <div class="dashboard-card">
+            <div class="dashboard-card-header">
+                <h2 class="dashboard-card-title">Module Versions</h2>
+            </div>
+            <div class="dashboard-card-body">
+                @if (_moduleVersions.Count == 0)
+                {
+                    <p>No module version records yet.</p>
+                }
+                else
+                {
+                    <table class="list-table">
+                        <thead>
+                            <tr>
+                                <th>Version</th>
+                                <th>Status</th>
+                                <th>Published</th>
+                                <th>Deprecated</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var version in _moduleVersions)
+                            {
+                                <tr>
+                                    <td>@version.VersionCode</td>
+                                    <td>@version.Status</td>
+                                    <td>@version.PublishedAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td>@version.DeprecatedAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="dashboard-card-header">
+                <h2 class="dashboard-card-title">Templates</h2>
+            </div>
+            <div class="dashboard-card-body">
+                @if (_templateRows.Count == 0)
+                {
+                    <p>No templates are linked to this module.</p>
+                }
+                else
+                {
+                    <table class="list-table">
+                        <thead>
+                            <tr>
+                                <th>Return Code</th>
+                                <th>Name</th>
+                                <th>Latest Version</th>
+                                <th>Status</th>
+                                <th>Fields</th>
+                                <th>Formulas</th>
+                                <th>Table</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _templateRows)
+                            {
+                                <tr>
+                                    <td class="list-cell-code">@row.ReturnCode</td>
+                                    <td>@row.Name</td>
+                                    <td>@row.VersionNumber</td>
+                                    <td>@row.Status</td>
+                                    <td>@row.FieldCount</td>
+                                    <td>@row.FormulaCount</td>
+                                    <td class="list-cell-code">@row.PhysicalTableName</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string ModuleCode { get; set; } = string.Empty;
+
+    private bool _loading = true;
+    private bool _publishing;
+    private FC.Engine.Domain.Entities.Module? _module;
+    private List<FC.Engine.Domain.Entities.ModuleVersion> _moduleVersions = new();
+    private List<TemplateRow> _templateRows = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+
+        _module = await Db.Modules
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.ModuleCode == ModuleCode);
+
+        if (_module != null)
+        {
+            _moduleVersions = await Db.ModuleVersions
+                .AsNoTracking()
+                .Where(v => v.ModuleId == _module.Id)
+                .OrderByDescending(v => v.Id)
+                .ToListAsync();
+
+            var templates = await Db.ReturnTemplates
+                .AsNoTracking()
+                .Where(t => t.ModuleId == _module.Id)
+                .OrderBy(t => t.ReturnCode)
+                .ToListAsync();
+
+            var templateIds = templates.Select(t => t.Id).ToList();
+            var versions = await Db.TemplateVersions
+                .AsNoTracking()
+                .Where(v => templateIds.Contains(v.TemplateId))
+                .OrderByDescending(v => v.VersionNumber)
+                .ToListAsync();
+            var versionIds = versions.Select(v => v.Id).ToList();
+
+            var fieldCounts = await Db.TemplateFields
+                .AsNoTracking()
+                .Where(f => versionIds.Contains(f.TemplateVersionId))
+                .GroupBy(f => f.TemplateVersionId)
+                .Select(g => new { VersionId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.VersionId, x => x.Count);
+
+            var formulaCounts = await Db.IntraSheetFormulas
+                .AsNoTracking()
+                .Where(f => versionIds.Contains(f.TemplateVersionId) && f.IsActive)
+                .GroupBy(f => f.TemplateVersionId)
+                .Select(g => new { VersionId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.VersionId, x => x.Count);
+
+            _templateRows = templates.Select(t =>
+            {
+                var latest = versions.FirstOrDefault(v => v.TemplateId == t.Id);
+                return new TemplateRow
+                {
+                    ReturnCode = t.ReturnCode,
+                    Name = t.Name,
+                    PhysicalTableName = t.PhysicalTableName,
+                    VersionNumber = latest?.VersionNumber ?? 0,
+                    Status = latest?.Status.ToString() ?? "N/A",
+                    FieldCount = latest != null && fieldCounts.TryGetValue(latest.Id, out var f) ? f : 0,
+                    FormulaCount = latest != null && formulaCounts.TryGetValue(latest.Id, out var fm) ? fm : 0
+                };
+            }).ToList();
+        }
+
+        _loading = false;
+    }
+
+    private void BackToList() => Navigation.NavigateTo("/modules");
+
+    private void OpenImport() => Navigation.NavigateTo("/modules/import");
+
+    private async Task PublishDrafts()
+    {
+        _publishing = true;
+        try
+        {
+            var result = await ModuleImportService.PublishModule(ModuleCode, "platform-admin");
+            if (result.Success)
+            {
+                Toast.Success($"Module {ModuleCode} published. Tables created: {result.TablesCreated}.", "Publish Complete");
+                await OnParametersSetAsync();
+            }
+            else
+            {
+                Toast.Error(string.Join("; ", result.Errors), "Publish failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Publish failed");
+        }
+        finally
+        {
+            _publishing = false;
+        }
+    }
+
+    private sealed class TemplateRow
+    {
+        public string ReturnCode { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string PhysicalTableName { get; set; } = string.Empty;
+        public int VersionNumber { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public int FieldCount { get; set; }
+        public int FormulaCount { get; set; }
+    }
+}

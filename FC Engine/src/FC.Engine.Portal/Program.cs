@@ -3,8 +3,10 @@ using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Infrastructure;
 using FC.Engine.Infrastructure.Auth;
+using FC.Engine.Infrastructure.Hubs;
 using FC.Engine.Infrastructure.Middleware;
 using FC.Engine.Infrastructure.MultiTenancy;
+using FC.Engine.Infrastructure.Notifications;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Serilog;
@@ -81,6 +83,16 @@ builder.Services.AddAuthorization(options =>
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddControllers();
+var signalRBuilder = builder.Services.AddSignalR();
+var signalRSettings = builder.Configuration.GetSection(NotificationSettings.SectionName).Get<NotificationSettings>()?.SignalR;
+if (signalRSettings?.RedisBackplane == true)
+{
+    var redisConnection = builder.Configuration.GetConnectionString("Redis");
+    if (!string.IsNullOrWhiteSpace(redisConnection))
+    {
+        signalRBuilder.AddStackExchangeRedis(redisConnection);
+    }
+}
 
 // Blazor Server
 builder.Services.AddRazorComponents()
@@ -205,6 +217,8 @@ app.MapPost("/account/login", async (
             MustChangePassword = user.MustChangePassword
         }, context.RequestAborted);
 
+        await mfaService.SendMfaCodeSms(user.Id, "InstitutionUser", context.RequestAborted);
+
         context.Response.Redirect($"/login?mfa=required&challenge={Uri.EscapeDataString(pendingChallengeId)}");
         return;
     }
@@ -258,6 +272,7 @@ app.MapGet("/account/logout", async (HttpContext context) =>
 });
 
 app.MapControllers();
+app.MapHub<NotificationHub>("/hubs/notifications");
 
 app.MapRazorComponents<FC.Engine.Portal.Components.App>()
     .AddInteractiveServerRenderMode();

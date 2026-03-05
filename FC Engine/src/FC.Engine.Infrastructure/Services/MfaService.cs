@@ -2,6 +2,8 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
+using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
 using OtpNet;
@@ -13,11 +15,16 @@ public class MfaService : IMfaService
 {
     private readonly MetadataDbContext _db;
     private readonly ITenantContext _tenantContext;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
 
-    public MfaService(MetadataDbContext db, ITenantContext tenantContext)
+    public MfaService(
+        MetadataDbContext db,
+        ITenantContext tenantContext,
+        INotificationOrchestrator? notificationOrchestrator = null)
     {
         _db = db;
         _tenantContext = tenantContext;
+        _notificationOrchestrator = notificationOrchestrator;
     }
 
     public async Task<MfaSetupResult> InitiateSetup(int userId, string userType, string email)
@@ -166,6 +173,47 @@ public class MfaService : IMfaService
         return false;
     }
 
+    public async Task<bool> SendMfaCodeSms(int userId, string userType, CancellationToken ct = default)
+    {
+        if (_notificationOrchestrator is null)
+        {
+            return false;
+        }
+
+        var config = await _db.UserMfaConfigs
+            .FirstOrDefaultAsync(c => c.UserId == userId && c.UserType == userType && c.IsEnabled, ct);
+        if (config is null)
+        {
+            return false;
+        }
+
+        var phone = await ResolveUserPhone(userId, userType, ct);
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return false;
+        }
+
+        var totp = new Totp(Base32Encoding.ToBytes(config.SecretKey));
+        var code = totp.ComputeTotp(DateTime.UtcNow);
+
+        await _notificationOrchestrator.Notify(new NotificationRequest
+        {
+            TenantId = config.TenantId,
+            EventType = NotificationEvents.MfaCodeSms,
+            Title = "Your verification code",
+            Message = $"Your RegOS verification code is {code}. Valid for 5 minutes.",
+            Priority = NotificationPriority.Critical,
+            IsMandatory = true,
+            RecipientUserIds = new List<int> { userId },
+            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Code"] = code
+            }
+        }, ct);
+
+        return true;
+    }
+
     public async Task Disable(int userId, string userType)
     {
         var config = await _db.UserMfaConfigs
@@ -268,5 +316,34 @@ public class MfaService : IMfaService
         var bytes = RandomNumberGenerator.GetBytes(5);
         var code = Convert.ToHexString(bytes).ToUpperInvariant()[..8];
         return $"{code[..4]}-{code[4..]}";
+    }
+
+    private async Task<string?> ResolveUserPhone(int userId, string userType, CancellationToken ct)
+    {
+        if (string.Equals(userType, "InstitutionUser", StringComparison.OrdinalIgnoreCase))
+        {
+            var user = await _db.InstitutionUsers
+                .Include(u => u.Institution)
+                .FirstOrDefaultAsync(u => u.Id == userId, ct);
+            return user?.PhoneNumber ?? user?.Institution?.ContactPhone;
+        }
+
+        if (string.Equals(userType, "PortalUser", StringComparison.OrdinalIgnoreCase))
+        {
+            var user = await _db.PortalUsers.FirstOrDefaultAsync(u => u.Id == userId, ct);
+            if (user?.TenantId is null)
+            {
+                return null;
+            }
+
+            var tenantPhone = await _db.Tenants
+                .Where(t => t.TenantId == user.TenantId.Value)
+                .Select(t => t.ContactPhone)
+                .FirstOrDefaultAsync(ct);
+
+            return tenantPhone;
+        }
+
+        return null;
     }
 }

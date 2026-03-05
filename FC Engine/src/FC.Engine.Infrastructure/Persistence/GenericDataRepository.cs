@@ -146,6 +146,67 @@ public class GenericDataRepository : IGenericDataRepository
             new CommandDefinition(sql, parameters, cancellationToken: ct));
     }
 
+    public async Task<object?> ReadFieldValue(
+        string returnCode,
+        int submissionId,
+        string fieldName,
+        CancellationToken ct = default)
+    {
+        var template = await _cache.GetPublishedTemplate(returnCode, ct);
+        var tenantId = _tenantContext.CurrentTenantId;
+        var sql = _sqlBuilder.BuildSelectFieldBySubmission(template.PhysicalTableName, fieldName, tenantId);
+        object parameters = tenantId.HasValue
+            ? new { submissionId, TenantId = tenantId.Value }
+            : new { submissionId };
+
+        using var connection = await CreateConnectionAsync(ct);
+        return await connection.ExecuteScalarAsync<object?>(
+            new CommandDefinition(sql, parameters, cancellationToken: ct));
+    }
+
+    public async Task WriteFieldValue(
+        string returnCode,
+        int submissionId,
+        string fieldName,
+        object? value,
+        string? dataSource = null,
+        string? sourceDetail = null,
+        CancellationToken ct = default)
+    {
+        var template = await _cache.GetPublishedTemplate(returnCode, ct);
+        var tenantId = _tenantContext.CurrentTenantId;
+
+        using var connection = await CreateConnectionAsync(ct);
+        var existing = await connection.ExecuteScalarAsync<int>(
+            new CommandDefinition(
+                $"SELECT COUNT(1) FROM dbo.[{template.PhysicalTableName}] WHERE submission_id = @submissionId" +
+                (tenantId.HasValue ? " AND TenantId = @TenantId" : string.Empty),
+                tenantId.HasValue
+                    ? new { submissionId, TenantId = tenantId.Value }
+                    : new { submissionId },
+                cancellationToken: ct));
+
+        if (existing > 0)
+        {
+            var updateSql = _sqlBuilder.BuildUpdateFieldBySubmission(template.PhysicalTableName, fieldName, tenantId);
+            await connection.ExecuteAsync(new CommandDefinition(
+                updateSql,
+                tenantId.HasValue
+                    ? new { submissionId, TenantId = tenantId.Value, value }
+                    : new { submissionId, value },
+                cancellationToken: ct));
+            return;
+        }
+
+        var insertSql = _sqlBuilder.BuildInsertSingleField(template.PhysicalTableName, fieldName, tenantId);
+        await connection.ExecuteAsync(new CommandDefinition(
+            insertSql,
+            tenantId.HasValue
+                ? new { submissionId, TenantId = tenantId.Value, value }
+                : new { submissionId, value },
+            cancellationToken: ct));
+    }
+
     private async Task<IDbConnection> CreateConnectionAsync(CancellationToken ct)
     {
         return await _connectionFactory.CreateConnectionAsync(_tenantContext.CurrentTenantId, ct);

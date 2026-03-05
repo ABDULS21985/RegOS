@@ -1,7 +1,11 @@
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.SignalR.Client
 @using System.Security.Claims
+@using FC.Engine.Domain.Enums
 @inject NotificationService NotificationSvc
 @inject NavigationManager Navigation
+@inject IHttpContextAccessor HttpContextAccessor
+@implements IAsyncDisposable
 
 <div class="portal-notif-bell-wrapper" @onkeydown="HandleKeyDown">
     <button class="portal-topbar-notification"
@@ -91,6 +95,7 @@
     private bool isLoadingDropdown;
     private int unreadCount;
     private List<NotificationModel> recentNotifications = new();
+    private HubConnection? _hubConnection;
 
     private int userId;
     private int institutionId;
@@ -110,8 +115,67 @@
 
             if (userId > 0 && institutionId > 0)
                 unreadCount = await NotificationSvc.GetUnreadCount(userId, institutionId);
+
+            await EnsureSignalRConnected();
         }
         catch { }
+    }
+
+    private async Task EnsureSignalRConnected()
+    {
+        if (_hubConnection is not null)
+        {
+            return;
+        }
+
+        try
+        {
+            var hubUrl = Navigation.ToAbsoluteUri("/hubs/notifications");
+            var authCookie = HttpContextAccessor.HttpContext?.Request.Cookies["FC.Portal.Auth"];
+
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(hubUrl, options =>
+                {
+                    if (!string.IsNullOrWhiteSpace(authCookie))
+                    {
+                        options.Cookies = new System.Net.CookieContainer();
+                        options.Cookies.Add(hubUrl, new System.Net.Cookie("FC.Portal.Auth", authCookie));
+                    }
+                })
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.On<NotificationPayload>("ReceiveNotification", async payload =>
+            {
+                unreadCount++;
+                recentNotifications.Insert(0, new NotificationModel
+                {
+                    Id = 0,
+                    Type = MapPayloadType(payload.EventType),
+                    EventType = payload.EventType,
+                    Priority = payload.Priority,
+                    Title = payload.Title,
+                    Message = payload.Message,
+                    Link = payload.ActionUrl,
+                    IsRead = false,
+                    CreatedAt = payload.Timestamp,
+                    TimeAgo = "Just now"
+                });
+
+                if (recentNotifications.Count > 10)
+                {
+                    recentNotifications.RemoveAt(10);
+                }
+
+                await InvokeAsync(StateHasChanged);
+            });
+
+            await _hubConnection.StartAsync();
+        }
+        catch
+        {
+            // Non-fatal fallback: UI still works with normal refresh/loading flow.
+        }
     }
 
     private async Task ToggleDropdown()
@@ -216,4 +280,32 @@
             "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M23 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/></svg>"),
         _ => new("")
     };
+
+    private static NotificationType MapPayloadType(string eventType)
+    {
+        if (eventType.StartsWith("deadline.", StringComparison.OrdinalIgnoreCase))
+            return NotificationType.DeadlineApproaching;
+
+        if (string.Equals(eventType, "return.submitted_for_review", StringComparison.OrdinalIgnoreCase))
+            return NotificationType.ApprovalRequest;
+
+        if (string.Equals(eventType, "return.approved", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(eventType, "return.rejected", StringComparison.OrdinalIgnoreCase))
+            return NotificationType.ApprovalResult;
+
+        if (eventType.StartsWith("subscription.", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(eventType, "system.announcement", StringComparison.OrdinalIgnoreCase))
+            return NotificationType.SystemAnnouncement;
+
+        return NotificationType.SubmissionResult;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection is not null)
+        {
+            await _hubConnection.DisposeAsync();
+            _hubConnection = null;
+        }
+    }
 }

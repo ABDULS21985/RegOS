@@ -12,4 +12,13 @@ public interface IGenericDataRepository
     Task<ReturnDataRecord?> GetBySubmission(string returnCode, int submissionId, CancellationToken ct = default);
     Task<ReturnDataRecord?> GetByInstitutionAndPeriod(string returnCode, int institutionId, int returnPeriodId, CancellationToken ct = default);
     Task DeleteBySubmission(string returnCode, int submissionId, CancellationToken ct = default);
+    Task<object?> ReadFieldValue(string returnCode, int submissionId, string fieldName, CancellationToken ct = default);
+    Task WriteFieldValue(
+        string returnCode,
+        int submissionId,
+        string fieldName,
+        object? value,
+        string? dataSource = null,
+        string? sourceDetail = null,
+        CancellationToken ct = default);
 }

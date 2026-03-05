@@ -6,6 +6,7 @@ public interface IMfaService
     Task<MfaActivationResult> ActivateWithVerification(int userId, string userType, string code);
     Task<bool> VerifyCode(int userId, string code, string? userType = null);
     Task<bool> VerifyBackupCode(int userId, string backupCode, string? userType = null);
+    Task<bool> SendMfaCodeSms(int userId, string userType, CancellationToken ct = default);
     Task Disable(int userId, string userType);
     Task<bool> IsMfaEnabled(int userId, string userType);
     Task<bool> IsMfaRequired(Guid tenantId, string role);

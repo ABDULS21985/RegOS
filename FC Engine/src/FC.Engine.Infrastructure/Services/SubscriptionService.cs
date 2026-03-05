@@ -1,6 +1,7 @@
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -13,16 +14,19 @@ public class SubscriptionService : ISubscriptionService
 
     private readonly MetadataDbContext _db;
     private readonly IEntitlementService _entitlementService;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
     private readonly ILogger<SubscriptionService> _logger;
 
     public SubscriptionService(
         MetadataDbContext db,
         IEntitlementService entitlementService,
-        ILogger<SubscriptionService> logger)
+        ILogger<SubscriptionService> logger,
+        INotificationOrchestrator? notificationOrchestrator = null)
     {
         _db = db;
         _entitlementService = entitlementService;
         _logger = logger;
+        _notificationOrchestrator = notificationOrchestrator;
     }
 
     public async Task<Subscription> CreateSubscription(
@@ -146,6 +150,33 @@ public class SubscriptionService : ISubscriptionService
 
         await _db.SaveChangesAsync(ct);
         await _entitlementService.InvalidateCache(tenantId);
+
+        if (_notificationOrchestrator is not null)
+        {
+            try
+            {
+                await _notificationOrchestrator.Notify(new NotificationRequest
+                {
+                    TenantId = tenantId,
+                    EventType = NotificationEvents.ModuleActivated,
+                    Title = $"Module activated: {module.ModuleName}",
+                    Message = $"{module.ModuleName} ({module.ModuleCode}) is now active for your subscription.",
+                    Priority = NotificationPriority.Normal,
+                    RecipientRoles = new List<string> { "Admin" },
+                    ActionUrl = "/subscription/modules",
+                    Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["ModuleName"] = module.ModuleName,
+                        ["ModuleCode"] = module.ModuleCode
+                    }
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to emit module activation notification for tenant {TenantId}", tenantId);
+            }
+        }
+
         return existing;
     }
 

@@ -1,0 +1,277 @@
+@page "/modules/import"
+@attribute [Authorize(Roles = "PlatformAdmin")]
+@using System.Text
+@using FC.Engine.Domain.Abstractions
+@using Microsoft.AspNetCore.Components.Forms
+@inject IModuleImportService ModuleImportService
+@inject ToastService Toast
+@inject NavigationManager Navigation
+
+<div class="dashboard-card">
+    <div class="dashboard-card-header">
+        <h1 class="dashboard-card-title">Module Import</h1>
+        <p class="dashboard-card-subtitle">Upload a module definition JSON, validate it, import metadata, and publish draft templates.</p>
+    </div>
+
+    <div class="dashboard-card-body">
+        <div class="form-group">
+            <label class="form-label">Definition File (JSON)</label>
+            <InputFile OnChange="OnFileSelected" accept=".json,application/json" />
+        </div>
+
+        <div class="form-group">
+            <label class="form-label">Definition Content</label>
+            <textarea class="form-control" rows="16" @bind="_jsonDefinition" placeholder="Paste module definition JSON here"></textarea>
+        </div>
+
+        <div class="actions-row">
+            <button class="btn btn-outline" disabled="@_busy" @onclick="Validate">Validate</button>
+            <button class="btn btn-primary" disabled="@(_busy || !_canImport)" @onclick="Import">Import</button>
+            <button class="btn btn-gold" disabled="@(_busy || string.IsNullOrWhiteSpace(_moduleCode))" @onclick="Publish">Publish</button>
+            <button class="btn btn-outline" disabled="@_busy" @onclick="BackToList">Back to Module List</button>
+        </div>
+    </div>
+</div>
+
+@if (_validationResult != null)
+{
+    <div class="dashboard-card">
+        <div class="dashboard-card-header">
+            <h2 class="dashboard-card-title">Validation Summary</h2>
+        </div>
+        <div class="dashboard-card-body">
+            <div class="kpi-grid">
+                <div class="kpi-item"><span class="kpi-label">Templates</span><strong>@_validationResult.TemplateCount</strong></div>
+                <div class="kpi-item"><span class="kpi-label">Fields</span><strong>@_validationResult.FieldCount</strong></div>
+                <div class="kpi-item"><span class="kpi-label">Formulas</span><strong>@_validationResult.FormulaCount</strong></div>
+                <div class="kpi-item"><span class="kpi-label">Cross-Sheet Rules</span><strong>@_validationResult.CrossSheetRuleCount</strong></div>
+            </div>
+
+            @if (_validationResult.Errors.Count > 0)
+            {
+                <div class="alert alert-danger">
+                    <strong>Errors</strong>
+                    <ul>
+                        @foreach (var error in _validationResult.Errors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                </div>
+            }
+
+            @if (_validationResult.Warnings.Count > 0)
+            {
+                <div class="alert alert-warning">
+                    <strong>Warnings</strong>
+                    <ul>
+                        @foreach (var warning in _validationResult.Warnings)
+                        {
+                            <li>@warning</li>
+                        }
+                    </ul>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@if (_importResult != null)
+{
+    <div class="dashboard-card">
+        <div class="dashboard-card-header">
+            <h2 class="dashboard-card-title">Import Result</h2>
+        </div>
+        <div class="dashboard-card-body">
+            @if (_importResult.Success)
+            {
+                <p>Imported module <strong>@_importResult.ModuleCode</strong>.</p>
+                <div class="kpi-grid">
+                    <div class="kpi-item"><span class="kpi-label">Templates</span><strong>@_importResult.TemplatesCreated</strong></div>
+                    <div class="kpi-item"><span class="kpi-label">Fields</span><strong>@_importResult.FieldsCreated</strong></div>
+                    <div class="kpi-item"><span class="kpi-label">Formulas</span><strong>@_importResult.FormulasCreated</strong></div>
+                    <div class="kpi-item"><span class="kpi-label">Cross-Sheet Rules</span><strong>@_importResult.CrossSheetRulesCreated</strong></div>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-danger">
+                    <strong>Import failed</strong>
+                    <ul>
+                        @foreach (var error in _importResult.Errors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@if (_publishResult != null)
+{
+    <div class="dashboard-card">
+        <div class="dashboard-card-header">
+            <h2 class="dashboard-card-title">Publish Result</h2>
+        </div>
+        <div class="dashboard-card-body">
+            @if (_publishResult.Success)
+            {
+                <p>Published module <strong>@_publishResult.ModuleCode</strong>. Tables created: <strong>@_publishResult.TablesCreated</strong>.</p>
+                <details>
+                    <summary>DDL Statements (@_publishResult.DdlStatements.Count)</summary>
+                    @foreach (var ddl in _publishResult.DdlStatements)
+                    {
+                        <pre style="white-space: pre-wrap;">@ddl</pre>
+                    }
+                </details>
+            }
+            else
+            {
+                <div class="alert alert-danger">
+                    <strong>Publish failed</strong>
+                    <ul>
+                        @foreach (var error in _publishResult.Errors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private string _jsonDefinition = string.Empty;
+    private string? _moduleCode;
+    private bool _busy;
+    private bool _canImport;
+    private ModuleValidationResult? _validationResult;
+    private ModuleImportResult? _importResult;
+    private ModulePublishResult? _publishResult;
+
+    private async Task OnFileSelected(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            var file = args.File;
+            await using var stream = file.OpenReadStream(5 * 1024 * 1024);
+            using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: false);
+            _jsonDefinition = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "File read failed");
+        }
+    }
+
+    private async Task Validate()
+    {
+        _busy = true;
+        _importResult = null;
+        _publishResult = null;
+        try
+        {
+            _validationResult = await ModuleImportService.ValidateDefinition(_jsonDefinition);
+            _canImport = _validationResult.IsValid;
+            if (_validationResult.IsValid)
+            {
+                _moduleCode = TryReadModuleCode(_jsonDefinition);
+                Toast.Success("Definition is valid and ready to import.", "Validation Passed");
+            }
+            else
+            {
+                Toast.Warning("Validation returned errors. Resolve errors before importing.", "Validation Failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Validation failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Import()
+    {
+        _busy = true;
+        try
+        {
+            _importResult = await ModuleImportService.ImportModule(_jsonDefinition, "platform-admin");
+            if (_importResult.Success)
+            {
+                _moduleCode = _importResult.ModuleCode;
+                Toast.Success($"Module {_importResult.ModuleCode} imported successfully.", "Import Complete");
+            }
+            else
+            {
+                Toast.Error(string.Join("; ", _importResult.Errors), "Import failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Import failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Publish()
+    {
+        if (string.IsNullOrWhiteSpace(_moduleCode))
+        {
+            return;
+        }
+
+        _busy = true;
+        try
+        {
+            _publishResult = await ModuleImportService.PublishModule(_moduleCode, "platform-admin");
+            if (_publishResult.Success)
+            {
+                Toast.Success($"Module {_moduleCode} published successfully.", "Publish Complete");
+            }
+            else
+            {
+                Toast.Error(string.Join("; ", _publishResult.Errors), "Publish failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Publish failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void BackToList()
+    {
+        Navigation.NavigateTo("/modules");
+    }
+
+    private static string? TryReadModuleCode(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.TryGetProperty("moduleCode", out var moduleCode))
+            {
+                return moduleCode.GetString();
+            }
+        }
+        catch
+        {
+            // Ignore parse errors here; full validation handles reporting.
+        }
+
+        return null;
+    }
+}

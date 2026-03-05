@@ -21,6 +21,8 @@ public class InstitutionUser
 
     public string Email { get; set; } = string.Empty;
 
+    public string? PhoneNumber { get; set; }
+
     public string DisplayName { get; set; } = string.Empty;
 
     public string PasswordHash { get; set; } = string.Empty;

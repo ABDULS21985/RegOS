@@ -1,6 +1,7 @@
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -48,11 +49,13 @@ public class OverdueInvoiceJob : BackgroundService
             using var scope = _serviceProvider.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
             var entitlement = scope.ServiceProvider.GetRequiredService<IEntitlementService>();
+            var notifications = scope.ServiceProvider.GetService<INotificationOrchestrator>();
 
             var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
             var now = DateTime.UtcNow;
 
             var changedTenantIds = new HashSet<Guid>();
+            var notificationRequests = new List<NotificationRequest>();
 
             var overdueInvoices = await db.Invoices
                 .Include(i => i.Subscription)
@@ -63,6 +66,24 @@ public class OverdueInvoiceJob : BackgroundService
             foreach (var invoice in overdueInvoices)
             {
                 invoice.MarkOverdue();
+                notificationRequests.Add(new NotificationRequest
+                {
+                    TenantId = invoice.TenantId,
+                    EventType = NotificationEvents.PaymentOverdue,
+                    Title = $"Invoice {invoice.InvoiceNumber} is overdue",
+                    Message = $"Invoice {invoice.InvoiceNumber} is overdue. Please settle payment to avoid suspension.",
+                    Priority = NotificationPriority.Critical,
+                    IsMandatory = true,
+                    RecipientRoles = new List<string> { "Admin" },
+                    ActionUrl = "/subscription/invoices",
+                    Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["InvoiceNumber"] = invoice.InvoiceNumber,
+                        ["Amount"] = invoice.TotalAmount.ToString("F2"),
+                        ["DueDate"] = invoice.DueDate?.ToString() ?? string.Empty,
+                        ["PayUrl"] = "https://portal.regos.app/subscription/invoices"
+                    }
+                });
 
                 var sub = invoice.Subscription;
                 if (sub is not null && sub.Status == SubscriptionStatus.Active)
@@ -83,6 +104,17 @@ public class OverdueInvoiceJob : BackgroundService
             {
                 subscription.Suspend("Grace period expired");
                 changedTenantIds.Add(subscription.TenantId);
+                notificationRequests.Add(new NotificationRequest
+                {
+                    TenantId = subscription.TenantId,
+                    EventType = NotificationEvents.SubscriptionSuspended,
+                    Title = "Subscription suspended",
+                    Message = "Your subscription has been suspended due to unpaid invoices.",
+                    Priority = NotificationPriority.Critical,
+                    IsMandatory = true,
+                    RecipientRoles = new List<string> { "Admin" },
+                    ActionUrl = "/subscription/my-plan"
+                });
             }
 
             var expiredTrials = await db.Subscriptions
@@ -102,6 +134,14 @@ public class OverdueInvoiceJob : BackgroundService
                 foreach (var tenantId in changedTenantIds)
                 {
                     await entitlement.InvalidateCache(tenantId);
+                }
+
+                if (notifications != null)
+                {
+                    foreach (var request in notificationRequests)
+                    {
+                        await notifications.Notify(request, ct);
+                    }
                 }
             }
 

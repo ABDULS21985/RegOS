@@ -3,6 +3,7 @@ using System.Text;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 using FC.Engine.Domain.ValueObjects;
 
 namespace FC.Engine.Portal.Services;
@@ -14,19 +15,22 @@ public class ExportService
     private readonly IInstitutionUserRepository _userRepo;
     private readonly ISubmissionApprovalRepository _approvalRepo;
     private readonly ITenantBrandingService _brandingService;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
 
     public ExportService(
         ISubmissionRepository submissionRepo,
         IInstitutionRepository institutionRepo,
         IInstitutionUserRepository userRepo,
         ISubmissionApprovalRepository approvalRepo,
-        ITenantBrandingService brandingService)
+        ITenantBrandingService brandingService,
+        INotificationOrchestrator? notificationOrchestrator = null)
     {
         _submissionRepo = submissionRepo;
         _institutionRepo = institutionRepo;
         _userRepo = userRepo;
         _approvalRepo = approvalRepo;
         _brandingService = brandingService;
+        _notificationOrchestrator = notificationOrchestrator;
     }
 
     // === VALIDATION REPORT DATA ===
@@ -256,6 +260,40 @@ public class ExportService
         var submission = await _submissionRepo.GetById(submissionId);
         if (submission is null || submission.InstitutionId != institutionId) return null;
         return submission.RawXml;
+    }
+
+    public async Task NotifyExportReady(
+        int institutionId,
+        int requestingUserId,
+        string exportName,
+        string? actionUrl = null,
+        CancellationToken ct = default)
+    {
+        if (_notificationOrchestrator is null)
+        {
+            return;
+        }
+
+        var institution = await _institutionRepo.GetById(institutionId, ct);
+        if (institution is null)
+        {
+            return;
+        }
+
+        await _notificationOrchestrator.Notify(new NotificationRequest
+        {
+            TenantId = institution.TenantId,
+            EventType = NotificationEvents.ExportReady,
+            Title = "Export ready",
+            Message = $"{exportName} export is ready for download.",
+            Priority = NotificationPriority.Normal,
+            ActionUrl = actionUrl,
+            RecipientUserIds = new List<int> { requestingUserId },
+            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ExportName"] = exportName
+            }
+        }, ct);
     }
 
     public string ExportComplianceReportCsv(ComplianceReportModel report)

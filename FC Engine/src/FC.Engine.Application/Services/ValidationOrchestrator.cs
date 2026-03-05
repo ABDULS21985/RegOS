@@ -46,8 +46,22 @@ public class ValidationOrchestrator
         if (!report.HasErrors)
         {
             var crossSheetErrors = await _crossSheetValidator.Validate(
-                record, institutionId, returnPeriodId, ct);
+                record, institutionId, returnPeriodId, ct) ?? Array.Empty<ValidationError>();
             report.AddErrors(crossSheetErrors);
+
+            if (!report.HasErrors
+                && submission.TenantId != Guid.Empty
+                && !string.IsNullOrWhiteSpace(template.ModuleCode))
+            {
+                var crossModuleErrors = await _crossSheetValidator.ValidateCrossModule(
+                    submission.TenantId,
+                    submission.Id,
+                    template.ModuleCode,
+                    institutionId,
+                    returnPeriodId,
+                    ct) ?? Array.Empty<ValidationError>();
+                report.AddErrors(crossModuleErrors);
+            }
         }
 
         // Phase 4: Business rules

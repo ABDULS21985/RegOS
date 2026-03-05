@@ -78,6 +78,32 @@ public class TemplateMetadataCache : ITemplateMetadataCache
         _cache.TryRemove(key, out _);
     }
 
+    public void InvalidateModule(int moduleId)
+    {
+        var keys = _cache
+            .Where(kvp => kvp.Value.ModuleId == moduleId)
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var key in keys)
+        {
+            _cache.TryRemove(key, out _);
+        }
+    }
+
+    public void InvalidateModule(string moduleCode)
+    {
+        var keys = _cache
+            .Where(kvp => string.Equals(kvp.Value.ModuleCode, moduleCode, StringComparison.OrdinalIgnoreCase))
+            .Select(kvp => kvp.Key)
+            .ToList();
+
+        foreach (var key in keys)
+        {
+            _cache.TryRemove(key, out _);
+        }
+    }
+
     public void InvalidateAll()
     {
         _cache.Clear();

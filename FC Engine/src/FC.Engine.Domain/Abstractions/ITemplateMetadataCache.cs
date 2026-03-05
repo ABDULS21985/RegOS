@@ -11,6 +11,8 @@ public interface ITemplateMetadataCache
     Task<IReadOnlyList<CachedTemplate>> GetAllPublishedTemplates(Guid tenantId, CancellationToken ct = default);
     void Invalidate(string returnCode);
     void Invalidate(Guid? tenantId, string returnCode);
+    void InvalidateModule(int moduleId);
+    void InvalidateModule(string moduleCode);
     void InvalidateAll();
 }
 

@@ -1,4 +1,5 @@
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Application.Services;
 using FC.Engine.Infrastructure.Audit;
 using FC.Engine.Infrastructure.Auth;
 using FC.Engine.Infrastructure.BackgroundJobs;
@@ -11,12 +12,14 @@ using FC.Engine.Infrastructure.MultiTenancy;
 using FC.Engine.Infrastructure.Persistence;
 using FC.Engine.Infrastructure.Persistence.Interceptors;
 using FC.Engine.Infrastructure.Persistence.Repositories;
+using FC.Engine.Infrastructure.Notifications;
 using FC.Engine.Infrastructure.Storage;
 using FC.Engine.Infrastructure.Validation;
 using FC.Engine.Infrastructure.Xml;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 namespace FC.Engine.Infrastructure;
 
@@ -62,6 +65,9 @@ public static class DependencyInjection
         services.AddScoped<IInstitutionRepository, InstitutionRepository>();
         services.AddScoped<ISubmissionApprovalRepository, SubmissionApprovalRepository>();
         services.AddScoped<IPortalNotificationRepository, PortalNotificationRepository>();
+        services.AddScoped<IEmailTemplateRepository, EmailTemplateRepository>();
+        services.AddScoped<INotificationPreferenceRepository, NotificationPreferenceRepository>();
+        services.AddScoped<INotificationDeliveryRepository, NotificationDeliveryRepository>();
 
         // Dynamic SQL
         services.AddSingleton<DynamicSqlBuilder>();
@@ -85,6 +91,8 @@ public static class DependencyInjection
         services.AddScoped<ISubscriptionService, SubscriptionService>();
         services.AddScoped<ITenantOnboardingService, TenantOnboardingService>();
         services.AddScoped<IPermissionService, PermissionService>();
+        services.AddScoped<IModuleImportService, ModuleImportService>();
+        services.AddScoped<IInterModuleDataFlowEngine, InterModuleDataFlowEngine>();
 
         // ── Authentication evolution (RG-05) ──
         services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
@@ -94,6 +102,42 @@ public static class DependencyInjection
         services.AddSingleton<IMfaChallengeStore, MfaChallengeStore>();
         services.AddScoped<ITenantBrandingService, TenantBrandingService>();
         services.AddSingleton<IFileStorageService, LocalFileStorageService>();
+
+        // ── Notification evolution (RG-06) ──
+        services.Configure<NotificationSettings>(configuration.GetSection(NotificationSettings.SectionName));
+        services.AddScoped<INotificationOrchestrator, NotificationOrchestrator>();
+        services.AddScoped<INotificationPusher, SignalRNotificationPusher>();
+
+        services.AddHttpClient<AfricasTalkingSmsSender>((sp, client) =>
+        {
+            var options = sp.GetRequiredService<IOptions<NotificationSettings>>().Value;
+            var baseUrl = options.Sms.AfricasTalking.BaseUrl;
+            if (!string.IsNullOrWhiteSpace(baseUrl))
+            {
+                client.BaseAddress = new Uri(baseUrl.TrimEnd('/'));
+            }
+        });
+
+        var notificationOptions = configuration.GetSection(NotificationSettings.SectionName).Get<NotificationSettings>()
+            ?? new NotificationSettings();
+
+        if (string.Equals(notificationOptions.Email.Provider, "SendGrid", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddScoped<IEmailSender, SendGridEmailSender>();
+        }
+        else
+        {
+            services.AddScoped<IEmailSender, NoopEmailSender>();
+        }
+
+        if (string.Equals(notificationOptions.Sms.Provider, "AfricasTalking", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddScoped<ISmsSender>(sp => sp.GetRequiredService<AfricasTalkingSmsSender>());
+        }
+        else
+        {
+            services.AddScoped<ISmsSender, NoopSmsSender>();
+        }
 
         // Audit
         services.AddScoped<IAuditLogger, AuditLogger>();
@@ -108,6 +152,8 @@ public static class DependencyInjection
         // Billing & subscription background jobs
         services.AddHostedService<UsageTrackingJob>();
         services.AddHostedService<OverdueInvoiceJob>();
+        services.AddHostedService<NotificationRetryJob>();
+        services.AddHostedService<DeadlineNotificationJob>();
 
         return services;
     }
