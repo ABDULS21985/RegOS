@@ -658,6 +658,62 @@ public class FormulaEvaluatorTests
     }
 
     [Fact]
+    public async Task Evaluate_CustomFunction_NdicDpasPremium_Uses_Minimum_Floor()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["insurable_deposits"] = 1_000m,
+            ["assessment_rate"] = 0.01m,
+            ["minimum_premium"] = 20m,
+            ["premium_assessment"] = 20m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "NDIC-DPAS-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "premium_assessment",
+            OperandFields = "[\"insurable_deposits\",\"assessment_rate\",\"minimum_premium\"]",
+            CustomExpression = "FUNC:NDIC_DPAS_PREMIUM(insurable_deposits,assessment_rate,minimum_premium)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_NdicDpasPremium_Uses_Raw_When_Higher_Than_Minimum()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["insurable_deposits"] = 10_000m,
+            ["assessment_rate"] = 0.01m,
+            ["minimum_premium"] = 20m,
+            ["premium_assessment"] = 100m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "NDIC-DPAS-002",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "premium_assessment",
+            OperandFields = "[\"insurable_deposits\",\"assessment_rate\",\"minimum_premium\"]",
+            CustomExpression = "FUNC:NDIC_DPAS_PREMIUM(insurable_deposits,assessment_rate,minimum_premium)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Existing_FormulaEvaluator_Functions_Unchanged()
     {
         var record = CreateFixedRowRecord(new Dictionary<string, object?>

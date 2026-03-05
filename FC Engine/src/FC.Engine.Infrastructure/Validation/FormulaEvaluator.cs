@@ -396,6 +396,20 @@ public partial class FormulaEvaluator : IFormulaEvaluator
                 var lowerBound = reference * (1 - bandPercent / 100m);
                 var upperBound = reference * (1 + bandPercent / 100m);
                 return actual >= lowerBound && actual <= upperBound ? 1m : 0m;
+            },
+            ["NDIC_DPAS_RAW"] = args =>
+            {
+                var insurableDeposits = Arg(args, "insurable_deposits", "arg1");
+                var assessmentRate = Arg(args, "assessment_rate", "arg2");
+                return Math.Round(insurableDeposits * assessmentRate, 2);
+            },
+            ["NDIC_DPAS_PREMIUM"] = args =>
+            {
+                var insurableDeposits = Arg(args, "insurable_deposits", "arg1");
+                var assessmentRate = Arg(args, "assessment_rate", "arg2");
+                var minimumPremium = Arg(args, "minimum_premium", "arg3");
+                var rawPremium = insurableDeposits * assessmentRate;
+                return Math.Round(Math.Max(rawPremium, minimumPremium), 2);
             }
         };
     }

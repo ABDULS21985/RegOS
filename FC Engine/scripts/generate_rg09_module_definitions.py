@@ -768,8 +768,19 @@ def ndic_module_definition():
             field("premium_raw", "Raw Premium", "Money", "DPA", True, 4),
             field("premium_assessment", "Premium Assessment", "Money", "DPA", True, 5),
         ], [
-            {"formulaType": "Custom", "targetField": "premium_raw", "sourceFields": [], "severity": "Warning", "description": "premium_raw = insurable_deposits * assessment_rate"},
-            formula_compare("GreaterThanOrEqual", "premium_assessment", "minimum_premium", "Premium assessment floor"),
+            formula_custom(
+                "premium_raw",
+                ["insurable_deposits", "assessment_rate"],
+                "NDIC_DPAS_RAW",
+                "premium_raw = insurable_deposits * assessment_rate",
+                severity="Warning",
+            ),
+            formula_custom(
+                "premium_assessment",
+                ["insurable_deposits", "assessment_rate", "minimum_premium"],
+                "NDIC_DPAS_PREMIUM",
+                "premium_assessment = max(insurable_deposits * assessment_rate, minimum_premium)",
+            ),
             formula_compare("GreaterThanOrEqual", "premium_assessment", "premium_raw", "Premium should not be below raw premium", "Warning"),
         ]),
         template("NDIC_ASQ", "Asset Quality", "Quarterly", "FixedRow", "ndic", [section("ASQ", "Asset Quality", 1)], [

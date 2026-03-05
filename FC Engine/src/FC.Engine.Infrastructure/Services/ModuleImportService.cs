@@ -490,7 +490,7 @@ public partial class ModuleImportService : IModuleImportService
                 await tx.RollbackAsync(ct);
             }
             result.Success = false;
-            result.Errors.Add($"Import failed: {ex.Message}");
+            result.Errors.Add($"Import failed: {BuildExceptionMessage(ex)}");
             _logger.LogError(ex, "Module import failed for {ModuleCode}", result.ModuleCode);
         }
 
@@ -643,7 +643,7 @@ public partial class ModuleImportService : IModuleImportService
                 await tx.RollbackAsync(ct);
             }
             result.Success = false;
-            result.Errors.Add($"Publish failed: {ex.Message}");
+            result.Errors.Add($"Publish failed: {BuildExceptionMessage(ex)}");
             _logger.LogError(ex, "Module publish failed for {ModuleCode}", moduleCode);
         }
 
@@ -717,31 +717,27 @@ public partial class ModuleImportService : IModuleImportService
         var sql = $@"
             IF OBJECT_ID(N'dbo.TenantSecurityPolicy', N'SP') IS NOT NULL
             BEGIN
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM sys.security_predicates sp
-                    INNER JOIN sys.tables t ON sp.target_object_id = t.object_id
-                    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE sp.type_desc = 'FILTER'
-                      AND s.name = 'dbo'
-                      AND t.name = '{safeTableName}')
-                BEGIN
+                BEGIN TRY
                     EXEC(N'ALTER SECURITY POLICY dbo.TenantSecurityPolicy
                         ADD FILTER PREDICATE dbo.fn_TenantFilter(TenantId) ON dbo.[{safeTableName}]');
-                END;
+                END TRY
+                BEGIN CATCH
+                    IF ERROR_MESSAGE() NOT LIKE '%already has%'
+                    BEGIN
+                        THROW;
+                    END
+                END CATCH;
 
-                IF NOT EXISTS (
-                    SELECT 1
-                    FROM sys.security_predicates sp
-                    INNER JOIN sys.tables t ON sp.target_object_id = t.object_id
-                    INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-                    WHERE sp.type_desc = 'BLOCK'
-                      AND s.name = 'dbo'
-                      AND t.name = '{safeTableName}')
-                BEGIN
+                BEGIN TRY
                     EXEC(N'ALTER SECURITY POLICY dbo.TenantSecurityPolicy
                         ADD BLOCK PREDICATE dbo.fn_TenantFilter(TenantId) ON dbo.[{safeTableName}]');
-                END;
+                END TRY
+                BEGIN CATCH
+                    IF ERROR_MESSAGE() NOT LIKE '%already has%'
+                    BEGIN
+                        THROW;
+                    END
+                END CATCH;
             END;";
 
         await _db.Database.ExecuteSqlRawAsync(sql, ct);
@@ -811,6 +807,19 @@ public partial class ModuleImportService : IModuleImportService
             "BETWEEN" => "A = B",
             _ => "A = B"
         };
+    }
+
+    private static string BuildExceptionMessage(Exception ex)
+    {
+        var root = ex;
+        while (root.InnerException is not null)
+        {
+            root = root.InnerException;
+        }
+
+        return ReferenceEquals(root, ex)
+            ? ex.Message
+            : $"{ex.Message} | Inner: {root.Message}";
     }
 
     private static int GetSectionOrder(string? sectionCode, IReadOnlyDictionary<string, int> sectionOrderMap)

@@ -63,7 +63,12 @@ public class Rg09ModuleLoadingTests
         import.TemplatesCreated.Should().Be(11);
 
         (await db.InterModuleDataFlows.CountAsync(f => f.SourceModuleId == module.Id)).Should().Be(2);
-        (await db.IntraSheetFormulas.AnyAsync(f => f.TargetFieldName == "premium_assessment" && f.FormulaType == FormulaType.GreaterThanOrEqual)).Should().BeTrue();
+        (await db.IntraSheetFormulas.AnyAsync(
+                f => f.TargetFieldName == "premium_assessment"
+                     && f.FormulaType == FormulaType.Custom
+                     && f.CustomExpression != null
+                     && f.CustomExpression.Contains("FUNC:NDIC_DPAS_PREMIUM", StringComparison.OrdinalIgnoreCase)))
+            .Should().BeTrue();
 
         var publish = await sut.PublishModule("NDIC_RETURNS", "rg09-approver");
         publish.Success.Should().BeTrue(string.Join(" | ", publish.Errors));

@@ -3,6 +3,7 @@ using FC.Engine.Domain.Abstractions;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 
 namespace FC.Engine.Infrastructure.DynamicSchema;
 
@@ -35,6 +36,11 @@ public class DdlMigrationExecutor : IDdlMigrationExecutor
             using var command = connection.CreateCommand();
             command.CommandText = ddlScript.ForwardSql;
             command.CommandTimeout = 120;
+            var currentTransaction = _db.Database.CurrentTransaction;
+            if (currentTransaction is not null)
+            {
+                command.Transaction = currentTransaction.GetDbTransaction();
+            }
             await command.ExecuteNonQueryAsync(ct);
 
             sw.Stop();
@@ -82,6 +88,11 @@ public class DdlMigrationExecutor : IDdlMigrationExecutor
             using var command = connection.CreateCommand();
             command.CommandText = migration.RollbackScript;
             command.CommandTimeout = 120;
+            var currentTransaction = _db.Database.CurrentTransaction;
+            if (currentTransaction is not null)
+            {
+                command.Transaction = currentTransaction.GetDbTransaction();
+            }
             await command.ExecuteNonQueryAsync(ct);
 
             migration.IsRolledBack = true;
