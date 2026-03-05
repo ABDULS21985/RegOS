@@ -14,20 +14,20 @@ public class ApprovalService
     private readonly ISubmissionApprovalRepository _approvalRepo;
     private readonly IInstitutionUserRepository _userRepo;
     private readonly ITemplateMetadataCache _cache;
-    private readonly NotificationService _notificationSvc;
+    private readonly WorkflowService _workflowService;
 
     public ApprovalService(
         ISubmissionRepository submissionRepo,
         ISubmissionApprovalRepository approvalRepo,
         IInstitutionUserRepository userRepo,
         ITemplateMetadataCache cache,
-        NotificationService notificationSvc)
+        WorkflowService workflowService)
     {
         _submissionRepo = submissionRepo;
         _approvalRepo = approvalRepo;
         _userRepo = userRepo;
         _cache = cache;
-        _notificationSvc = notificationSvc;
+        _workflowService = workflowService;
     }
 
     // ── Query Methods ────────────────────────────────────────────
@@ -221,59 +221,7 @@ public class ApprovalService
         int submissionId, int reviewerUserId, string? comments = null,
         CancellationToken ct = default)
     {
-        var approval = await _approvalRepo.GetBySubmission(submissionId, ct);
-        if (approval is null)
-            return ApprovalActionResult.NotFound;
-
-        if (approval.Status != ApprovalStatus.Pending)
-            return ApprovalActionResult.AlreadyProcessed;
-
-        // Prevent self-approval
-        if (approval.RequestedByUserId == reviewerUserId)
-            return ApprovalActionResult.SelfApprovalNotAllowed;
-
-        var submission = await _submissionRepo.GetByIdWithReport(submissionId, ct);
-        if (submission is null)
-            return ApprovalActionResult.NotFound;
-
-        // Determine final status based on warnings
-        var hasWarnings = (submission.ValidationReport?.WarningCount ?? 0) > 0;
-        if (hasWarnings)
-            submission.MarkAcceptedWithWarnings();
-        else
-            submission.MarkAccepted();
-
-        // Update approval
-        approval.Status = ApprovalStatus.Approved;
-        approval.ReviewedByUserId = reviewerUserId;
-        approval.ReviewedAt = DateTime.UtcNow;
-        approval.ReviewerComments = comments;
-        await _approvalRepo.Update(approval, ct);
-
-        await _submissionRepo.Update(submission, ct);
-
-        // Send notification to maker
-        try
-        {
-            var reviewer = await _userRepo.GetById(reviewerUserId, ct);
-            string period = "";
-            if (submission.ReturnPeriod is not null)
-                period = new DateTime(submission.ReturnPeriod.Year, submission.ReturnPeriod.Month, 1).ToString("MMM yyyy");
-
-            await _notificationSvc.NotifyApprovalResult(
-                approval.RequestedByUserId,
-                submission.InstitutionId,
-                submissionId,
-                submission.ReturnCode,
-                period,
-                approved: true,
-                reviewer?.DisplayName ?? "Reviewer",
-                comments,
-                ct);
-        }
-        catch { /* Notification failure should not break approval */ }
-
-        return ApprovalActionResult.Success;
+        return await _workflowService.Approve(submissionId, reviewerUserId, comments, ct);
     }
 
     /// <summary>
@@ -283,54 +231,7 @@ public class ApprovalService
         int submissionId, int reviewerUserId, string comments,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(comments))
-            return ApprovalActionResult.CommentsRequired;
-
-        var approval = await _approvalRepo.GetBySubmission(submissionId, ct);
-        if (approval is null)
-            return ApprovalActionResult.NotFound;
-
-        if (approval.Status != ApprovalStatus.Pending)
-            return ApprovalActionResult.AlreadyProcessed;
-
-        if (approval.RequestedByUserId == reviewerUserId)
-            return ApprovalActionResult.SelfApprovalNotAllowed;
-
-        approval.Status = ApprovalStatus.Rejected;
-        approval.ReviewedByUserId = reviewerUserId;
-        approval.ReviewedAt = DateTime.UtcNow;
-        approval.ReviewerComments = comments;
-        await _approvalRepo.Update(approval, ct);
-
-        var submission = await _submissionRepo.GetById(submissionId, ct);
-        if (submission is not null)
-        {
-            submission.MarkApprovalRejected();
-            await _submissionRepo.Update(submission, ct);
-
-            // Send notification to maker
-            try
-            {
-                var reviewer = await _userRepo.GetById(reviewerUserId, ct);
-                string period = "";
-                if (submission.ReturnPeriod is not null)
-                    period = new DateTime(submission.ReturnPeriod.Year, submission.ReturnPeriod.Month, 1).ToString("MMM yyyy");
-
-                await _notificationSvc.NotifyApprovalResult(
-                    approval.RequestedByUserId,
-                    submission.InstitutionId,
-                    submissionId,
-                    submission.ReturnCode,
-                    period,
-                    approved: false,
-                    reviewer?.DisplayName ?? "Reviewer",
-                    comments,
-                    ct);
-            }
-            catch { /* Notification failure should not break rejection */ }
-        }
-
-        return ApprovalActionResult.Success;
+        return await _workflowService.Reject(submissionId, reviewerUserId, comments, ct);
     }
 }
 

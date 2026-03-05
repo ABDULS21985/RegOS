@@ -116,7 +116,33 @@ public class SubmissionService
         int? submittedByUserId = null, string? submitterNotes = null,
         int? originalSubmissionId = null)
     {
-        var result = await _orchestrator.Process(xmlStream, returnCode, institutionId, returnPeriodId);
+        var makerCheckerEnabled = submittedByUserId.HasValue && await IsMakerCheckerEnabled(institutionId);
+        SubmissionReviewNotificationContext? reviewNotificationContext = null;
+
+        if (makerCheckerEnabled && submittedByUserId.HasValue)
+        {
+            var submitter = await _db.InstitutionUsers.FindAsync(submittedByUserId.Value);
+            var institution = await _db.Institutions.FindAsync(institutionId);
+            var period = await _db.ReturnPeriods.FindAsync(returnPeriodId);
+
+            reviewNotificationContext = new SubmissionReviewNotificationContext
+            {
+                NotifySubmittedForReview = true,
+                SubmittedByName = submitter?.DisplayName ?? "Maker",
+                InstitutionName = institution?.InstitutionName ?? string.Empty,
+                PeriodLabel = period is null
+                    ? DateTime.UtcNow.ToString("MMM yyyy")
+                    : new DateTime(period.Year, period.Month, 1).ToString("MMM yyyy"),
+                PortalBaseUrl = "https://portal.regos.app"
+            };
+        }
+
+        var result = await _orchestrator.Process(
+            xmlStream,
+            returnCode,
+            institutionId,
+            returnPeriodId,
+            reviewNotificationContext);
 
         // Check if maker-checker routing is needed
         var isAccepted = result.Status == "Accepted" || result.Status == "AcceptedWithWarnings";
@@ -140,7 +166,6 @@ public class SubmissionService
             return result;
         }
 
-        var makerCheckerEnabled = await IsMakerCheckerEnabled(institutionId);
         if (!makerCheckerEnabled)
         {
             // Even without maker-checker, record who submitted
@@ -191,20 +216,6 @@ public class SubmissionService
 
             // Update the result DTO
             result.Status = "PendingApproval";
-
-            // Notify checkers
-            try
-            {
-                var submitter = await _db.InstitutionUsers.FindAsync(submittedByUserId.Value);
-                var period = await _db.ReturnPeriods.FindAsync(returnPeriodId);
-                var periodStr = period is not null
-                    ? new DateTime(period.Year, period.Month, 1).ToString("MMM yyyy") : "";
-
-                await _notificationSvc.NotifyApprovalRequest(
-                    institutionId, submission.Id, returnCode, periodStr,
-                    submitter?.DisplayName ?? "Maker");
-            }
-            catch { }
         }
 
         return result;

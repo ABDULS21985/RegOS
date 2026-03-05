@@ -89,4 +89,85 @@ public class NotificationRetryJobTests
 
         deliveryRepo.Verify(x => x.Update(delivery, It.IsAny<CancellationToken>()), Times.Once);
     }
+
+    [Fact]
+    public async Task Failed_Delivery_Retried_3_Times()
+    {
+        var tenantId = Guid.NewGuid();
+        var delivery = new NotificationDelivery
+        {
+            Id = 12,
+            TenantId = tenantId,
+            NotificationEventType = "export.ready",
+            Channel = NotificationChannel.Email,
+            RecipientId = 31,
+            RecipientAddress = "ops@tenant.test",
+            Status = DeliveryStatus.Failed,
+            AttemptCount = 0,
+            MaxAttempts = 3,
+            NextRetryAt = DateTime.UtcNow.AddMinutes(-1),
+            Payload = "{\"RecipientName\":\"Ops\",\"Message\":\"Ready\"}"
+        };
+
+        var deliveryRepo = new Mock<INotificationDeliveryRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var smsSender = new Mock<ISmsSender>();
+        var branding = new Mock<ITenantBrandingService>();
+        var logger = new Mock<ILogger<NotificationRetryJob>>();
+
+        deliveryRepo.Setup(x => x.GetRetryBatch(50, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+                delivery.AttemptCount < delivery.MaxAttempts
+                    ? new List<NotificationDelivery> { delivery }
+                    : new List<NotificationDelivery>());
+        deliveryRepo.Setup(x => x.Update(It.IsAny<NotificationDelivery>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        branding.Setup(x => x.GetBrandingConfig(tenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BrandingConfig.WithDefaults());
+
+        emailSender.Setup(x => x.SendTemplatedAsync(
+                delivery.NotificationEventType,
+                It.IsAny<Dictionary<string, string>>(),
+                delivery.RecipientAddress,
+                It.IsAny<string>(),
+                It.IsAny<BrandingConfig>(),
+                tenantId,
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EmailSendResult
+            {
+                Success = false,
+                ErrorMessage = "smtp timeout"
+            });
+
+        var sut = new NotificationRetryJob(
+            deliveryRepo.Object,
+            emailSender.Object,
+            smsSender.Object,
+            branding.Object,
+            logger.Object);
+
+        var retryMethod = typeof(NotificationRetryJob).GetMethod("RetryFailedDeliveries", BindingFlags.NonPublic | BindingFlags.Instance);
+        retryMethod.Should().NotBeNull();
+
+        await (Task)retryMethod!.Invoke(sut, new object[] { CancellationToken.None })!;
+        delivery.NextRetryAt = DateTime.UtcNow.AddMinutes(-1);
+        await (Task)retryMethod.Invoke(sut, new object[] { CancellationToken.None })!;
+        delivery.NextRetryAt = DateTime.UtcNow.AddMinutes(-1);
+        await (Task)retryMethod.Invoke(sut, new object[] { CancellationToken.None })!;
+        await (Task)retryMethod.Invoke(sut, new object[] { CancellationToken.None })!;
+
+        delivery.Status.Should().Be(DeliveryStatus.Failed);
+        delivery.AttemptCount.Should().Be(3);
+        delivery.NextRetryAt.Should().NotBeNull();
+
+        emailSender.Verify(x => x.SendTemplatedAsync(
+            delivery.NotificationEventType,
+            It.IsAny<Dictionary<string, string>>(),
+            delivery.RecipientAddress,
+            It.IsAny<string>(),
+            It.IsAny<BrandingConfig>(),
+            tenantId,
+            It.IsAny<CancellationToken>()), Times.Exactly(3));
+    }
 }

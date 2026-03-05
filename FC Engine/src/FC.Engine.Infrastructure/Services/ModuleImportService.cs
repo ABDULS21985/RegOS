@@ -5,6 +5,7 @@ using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Metadata;
+using FC.Engine.Domain.Notifications;
 using FC.Engine.Domain.Validation;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
@@ -20,6 +21,7 @@ public partial class ModuleImportService : IModuleImportService
     private readonly IDdlMigrationExecutor _ddlExecutor;
     private readonly ITemplateMetadataCache _cache;
     private readonly ISqlTypeMapper _sqlTypeMapper;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
     private readonly ILogger<ModuleImportService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -33,13 +35,15 @@ public partial class ModuleImportService : IModuleImportService
         IDdlMigrationExecutor ddlExecutor,
         ITemplateMetadataCache cache,
         ISqlTypeMapper sqlTypeMapper,
-        ILogger<ModuleImportService> logger)
+        ILogger<ModuleImportService> logger,
+        INotificationOrchestrator? notificationOrchestrator = null)
     {
         _db = db;
         _ddlEngine = ddlEngine;
         _ddlExecutor = ddlExecutor;
         _cache = cache;
         _sqlTypeMapper = sqlTypeMapper;
+        _notificationOrchestrator = notificationOrchestrator;
         _logger = logger;
     }
 
@@ -629,6 +633,8 @@ public partial class ModuleImportService : IModuleImportService
                 moduleCode,
                 result.TablesCreated,
                 moduleVersion.VersionCode);
+
+            await NotifySubscribedTenants(module, moduleVersion.VersionCode, approvedBy, ct);
         }
         catch (Exception ex)
         {
@@ -642,6 +648,62 @@ public partial class ModuleImportService : IModuleImportService
         }
 
         return result;
+    }
+
+    private async Task NotifySubscribedTenants(
+        Module module,
+        string versionCode,
+        string approvedBy,
+        CancellationToken ct)
+    {
+        if (_notificationOrchestrator is null)
+        {
+            return;
+        }
+
+        var tenantIds = await _db.SubscriptionModules
+            .AsNoTracking()
+            .Where(sm => sm.IsActive && sm.ModuleId == module.Id)
+            .Join(
+                _db.Subscriptions.AsNoTracking()
+                    .Where(s => s.Status != SubscriptionStatus.Cancelled && s.Status != SubscriptionStatus.Expired),
+                sm => sm.SubscriptionId,
+                s => s.Id,
+                (_, s) => s.TenantId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        foreach (var tenantId in tenantIds)
+        {
+            try
+            {
+                await _notificationOrchestrator.Notify(new NotificationRequest
+                {
+                    TenantId = tenantId,
+                    EventType = NotificationEvents.SystemAnnouncement,
+                    Title = $"{module.ModuleName} module updated",
+                    Message = $"Module {module.ModuleCode} has been published as version {versionCode}.",
+                    Priority = NotificationPriority.Normal,
+                    RecipientRoles = new List<string> { "Admin", "Approver" },
+                    ActionUrl = $"/modules/{module.ModuleCode}",
+                    Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["ModuleCode"] = module.ModuleCode,
+                        ["ModuleName"] = module.ModuleName,
+                        ["VersionCode"] = versionCode,
+                        ["ApprovedBy"] = approvedBy
+                    }
+                }, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed to emit module publish notification for module {ModuleCode} tenant {TenantId}",
+                    module.ModuleCode,
+                    tenantId);
+            }
+        }
     }
 
     private async Task EnsureRlsPolicyOnTable(string tableName, CancellationToken ct)

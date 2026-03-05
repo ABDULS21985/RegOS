@@ -147,25 +147,9 @@
 
             _hubConnection.On<NotificationPayload>("ReceiveNotification", async payload =>
             {
-                unreadCount++;
-                recentNotifications.Insert(0, new NotificationModel
-                {
-                    Id = 0,
-                    Type = MapPayloadType(payload.EventType),
-                    EventType = payload.EventType,
-                    Priority = payload.Priority,
-                    Title = payload.Title,
-                    Message = payload.Message,
-                    Link = payload.ActionUrl,
-                    IsRead = false,
-                    CreatedAt = payload.Timestamp,
-                    TimeAgo = "Just now"
-                });
-
-                if (recentNotifications.Count > 10)
-                {
-                    recentNotifications.RemoveAt(10);
-                }
+                var updated = ApplyRealtimePayload(unreadCount, recentNotifications, payload);
+                unreadCount = updated.UnreadCount;
+                recentNotifications = updated.RecentNotifications;
 
                 await InvokeAsync(StateHasChanged);
             });
@@ -298,6 +282,34 @@
             return NotificationType.SystemAnnouncement;
 
         return NotificationType.SubmissionResult;
+    }
+
+    private static (int UnreadCount, List<NotificationModel> RecentNotifications) ApplyRealtimePayload(
+        int currentUnreadCount,
+        IReadOnlyList<NotificationModel> currentNotifications,
+        NotificationPayload payload)
+    {
+        var notifications = currentNotifications.ToList();
+        notifications.Insert(0, new NotificationModel
+        {
+            Id = 0,
+            Type = MapPayloadType(payload.EventType),
+            EventType = payload.EventType,
+            Priority = payload.Priority,
+            Title = payload.Title,
+            Message = payload.Message,
+            Link = payload.ActionUrl,
+            IsRead = false,
+            CreatedAt = payload.Timestamp,
+            TimeAgo = "Just now"
+        });
+
+        if (notifications.Count > 10)
+        {
+            notifications.RemoveAt(10);
+        }
+
+        return (currentUnreadCount + 1, notifications);
     }
 
     public async ValueTask DisposeAsync()

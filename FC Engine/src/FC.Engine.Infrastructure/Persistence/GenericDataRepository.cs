@@ -3,6 +3,9 @@ using Dapper;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.DataRecord;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Entities;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore;
 
 namespace FC.Engine.Infrastructure.Persistence;
 
@@ -12,17 +15,20 @@ public class GenericDataRepository : IGenericDataRepository
     private readonly ITenantContext _tenantContext;
     private readonly ITemplateMetadataCache _cache;
     private readonly DynamicSqlBuilder _sqlBuilder;
+    private readonly MetadataDbContext _metadataDb;
 
     public GenericDataRepository(
         IDbConnectionFactory connectionFactory,
         ITenantContext tenantContext,
         ITemplateMetadataCache cache,
-        DynamicSqlBuilder sqlBuilder)
+        DynamicSqlBuilder sqlBuilder,
+        MetadataDbContext metadataDb)
     {
         _connectionFactory = connectionFactory;
         _tenantContext = tenantContext;
         _cache = cache;
         _sqlBuilder = sqlBuilder;
+        _metadataDb = metadataDb;
     }
 
     public async Task Save(ReturnDataRecord record, int submissionId, CancellationToken ct = default)
@@ -195,6 +201,7 @@ public class GenericDataRepository : IGenericDataRepository
                     ? new { submissionId, TenantId = tenantId.Value, value }
                     : new { submissionId, value },
                 cancellationToken: ct));
+            await UpsertFieldSourceMetadata(returnCode, submissionId, fieldName, dataSource, sourceDetail, ct);
             return;
         }
 
@@ -205,6 +212,53 @@ public class GenericDataRepository : IGenericDataRepository
                 ? new { submissionId, TenantId = tenantId.Value, value }
                 : new { submissionId, value },
             cancellationToken: ct));
+        await UpsertFieldSourceMetadata(returnCode, submissionId, fieldName, dataSource, sourceDetail, ct);
+    }
+
+    private async Task UpsertFieldSourceMetadata(
+        string returnCode,
+        int submissionId,
+        string fieldName,
+        string? dataSource,
+        string? sourceDetail,
+        CancellationToken ct)
+    {
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (!tenantId.HasValue)
+        {
+            return;
+        }
+
+        var effectiveDataSource = string.IsNullOrWhiteSpace(dataSource) ? "Manual" : dataSource.Trim();
+
+        var entry = await _metadataDb.SubmissionFieldSources.FirstOrDefaultAsync(
+            x => x.TenantId == tenantId.Value
+                 && x.ReturnCode == returnCode
+                 && x.SubmissionId == submissionId
+                 && x.FieldName == fieldName,
+            ct);
+
+        if (entry is null)
+        {
+            _metadataDb.SubmissionFieldSources.Add(new SubmissionFieldSource
+            {
+                TenantId = tenantId.Value,
+                ReturnCode = returnCode,
+                SubmissionId = submissionId,
+                FieldName = fieldName,
+                DataSource = effectiveDataSource,
+                SourceDetail = sourceDetail,
+                UpdatedAt = DateTime.UtcNow
+            });
+        }
+        else
+        {
+            entry.DataSource = effectiveDataSource;
+            entry.SourceDetail = sourceDetail;
+            entry.UpdatedAt = DateTime.UtcNow;
+        }
+
+        await _metadataDb.SaveChangesAsync(ct);
     }
 
     private async Task<IDbConnection> CreateConnectionAsync(CancellationToken ct)

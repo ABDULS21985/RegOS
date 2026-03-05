@@ -24,6 +24,7 @@ public class MetadataDbContext : DbContext
     public DbSet<Module> Modules => Set<Module>();
     public DbSet<ModuleVersion> ModuleVersions => Set<ModuleVersion>();
     public DbSet<InterModuleDataFlow> InterModuleDataFlows => Set<InterModuleDataFlow>();
+    public DbSet<SubmissionFieldSource> SubmissionFieldSources => Set<SubmissionFieldSource>();
     public DbSet<LicenceModuleMatrix> LicenceModuleMatrix => Set<LicenceModuleMatrix>();
     public DbSet<TenantLicenceType> TenantLicenceTypes => Set<TenantLicenceType>();
     public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();

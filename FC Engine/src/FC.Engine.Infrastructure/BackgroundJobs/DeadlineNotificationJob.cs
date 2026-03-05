@@ -107,6 +107,7 @@ public class DeadlineNotificationJob : BackgroundService
                 var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
                     ["InstitutionName"] = institution.InstitutionName,
+                    ["InstitutionId"] = institution.Id.ToString(),
                     ["ModuleName"] = template.Name,
                     ["ReturnCode"] = template.ReturnCode,
                     ["PeriodLabel"] = periodLabel,
@@ -150,7 +151,7 @@ public class DeadlineNotificationJob : BackgroundService
         CancellationToken ct)
     {
         var todayStart = DateTime.UtcNow.Date;
-        return await _db.PortalNotifications.AnyAsync(n =>
+        var alreadyInApp = await _db.PortalNotifications.AnyAsync(n =>
             n.TenantId == tenantId &&
             n.InstitutionId == institutionId &&
             n.EventType == eventType &&
@@ -158,6 +159,21 @@ public class DeadlineNotificationJob : BackgroundService
             n.Metadata != null &&
             n.Metadata.Contains(returnCode) &&
             n.Metadata.Contains(periodLabel), ct);
+
+        if (alreadyInApp)
+        {
+            return true;
+        }
+
+        var institutionIdToken = $"\"InstitutionId\":\"{institutionId}\"";
+        return await _db.NotificationDeliveries.AnyAsync(d =>
+            d.TenantId == tenantId &&
+            d.NotificationEventType == eventType &&
+            d.CreatedAt >= todayStart &&
+            d.Payload != null &&
+            d.Payload.Contains(returnCode) &&
+            d.Payload.Contains(periodLabel) &&
+            d.Payload.Contains(institutionIdToken), ct);
     }
 
     private static (string? EventType, NotificationPriority Priority, List<string> Roles, bool Mandatory)

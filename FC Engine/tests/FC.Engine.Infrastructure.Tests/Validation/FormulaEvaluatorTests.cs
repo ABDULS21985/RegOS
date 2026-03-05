@@ -391,6 +391,157 @@ public class FormulaEvaluatorTests
     }
 
     [Fact]
+    public async Task Evaluate_CustomFunction_NSFR_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["available_stable_funding"] = 120m,
+            ["required_stable_funding"] = 100m,
+            ["nsfr"] = 120m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "NSFR-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "nsfr",
+            OperandFields = "[\"available_stable_funding\",\"required_stable_funding\"]",
+            CustomExpression = "FUNC:NSFR(available_stable_funding,required_stable_funding)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_PAR_Ratio_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["par_amount"] = 8m,
+            ["gross_portfolio"] = 200m,
+            ["par_ratio"] = 4m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "PAR-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "par_ratio",
+            OperandFields = "[\"par_amount\",\"gross_portfolio\"]",
+            CustomExpression = "FUNC:PAR_RATIO(par_amount,gross_portfolio)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_SolvencyMargin_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["admitted_assets"] = 500m,
+            ["total_liabilities"] = 380m,
+            ["solvency_margin"] = 120m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "SOLV-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "solvency_margin",
+            OperandFields = "[\"admitted_assets\",\"total_liabilities\"]",
+            CustomExpression = "FUNC:SOLVENCY_MARGIN(admitted_assets,total_liabilities)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_CombinedRatio_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["claims_ratio"] = 62m,
+            ["expense_ratio"] = 28m,
+            ["combined_ratio"] = 90m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "COMB-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "combined_ratio",
+            OperandFields = "[\"claims_ratio\",\"expense_ratio\"]",
+            CustomExpression = "FUNC:COMBINED_RATIO(claims_ratio,expense_ratio)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_RateBandCheck_WithinBand_ShouldPass()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["actual_rate"] = 1540m,
+            ["usd_rate_avg"] = 1540m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "RATE-OK-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "usd_rate_avg",
+            OperandFields = "[\"actual_rate\"]",
+            CustomExpression = "FUNC:RATE_BAND_CHECK(actual_rate,reference_rate=1500,band_percent=10)",
+            Severity = ValidationSeverity.Warning,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Existing_FormulaEvaluator_Functions_Unchanged()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["a"] = 40m,
+            ["b"] = 60m,
+            ["total"] = 100m
+        });
+
+        SetupCache("MFCR 300", CreateSumFormula("total", ["a", "b"]));
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Evaluate_CustomFunction_CAR_Calculates_Correctly()
     {
         var record = CreateFixedRowRecord(new Dictionary<string, object?>

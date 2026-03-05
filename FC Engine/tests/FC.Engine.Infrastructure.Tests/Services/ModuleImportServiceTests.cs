@@ -1,6 +1,7 @@
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 using FC.Engine.Infrastructure.DynamicSchema;
 using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Services;
@@ -52,6 +53,49 @@ public class ModuleImportServiceTests
     }
 
     [Fact]
+    public async Task Invalid_JSON_Returns_Parse_Error()
+    {
+        await using var db = CreateDbContext(nameof(Invalid_JSON_Returns_Parse_Error));
+        SeedModule(db, "BDC_CBN");
+        var cache = new Mock<ITemplateMetadataCache>();
+        var sut = CreateSut(db, cache);
+
+        var result = await sut.ValidateDefinition("{ not-valid-json");
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.Contains("Invalid JSON", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Duplicate_FieldCode_Within_Template_Rejected()
+    {
+        await using var db = CreateDbContext(nameof(Duplicate_FieldCode_Within_Template_Rejected));
+        SeedModule(db, "BDC_CBN");
+        var cache = new Mock<ITemplateMetadataCache>();
+        var sut = CreateSut(db, cache);
+
+        var result = await sut.ValidateDefinition(DuplicateFieldCodeJson());
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.Contains("duplicate field code", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Invalid_Formula_Reference_Rejected()
+    {
+        await using var db = CreateDbContext(nameof(Invalid_Formula_Reference_Rejected));
+        SeedModule(db, "BDC_CBN");
+        var cache = new Mock<ITemplateMetadataCache>();
+        var sut = CreateSut(db, cache);
+
+        var result = await sut.ValidateDefinition(InvalidFormulaReferenceJson());
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.Contains("target", StringComparison.OrdinalIgnoreCase));
+        result.Errors.Should().Contain(e => e.Contains("source", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Circular_Dependency_Detected_And_Rejected()
     {
         await using var db = CreateDbContext(nameof(Circular_Dependency_Detected_And_Rejected));
@@ -92,6 +136,86 @@ public class ModuleImportServiceTests
         cache.Verify(c => c.InvalidateModule(module.Id), Times.Once);
     }
 
+    [Fact]
+    public async Task Publish_Notifies_Subscribed_Tenants()
+    {
+        await using var db = CreateDbContext(nameof(Publish_Notifies_Subscribed_Tenants));
+        var module = SeedModule(db, "BDC_CBN");
+        var plan = new SubscriptionPlan
+        {
+            PlanCode = "TEST",
+            PlanName = "Test Plan",
+            Tier = 1,
+            MaxModules = 5,
+            MaxUsersPerEntity = 10,
+            MaxEntities = 1,
+            BasePriceMonthly = 1,
+            BasePriceAnnual = 10,
+            CreatedAt = DateTime.UtcNow
+        };
+        db.SubscriptionPlans.Add(plan);
+        await db.SaveChangesAsync();
+
+        var tenantA = Guid.NewGuid();
+        var tenantB = Guid.NewGuid();
+        db.Subscriptions.AddRange(
+            new Subscription
+            {
+                TenantId = tenantA,
+                PlanId = plan.Id,
+                CurrentPeriodStart = DateTime.UtcNow,
+                CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1),
+                TrialEndsAt = DateTime.UtcNow.AddDays(14)
+            },
+            new Subscription
+            {
+                TenantId = tenantB,
+                PlanId = plan.Id,
+                CurrentPeriodStart = DateTime.UtcNow,
+                CurrentPeriodEnd = DateTime.UtcNow.AddMonths(1),
+                TrialEndsAt = DateTime.UtcNow.AddDays(14)
+            });
+        await db.SaveChangesAsync();
+
+        var subscriptions = await db.Subscriptions.OrderBy(s => s.Id).ToListAsync();
+        db.SubscriptionModules.AddRange(
+            new SubscriptionModule
+            {
+                SubscriptionId = subscriptions[0].Id,
+                ModuleId = module.Id,
+                IsActive = true,
+                PriceMonthly = 0,
+                PriceAnnual = 0
+            },
+            new SubscriptionModule
+            {
+                SubscriptionId = subscriptions[1].Id,
+                ModuleId = module.Id,
+                IsActive = true,
+                PriceMonthly = 0,
+                PriceAnnual = 0
+            });
+        await db.SaveChangesAsync();
+
+        var cache = new Mock<ITemplateMetadataCache>();
+        var notifier = new Mock<INotificationOrchestrator>();
+        var sut = CreateSut(db, cache, notifier);
+        var import = await sut.ImportModule(ValidDefinitionJson(), "tester");
+        import.Success.Should().BeTrue();
+
+        var publish = await sut.PublishModule(module.ModuleCode, "approver");
+
+        publish.Success.Should().BeTrue();
+        notifier.Verify(
+            n => n.Notify(
+                It.Is<NotificationRequest>(r =>
+                    r.EventType == NotificationEvents.SystemAnnouncement
+                    && r.RecipientRoles.Contains("Admin")
+                    && (r.TenantId == tenantA || r.TenantId == tenantB)),
+                It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
+    }
+
     private static MetadataDbContext CreateDbContext(string name)
     {
         var options = new DbContextOptionsBuilder<MetadataDbContext>()
@@ -118,7 +242,10 @@ public class ModuleImportServiceTests
         return module;
     }
 
-    private static ModuleImportService CreateSut(MetadataDbContext db, Mock<ITemplateMetadataCache> cache)
+    private static ModuleImportService CreateSut(
+        MetadataDbContext db,
+        Mock<ITemplateMetadataCache> cache,
+        Mock<INotificationOrchestrator>? notifier = null)
     {
         var ddl = new Mock<IDdlEngine>();
         ddl.Setup(d => d.GenerateCreateTable(It.IsAny<FC.Engine.Domain.Metadata.ReturnTemplate>(), It.IsAny<FC.Engine.Domain.Metadata.TemplateVersion>()))
@@ -144,7 +271,8 @@ public class ModuleImportServiceTests
             ddlExec.Object,
             cache.Object,
             new SqlTypeMapper(),
-            NullLogger<ModuleImportService>.Instance);
+            NullLogger<ModuleImportService>.Instance,
+            notifier?.Object);
     }
 
     private static string ValidDefinitionJson()
@@ -233,6 +361,58 @@ public class ModuleImportServiceTests
                      "formulas": [
                        { "formulaType": "Sum", "targetField": "a", "sourceFields": [ "b" ], "severity": "Error" },
                        { "formulaType": "Sum", "targetField": "b", "sourceFields": [ "a" ], "severity": "Error" }
+                     ]
+                   }
+                 ]
+               }
+               """;
+    }
+
+    private static string DuplicateFieldCodeJson()
+    {
+        return """
+               {
+                 "moduleCode": "BDC_CBN",
+                 "moduleVersion": "1.0.0",
+                 "templates": [
+                   {
+                     "returnCode": "BDC_FIELDS",
+                     "name": "Duplicate field test",
+                     "frequency": "Monthly",
+                     "structuralCategory": "FixedRow",
+                     "fields": [
+                       { "fieldCode": "x", "label": "X", "dataType": "Money", "required": true, "displayOrder": 1 },
+                       { "fieldCode": "x", "label": "X2", "dataType": "Money", "required": true, "displayOrder": 2 }
+                     ],
+                     "formulas": []
+                   }
+                 ]
+               }
+               """;
+    }
+
+    private static string InvalidFormulaReferenceJson()
+    {
+        return """
+               {
+                 "moduleCode": "BDC_CBN",
+                 "moduleVersion": "1.0.0",
+                 "templates": [
+                   {
+                     "returnCode": "BDC_FORMULA",
+                     "name": "Formula ref test",
+                     "frequency": "Monthly",
+                     "structuralCategory": "FixedRow",
+                     "fields": [
+                       { "fieldCode": "a", "label": "A", "dataType": "Money", "required": true, "displayOrder": 1 }
+                     ],
+                     "formulas": [
+                       {
+                         "formulaType": "Sum",
+                         "targetField": "missing_target",
+                         "sourceFields": ["a", "missing_source"],
+                         "severity": "Error"
+                       }
                      ]
                    }
                  ]

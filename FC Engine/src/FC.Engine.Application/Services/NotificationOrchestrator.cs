@@ -21,9 +21,12 @@ public class NotificationOrchestrator : INotificationOrchestrator
     private static readonly IReadOnlyDictionary<string, NotificationChannelPolicy> EventChannelMatrix =
         new Dictionary<string, NotificationChannelPolicy>(StringComparer.OrdinalIgnoreCase)
         {
+            [NotificationEvents.ReturnCreated] = new(true, true, false, false, false),
             [NotificationEvents.ReturnSubmittedForReview] = new(true, true, false, false, false),
             [NotificationEvents.ReturnApproved] = new(true, true, false, false, false),
             [NotificationEvents.ReturnRejected] = new(true, true, false, false, false),
+            [NotificationEvents.ReturnSubmittedToRegulator] = new(true, true, false, false, false),
+            [NotificationEvents.ReturnQueryRaised] = new(true, true, false, false, false),
 
             [NotificationEvents.DeadlineT30] = new(false, true, false, false, false),
             [NotificationEvents.DeadlineT14] = new(true, true, false, false, false),
@@ -32,10 +35,17 @@ public class NotificationOrchestrator : INotificationOrchestrator
             [NotificationEvents.DeadlineT1] = new(false, true, true, false, true),
             [NotificationEvents.DeadlineOverdue] = new(false, true, true, true, true),
 
+            [NotificationEvents.TrialExpiring] = new(false, true, false, false, false),
             [NotificationEvents.PaymentOverdue] = new(false, true, true, true, true),
             [NotificationEvents.SubscriptionSuspended] = new(false, true, true, true, true),
+            [NotificationEvents.ModuleActivated] = new(true, true, false, false, false),
+
             [NotificationEvents.ExportReady] = new(true, true, false, false, false),
             [NotificationEvents.UserInvited] = new(false, true, false, false, false),
+            [NotificationEvents.PasswordReset] = new(false, true, false, false, false),
+            [NotificationEvents.SystemAnnouncement] = new(true, true, false, false, false),
+            [NotificationEvents.DataFlowCompleted] = new(true, true, false, false, false),
+
             [NotificationEvents.MfaCodeSms] = new(false, false, true, true, true)
         };
 
@@ -91,15 +101,21 @@ public class NotificationOrchestrator : INotificationOrchestrator
             return;
         }
 
-        var branding = await _brandingService.GetBrandingConfig(request.TenantId, ct);
-        var mandatory = request.IsMandatory || NotificationPolicy.MandatoryEvents.Contains(request.EventType);
         var policy = ResolvePolicy(request);
+        if (string.Equals(request.EventType, NotificationEvents.MfaCodeSms, StringComparison.OrdinalIgnoreCase))
+        {
+            // Security-sensitive: MFA delivery is always SMS-only.
+            policy = EventChannelMatrix[NotificationEvents.MfaCodeSms];
+        }
+
+        var isMandatoryEvent = request.IsMandatory || NotificationPolicy.MandatoryEvents.Contains(request.EventType);
+        var ignorePreferences = policy.IgnorePreferences || isMandatoryEvent;
+        Domain.ValueObjects.BrandingConfig? branding = null;
 
         foreach (var recipient in recipients)
         {
             var preference = await ResolvePreference(request.TenantId, recipient.UserId, request.EventType, ct);
             var payload = request.ToPayload();
-            var ignorePreferences = policy.IgnorePreferences || mandatory;
 
             if (policy.InAppEnabled && (preference.InAppEnabled || ignorePreferences))
             {
@@ -118,6 +134,7 @@ public class NotificationOrchestrator : INotificationOrchestrator
                 && (preference.EmailEnabled || ignorePreferences)
                 && !string.IsNullOrWhiteSpace(recipient.Email))
             {
+                branding ??= await _brandingService.GetBrandingConfig(request.TenantId, ct);
                 await SendEmail(request, recipient, branding, ct);
             }
 

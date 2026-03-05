@@ -13,7 +13,7 @@ namespace FC.Engine.Infrastructure.Tests.Services;
 public class NotificationOrchestratorTests
 {
     [Fact]
-    public async Task Mandatory_Event_Ignores_Disabled_Preference()
+    public async Task Deadline_Overdue_Is_Mandatory()
     {
         var tenantId = Guid.NewGuid();
         var user = new InstitutionUser
@@ -103,7 +103,7 @@ public class NotificationOrchestratorTests
             RecipientUserIds = new List<int> { user.Id }
         });
 
-        notificationRepo.Verify(x => x.Add(It.IsAny<PortalNotification>(), It.IsAny<CancellationToken>()), Times.Once);
+        notificationRepo.Verify(x => x.Add(It.IsAny<PortalNotification>(), It.IsAny<CancellationToken>()), Times.Never);
         emailSender.Verify(x => x.SendTemplatedAsync(
             It.IsAny<string>(),
             It.IsAny<Dictionary<string, string>>(),
@@ -196,5 +196,198 @@ public class NotificationOrchestratorTests
             It.IsAny<Guid?>(),
             It.IsAny<CancellationToken>()), Times.Never);
         smsSender.Verify(x => x.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task Deadline_T7_Sends_Email_Sms_InApp()
+    {
+        var tenantId = Guid.NewGuid();
+        var user = new InstitutionUser
+        {
+            Id = 32,
+            TenantId = tenantId,
+            InstitutionId = 9,
+            Username = "maker2",
+            Email = "maker2@tenant.test",
+            PhoneNumber = "+2348041112222",
+            DisplayName = "Maker Two",
+            PasswordHash = "hash",
+            Role = InstitutionRole.Maker,
+            IsActive = true
+        };
+
+        var notificationRepo = new Mock<IPortalNotificationRepository>();
+        var userRepo = new Mock<IInstitutionUserRepository>();
+        var institutionRepo = new Mock<IInstitutionRepository>();
+        var preferenceRepo = new Mock<INotificationPreferenceRepository>();
+        var deliveryRepo = new Mock<INotificationDeliveryRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var smsSender = new Mock<ISmsSender>();
+        var pusher = new Mock<INotificationPusher>();
+        var branding = new Mock<ITenantBrandingService>();
+        var logger = new Mock<ILogger<NotificationOrchestrator>>();
+
+        userRepo.Setup(x => x.GetById(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        preferenceRepo
+            .Setup(x => x.GetPreference(tenantId, user.Id, NotificationEvents.DeadlineT7, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new NotificationPreference
+            {
+                TenantId = tenantId,
+                UserId = user.Id,
+                EventType = NotificationEvents.DeadlineT7,
+                InAppEnabled = true,
+                EmailEnabled = true,
+                SmsEnabled = true
+            });
+
+        branding.Setup(x => x.GetBrandingConfig(tenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BrandingConfig.WithDefaults());
+
+        emailSender.Setup(x => x.SendTemplatedAsync(
+                It.IsAny<string>(),
+                It.IsAny<Dictionary<string, string>>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<BrandingConfig>(),
+                It.IsAny<Guid?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new EmailSendResult { Success = true });
+
+        smsSender.Setup(x => x.SendAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmsSendResult { Success = true });
+
+        deliveryRepo.Setup(x => x.Add(It.IsAny<NotificationDelivery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationDelivery d, CancellationToken _) => d);
+        deliveryRepo.Setup(x => x.Update(It.IsAny<NotificationDelivery>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        pusher.Setup(x => x.PushToUser(It.IsAny<int>(), It.IsAny<NotificationPayload>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var sut = new NotificationOrchestrator(
+            notificationRepo.Object,
+            userRepo.Object,
+            institutionRepo.Object,
+            preferenceRepo.Object,
+            deliveryRepo.Object,
+            emailSender.Object,
+            smsSender.Object,
+            pusher.Object,
+            branding.Object,
+            logger.Object);
+
+        await sut.Notify(new NotificationRequest
+        {
+            TenantId = tenantId,
+            EventType = NotificationEvents.DeadlineT7,
+            Title = "T-7 Reminder",
+            Message = "Seven days left",
+            Priority = NotificationPriority.High,
+            RecipientUserIds = new List<int> { user.Id },
+            Data = new Dictionary<string, string>
+            {
+                ["ModuleName"] = "Returns",
+                ["Deadline"] = "10 Mar 2026"
+            }
+        });
+
+        notificationRepo.Verify(x => x.Add(It.IsAny<PortalNotification>(), It.IsAny<CancellationToken>()), Times.Once);
+        emailSender.Verify(x => x.SendTemplatedAsync(
+            NotificationEvents.DeadlineT7,
+            It.IsAny<Dictionary<string, string>>(),
+            user.Email!,
+            user.DisplayName,
+            It.IsAny<BrandingConfig>(),
+            tenantId,
+            It.IsAny<CancellationToken>()), Times.Once);
+        smsSender.Verify(x => x.SendAsync(user.PhoneNumber!, It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task Mfa_Code_Is_Sms_Only()
+    {
+        var tenantId = Guid.NewGuid();
+        var user = new InstitutionUser
+        {
+            Id = 33,
+            TenantId = tenantId,
+            InstitutionId = 10,
+            Username = "mfa-user",
+            Email = "mfa@tenant.test",
+            PhoneNumber = "+2348067778888",
+            DisplayName = "Mfa User",
+            PasswordHash = "hash",
+            Role = InstitutionRole.Maker,
+            IsActive = true
+        };
+
+        var notificationRepo = new Mock<IPortalNotificationRepository>();
+        var userRepo = new Mock<IInstitutionUserRepository>();
+        var institutionRepo = new Mock<IInstitutionRepository>();
+        var preferenceRepo = new Mock<INotificationPreferenceRepository>();
+        var deliveryRepo = new Mock<INotificationDeliveryRepository>();
+        var emailSender = new Mock<IEmailSender>();
+        var smsSender = new Mock<ISmsSender>();
+        var pusher = new Mock<INotificationPusher>();
+        var branding = new Mock<ITenantBrandingService>();
+        var logger = new Mock<ILogger<NotificationOrchestrator>>();
+
+        userRepo.Setup(x => x.GetById(user.Id, It.IsAny<CancellationToken>())).ReturnsAsync(user);
+
+        preferenceRepo
+            .Setup(x => x.GetPreference(tenantId, user.Id, NotificationEvents.MfaCodeSms, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new NotificationPreference
+            {
+                TenantId = tenantId,
+                UserId = user.Id,
+                EventType = NotificationEvents.MfaCodeSms,
+                InAppEnabled = true,
+                EmailEnabled = true,
+                SmsEnabled = true
+            });
+
+        smsSender.Setup(x => x.SendAsync(user.PhoneNumber!, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmsSendResult { Success = true });
+
+        deliveryRepo.Setup(x => x.Add(It.IsAny<NotificationDelivery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((NotificationDelivery d, CancellationToken _) => d);
+        deliveryRepo.Setup(x => x.Update(It.IsAny<NotificationDelivery>(), It.IsAny<CancellationToken>()))
+            .Returns(Task.CompletedTask);
+
+        var sut = new NotificationOrchestrator(
+            notificationRepo.Object,
+            userRepo.Object,
+            institutionRepo.Object,
+            preferenceRepo.Object,
+            deliveryRepo.Object,
+            emailSender.Object,
+            smsSender.Object,
+            pusher.Object,
+            branding.Object,
+            logger.Object);
+
+        await sut.Notify(new NotificationRequest
+        {
+            TenantId = tenantId,
+            EventType = NotificationEvents.MfaCodeSms,
+            Title = "Code",
+            Message = "Your MFA code",
+            Priority = NotificationPriority.Critical,
+            IsMandatory = true,
+            RecipientUserIds = new List<int> { user.Id },
+            Data = new Dictionary<string, string> { ["Code"] = "123456" }
+        });
+
+        notificationRepo.Verify(x => x.Add(It.IsAny<PortalNotification>(), It.IsAny<CancellationToken>()), Times.Never);
+        emailSender.Verify(x => x.SendTemplatedAsync(
+            It.IsAny<string>(),
+            It.IsAny<Dictionary<string, string>>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<BrandingConfig>(),
+            It.IsAny<Guid?>(),
+            It.IsAny<CancellationToken>()), Times.Never);
+        smsSender.Verify(x => x.SendAsync(user.PhoneNumber!, It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 }

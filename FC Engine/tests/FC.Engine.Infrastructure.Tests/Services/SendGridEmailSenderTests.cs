@@ -50,4 +50,25 @@ public class SendGridEmailSenderTests
         html.Should().Contain("RegOS");
         html.Should().Contain("#0f766e");
     }
+
+    [Fact]
+    public void WhiteLabel_Email_Uses_Partner_Sender_Address()
+    {
+        var branding = new BrandingConfig
+        {
+            CompanyName = "Partner Bank",
+            SupportEmail = "hello@partnerbank.ng"
+        };
+
+        var defaults = new SendGridSettings
+        {
+            DefaultFromEmail = "noreply@regos.app",
+            DefaultFromName = "RegOS"
+        };
+
+        var sender = SendGridEmailSender.ResolveSender(branding, defaults);
+
+        sender.FromEmail.Should().Be("hello@partnerbank.ng");
+        sender.FromName.Should().Be("Partner Bank");
+    }
 }

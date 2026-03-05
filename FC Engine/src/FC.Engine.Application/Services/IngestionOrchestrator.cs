@@ -3,6 +3,7 @@ using FC.Engine.Application.DTOs;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 
 namespace FC.Engine.Application.Services;
 
@@ -17,6 +18,7 @@ public class IngestionOrchestrator
     private readonly IEntitlementService? _entitlementService;
     private readonly ITenantContext? _tenantContext;
     private readonly IInterModuleDataFlowEngine? _dataFlowEngine;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
 
     public IngestionOrchestrator(
         ITemplateMetadataCache cache,
@@ -27,7 +29,8 @@ public class IngestionOrchestrator
         ValidationOrchestrator validationOrchestrator,
         IEntitlementService? entitlementService = null,
         ITenantContext? tenantContext = null,
-        IInterModuleDataFlowEngine? dataFlowEngine = null)
+        IInterModuleDataFlowEngine? dataFlowEngine = null,
+        INotificationOrchestrator? notificationOrchestrator = null)
     {
         _cache = cache;
         _xsdGenerator = xsdGenerator;
@@ -38,10 +41,19 @@ public class IngestionOrchestrator
         _entitlementService = entitlementService;
         _tenantContext = tenantContext;
         _dataFlowEngine = dataFlowEngine;
+        _notificationOrchestrator = notificationOrchestrator;
+    }
+
+    public Task<SubmissionResultDto> Process(
+        Stream xmlStream, string returnCode, int institutionId, int returnPeriodId,
+        CancellationToken ct = default)
+    {
+        return Process(xmlStream, returnCode, institutionId, returnPeriodId, null, ct);
     }
 
     public async Task<SubmissionResultDto> Process(
         Stream xmlStream, string returnCode, int institutionId, int returnPeriodId,
+        SubmissionReviewNotificationContext? reviewNotificationContext,
         CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
@@ -155,6 +167,18 @@ public class IngestionOrchestrator
             submission.ProcessingDurationMs = (int)sw.ElapsedMilliseconds;
             await _submissionRepo.Update(submission, ct);
 
+            if ((submission.Status == SubmissionStatus.Accepted
+                    || submission.Status == SubmissionStatus.AcceptedWithWarnings)
+                && reviewNotificationContext?.NotifySubmittedForReview == true
+                && submission.TenantId != Guid.Empty)
+            {
+                await PublishSubmissionForReviewNotification(
+                    submission,
+                    template,
+                    reviewNotificationContext,
+                    ct);
+            }
+
             return MapResult(submission);
         }
         catch (Exception ex)
@@ -177,6 +201,60 @@ public class IngestionOrchestrator
             await _submissionRepo.Update(submission, ct);
             return MapResult(submission);
         }
+    }
+
+    private async Task PublishSubmissionForReviewNotification(
+        Submission submission,
+        CachedTemplate template,
+        SubmissionReviewNotificationContext context,
+        CancellationToken ct)
+    {
+        if (_notificationOrchestrator is null || submission.TenantId == Guid.Empty)
+        {
+            return;
+        }
+
+        var periodLabel = string.IsNullOrWhiteSpace(context.PeriodLabel)
+            ? DateTime.UtcNow.ToString("MMM yyyy")
+            : context.PeriodLabel!;
+        var submitterName = string.IsNullOrWhiteSpace(context.SubmittedByName)
+            ? "Maker"
+            : context.SubmittedByName!;
+        var reviewPath = $"/submissions/{submission.Id}";
+
+        var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["InstitutionName"] = context.InstitutionName ?? string.Empty,
+            ["UserName"] = submitterName,
+            ["ModuleName"] = template.Name,
+            ["ReturnCode"] = submission.ReturnCode,
+            ["PeriodLabel"] = periodLabel,
+            ["ReviewUrl"] = BuildReviewUrl(context.PortalBaseUrl, reviewPath),
+            ["SubmissionId"] = submission.Id.ToString()
+        };
+
+        await _notificationOrchestrator.Notify(new NotificationRequest
+        {
+            TenantId = submission.TenantId,
+            EventType = NotificationEvents.ReturnSubmittedForReview,
+            Title = $"{template.Name} Return Submitted for Review",
+            Message = $"{submitterName} has submitted {submission.ReturnCode} for {periodLabel}. Please review.",
+            Priority = NotificationPriority.Normal,
+            ActionUrl = reviewPath,
+            RecipientInstitutionId = submission.InstitutionId,
+            RecipientRoles = new List<string> { "Checker", "Admin" },
+            Data = data
+        }, ct);
+    }
+
+    private static string BuildReviewUrl(string? portalBaseUrl, string reviewPath)
+    {
+        if (string.IsNullOrWhiteSpace(portalBaseUrl))
+        {
+            return $"https://portal.regos.app{reviewPath}";
+        }
+
+        return $"{portalBaseUrl.TrimEnd('/')}{reviewPath}";
     }
 
     private async Task<List<ValidationError>> ValidateXsd(Stream xmlStream, string returnCode, CancellationToken ct)
@@ -255,4 +333,13 @@ public class IngestionOrchestrator
 
         return dto;
     }
+}
+
+public sealed class SubmissionReviewNotificationContext
+{
+    public bool NotifySubmittedForReview { get; set; }
+    public string? SubmittedByName { get; set; }
+    public string? InstitutionName { get; set; }
+    public string? PeriodLabel { get; set; }
+    public string? PortalBaseUrl { get; set; }
 }

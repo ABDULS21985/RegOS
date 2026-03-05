@@ -30,6 +30,18 @@ public class EntitlementAndOnboardingTests : IAsyncLifetime
     private async Task InitializeConnectionAsync()
     {
         _connectionString = await TestSqlConnectionResolver.ResolveAsync();
+        await EnsureSchemaCompatibilityAsync();
+    }
+
+    private async Task EnsureSchemaCompatibilityAsync()
+    {
+        await using var conn = new SqlConnection(_connectionString);
+        await conn.OpenAsync();
+
+        await conn.ExecuteAsync("""
+            IF COL_LENGTH('meta.institution_users', 'PhoneNumber') IS NULL
+                ALTER TABLE meta.institution_users ADD PhoneNumber NVARCHAR(32) NULL;
+        """);
     }
 
     public async Task DisposeAsync()
