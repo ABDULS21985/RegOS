@@ -24,9 +24,12 @@ public class EntitlementAndOnboardingTests : IAsyncLifetime
 
     public Task InitializeAsync()
     {
-        _connectionString = Environment.GetEnvironmentVariable("FCENGINE_TEST_CONNSTRING")
-            ?? "Server=localhost,1433;Database=FcEngine_Test;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True";
-        return Task.CompletedTask;
+        return InitializeConnectionAsync();
+    }
+
+    private async Task InitializeConnectionAsync()
+    {
+        _connectionString = await TestSqlConnectionResolver.ResolveAsync();
     }
 
     public async Task DisposeAsync()

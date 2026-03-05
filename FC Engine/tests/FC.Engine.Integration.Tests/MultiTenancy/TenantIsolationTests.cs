@@ -19,9 +19,7 @@ public class TenantIsolationTests : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
-        // Use test configuration or environment variable
-        _connectionString = Environment.GetEnvironmentVariable("FCENGINE_TEST_CONNSTRING")
-            ?? "Server=localhost,1433;Database=FcEngine_Test;User Id=sa;Password=YourStrong!Passw0rd;TrustServerCertificate=True";
+        _connectionString = await TestSqlConnectionResolver.ResolveAsync();
 
         _tenantAId = Guid.NewGuid();
         _tenantBId = Guid.NewGuid();

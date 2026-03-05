@@ -34,6 +34,7 @@ public static class SubmissionEndpoints
         .Accepts<IFormFile>("application/xml")
         .Produces<SubmissionResultDto>()
         .Produces<SubmissionResultDto>(422)
+        .RequireAuthorization("CanCreateSubmission")
         .WithName("SubmitReturn")
         .WithSummary("Submit an XML return for processing and validation");
 

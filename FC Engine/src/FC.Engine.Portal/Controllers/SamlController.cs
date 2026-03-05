@@ -208,7 +208,7 @@ public class SamlController : Controller
         }
 
         var derBytes = Convert.FromBase64String(rawCertificate);
-        return new X509Certificate2(derBytes);
+        return X509CertificateLoader.LoadCertificate(derBytes);
     }
 
     private Guid? ExtractRelayStateTenantId()
@@ -219,7 +219,7 @@ public class SamlController : Controller
             return null;
         }
 
-        var query = relayStateRaw.StartsWith('?', StringComparison.Ordinal)
+        var query = relayStateRaw.StartsWith("?", StringComparison.Ordinal)
             ? relayStateRaw
             : $"?{relayStateRaw}";
 
