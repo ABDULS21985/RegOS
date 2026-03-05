@@ -153,11 +153,15 @@ public static class DependencyInjection
         services.AddScoped<ICrossSheetValidator, CrossSheetValidator>();
         services.AddScoped<IBusinessRuleEvaluator, BusinessRuleEvaluator>();
 
+        // ── Filing Calendar (RG-12) ──
+        services.AddScoped<DeadlineComputationService>();
+        services.AddScoped<IFilingCalendarService, FilingCalendarService>();
+
         // Billing & subscription background jobs
         services.AddHostedService<UsageTrackingJob>();
         services.AddHostedService<OverdueInvoiceJob>();
         services.AddHostedService<NotificationRetryJob>();
-        services.AddHostedService<DeadlineNotificationJob>();
+        services.AddHostedService<FilingCalendarJob>();
 
         return services;
     }
