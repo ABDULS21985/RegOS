@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  DEVELOPMENT FINANCE INSTITUTION (DFI) REGULATORY RETURN - XML SCHEMA DEFINITION
+  CBN Development Finance Department | BOI | BOA | NEXIM | DBN | NIRSAL
+  Version: 1.0 | March 2026
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:dfi="urn:cbn:dfi:reporting:v1"
+           targetNamespace="urn:cbn:dfi:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+
+  <xs:element name="DFIReturn" type="dfi:DFIReturnType"/>
+
+  <xs:complexType name="DFIReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="dfi:HeaderType"/>
+      <xs:element name="LoanPortfolio" type="dfi:LoanPortfolioType" minOccurs="0"/>
+      <xs:element name="AssetQuality" type="dfi:AssetQualityType" minOccurs="0"/>
+      <xs:element name="CapitalAdequacy" type="dfi:CapitalAdequacyType" minOccurs="0"/>
+      <xs:element name="FinancialStatements" type="dfi:FinancialStatementsType" minOccurs="0"/>
+      <xs:element name="FundingLiquidity" type="dfi:FundingLiquidityType" minOccurs="0"/>
+      <xs:element name="DevelopmentImpact" type="dfi:DevelopmentImpactType" minOccurs="0"/>
+      <xs:element name="CreditGuarantee" type="dfi:CreditGuaranteeType" minOccurs="0"/>
+      <xs:element name="AMLCompliance" type="dfi:AMLComplianceType" minOccurs="0"/>
+      <xs:element name="Governance" type="dfi:GovernanceType" minOccurs="0"/>
+      <xs:element name="Operational" type="dfi:OperationalType" minOccurs="0"/>
+      <xs:element name="Signature" type="dfi:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="DFILicenceNo"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="20"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="DFIName"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="200"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReturnType" type="dfi:ReturnTypeEnum"/>
+      <xs:element name="DFIMandate" type="dfi:MandateEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="ContactPerson" type="xs:string"/>
+      <xs:element name="ContactEmail" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- LOAN PORTFOLIO -->
+  <xs:complexType name="LoanPortfolioType">
+    <xs:sequence>
+      <xs:element name="SectorAllocation" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="SectorName" type="xs:string"/>
+            <xs:element name="NumberOfLoans" type="xs:nonNegativeInteger"/>
+            <xs:element name="OutstandingBalance" type="dfi:AmountType"/>
+            <xs:element name="PctOfPortfolio" type="dfi:RatioType"/>
+            <xs:element name="DisbursedQuarter" type="dfi:AmountType"/>
+            <xs:element name="RepaidQuarter" type="dfi:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalLoanPortfolio" type="dfi:AmountType"/>
+      <xs:element name="TotalDisbursements" type="dfi:AmountType"/>
+      <xs:element name="TotalRepayments" type="dfi:AmountType"/>
+      <xs:element name="RepaymentRate" type="dfi:RatioType"/>
+      <xs:element name="AvgLoanTenorMonths" type="xs:nonNegativeInteger"/>
+      <xs:element name="WeightedAvgRate" type="dfi:RatioType"/>
+      <xs:element name="OnLending" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="TotalPFIs" type="xs:nonNegativeInteger"/>
+            <xs:element name="AmountOnLent" type="dfi:AmountType"/>
+            <xs:element name="EndBorrowersReached" type="xs:nonNegativeInteger"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ASSET QUALITY -->
+  <xs:complexType name="AssetQualityType">
+    <xs:sequence>
+      <xs:element name="Stage1Performing" type="dfi:AmountType"/>
+      <xs:element name="Stage2SICR" type="dfi:AmountType"/>
+      <xs:element name="Stage3Impaired" type="dfi:AmountType"/>
+      <xs:element name="TotalECLProvision" type="dfi:AmountType"/>
+      <xs:element name="NPLRatio" type="dfi:RatioType"/>
+      <xs:element name="CoverageRatio" type="dfi:RatioType"/>
+      <xs:element name="LoansWrittenOff" type="dfi:AmountType"/>
+      <xs:element name="Recoveries" type="dfi:AmountType"/>
+      <xs:element name="CollateralAgainstNPL" type="dfi:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CAPITAL ADEQUACY -->
+  <xs:complexType name="CapitalAdequacyType">
+    <xs:sequence>
+      <xs:element name="Tier1Capital" type="dfi:AmountType"/>
+      <xs:element name="Tier2Capital" type="dfi:AmountType"/>
+      <xs:element name="TotalRegulatoryCapital" type="dfi:AmountType"/>
+      <xs:element name="RiskWeightedAssets" type="dfi:AmountType"/>
+      <xs:element name="CAR" type="dfi:RatioType"/>
+      <xs:element name="MinimumCAR" type="dfi:RatioType"/>
+      <xs:element name="IsCompliant" type="xs:boolean"/>
+      <xs:element name="FGNCapitalInjection" type="dfi:AmountType"/>
+      <xs:element name="LeverageRatio" type="dfi:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL STATEMENTS -->
+  <xs:complexType name="FinancialStatementsType">
+    <xs:sequence>
+      <xs:element name="TotalInterestIncome" type="dfi:AmountType"/>
+      <xs:element name="TotalInterestExpense" type="dfi:AmountType"/>
+      <xs:element name="NetInterestIncome" type="xs:decimal"/>
+      <xs:element name="ECLCharge" type="dfi:AmountType"/>
+      <xs:element name="NonInterestIncome" type="dfi:AmountType"/>
+      <xs:element name="TotalExpenses" type="dfi:AmountType"/>
+      <xs:element name="ProfitBeforeTax" type="xs:decimal"/>
+      <xs:element name="ProfitAfterTax" type="xs:decimal"/>
+      <xs:element name="TotalAssets" type="dfi:AmountType"/>
+      <xs:element name="TotalLiabilities" type="dfi:AmountType"/>
+      <xs:element name="TotalEquity" type="dfi:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FUNDING & LIQUIDITY -->
+  <xs:complexType name="FundingLiquidityType">
+    <xs:sequence>
+      <xs:element name="FundingSource" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="SourceName" type="xs:string"/>
+            <xs:element name="Outstanding" type="dfi:AmountType"/>
+            <xs:element name="InterestRate" type="dfi:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalFunding" type="dfi:AmountType"/>
+      <xs:element name="LiquidityRatio" type="dfi:RatioType"/>
+      <xs:element name="CostOfFunds" type="dfi:RatioType"/>
+      <xs:element name="DebtToEquity" type="dfi:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- DEVELOPMENT IMPACT -->
+  <xs:complexType name="DevelopmentImpactType">
+    <xs:sequence>
+      <xs:element name="DirectJobsCreated" type="xs:nonNegativeInteger"/>
+      <xs:element name="JobsSustained" type="xs:nonNegativeInteger"/>
+      <xs:element name="MSMEsFinanced" type="xs:nonNegativeInteger"/>
+      <xs:element name="WomenOwnedMSMEs" type="xs:nonNegativeInteger"/>
+      <xs:element name="YouthOwnedMSMEs" type="xs:nonNegativeInteger"/>
+      <xs:element name="ExportRevenueFacilitated" type="dfi:AmountType" minOccurs="0"/>
+      <xs:element name="GreenClimateFinance" type="dfi:AmountType" minOccurs="0"/>
+      <xs:element name="RuralLendingPct" type="dfi:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CREDIT GUARANTEE -->
+  <xs:complexType name="CreditGuaranteeType">
+    <xs:sequence>
+      <xs:element name="GuaranteeCategory" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CategoryName" type="xs:string"/>
+            <xs:element name="NumberOfGuarantees" type="xs:nonNegativeInteger"/>
+            <xs:element name="GuaranteeAmount" type="dfi:AmountType"/>
+            <xs:element name="OutstandingExposure" type="dfi:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalGuaranteePortfolio" type="dfi:AmountType"/>
+      <xs:element name="ClaimsPaid" type="dfi:AmountType"/>
+      <xs:element name="Recoveries" type="dfi:AmountType"/>
+      <xs:element name="GuaranteeLossRatio" type="dfi:RatioType"/>
+      <xs:element name="ReserveFundBalance" type="dfi:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AML -->
+  <xs:complexType name="AMLComplianceType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="KYCCompletionRate" type="dfi:RatioType"/>
+      <xs:element name="PEPBorrowers" type="xs:nonNegativeInteger"/>
+      <xs:element name="StaffTrainedPct" type="dfi:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- GOVERNANCE -->
+  <xs:complexType name="GovernanceType">
+    <xs:sequence>
+      <xs:element name="Director" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="AppointingAuthority" type="xs:string"/>
+            <xs:element name="Role" type="xs:string"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="Committee" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CommitteeName" type="xs:string"/>
+            <xs:element name="Chairperson" type="xs:string"/>
+            <xs:element name="MeetingsHeld" type="xs:nonNegativeInteger"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- OPERATIONAL -->
+  <xs:complexType name="OperationalType">
+    <xs:sequence>
+      <xs:element name="RegionalOffices" type="xs:nonNegativeInteger"/>
+      <xs:element name="StatesWithPresence" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalStaff" type="xs:nonNegativeInteger"/>
+      <xs:element name="SystemUptime" type="dfi:RatioType"/>
+      <xs:element name="ActiveProjectsMonitored" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SIGNATURE -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="MDSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that the information provided is true, accurate, and complete to the best of our knowledge and in compliance with CBN Prudential Standards for Development Finance Institutions."/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENUMERATIONS -->
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="LPQ"/><xs:enumeration value="ASQ"/><xs:enumeration value="CAP"/>
+      <xs:enumeration value="FIN"/><xs:enumeration value="FND"/><xs:enumeration value="DEV"/>
+      <xs:enumeration value="CGR"/><xs:enumeration value="AML"/><xs:enumeration value="GOV"/>
+      <xs:enumeration value="OPR"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="MandateEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Industrial"/><xs:enumeration value="Agricultural"/>
+      <xs:enumeration value="Export"/><xs:enumeration value="MSME"/>
+      <xs:enumeration value="Infrastructure"/><xs:enumeration value="CreditGuarantee"/>
+      <xs:enumeration value="Wholesale"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

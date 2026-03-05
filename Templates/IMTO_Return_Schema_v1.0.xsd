@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  INTERNATIONAL MONEY TRANSFER OPERATOR (IMTO) REGULATORY RETURN - XML SCHEMA DEFINITION
+  CBN Trade & Exchange Department | Jan 2024 Revised IMTO Guidelines | BOFIA 2020
+  Version: 1.0 | March 2026
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:imto="urn:cbn:imto:reporting:v1"
+           targetNamespace="urn:cbn:imto:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+
+  <xs:element name="IMTOReturn" type="imto:IMTOReturnType"/>
+
+  <xs:complexType name="IMTOReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="imto:HeaderType"/>
+      <xs:element name="TransactionLog" type="imto:TransactionLogType" minOccurs="0"/>
+      <xs:element name="VolumeSummary" type="imto:VolumeSummaryType" minOccurs="0"/>
+      <xs:element name="CorridorAnalysis" type="imto:CorridorAnalysisType" minOccurs="0"/>
+      <xs:element name="AgentBankOps" type="imto:AgentBankOpsType" minOccurs="0"/>
+      <xs:element name="FXSettlement" type="imto:FXSettlementType" minOccurs="0"/>
+      <xs:element name="FinancialStatements" type="imto:FinancialStatementsType" minOccurs="0"/>
+      <xs:element name="AMLCompliance" type="imto:AMLComplianceType" minOccurs="0"/>
+      <xs:element name="CustomerAnalysis" type="imto:CustomerAnalysisType" minOccurs="0"/>
+      <xs:element name="Governance" type="imto:GovernanceType" minOccurs="0"/>
+      <xs:element name="Operational" type="imto:OperationalType" minOccurs="0"/>
+      <xs:element name="Signature" type="imto:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <!-- HEADER -->
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="IMTOLicenceNo"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="20"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="IMTOName"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="200"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReturnType" type="imto:ReturnTypeEnum"/>
+      <xs:element name="IMTOType" type="imto:IMTOTypeEnum"/>
+      <xs:element name="ReportFrequency" type="imto:FrequencyEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="ContactPerson" type="xs:string"/>
+      <xs:element name="ContactEmail" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- TRANSACTION LOG -->
+  <xs:complexType name="TransactionLogType">
+    <xs:sequence>
+      <xs:element name="Transaction" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="TransactionRef" type="xs:string"/>
+            <xs:element name="TransactionDateTime" type="xs:dateTime"/>
+            <xs:element name="OriginCountry" type="xs:string"/>
+            <xs:element name="SenderName" type="xs:string"/>
+            <xs:element name="SenderIDType" type="xs:string"/>
+            <xs:element name="SenderIDNumber" type="xs:string"/>
+            <xs:element name="TransferType" type="imto:TransferTypeEnum"/>
+            <xs:element name="FCYAmount" type="imto:AmountType"/>
+            <xs:element name="FCYCode" type="imto:CurrencyType"/>
+            <xs:element name="FXRate" type="xs:decimal"/>
+            <xs:element name="NGNPayout" type="imto:AmountType"/>
+            <xs:element name="NFEMRate" type="xs:decimal"/>
+            <xs:element name="RateVariance" type="xs:decimal"/>
+            <xs:element name="Commission" type="imto:AmountType"/>
+            <xs:element name="BeneficiaryName" type="xs:string"/>
+            <xs:element name="BeneficiaryBVN" type="xs:string" minOccurs="0"/>
+            <xs:element name="BeneficiaryAccount" type="xs:string" minOccurs="0"/>
+            <xs:element name="PayoutChannel" type="imto:PayoutChannelEnum"/>
+            <xs:element name="CashPayout" type="xs:boolean"/>
+            <xs:element name="AgentBankCode" type="xs:string"/>
+            <xs:element name="SettlementStatus" type="imto:SettlementStatusEnum"/>
+            <xs:element name="Purpose" type="xs:string"/>
+            <xs:element name="SplitFlag" type="xs:boolean"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalTransactions" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalFCYValue" type="imto:AmountType"/>
+      <xs:element name="TotalNGNPayout" type="imto:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- VOLUME SUMMARY -->
+  <xs:complexType name="VolumeSummaryType">
+    <xs:sequence>
+      <xs:element name="TotalTransactions" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalValueUSD" type="imto:AmountType"/>
+      <xs:element name="TotalNairaDisbursed" type="imto:AmountType"/>
+      <xs:element name="AverageTransactionSize" type="imto:AmountType"/>
+      <xs:element name="CashPayouts" type="xs:nonNegativeInteger"/>
+      <xs:element name="AccountCreditPayouts" type="xs:nonNegativeInteger"/>
+      <xs:element name="WeightedAvgFXRate" type="xs:decimal"/>
+      <xs:element name="PendingSettlement" type="xs:nonNegativeInteger"/>
+      <xs:element name="FailedTransactions" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CORRIDOR ANALYSIS -->
+  <xs:complexType name="CorridorAnalysisType">
+    <xs:sequence>
+      <xs:element name="Corridor" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="SourceCountry" type="xs:string"/>
+            <xs:element name="Transactions" type="xs:nonNegativeInteger"/>
+            <xs:element name="VolumeUSD" type="imto:AmountType"/>
+            <xs:element name="PctOfTotal" type="imto:RatioType"/>
+            <xs:element name="AvgTxnSize" type="imto:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalCorridorVolume" type="imto:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AGENT BANK OPERATIONS -->
+  <xs:complexType name="AgentBankOpsType">
+    <xs:sequence>
+      <xs:element name="AgentBank" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="BankName" type="xs:string"/>
+            <xs:element name="BankCode" type="xs:string"/>
+            <xs:element name="TransactionsProcessed" type="xs:nonNegativeInteger"/>
+            <xs:element name="ValuePaidOut" type="imto:AmountType"/>
+            <xs:element name="AgencyAgreementExpiry" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalSettlementAmount" type="imto:AmountType"/>
+      <xs:element name="AvgSettlementCycleHours" type="xs:nonNegativeInteger"/>
+      <xs:element name="CustomerFundsSegregated" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FX SETTLEMENT -->
+  <xs:complexType name="FXSettlementType">
+    <xs:sequence>
+      <xs:element name="RateReport" maxOccurs="unbounded" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CurrencyPair" type="xs:string"/>
+            <xs:element name="IMTORateApplied" type="xs:decimal"/>
+            <xs:element name="NFEMClosingRate" type="xs:decimal"/>
+            <xs:element name="VariancePct" type="xs:decimal"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalFXReceived" type="imto:AmountType"/>
+      <xs:element name="TotalNairaDisbursed" type="imto:AmountType"/>
+      <xs:element name="NostroBalance" type="imto:AmountType"/>
+      <xs:element name="NoDomesticFXPurchase" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL STATEMENTS -->
+  <xs:complexType name="FinancialStatementsType">
+    <xs:sequence>
+      <xs:element name="CommissionIncome" type="imto:AmountType"/>
+      <xs:element name="FXSpreadIncome" type="imto:AmountType"/>
+      <xs:element name="TotalRevenue" type="imto:AmountType"/>
+      <xs:element name="TotalExpenses" type="imto:AmountType"/>
+      <xs:element name="ProfitBeforeTax" type="xs:decimal"/>
+      <xs:element name="ProfitAfterTax" type="xs:decimal"/>
+      <xs:element name="TotalAssets" type="imto:AmountType"/>
+      <xs:element name="TotalLiabilities" type="imto:AmountType"/>
+      <xs:element name="PaidUpCapital" type="imto:AmountType"/>
+      <xs:element name="TotalEquity" type="imto:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AML COMPLIANCE -->
+  <xs:complexType name="AMLComplianceType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="OriginatingCountrySTRs" type="xs:nonNegativeInteger"/>
+      <xs:element name="TMSAlerts" type="xs:nonNegativeInteger"/>
+      <xs:element name="SplitTransactionAlerts" type="xs:nonNegativeInteger"/>
+      <xs:element name="SanctionsHits" type="xs:nonNegativeInteger"/>
+      <xs:element name="BVNVerificationRate" type="imto:RatioType"/>
+      <xs:element name="StaffTrainedPct" type="imto:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CUSTOMER ANALYSIS -->
+  <xs:complexType name="CustomerAnalysisType">
+    <xs:sequence>
+      <xs:element name="TotalBeneficiaries" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveBeneficiaries" type="xs:nonNegativeInteger"/>
+      <xs:element name="BankedBeneficiariesPct" type="imto:RatioType"/>
+      <xs:element name="CashOnlyBeneficiariesPct" type="imto:RatioType"/>
+      <xs:element name="RuralBeneficiariesPct" type="imto:RatioType"/>
+      <xs:element name="UniqueSenders" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- GOVERNANCE -->
+  <xs:complexType name="GovernanceType">
+    <xs:sequence>
+      <xs:element name="Director" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="Nationality" type="xs:string"/>
+            <xs:element name="Role" type="xs:string"/>
+            <xs:element name="CBNApproved" type="xs:boolean"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="LicenceValid" type="xs:boolean"/>
+      <xs:element name="RenewalFeePaid" type="xs:boolean"/>
+      <xs:element name="MinCapitalMet" type="xs:boolean"/>
+      <xs:element name="TechnicalPartnerName" type="xs:string" minOccurs="0"/>
+      <xs:element name="TechnicalPartnerLicenced" type="xs:boolean" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- OPERATIONAL -->
+  <xs:complexType name="OperationalType">
+    <xs:sequence>
+      <xs:element name="AvgProcessingMinutes" type="xs:nonNegativeInteger"/>
+      <xs:element name="PlatformUptime" type="imto:RatioType"/>
+      <xs:element name="FailedTransactions" type="xs:nonNegativeInteger"/>
+      <xs:element name="ComplaintsReceived" type="xs:nonNegativeInteger"/>
+      <xs:element name="FraudCases" type="xs:nonNegativeInteger"/>
+      <xs:element name="FraudLossUSD" type="imto:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SIGNATURE -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="MDSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that this return is filed in compliance with the CBN Guidelines for International Money Transfer Services in Nigeria (January 2024), BOFIA 2020, and all applicable AML/CFT/CPF regulations. The information provided is true, accurate, and complete."/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENUMERATIONS -->
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="TXN"/><xs:enumeration value="VOL"/><xs:enumeration value="COR"/>
+      <xs:enumeration value="AGT"/><xs:enumeration value="FXR"/><xs:enumeration value="FIN"/>
+      <xs:enumeration value="AML"/><xs:enumeration value="CUS"/><xs:enumeration value="GOV"/>
+      <xs:enumeration value="OPR"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="IMTOTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Foreign"/><xs:enumeration value="Indigenous"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FrequencyEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Daily"/><xs:enumeration value="Weekly"/>
+      <xs:enumeration value="Monthly"/><xs:enumeration value="Quarterly"/>
+      <xs:enumeration value="Annual"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="TransferTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="P2P"/><xs:enumeration value="B2P"/><xs:enumeration value="B2B"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="PayoutChannelEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="AccountCredit"/><xs:enumeration value="Cash"/>
+      <xs:enumeration value="MobileMoney"/><xs:enumeration value="USSD"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="SettlementStatusEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Settled"/><xs:enumeration value="Pending"/><xs:enumeration value="Failed"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="CurrencyType"><xs:restriction base="xs:string"><xs:length value="3"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

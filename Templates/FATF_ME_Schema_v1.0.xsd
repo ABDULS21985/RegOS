@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:fatf="urn:fatf:me:reporting:v1"
+           targetNamespace="urn:fatf:me:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+  <xs:element name="FATFAssessment" type="fatf:FATFAssessmentType"/>
+  <xs:complexType name="FATFAssessmentType">
+    <xs:sequence>
+      <xs:element name="Header" type="fatf:HeaderType"/>
+      <xs:element name="TechnicalCompliance" type="fatf:TechnicalComplianceType" minOccurs="0"/>
+      <xs:element name="ImmediateOutcomes" type="fatf:ImmediateOutcomesType" minOccurs="0"/>
+      <xs:element name="NationalRiskAssessment" type="fatf:NRAType" minOccurs="0"/>
+      <xs:element name="ActionPlan" type="fatf:ActionPlanType" minOccurs="0"/>
+      <xs:element name="Signature" type="fatf:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="Country" type="xs:string"/>
+      <xs:element name="FSRB" type="xs:string"/>
+      <xs:element name="AssessmentDate" type="xs:date"/>
+      <xs:element name="Methodology" type="fatf:MethodologyEnum"/>
+      <xs:element name="AssessmentRound" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="TechnicalComplianceType">
+    <xs:sequence>
+      <xs:element name="Recommendation" maxOccurs="40">
+        <xs:complexType><xs:sequence>
+          <xs:element name="RecNumber" type="xs:string"/>
+          <xs:element name="Title" type="xs:string"/>
+          <xs:element name="Rating" type="fatf:TCRatingEnum"/>
+          <xs:element name="Deficiencies" type="xs:string" minOccurs="0"/>
+          <xs:element name="RemedialActions" type="xs:string" minOccurs="0"/>
+        </xs:sequence></xs:complexType>
+      </xs:element>
+      <xs:element name="CompliantCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="LargelyCompliantCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="PartiallyCompliantCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="NonCompliantCount" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ImmediateOutcomesType">
+    <xs:sequence>
+      <xs:element name="Outcome" maxOccurs="11">
+        <xs:complexType><xs:sequence>
+          <xs:element name="IONumber" type="xs:string"/>
+          <xs:element name="Description" type="xs:string"/>
+          <xs:element name="Rating" type="fatf:IORatingEnum"/>
+          <xs:element name="KeyFindings" type="xs:string" minOccurs="0"/>
+          <xs:element name="PriorityActions" type="xs:string" minOccurs="0"/>
+        </xs:sequence></xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="NRAType">
+    <xs:sequence>
+      <xs:element name="OverallMLThreat" type="fatf:RiskLevelEnum"/>
+      <xs:element name="OverallTFThreat" type="fatf:RiskLevelEnum"/>
+      <xs:element name="OverallPFThreat" type="fatf:RiskLevelEnum"/>
+      <xs:element name="SectorRisk" maxOccurs="unbounded" minOccurs="0">
+        <xs:complexType><xs:sequence>
+          <xs:element name="SectorName" type="xs:string"/>
+          <xs:element name="ThreatRating" type="fatf:RiskLevelEnum"/>
+          <xs:element name="VulnerabilityRating" type="fatf:RiskLevelEnum"/>
+          <xs:element name="OverallRisk" type="fatf:RiskLevelEnum"/>
+        </xs:sequence></xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="ActionPlanType">
+    <xs:sequence>
+      <xs:element name="ActionItem" maxOccurs="unbounded">
+        <xs:complexType><xs:sequence>
+          <xs:element name="Description" type="xs:string"/>
+          <xs:element name="Status" type="fatf:ActionStatusEnum"/>
+          <xs:element name="CompletionDate" type="xs:date" minOccurs="0"/>
+          <xs:element name="ResponsibleAgency" type="xs:string"/>
+        </xs:sequence></xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:simpleType name="TCRatingEnum"><xs:restriction base="xs:string"><xs:enumeration value="C"/><xs:enumeration value="LC"/><xs:enumeration value="PC"/><xs:enumeration value="NC"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="IORatingEnum"><xs:restriction base="xs:string"><xs:enumeration value="HE"/><xs:enumeration value="SE"/><xs:enumeration value="ME"/><xs:enumeration value="LE"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RiskLevelEnum"><xs:restriction base="xs:string"><xs:enumeration value="High"/><xs:enumeration value="MedHigh"/><xs:enumeration value="Medium"/><xs:enumeration value="MedLow"/><xs:enumeration value="Low"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="ActionStatusEnum"><xs:restriction base="xs:string"><xs:enumeration value="Complete"/><xs:enumeration value="InProgress"/><xs:enumeration value="NotStarted"/><xs:enumeration value="Superseded"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="MethodologyEnum"><xs:restriction base="xs:string"><xs:enumeration value="2013"/><xs:enumeration value="2022"/></xs:restriction></xs:simpleType>
+</xs:schema>

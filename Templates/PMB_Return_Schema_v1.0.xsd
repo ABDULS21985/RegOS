@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:pmb="urn:cbn:pmb:reporting:v1"
+           targetNamespace="urn:cbn:pmb:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+  <xs:element name="PMBReturn" type="pmb:PMBReturnType"/>
+  <xs:complexType name="PMBReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="pmb:HeaderType"/>
+      <xs:element name="MortgagePortfolio" type="pmb:MortgagePortfolioType" minOccurs="0"/>
+      <xs:element name="NHFLending" type="pmb:NHFLendingType" minOccurs="0"/>
+      <xs:element name="AssetQuality" type="pmb:AssetQualityType" minOccurs="0"/>
+      <xs:element name="CapitalAdequacy" type="pmb:CapitalAdequacyType" minOccurs="0"/>
+      <xs:element name="Deposits" type="pmb:DepositsType" minOccurs="0"/>
+      <xs:element name="HousingSector" type="pmb:HousingSectorType" minOccurs="0"/>
+      <xs:element name="Signature" type="pmb:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="PMBLicenceNo" type="xs:string"/>
+      <xs:element name="PMBName" type="xs:string"/>
+      <xs:element name="PMBCategory" type="pmb:PMBCategoryEnum"/>
+      <xs:element name="ReturnType" type="pmb:ReturnTypeEnum"/>
+      <xs:element name="ReportFrequency" type="pmb:FrequencyEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="FMBNAccredited" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="MortgagePortfolioType">
+    <xs:sequence>
+      <xs:element name="Product" maxOccurs="unbounded">
+        <xs:complexType><xs:sequence>
+          <xs:element name="ProductType" type="pmb:MortgageProductEnum"/>
+          <xs:element name="LoanCount" type="xs:nonNegativeInteger"/>
+          <xs:element name="Outstanding" type="pmb:AmountType"/>
+          <xs:element name="PctOfPortfolio" type="pmb:RatioType"/>
+        </xs:sequence></xs:complexType>
+      </xs:element>
+      <xs:element name="TotalPortfolio" type="pmb:AmountType"/>
+      <xs:element name="WeightedAvgRate" type="xs:decimal"/>
+      <xs:element name="AvgLTV" type="pmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="NHFLendingType">
+    <xs:sequence>
+      <xs:element name="NHFLoansOutstanding" type="pmb:AmountType"/>
+      <xs:element name="NHFLoanCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="FMBNDrawdown" type="pmb:AmountType"/>
+      <xs:element name="FMBNOutstanding" type="pmb:AmountType"/>
+      <xs:element name="NHFNPLRatio" type="pmb:RatioType"/>
+      <xs:element name="NHFRepaymentRate" type="pmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="AssetQualityType">
+    <xs:sequence>
+      <xs:element name="Stage1" type="pmb:AmountType"/>
+      <xs:element name="Stage2" type="pmb:AmountType"/>
+      <xs:element name="Stage3" type="pmb:AmountType"/>
+      <xs:element name="TotalECL" type="pmb:AmountType"/>
+      <xs:element name="NPLRatio" type="pmb:RatioType"/>
+      <xs:element name="CoverageRatio" type="pmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="CapitalAdequacyType">
+    <xs:sequence>
+      <xs:element name="Tier1Capital" type="pmb:AmountType"/>
+      <xs:element name="Tier2Capital" type="pmb:AmountType"/>
+      <xs:element name="TotalRegulatoryCapital" type="pmb:AmountType"/>
+      <xs:element name="RiskWeightedAssets" type="pmb:AmountType"/>
+      <xs:element name="CAR" type="pmb:RatioType"/>
+      <xs:element name="MinCapitalMet" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="DepositsType">
+    <xs:sequence>
+      <xs:element name="TotalDeposits" type="pmb:AmountType"/>
+      <xs:element name="SavingsDeposits" type="pmb:AmountType"/>
+      <xs:element name="TimeDeposits" type="pmb:AmountType"/>
+      <xs:element name="MortgageDemandDeposits" type="pmb:AmountType"/>
+      <xs:element name="FMBNDrawdowns" type="pmb:AmountType"/>
+      <xs:element name="LiquidityRatio" type="pmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="HousingSectorType">
+    <xs:sequence>
+      <xs:element name="UnitsFinancedQuarter" type="xs:nonNegativeInteger"/>
+      <xs:element name="UnitsFinancedCumulative" type="xs:nonNegativeInteger"/>
+      <xs:element name="AvgPropertyValue" type="pmb:AmountType"/>
+      <xs:element name="FirstTimeBuyersPct" type="pmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy" type="xs:string"/>
+      <xs:element name="Designation" type="xs:string"/>
+      <xs:element name="Date" type="xs:date"/>
+      <xs:element name="MDSignOff" type="xs:string"/>
+      <xs:element name="MDDate" type="xs:date"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:simpleType name="PMBCategoryEnum"><xs:restriction base="xs:string"><xs:enumeration value="State"/><xs:enumeration value="National"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="ReturnTypeEnum"><xs:restriction base="xs:string"><xs:enumeration value="MLP"/><xs:enumeration value="NHF"/><xs:enumeration value="ASQ"/><xs:enumeration value="CAP"/><xs:enumeration value="DEP"/><xs:enumeration value="FIN"/><xs:enumeration value="HOU"/><xs:enumeration value="AML"/><xs:enumeration value="GOV"/><xs:enumeration value="OPR"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="FrequencyEnum"><xs:restriction base="xs:string"><xs:enumeration value="Quarterly"/><xs:enumeration value="Annual"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="MortgageProductEnum"><xs:restriction base="xs:string"><xs:enumeration value="NHF_Purchase"/><xs:enumeration value="NHF_Construction"/><xs:enumeration value="NHF_Renovation"/><xs:enumeration value="NHF_RentToOwn"/><xs:enumeration value="NHF_Diaspora"/><xs:enumeration value="Commercial"/><xs:enumeration value="ConstructionFinance"/><xs:enumeration value="Consumer"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>
