@@ -88,6 +88,7 @@ public static class DependencyInjection
         services.AddScoped<IExportGenerator, PdfExportGenerator>();
         services.AddScoped<IExportGenerator, XmlExportGenerator>();
         services.AddScoped<IExportGenerator, XbrlExportGenerator>();
+        services.AddScoped<XmlExportCoverageValidator>();
 
         // Regulator adapters
         services.AddScoped<IRegulatorSubmissionAdapter, CbnSubmissionAdapter>();

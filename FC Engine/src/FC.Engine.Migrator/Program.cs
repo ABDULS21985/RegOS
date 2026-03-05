@@ -3,6 +3,7 @@ using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Infrastructure;
 using FC.Engine.Infrastructure.Metadata;
+using FC.Engine.Infrastructure.Export;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -169,6 +170,40 @@ try
     logger.LogInformation(
         "Physical tables: {Created} created, {Skipped} already existed",
         tablesCreated, tablesSkipped);
+
+    // Step 6b: Validate XML export/XSD coverage across published module templates
+    logger.LogInformation("Validating XML export coverage across published modules...");
+    var xmlCoverageValidator = scope.ServiceProvider.GetRequiredService<XmlExportCoverageValidator>();
+    var coverage = await xmlCoverageValidator.Validate();
+    logger.LogInformation(
+        "XML export coverage: {Modules} modules, {Templates} templates, {Failed} failed templates",
+        coverage.ModuleCount,
+        coverage.TemplateCount,
+        coverage.FailedTemplateCount);
+
+    foreach (var module in coverage.Modules.Where(m => m.Templates.Any(t => !t.Success)))
+    {
+        foreach (var failed in module.Templates.Where(t => !t.Success))
+        {
+            logger.LogError(
+                "XML coverage failure: Module={ModuleCode}, ReturnCode={ReturnCode}, Error={Error}",
+                module.ModuleCode,
+                failed.ReturnCode,
+                failed.Error);
+        }
+    }
+
+    if (coverage.ModuleCount < 14)
+    {
+        throw new InvalidOperationException(
+            $"XML export coverage failed: expected at least 14 modules, found {coverage.ModuleCount}.");
+    }
+
+    if (!coverage.Success)
+    {
+        throw new InvalidOperationException(
+            $"XML export coverage failed: {coverage.FailedTemplateCount} template(s) failed schema validation.");
+    }
 
     // Step 7: Seed default admin user (if no users exist)
     var userRepo = scope.ServiceProvider.GetRequiredService<IPortalUserRepository>();
