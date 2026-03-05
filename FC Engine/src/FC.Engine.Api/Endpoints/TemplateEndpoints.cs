@@ -6,9 +6,9 @@ namespace FC.Engine.Api.Endpoints;
 
 public static class TemplateEndpoints
 {
-    public static void MapTemplateEndpoints(this WebApplication app)
+    public static void MapTemplateEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = app.MapGroup("/api/templates").WithTags("Templates");
+        var group = routes.MapGroup("/templates").WithTags("Templates");
 
         group.MapGet("/", async (
             TemplateService templateService,
@@ -40,7 +40,7 @@ public static class TemplateEndpoints
             CancellationToken ct) =>
         {
             var template = await templateService.CreateTemplate(request, ct);
-            return Results.Created($"/api/templates/{template.ReturnCode}", template);
+            return Results.Created($"/api/v1/templates/{template.ReturnCode}", template);
         })
         .Produces<TemplateDto>(201)
         .WithName("CreateTemplate")
@@ -65,7 +65,7 @@ public static class TemplateEndpoints
             CancellationToken ct) =>
         {
             var version = await versionService.CreateNewDraftVersion(templateId, "system", ct);
-            return Results.Created($"/api/templates/{templateId}/versions/{version.Id}",
+            return Results.Created($"/api/v1/templates/{templateId}/versions/{version.Id}",
                 new { version.Id, version.VersionNumber, Status = version.Status.ToString() });
         })
         .WithName("CreateDraftVersion")

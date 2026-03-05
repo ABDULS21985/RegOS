@@ -1,0 +1,156 @@
+@page "/dashboard/compliance"
+@attribute [Authorize]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject IDashboardService DashboardService
+@inject ITenantContext TenantContext
+@inject ChartJsInterop Charts
+
+<PageTitle>Compliance Summary</PageTitle>
+
+@if (_loading)
+{
+    <div class="dash17-loading">Loading compliance summary...</div>
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="dash17-error">@_error</div>
+}
+else if (_summary is not null)
+{
+    <div class="dash17-compliance">
+        <header class="dash17-header">
+            <div>
+                <h1>Cross-Module Compliance Summary</h1>
+                <p>Overall compliance score: <strong>@_summary.OverallScore.ToString("0.##")%</strong></p>
+            </div>
+            <div class="dash17-score-chip">Generated @_summary.GeneratedAt.ToString("dd MMM yyyy HH:mm")</div>
+        </header>
+
+        <div class="dash17-chart-card dash17-chart-card-wide">
+            <h3>RAG Distribution Across Active Modules</h3>
+            <div class="dash17-chart-wrap"><canvas id="complianceRagChart"></canvas></div>
+        </div>
+
+        <div class="dash17-table-wrap">
+            <table class="dash17-table" aria-label="Compliance summary table">
+                <thead>
+                    <tr>
+                        <th>Module</th>
+                        <th>Current</th>
+                        <th>Previous</th>
+                        <th>Trend</th>
+                        <th>Score</th>
+                        <th>Timeliness</th>
+                        <th>Data Quality</th>
+                        <th>Validation</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _summary.Modules)
+                    {
+                        <tr>
+                            <td>
+                                <a href="/dashboard/module/@row.ModuleCode">@row.ModuleName</a>
+                            </td>
+                            <td><span class="dash17-pill @RagClass(row.CurrentRag)">@row.CurrentRag</span></td>
+                            <td><span class="dash17-pill @RagClass(row.PreviousRag)">@row.PreviousRag</span></td>
+                            <td>@TrendLabel(row.Trend)</td>
+                            <td>@row.Score.ToString("0.##")%</td>
+                            <td>@row.TimelinessScore.ToString("0.##")%</td>
+                            <td>@row.DataQualityScore.ToString("0.##")%</td>
+                            <td>@row.ValidationPassRate.ToString("0.##")%</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private ComplianceSummaryData? _summary;
+    private bool _loading = true;
+    private bool _chartRendered;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            if (TenantContext.CurrentTenantId is not { } tenantId)
+            {
+                _error = "Tenant context is not available for this dashboard.";
+                return;
+            }
+
+            _summary = await DashboardService.GetComplianceSummary(tenantId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_summary is null || _chartRendered)
+        {
+            return;
+        }
+
+        await Charts.RenderDoughnutChart("complianceRagChart", BuildRagChart(_summary));
+        _chartRendered = true;
+    }
+
+    private static TrendData BuildRagChart(ComplianceSummaryData data)
+    {
+        var green = data.Modules.Count(m => string.Equals(m.CurrentRag, "Green", StringComparison.OrdinalIgnoreCase));
+        var amber = data.Modules.Count(m => string.Equals(m.CurrentRag, "Amber", StringComparison.OrdinalIgnoreCase));
+        var red = data.Modules.Count(m => string.Equals(m.CurrentRag, "Red", StringComparison.OrdinalIgnoreCase));
+
+        return new TrendData
+        {
+            Title = "RAG Status",
+            Labels = new List<string> { "Green", "Amber", "Red" },
+            Datasets =
+            {
+                new TrendDataset
+                {
+                    Label = "Modules",
+                    Data = new List<decimal> { green, amber, red },
+                    BackgroundColor = "#0f766e",
+                    BorderColor = "#0f766e"
+                }
+            }
+        };
+    }
+
+    private static string RagClass(string rag)
+    {
+        return rag.ToLowerInvariant() switch
+        {
+            "red" => "rag-red",
+            "amber" => "rag-amber",
+            _ => "rag-green"
+        };
+    }
+
+    private static string TrendLabel(string trend)
+    {
+        return trend switch
+        {
+            "Up" => "↑ Up",
+            "Down" => "↓ Down",
+            _ => "Stable"
+        };
+    }
+}

@@ -46,6 +46,33 @@ public class LocalFileStorageService : IFileStorageService
         return GetPublicUrl(normalizedPath);
     }
 
+    public async Task<string> UploadImmutableAsync(string path, Stream content, string contentType, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        var normalizedPath = NormalizeRelativePath(path);
+        var fullPath = ResolvePhysicalPath(normalizedPath);
+
+        if (File.Exists(fullPath))
+            throw new InvalidOperationException($"Immutable file already exists at path: {normalizedPath}");
+
+        var directory = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+            Directory.CreateDirectory(directory);
+
+        if (content.CanSeek)
+            content.Position = 0;
+
+        await using var file = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true);
+        await content.CopyToAsync(file, ct);
+
+        // Mark as read-only (WORM)
+        File.SetAttributes(fullPath, File.GetAttributes(fullPath) | FileAttributes.ReadOnly);
+
+        _logger.LogDebug("Stored immutable asset at {Path}", fullPath);
+        return GetPublicUrl(normalizedPath);
+    }
+
     public Task<Stream> DownloadAsync(string path, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -71,6 +98,10 @@ public class LocalFileStorageService : IFileStorageService
 
         if (File.Exists(fullPath))
         {
+            var attributes = File.GetAttributes(fullPath);
+            if (attributes.HasFlag(FileAttributes.ReadOnly))
+                throw new InvalidOperationException("Cannot delete immutable file");
+
             File.Delete(fullPath);
         }
 

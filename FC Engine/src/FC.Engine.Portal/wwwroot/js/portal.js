@@ -16,6 +16,25 @@ window.portalDownloadFile = function (content, filename, contentType) {
     URL.revokeObjectURL(url);
 };
 
+window.portalDownloadBase64File = function (base64Content, filename, contentType) {
+    var binary = atob(base64Content);
+    var len = binary.length;
+    var bytes = new Uint8Array(len);
+    for (var i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+    }
+
+    var blob = new Blob([bytes], { type: contentType });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
 window.portalPrintElement = function (elementId) {
     var element = document.getElementById(elementId);
     if (!element) return;

@@ -6,9 +6,9 @@ namespace FC.Engine.Api.Endpoints;
 
 public static class SubmissionEndpoints
 {
-    public static void MapSubmissionEndpoints(this WebApplication app)
+    public static void MapSubmissionEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = app.MapGroup("/api/submissions").WithTags("Submissions");
+        var group = routes.MapGroup("/submissions").WithTags("Submissions");
 
         group.MapPost("/{returnCode}", async (
             string returnCode,

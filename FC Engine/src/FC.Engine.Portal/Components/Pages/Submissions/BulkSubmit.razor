@@ -1,8 +1,11 @@
 @page "/submit/bulk"
 @attribute [Authorize(Policy = "InstitutionMaker")]
 @inject SubmissionService SubmissionService
+@inject ITemplateDownloadService TemplateDownloadService
+@inject IBulkUploadService BulkUploadService
 @inject ToastService Toast
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>Bulk Upload — FC Engine Portal</PageTitle>
 
@@ -10,7 +13,7 @@
     <div class="portal-page-header">
         <div>
             <h1 class="portal-page-title">Bulk Upload</h1>
-            <p class="portal-page-subtitle">Upload multiple XML return files at once for batch validation and submission</p>
+            <p class="portal-page-subtitle">Upload XML, Excel, or CSV return files for batch validation and submission</p>
         </div>
         @if (_files.Count > 0 && !_isProcessing)
         {
@@ -48,15 +51,48 @@
         }
     </section>
 
+    <section class="portal-bulk-section" aria-label="Select return template">
+        <h2 class="portal-bulk-section-title">
+            <span class="portal-bulk-section-num">2</span>
+            Return Template
+        </h2>
+        <p class="portal-bulk-section-desc">For Excel/CSV files, select the return template and optionally download pre-formatted templates.</p>
+
+        <div class="portal-form-row" style="display: flex; gap: 0.75rem; align-items: end; flex-wrap: wrap;">
+            <div class="portal-form-group" style="max-width: 360px;">
+                <label class="portal-form-label" for="templateSelect">Template</label>
+                <select id="templateSelect" class="portal-form-select" @bind="_selectedTemplateCode">
+                    <option value="">Select a template...</option>
+                    @foreach (var template in _templates)
+                    {
+                        <option value="@template.ReturnCode">@template.ReturnCode — @template.TemplateName</option>
+                    }
+                </select>
+            </div>
+            <button class="portal-btn portal-btn-outline portal-btn-sm"
+                    disabled="@string.IsNullOrWhiteSpace(_selectedTemplateCode)"
+                    @onclick="DownloadExcelTemplate"
+                    type="button">
+                Download Excel Template
+            </button>
+            <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                    disabled="@string.IsNullOrWhiteSpace(_selectedTemplateCode)"
+                    @onclick="DownloadCsvTemplate"
+                    type="button">
+                Download CSV Template
+            </button>
+        </div>
+    </section>
+
     <!-- ═══════════════════════════════════════════════════════════════
          FILE UPLOAD ZONE
          ═══════════════════════════════════════════════════════════════ -->
     <section class="portal-bulk-section" aria-label="Upload files">
         <h2 class="portal-bulk-section-title">
-            <span class="portal-bulk-section-num">2</span>
-            Upload XML Files
+            <span class="portal-bulk-section-num">3</span>
+            Upload Files
         </h2>
-        <p class="portal-bulk-section-desc">Drag multiple .xml files here or click to browse. Each file should be for a different return template.</p>
+        <p class="portal-bulk-section-desc">Drag .xml, .xlsx, or .csv files here or click to browse.</p>
 
         <div class="portal-bulk-dropzone @(_isDragOver ? "portal-bulk-dropzone-active" : "") @(_isProcessing ? "portal-bulk-dropzone-disabled" : "")"
              @ondragover="HandleDragOver"
@@ -70,16 +106,16 @@
                 <line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
             <p class="portal-bulk-dropzone-text">
-                <strong>Drag XML files here</strong> or click to browse
+                <strong>Drag files here</strong> or click to browse
             </p>
-            <p class="portal-bulk-dropzone-hint">Only .xml files, up to 10 MB each</p>
+            <p class="portal-bulk-dropzone-hint">Accepted: .xml, .xlsx, .csv (max 10 MB each)</p>
 
             <InputFile OnChange="HandleFilesSelected"
-                       accept=".xml"
+                       accept=".xml,.xlsx,.csv"
                        multiple
                        class="portal-upload-input"
                        disabled="@_isProcessing"
-                       aria-label="Choose XML files" />
+                       aria-label="Choose upload files" />
         </div>
 
         @if (!string.IsNullOrEmpty(_uploadError))
@@ -100,7 +136,7 @@
     {
         <section class="portal-bulk-section" aria-label="File list">
             <h2 class="portal-bulk-section-title">
-                <span class="portal-bulk-section-num">3</span>
+                <span class="portal-bulk-section-num">4</span>
                 Files (@_files.Count)
             </h2>
 
@@ -220,6 +256,14 @@
                                     <a href="/submissions/@file.Result.SubmissionId" class="portal-bulk-detail-link">
                                         View Submission #@file.Result.SubmissionId
                                     </a>
+                                }
+                                @if (file.ErrorFileBytes is not null && file.ErrorFileBytes.Length > 0)
+                                {
+                                    <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                                            @onclick="() => DownloadErrorFile(file)"
+                                            type="button">
+                                        Download Error File
+                                    </button>
                                 }
                             </div>
 
@@ -360,6 +404,7 @@
     private Task<AuthenticationState>? AuthState { get; set; }
     private int _institutionId;
     private int? _userId;
+    private Guid? _tenantId;
 
     // ── Period ────────────────────────────────────────────────────
     private List<PeriodSelectItem> _periods = new();
@@ -381,6 +426,8 @@
     private int _skippedCount;
 
     // ── Known templates for auto-detection ─────────────────────────
+    private List<TemplateSelectItem> _templates = new();
+    private string _selectedTemplateCode = string.Empty;
     private HashSet<string> _knownReturnCodes = new(StringComparer.OrdinalIgnoreCase);
 
     // ── Lifecycle ──────────────────────────────────────────────────
@@ -392,6 +439,11 @@
         int.TryParse(instIdStr, out _institutionId);
         var userIdStr = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
         if (int.TryParse(userIdStr, out var uid)) _userId = uid;
+        var tenantIdStr = user.FindFirst("TenantId")?.Value ?? user.FindFirst("tid")?.Value;
+        if (Guid.TryParse(tenantIdStr, out var tenantId))
+        {
+            _tenantId = tenantId;
+        }
 
         await LoadPeriods();
         await LoadKnownTemplates();
@@ -420,10 +472,41 @@
     {
         try
         {
-            var templates = await SubmissionService.GetTemplatesForInstitution(_institutionId);
-            _knownReturnCodes = templates.Select(t => t.ReturnCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _templates = await SubmissionService.GetTemplatesForInstitution(_institutionId);
+            _knownReturnCodes = _templates.Select(t => t.ReturnCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(_selectedTemplateCode) && _templates.Count == 1)
+            {
+                _selectedTemplateCode = _templates[0].ReturnCode;
+            }
         }
         catch { }
+    }
+
+    private async Task DownloadExcelTemplate()
+    {
+        if (!_tenantId.HasValue || string.IsNullOrWhiteSpace(_selectedTemplateCode))
+        {
+            return;
+        }
+
+        var bytes = await TemplateDownloadService.GenerateTemplateExcel(_tenantId.Value, _selectedTemplateCode);
+        var base64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync(
+            "portalDownloadBase64File",
+            base64,
+            $"{_selectedTemplateCode}_template.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private async Task DownloadCsvTemplate()
+    {
+        if (!_tenantId.HasValue || string.IsNullOrWhiteSpace(_selectedTemplateCode))
+        {
+            return;
+        }
+
+        var csv = await TemplateDownloadService.GenerateTemplateCsv(_tenantId.Value, _selectedTemplateCode);
+        await JS.InvokeVoidAsync("portalDownloadFile", csv, $"{_selectedTemplateCode}_template.csv", "text/csv");
     }
 
     // ── File Upload ────────────────────────────────────────────────
@@ -433,9 +516,10 @@
 
         foreach (var file in e.GetMultipleFiles(maximumFileCount: 50))
         {
-            if (!file.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
+            var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+            if (ext is not ".xml" and not ".xlsx" and not ".csv")
             {
-                _uploadError = $"Skipped '{file.Name}' — only .xml files are accepted.";
+                _uploadError = $"Skipped '{file.Name}' — accepted types are .xml, .xlsx, .csv.";
                 continue;
             }
 
@@ -451,14 +535,27 @@
             await stream.CopyToAsync(ms);
             ms.Position = 0;
 
-            var returnCode = DetectReturnCode(ms);
+            var returnCode = ext == ".xml"
+                ? DetectReturnCode(ms)
+                : _selectedTemplateCode;
             ms.Position = 0;
+
+            if (ext is ".xlsx" or ".csv")
+            {
+                if (string.IsNullOrWhiteSpace(_selectedTemplateCode))
+                {
+                    _uploadError = $"Skipped '{file.Name}' — select a template for Excel/CSV upload.";
+                    ms.Dispose();
+                    continue;
+                }
+            }
 
             var entry = new BulkFileEntry
             {
                 FileName = file.Name,
                 FileSize = file.Size,
                 BufferedContent = ms,
+                FileExtension = ext,
                 DetectedReturnCode = returnCode,
                 TemplateFound = !string.IsNullOrEmpty(returnCode) && _knownReturnCodes.Contains(returnCode),
                 Status = BulkFileStatus.Pending
@@ -542,29 +639,81 @@
             try
             {
                 file.BufferedContent!.Position = 0;
-                var result = await SubmissionService.ProcessSubmission(
-                    file.BufferedContent,
-                    file.DetectedReturnCode,
-                    _institutionId,
-                    _selectedPeriodId,
-                    submittedByUserId: _userId);
-
-                file.Result = result;
-
-                if (result.Status == "Accepted" || result.Status == "PendingApproval")
+                if (string.Equals(file.FileExtension, ".xml", StringComparison.OrdinalIgnoreCase))
                 {
-                    file.Status = BulkFileStatus.Passed;
-                    _passedCount++;
-                }
-                else if (result.Status == "AcceptedWithWarnings")
-                {
-                    file.Status = BulkFileStatus.PassedWithWarnings;
-                    _warningCount++;
+                    var xmlResult = await SubmissionService.ProcessSubmission(
+                        file.BufferedContent,
+                        file.DetectedReturnCode,
+                        _institutionId,
+                        _selectedPeriodId,
+                        submittedByUserId: _userId);
+
+                    file.Result = xmlResult;
+                    if (xmlResult.Status == "Accepted" || xmlResult.Status == "PendingApproval")
+                    {
+                        file.Status = BulkFileStatus.Passed;
+                        _passedCount++;
+                    }
+                    else if (xmlResult.Status == "AcceptedWithWarnings")
+                    {
+                        file.Status = BulkFileStatus.PassedWithWarnings;
+                        _warningCount++;
+                    }
+                    else
+                    {
+                        file.Status = BulkFileStatus.Failed;
+                        _failedCount++;
+                    }
                 }
                 else
                 {
-                    file.Status = BulkFileStatus.Failed;
-                    _failedCount++;
+                    if (!_tenantId.HasValue)
+                    {
+                        throw new InvalidOperationException("Tenant context is required for bulk data upload.");
+                    }
+
+                    BulkUploadResult bulkResult;
+                    if (string.Equals(file.FileExtension, ".xlsx", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bulkResult = await BulkUploadService.ProcessExcelUpload(
+                            file.BufferedContent,
+                            _tenantId.Value,
+                            file.DetectedReturnCode,
+                            _institutionId,
+                            _selectedPeriodId,
+                            _userId);
+                    }
+                    else
+                    {
+                        bulkResult = await BulkUploadService.ProcessCsvUpload(
+                            file.BufferedContent,
+                            _tenantId.Value,
+                            file.DetectedReturnCode,
+                            _institutionId,
+                            _selectedPeriodId,
+                            _userId);
+                    }
+
+                    file.Result = BuildSubmissionResultFromBulk(file.DetectedReturnCode, bulkResult);
+                    file.ErrorFileBytes = bulkResult.ErrorFile;
+                    file.ErrorFileName = bulkResult.ErrorFileName;
+
+                    if (bulkResult.Success && bulkResult.Status is "Accepted" or "PendingApproval")
+                    {
+                        file.Status = BulkFileStatus.Passed;
+                        _passedCount++;
+                    }
+                    else if (bulkResult.Success && bulkResult.Status == "AcceptedWithWarnings")
+                    {
+                        file.Status = BulkFileStatus.PassedWithWarnings;
+                        _warningCount++;
+                    }
+                    else
+                    {
+                        file.Status = BulkFileStatus.Failed;
+                        file.ErrorMessage = bulkResult.Message;
+                        _failedCount++;
+                    }
                 }
             }
             catch (Exception ex)
@@ -587,6 +736,48 @@
             Toast.Error("All files failed validation. Please review the errors.");
 
         StateHasChanged();
+    }
+
+    private static SubmissionResultDto BuildSubmissionResultFromBulk(string returnCode, BulkUploadResult bulkResult)
+    {
+        return new SubmissionResultDto
+        {
+            SubmissionId = bulkResult.SubmissionId,
+            ReturnCode = returnCode,
+            Status = bulkResult.Status,
+            ValidationReport = new ValidationReportDto
+            {
+                IsValid = bulkResult.Success,
+                ErrorCount = bulkResult.Errors.Count(x => string.Equals(x.Severity, "Error", StringComparison.OrdinalIgnoreCase)),
+                WarningCount = bulkResult.Errors.Count(x => string.Equals(x.Severity, "Warning", StringComparison.OrdinalIgnoreCase)),
+                Errors = bulkResult.Errors.Select(x => new ValidationErrorDto
+                {
+                    RuleId = "BULK",
+                    Field = x.FieldCode,
+                    Message = x.Message,
+                    Severity = x.Severity,
+                    Category = "TypeRange"
+                }).ToList()
+            }
+        };
+    }
+
+    private async Task DownloadErrorFile(BulkFileEntry file)
+    {
+        if (file.ErrorFileBytes is null || file.ErrorFileBytes.Length == 0)
+        {
+            return;
+        }
+
+        var fileName = string.IsNullOrWhiteSpace(file.ErrorFileName)
+            ? $"{file.DetectedReturnCode}_upload_errors.xlsx"
+            : file.ErrorFileName;
+
+        await JS.InvokeVoidAsync(
+            "portalDownloadBase64File",
+            Convert.ToBase64String(file.ErrorFileBytes),
+            fileName,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     }
 
     private void ResetBatch()
@@ -643,11 +834,14 @@
         public string FileName { get; set; } = "";
         public long FileSize { get; set; }
         public MemoryStream? BufferedContent { get; set; }
+        public string FileExtension { get; set; } = string.Empty;
         public string DetectedReturnCode { get; set; } = "";
         public bool TemplateFound { get; set; }
         public BulkFileStatus Status { get; set; }
         public SubmissionResultDto? Result { get; set; }
         public string? ErrorMessage { get; set; }
+        public byte[]? ErrorFileBytes { get; set; }
+        public string? ErrorFileName { get; set; }
         public bool ShowDetails { get; set; }
     }
 }

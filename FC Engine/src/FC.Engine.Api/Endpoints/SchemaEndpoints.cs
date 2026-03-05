@@ -5,9 +5,9 @@ namespace FC.Engine.Api.Endpoints;
 
 public static class SchemaEndpoints
 {
-    public static void MapSchemaEndpoints(this WebApplication app)
+    public static void MapSchemaEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = app.MapGroup("/api/schemas").WithTags("Schemas");
+        var group = routes.MapGroup("/schemas").WithTags("Schemas");
 
         group.MapGet("/{returnCode}/xsd", async (
             string returnCode,

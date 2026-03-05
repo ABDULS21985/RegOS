@@ -1192,6 +1192,14 @@ public class ExportEngineTests
             return Task.CompletedTask;
         }
 
+        public async Task<string> UploadImmutableAsync(string path, Stream content, string contentType, CancellationToken ct = default)
+        {
+            using var ms = new MemoryStream();
+            await content.CopyToAsync(ms, ct);
+            Stored[path] = ms.ToArray();
+            return path;
+        }
+
         public string GetPublicUrl(string path) => path;
     }
 

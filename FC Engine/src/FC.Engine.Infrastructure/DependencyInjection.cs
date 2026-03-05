@@ -4,6 +4,7 @@ using FC.Engine.Infrastructure.Audit;
 using FC.Engine.Infrastructure.Auth;
 using FC.Engine.Infrastructure.BackgroundJobs;
 using FC.Engine.Infrastructure.Caching;
+using FC.Engine.Infrastructure.Charts;
 using FC.Engine.Infrastructure.DynamicSchema;
 using FC.Engine.Infrastructure.Export;
 using FC.Engine.Infrastructure.Export.Adapters;
@@ -83,6 +84,12 @@ public static class DependencyInjection
         // XML
         services.AddScoped<IGenericXmlParser, GenericXmlParser>();
         services.AddScoped<IXsdGenerator, XsdGenerator>();
+        services.AddScoped<ITemplateDownloadService, TemplateDownloadService>();
+        services.AddScoped<IBulkUploadService, BulkUploadService>();
+        services.AddScoped<ICarryForwardService, CarryForwardService>();
+        services.AddScoped<IReturnLockService, ReturnLockService>();
+        services.AddScoped<IDataFeedService, DataFeedService>();
+        services.AddScoped<IDraftDataService, DraftDataService>();
         services.AddScoped<IExportEngine, ExportEngine>();
         services.AddScoped<IExportGenerator, ExcelExportGenerator>();
         services.AddScoped<IExportGenerator, PdfExportGenerator>();
@@ -102,6 +109,9 @@ public static class DependencyInjection
         // Caching — singleton so the in-memory ConcurrentDictionary lives across requests
         services.AddSingleton<ITemplateMetadataCache, TemplateMetadataCache>();
         services.AddHostedService<CacheWarmupService>();
+
+        // ── Rate Limiting (RG-15) ──
+        services.AddSingleton<IRateLimitResolver, RateLimitResolver>();
 
         // ── Entitlement & Onboarding (RG-02) ──
         services.AddMemoryCache();
@@ -161,8 +171,10 @@ public static class DependencyInjection
             services.AddScoped<ISmsSender, NoopSmsSender>();
         }
 
-        // Audit
+        // Audit & Evidence (RG-14)
         services.AddScoped<IAuditLogger, AuditLogger>();
+        services.AddScoped<IEvidencePackageService, EvidencePackageService>();
+        services.AddScoped<IReturnTimelineService, ReturnTimelineService>();
 
         // Validation
         services.AddSingleton<ExpressionParser>();
@@ -175,6 +187,11 @@ public static class DependencyInjection
         services.AddScoped<DeadlineComputationService>();
         services.AddScoped<IFilingCalendarService, FilingCalendarService>();
 
+        // ── Dashboard & Analytics (RG-17) ──
+        services.AddScoped<IDashboardService, DashboardService>();
+        services.AddScoped<IBenchmarkingService, BenchmarkingService>();
+        services.AddScoped<ChartJsInterop>();
+
         // Billing & subscription background jobs
         services.AddHostedService<UsageTrackingJob>();
         services.AddHostedService<OverdueInvoiceJob>();
@@ -182,6 +199,7 @@ public static class DependencyInjection
         services.AddHostedService<FilingCalendarJob>();
         services.AddHostedService<ExportProcessingJob>();
         services.AddHostedService<ExportCleanupJob>();
+        services.AddHostedService<AuditIntegrityVerificationJob>();
 
         return services;
     }

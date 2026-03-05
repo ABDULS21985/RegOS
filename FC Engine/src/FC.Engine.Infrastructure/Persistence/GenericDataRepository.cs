@@ -177,6 +177,7 @@ public class GenericDataRepository : IGenericDataRepository
         object? value,
         string? dataSource = null,
         string? sourceDetail = null,
+        string? changedBy = null,
         CancellationToken ct = default)
     {
         var template = await _cache.GetPublishedTemplate(returnCode, ct);
@@ -194,6 +195,9 @@ public class GenericDataRepository : IGenericDataRepository
 
         if (existing > 0)
         {
+            // Capture current value before update for change history
+            var oldValue = await ReadFieldValueInternal(connection, template.PhysicalTableName, submissionId, fieldName, tenantId, ct);
+
             var updateSql = _sqlBuilder.BuildUpdateFieldBySubmission(template.PhysicalTableName, fieldName, tenantId);
             await connection.ExecuteAsync(new CommandDefinition(
                 updateSql,
@@ -202,6 +206,7 @@ public class GenericDataRepository : IGenericDataRepository
                     : new { submissionId, value },
                 cancellationToken: ct));
             await UpsertFieldSourceMetadata(returnCode, submissionId, fieldName, dataSource, sourceDetail, ct);
+            await RecordFieldChange(returnCode, submissionId, fieldName, oldValue, value, dataSource, sourceDetail, changedBy, ct);
             return;
         }
 
@@ -213,6 +218,54 @@ public class GenericDataRepository : IGenericDataRepository
                 : new { submissionId, value },
             cancellationToken: ct));
         await UpsertFieldSourceMetadata(returnCode, submissionId, fieldName, dataSource, sourceDetail, ct);
+        await RecordFieldChange(returnCode, submissionId, fieldName, null, value, dataSource, sourceDetail, changedBy, ct);
+    }
+
+    private async Task<object?> ReadFieldValueInternal(
+        IDbConnection connection,
+        string tableName,
+        int submissionId,
+        string fieldName,
+        Guid? tenantId,
+        CancellationToken ct)
+    {
+        var sql = _sqlBuilder.BuildSelectFieldBySubmission(tableName, fieldName, tenantId);
+        return await connection.ExecuteScalarAsync<object?>(
+            new CommandDefinition(sql,
+                tenantId.HasValue
+                    ? new { submissionId, TenantId = tenantId.Value }
+                    : new { submissionId },
+                cancellationToken: ct));
+    }
+
+    private async Task RecordFieldChange(
+        string returnCode,
+        int submissionId,
+        string fieldName,
+        object? oldValue,
+        object? newValue,
+        string? dataSource,
+        string? sourceDetail,
+        string? changedBy,
+        CancellationToken ct)
+    {
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (!tenantId.HasValue) return;
+
+        _metadataDb.FieldChangeHistory.Add(new FieldChangeHistory
+        {
+            TenantId = tenantId.Value,
+            SubmissionId = submissionId,
+            ReturnCode = returnCode,
+            FieldName = fieldName,
+            OldValue = oldValue?.ToString(),
+            NewValue = newValue?.ToString(),
+            ChangeSource = dataSource ?? "Manual",
+            SourceDetail = sourceDetail,
+            ChangedBy = changedBy ?? "System",
+            ChangedAt = DateTime.UtcNow
+        });
+        await _metadataDb.SaveChangesAsync(ct);
     }
 
     private async Task UpsertFieldSourceMetadata(

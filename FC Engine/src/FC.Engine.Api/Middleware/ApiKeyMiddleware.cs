@@ -32,9 +32,11 @@ public class ApiKeyMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Skip auth for health, Swagger and auth bootstrap endpoints.
+        // Skip auth for health, metrics, Swagger and auth bootstrap endpoints.
         var path = context.Request.Path.Value ?? "";
         if (path.Equals("/health", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/health/", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/api/v1/auth/login", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/api/v1/auth/refresh", StringComparison.OrdinalIgnoreCase))

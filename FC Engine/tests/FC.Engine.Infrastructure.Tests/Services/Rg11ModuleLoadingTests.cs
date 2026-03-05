@@ -136,6 +136,7 @@ public class Rg11ModuleLoadingTests
                 14m,
                 "InterModule",
                 "NFIU_AML/NFIU_STR/str_filed_count",
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
 
@@ -146,6 +147,7 @@ public class Rg11ModuleLoadingTests
                 30m,
                 "InterModule",
                 "NFIU_AML/NFIU_CTR/ctr_filed_count",
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

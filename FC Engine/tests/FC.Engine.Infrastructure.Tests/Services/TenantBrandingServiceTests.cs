@@ -143,6 +143,12 @@ public class TenantBrandingServiceTests : IDisposable
             return Task.CompletedTask;
         }
 
+        public Task<string> UploadImmutableAsync(string path, Stream content, string contentType, CancellationToken ct = default)
+        {
+            UploadedPaths.Add(path);
+            return Task.FromResult($"/uploads/{path}");
+        }
+
         public string GetPublicUrl(string path) => $"/uploads/{path}";
     }
 }

@@ -1,0 +1,84 @@
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@inject IReturnTimelineService TimelineService
+
+<div class="timeline-container">
+    @if (_loading)
+    {
+        <p class="portal-text-muted">Loading timeline...</p>
+    }
+    else if (_events.Count == 0)
+    {
+        <p class="portal-text-muted">No events recorded for this submission.</p>
+    }
+    else
+    {
+        @foreach (var group in _events.GroupBy(e => e.Timestamp.Date).OrderByDescending(g => g.Key))
+        {
+            <div class="timeline-date-group">
+                <div class="timeline-date-label">@group.Key.ToString("dd MMM yyyy")</div>
+                @foreach (var evt in group.OrderByDescending(e => e.Timestamp))
+                {
+                    <div class="timeline-item timeline-item-@evt.EventType.ToLowerInvariant()">
+                        <div class="timeline-marker"></div>
+                        <div class="timeline-content">
+                            <div class="timeline-header">
+                                <span class="timeline-event-type">@evt.EventType</span>
+                                <span class="timeline-time">@evt.Timestamp.ToString("HH:mm:ss")</span>
+                            </div>
+                            <div class="timeline-description">@evt.Description</div>
+                            <div class="timeline-performer">by @evt.PerformedBy</div>
+                            @if (evt.Diff != null && evt.EventType == "FieldChanged")
+                            {
+                                <div class="timeline-diff" @onclick="() => ToggleDiff(evt)">
+                                    @if (_expandedDiffs.Contains(evt))
+                                    {
+                                        <div class="timeline-diff-content">
+                                            @if (evt.Diff.TryGetValue("field", out var field))
+                                            {
+                                                <div class="timeline-diff-field">@field</div>
+                                            }
+                                            @if (evt.Diff.TryGetValue("before", out var before))
+                                            {
+                                                <div class="timeline-diff-old">@(before?.ToString() ?? "(empty)")</div>
+                                            }
+                                            @if (evt.Diff.TryGetValue("after", out var after))
+                                            {
+                                                <div class="timeline-diff-new">@(after?.ToString() ?? "(empty)")</div>
+                                            }
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="timeline-diff-toggle">Show changes</span>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired]
+    public int SubmissionId { get; set; }
+
+    private List<TimelineEvent> _events = new();
+    private bool _loading = true;
+    private readonly HashSet<TimelineEvent> _expandedDiffs = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _events = await TimelineService.GetTimelineAsync(SubmissionId);
+        _loading = false;
+    }
+
+    private void ToggleDiff(TimelineEvent evt)
+    {
+        if (!_expandedDiffs.Remove(evt))
+            _expandedDiffs.Add(evt);
+    }
+}

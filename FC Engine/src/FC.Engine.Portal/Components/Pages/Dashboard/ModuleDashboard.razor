@@ -1,0 +1,178 @@
+@page "/dashboard/module/{moduleCode}"
+@attribute [Authorize]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject IDashboardService DashboardService
+@inject IBenchmarkingService BenchmarkingService
+@inject IEntitlementService EntitlementService
+@inject ITenantContext TenantContext
+@inject ChartJsInterop Charts
+
+<PageTitle>@(_data?.ModuleName ?? moduleCode) Dashboard</PageTitle>
+
+@if (_loading)
+{
+    <div class="dash17-loading">Loading module dashboard...</div>
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="dash17-error">@_error</div>
+}
+else if (_data is not null)
+{
+    <div class="dash17-module">
+        <header class="dash17-header">
+            <div>
+                <h1>@_data.ModuleName Dashboard</h1>
+                <p>@_data.ModuleCode · compliance and filing analytics</p>
+            </div>
+            <a class="dash17-link" href="/dashboard/compliance">View Cross-Module Summary</a>
+        </header>
+
+        <section class="dash17-period-grid">
+            @foreach (var period in _data.Periods)
+            {
+                <article class="dash17-period-card @period.RagClass">
+                    <div class="dash17-period-head">
+                        <div class="dash17-period-label">@period.Label</div>
+                        <div class="dash17-period-status">@period.Status</div>
+                    </div>
+                    <div class="dash17-completion-track">
+                        <div class="dash17-completion-fill" style="width:@period.CompletionPercent%"></div>
+                    </div>
+                    <div class="dash17-period-meta">
+                        <span>@period.CompletionPercent.ToString("0")% complete</span>
+                        <span>Due @period.Deadline.ToString("dd MMM")</span>
+                    </div>
+                    <div class="dash17-period-meta">
+                        <span>@period.ValidationErrorCount errors</span>
+                        <span>@period.ValidationWarningCount warnings</span>
+                    </div>
+                </article>
+            }
+        </section>
+
+        @if (_benchmark is not null)
+        {
+            <section class="dash17-benchmark">
+                <h3>Peer Benchmarking</h3>
+                <p>
+                    Your average submission is <strong>@FormatDays(_benchmark.TenantAverageDays)</strong>.
+                    You are in the <strong>@Ordinal(_benchmark.Percentile)</strong> percentile among
+                    <strong>@_benchmark.PeerCount</strong> peer institutions.
+                </p>
+                <div class="dash17-benchmark-meta">
+                    <span>Peer median: @_benchmark.PeerMedianDays.ToString("0.##") days</span>
+                    <span>P25: @_benchmark.PeerP25Days.ToString("0.##")</span>
+                    <span>P75: @_benchmark.PeerP75Days.ToString("0.##")</span>
+                </div>
+            </section>
+        }
+
+        <section class="dash17-chart-grid">
+            <div class="dash17-chart-card">
+                <h3>Validation Error Trend</h3>
+                <div class="dash17-chart-wrap"><canvas id="moduleValidationChart"></canvas></div>
+            </div>
+            <div class="dash17-chart-card">
+                <h3>Submission Timeliness</h3>
+                <div class="dash17-chart-wrap"><canvas id="moduleTimelinessChart"></canvas></div>
+            </div>
+            <div class="dash17-chart-card">
+                <h3>Data Quality Trend</h3>
+                <div class="dash17-chart-wrap"><canvas id="moduleQualityChart"></canvas></div>
+            </div>
+            <div class="dash17-chart-card">
+                <h3>Filing Status Breakdown</h3>
+                <div class="dash17-chart-wrap"><canvas id="moduleStatusChart"></canvas></div>
+            </div>
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public string moduleCode { get; set; } = string.Empty;
+
+    private ModuleDashboardData? _data;
+    private BenchmarkResult? _benchmark;
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _error = null;
+        _chartsRendered = false;
+        _benchmark = null;
+
+        try
+        {
+            if (TenantContext.CurrentTenantId is not { } tenantId)
+            {
+                _error = "Tenant context is not available for this dashboard.";
+                return;
+            }
+
+            _data = await DashboardService.GetModuleDashboard(tenantId, moduleCode);
+
+            var hasBenchmarking = await EntitlementService.HasFeatureAccess(tenantId, "peer_benchmarking");
+            if (hasBenchmarking)
+            {
+                _benchmark = await BenchmarkingService.GetPeerBenchmark(tenantId, moduleCode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is null || _chartsRendered)
+        {
+            return;
+        }
+
+        await Charts.RenderLineChart("moduleValidationChart", _data.ValidationErrorTrend);
+        await Charts.RenderBarChart("moduleTimelinessChart", _data.SubmissionTimelinessTrend);
+        await Charts.RenderLineChart("moduleQualityChart", _data.DataQualityTrend);
+        await Charts.RenderDoughnutChart("moduleStatusChart", _data.FilingStatusBreakdown);
+
+        _chartsRendered = true;
+    }
+
+    private static string FormatDays(decimal days)
+    {
+        if (days >= 0)
+        {
+            return $"{days:0.##} days before deadline";
+        }
+
+        return $"{Math.Abs(days):0.##} days late";
+    }
+
+    private static string Ordinal(int value)
+    {
+        var abs = Math.Abs(value);
+        var rem100 = abs % 100;
+        if (rem100 is 11 or 12 or 13)
+        {
+            return $"{value}th";
+        }
+
+        return (abs % 10) switch
+        {
+            1 => $"{value}st",
+            2 => $"{value}nd",
+            3 => $"{value}rd",
+            _ => $"{value}th"
+        };
+    }
+}

@@ -6,9 +6,9 @@ namespace FC.Engine.Api.Endpoints;
 
 public static class FilingCalendarEndpoints
 {
-    public static void MapFilingCalendarEndpoints(this WebApplication app)
+    public static void MapFilingCalendarEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = app.MapGroup("/api/v1/filing-calendar").WithTags("Filing Calendar");
+        var group = routes.MapGroup("/filing-calendar").WithTags("Filing Calendar");
 
         group.MapGet("/rag", async (
             ITenantContext tenantContext,

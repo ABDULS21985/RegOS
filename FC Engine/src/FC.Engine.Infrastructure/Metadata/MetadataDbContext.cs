@@ -63,6 +63,9 @@ public class MetadataDbContext : DbContext
     public DbSet<SubmissionApproval> SubmissionApprovals => Set<SubmissionApproval>();
     public DbSet<PortalNotification> PortalNotifications => Set<PortalNotification>();
     public DbSet<ExportRequest> ExportRequests => Set<ExportRequest>();
+    public DbSet<ReturnLock> ReturnLocks => Set<ReturnLock>();
+    public DbSet<DataFeedRequestLog> DataFeedRequestLogs => Set<DataFeedRequestLog>();
+    public DbSet<TenantFieldMapping> TenantFieldMappings => Set<TenantFieldMapping>();
 
     // Security
     public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>();

@@ -318,6 +318,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
             1m,
             "Manual",
             "rg08-sql-override",
+            changedBy: "TestUser",
             CancellationToken.None);
 
         var formulaRepo = new FormulaRepository(db);

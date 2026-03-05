@@ -1,0 +1,192 @@
+@page "/dashboard/admin"
+@attribute [Authorize(Policy = "InstitutionAdmin")]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject IDashboardService DashboardService
+@inject ITenantContext TenantContext
+@inject ChartJsInterop Charts
+
+<PageTitle>Tenant Admin Dashboard</PageTitle>
+
+@if (_loading)
+{
+    <div class="dash17-loading">Loading tenant admin dashboard...</div>
+}
+else if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="dash17-error">@_error</div>
+}
+else if (_data is not null)
+{
+    <div class="dash17-admin">
+        <header class="dash17-header">
+            <div>
+                <h1>Tenant Admin Dashboard</h1>
+                <p>Usage, billing, user activity, and data quality overview</p>
+            </div>
+            <div class="dash17-score-chip">Updated @_data.GeneratedAt.ToString("dd MMM yyyy HH:mm")</div>
+        </header>
+
+        <section class="dash17-kpi-grid">
+            <article class="dash17-kpi-card">
+                <h3>Active Users (Month)</h3>
+                <div class="dash17-kpi-value">@_data.UserActivity.ActiveUsersThisMonth</div>
+                <p>Avg logins/user: @_data.UserActivity.AverageLoginsPerUser.ToString("0.##")</p>
+            </article>
+            <article class="dash17-kpi-card">
+                <h3>Plan</h3>
+                <div class="dash17-kpi-value">@_data.Billing.PlanName</div>
+                <p>@_data.Billing.BillingFrequency billing</p>
+            </article>
+            <article class="dash17-kpi-card">
+                <h3>Outstanding Balance</h3>
+                <div class="dash17-kpi-value">@_data.Billing.Currency @(_data.Billing.OutstandingBalance.ToString("N2"))</div>
+                <p>Next invoice: @_data.Billing.NextInvoiceDate.ToString("dd MMM yyyy")</p>
+            </article>
+            <article class="dash17-kpi-card">
+                <h3>Validation Pass Rate</h3>
+                <div class="dash17-kpi-value">@_data.ValidationPassRate.ToString("0.##")%</div>
+                <p>Completeness: @_data.CompletenessScore.ToString("0.##")%</p>
+            </article>
+        </section>
+
+        <section class="dash17-usage-grid">
+            <article class="dash17-usage-card">
+                <h3>Subscription Usage</h3>
+                @UsageBar("Users", _data.Usage.UsersUsed, _data.Usage.UsersLimit, _data.Usage.UsersUsagePercent)
+                @UsageBar("Entities", _data.Usage.EntitiesUsed, _data.Usage.EntitiesLimit, _data.Usage.EntitiesUsagePercent)
+                @UsageBar("Modules", _data.Usage.ModulesUsed, _data.Usage.ModulesLimit, _data.Usage.ModulesUsagePercent)
+                @UsageBar("Storage (MB)", _data.Usage.StorageUsedMb, _data.Usage.StorageLimitMb, _data.Usage.StorageUsagePercent)
+                @UsageBar("API Calls", _data.Usage.ApiCallsUsed, _data.Usage.ApiCallsLimit, _data.Usage.ApiUsagePercent)
+            </article>
+
+            <article class="dash17-usage-card">
+                <h3>Top Contributors</h3>
+                @if (_data.UserActivity.TopContributors.Count == 0)
+                {
+                    <p>No submissions recorded this month.</p>
+                }
+                else
+                {
+                    <ul class="dash17-list">
+                        @foreach (var contributor in _data.UserActivity.TopContributors)
+                        {
+                            <li>
+                                <span>@contributor.DisplayName</span>
+                                <strong>@contributor.SubmissionCount submissions</strong>
+                            </li>
+                        }
+                    </ul>
+                }
+            </article>
+
+            <article class="dash17-usage-card">
+                <h3>Notification Delivery</h3>
+                <div class="dash17-chart-wrap"><canvas id="adminNotificationChart"></canvas></div>
+            </article>
+        </section>
+
+        <section class="dash17-chart-card dash17-chart-card-wide">
+            <h3>Data Quality Trend</h3>
+            <div class="dash17-chart-wrap"><canvas id="adminDataQualityChart"></canvas></div>
+        </section>
+    </div>
+}
+
+@code {
+    private AdminDashboardData? _data;
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            if (TenantContext.CurrentTenantId is not { } tenantId)
+            {
+                _error = "Tenant context is not available for this dashboard.";
+                return;
+            }
+
+            _data = await DashboardService.GetAdminDashboard(tenantId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is null || _chartsRendered)
+        {
+            return;
+        }
+
+        await Charts.RenderLineChart("adminDataQualityChart", _data.DataQualityTrend);
+        await Charts.RenderDoughnutChart("adminNotificationChart", BuildNotificationTrend(_data.NotificationStats));
+        _chartsRendered = true;
+    }
+
+    private static TrendData BuildNotificationTrend(NotificationStats stats)
+    {
+        return new TrendData
+        {
+            Title = "Notification Delivery",
+            Labels = new List<string> { "Delivered", "Sent", "Queued", "Failed" },
+            Datasets =
+            {
+                new TrendDataset
+                {
+                    Label = "Notifications",
+                    Data = new List<decimal> { stats.Delivered, stats.Sent, stats.Queued, stats.Failed },
+                    BackgroundColor = "#0f766e",
+                    BorderColor = "#0f766e"
+                }
+            }
+        };
+    }
+
+    private static RenderFragment UsageBar(string label, decimal used, int limit, decimal percent) => builder =>
+    {
+        var seq = 0;
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", "dash17-usage-row");
+
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", "dash17-usage-label");
+        builder.AddContent(seq++, label);
+        builder.CloseElement();
+
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", "dash17-usage-values");
+        builder.AddContent(seq++, $"{used:0.##} / {limit}");
+        builder.CloseElement();
+
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", "dash17-usage-track");
+
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", "dash17-usage-fill");
+        builder.AddAttribute(seq++, "style", $"width: {Math.Min(100, percent):0.##}%");
+        builder.CloseElement();
+
+        builder.CloseElement();
+
+        builder.OpenElement(seq++, "div");
+        builder.AddAttribute(seq++, "class", "dash17-usage-percent");
+        builder.AddContent(seq++, $"{percent:0.##}%");
+        builder.CloseElement();
+
+        builder.CloseElement();
+    };
+}

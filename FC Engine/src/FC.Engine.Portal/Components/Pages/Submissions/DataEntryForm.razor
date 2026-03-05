@@ -1,7 +1,9 @@
 @page "/submit/form/{ReturnCode}"
 @attribute [Authorize(Policy = "InstitutionMaker")]
+@implements IAsyncDisposable
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@using System.Globalization
 
 <PageTitle>Data Entry: @ReturnCode — FC Engine Portal</PageTitle>
 
@@ -108,7 +110,10 @@
                 <div class="portal-form-row">
                     <div class="portal-form-group" style="max-width: 300px;">
                         <label for="periodSelect" class="portal-form-label">Select Period</label>
-                        <select id="periodSelect" class="portal-form-select" @bind="selectedPeriodId">
+                        <select id="periodSelect"
+                                class="portal-form-select"
+                                value="@selectedPeriodId"
+                                @onchange="OnPeriodChanged">
                             <option value="0">Choose a period...</option>
                             @foreach (var period in availablePeriods)
                             {
@@ -121,6 +126,26 @@
                 </div>
             }
         </div>
+
+        @if (isReadOnlyLocked)
+        {
+            <div class="portal-validation-banner portal-validation-banner-warning" role="alert">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                </svg>
+                <span>@lockStatusMessage</span>
+            </div>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(carryForwardSourcePeriod))
+        {
+            <div class="portal-validation-banner portal-validation-banner-info" role="status" style="margin-top: 0.75rem;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>
+                </svg>
+                <span>Carry-forward values loaded from @carryForwardSourcePeriod. Carried fields are shown in blue italic.</span>
+            </div>
+        }
 
         <!-- ═══════════════════════════════════════════════════════════
              DYNAMIC FORM BODY
@@ -165,7 +190,10 @@
             <div class="portal-card portal-form-section">
                 <div class="portal-form-section-header">
                     <h3 class="portal-form-section-title">Return Data — @formRows.Count row(s)</h3>
-                    <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="AddRow" type="button">
+                    <button class="portal-btn portal-btn-outline portal-btn-sm"
+                            @onclick="AddRow"
+                            disabled="@isReadOnlyLocked"
+                            type="button">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                         </svg>
@@ -214,7 +242,9 @@
                                             @if (formRows.Count > 1)
                                             {
                                                 <button class="portal-btn portal-btn-ghost portal-btn-xs portal-btn-danger-text"
-                                                        @onclick="() => RemoveRow(idx)" type="button" title="Remove row" aria-label="Remove row">
+                                                        @onclick="() => RemoveRow(idx)"
+                                                        disabled="@isReadOnlyLocked"
+                                                        type="button" title="Remove row" aria-label="Remove row">
                                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                                         <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
                                                     </svg>
@@ -282,10 +312,16 @@
              ═══════════════════════════════════════════════════════════ -->
         <div class="portal-form-actions">
             <div class="portal-form-actions-left">
-                <button class="portal-btn portal-btn-ghost" @onclick="ClearForm" disabled="@isSubmitting" type="button">
+                <button class="portal-btn portal-btn-ghost"
+                        @onclick="ClearForm"
+                        disabled="@(isSubmitting || isReadOnlyLocked)"
+                        type="button">
                     Clear All
                 </button>
-                <button class="portal-btn portal-btn-outline" @onclick="ExportAsXml" disabled="@isSubmitting" type="button">
+                <button class="portal-btn portal-btn-outline"
+                        @onclick="ExportAsXml"
+                        disabled="@(isSubmitting || isReadOnlyLocked)"
+                        type="button">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                         <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -294,8 +330,9 @@
                 </button>
             </div>
             <div class="portal-form-actions-right">
+                <span class="portal-text-muted" style="font-size: 0.82rem;">@saveStatus</span>
                 <button class="portal-btn portal-btn-primary" @onclick="SubmitForm"
-                        disabled="@(isSubmitting || selectedPeriodId == 0)" type="button">
+                        disabled="@(isSubmitting || selectedPeriodId == 0 || isReadOnlyLocked)" type="button">
                     @if (isSubmitting)
                     {
                         <span class="portal-btn-spinner" aria-hidden="true"></span>
@@ -376,6 +413,11 @@
     [Inject] private TemplateBrowserService BrowserSvc { get; set; } = default!;
     [Inject] private SubmissionService SubmissionSvc { get; set; } = default!;
     [Inject] private FormDataToXmlService XmlSvc { get; set; } = default!;
+    [Inject] private ITenantContext TenantContext { get; set; } = default!;
+    [Inject] private ICarryForwardService CarryForwardService { get; set; } = default!;
+    [Inject] private IReturnLockService ReturnLockService { get; set; } = default!;
+    [Inject] private IDraftDataService DraftDataService { get; set; } = default!;
+    [Inject] private IGenericDataRepository DataRepo { get; set; } = default!;
 
     // ── State ─────────────────────────────────────────────────────
     private bool isLoadingTemplate = true;
@@ -390,6 +432,8 @@
     // Auth
     private int institutionId;
     private int? userId;
+    private Guid? tenantId;
+    private string userDisplayName = "User";
     private string institutionCode = "";
     private bool requiresApproval;
 
@@ -415,6 +459,17 @@
     private SubmissionResultDto? submissionResult;
     private int submittedId;
 
+    // Draft / carry-forward / lock / autosave
+    private int draftSubmissionId;
+    private bool isReadOnlyLocked;
+    private string lockStatusMessage = string.Empty;
+    private string carryForwardSourcePeriod = string.Empty;
+    private HashSet<string> carryForwardKeys = new(StringComparer.OrdinalIgnoreCase);
+    private string saveStatus = "Saved";
+    private bool isDirty;
+    private CancellationTokenSource? autoSaveCts;
+    private CancellationTokenSource? lockHeartbeatCts;
+
     // ── Lifecycle ─────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
@@ -430,6 +485,17 @@
 
             var userIdStr = user.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (int.TryParse(userIdStr, out var uid)) userId = uid;
+
+            var tenantStr = user.FindFirst("TenantId")?.Value ?? user.FindFirst("tid")?.Value;
+            if (Guid.TryParse(tenantStr, out var tid))
+            {
+                tenantId = tid;
+            }
+
+            userDisplayName = user.FindFirst("DisplayName")?.Value
+                              ?? user.FindFirst(ClaimTypes.Name)?.Value
+                              ?? user.Identity?.Name
+                              ?? "User";
 
             institutionCode = user.FindFirst("InstitutionName")?.Value ?? "INST001";
 
@@ -484,6 +550,256 @@
         }
     }
 
+    private async Task OnPeriodChanged(ChangeEventArgs args)
+    {
+        if (!int.TryParse(args.Value?.ToString(), out var parsedPeriodId))
+        {
+            selectedPeriodId = 0;
+            return;
+        }
+
+        selectedPeriodId = parsedPeriodId;
+        if (selectedPeriodId == 0)
+        {
+            await ReleaseLock();
+            return;
+        }
+
+        await InitializeDraftSession();
+    }
+
+    private async Task InitializeDraftSession()
+    {
+        if (!tenantId.HasValue || !userId.HasValue || selectedPeriodId == 0)
+        {
+            return;
+        }
+
+        var previousDraftId = draftSubmissionId;
+        draftSubmissionId = await DraftDataService.GetOrCreateDraftSubmission(
+            tenantId.Value,
+            ReturnCode,
+            institutionId,
+            selectedPeriodId,
+            userId.Value);
+
+        if (previousDraftId > 0 && previousDraftId != draftSubmissionId)
+        {
+            try
+            {
+                await ReturnLockService.ReleaseLock(tenantId.Value, previousDraftId, userId.Value);
+            }
+            catch
+            {
+                // ignore lock release failures while switching periods
+            }
+        }
+
+        var lockResult = await ReturnLockService.AcquireLock(
+            tenantId.Value,
+            draftSubmissionId,
+            userId.Value,
+            userDisplayName);
+
+        if (!lockResult.Acquired && lockResult.UserId != userId.Value)
+        {
+            isReadOnlyLocked = true;
+            lockStatusMessage = lockResult.Message ?? $"Being edited by {lockResult.UserName}.";
+            saveStatus = "Read-only";
+        }
+        else
+        {
+            isReadOnlyLocked = false;
+            lockStatusMessage = string.Empty;
+            StartLockHeartbeatLoop();
+        }
+
+        await LoadExistingDraftData();
+
+        if (!isReadOnlyLocked)
+        {
+            var carryForward = await CarryForwardService.GetCarryForwardValues(
+                tenantId.Value,
+                ReturnCode,
+                selectedPeriodId);
+
+            carryForwardSourcePeriod = carryForward.SourcePeriodLabel ?? string.Empty;
+            ApplyCarryForwardValues(carryForward.Values);
+            await AutoSave();
+        }
+        else
+        {
+            carryForwardSourcePeriod = string.Empty;
+            carryForwardKeys.Clear();
+        }
+    }
+
+    private async Task LoadExistingDraftData()
+    {
+        if (draftSubmissionId <= 0)
+        {
+            return;
+        }
+
+        var existing = await DataRepo.GetBySubmission(ReturnCode, draftSubmissionId);
+        if (existing is null || existing.Rows.Count == 0)
+        {
+            return;
+        }
+
+        if (structuralCategory == "FixedRow")
+        {
+            var row = existing.Rows.First();
+            foreach (var field in allFields)
+            {
+                var value = row.GetValue(field.FieldName);
+                if (value is not null)
+                {
+                    formRows[0][field.FieldName] = FormatValueForInput(field.FieldName, value);
+                }
+            }
+
+            return;
+        }
+
+        if (structuralCategory == "MultiRow")
+        {
+            formRows.Clear();
+            foreach (var existingRow in existing.Rows)
+            {
+                var row = CreateEmptyRow();
+                foreach (var field in allFields)
+                {
+                    var value = existingRow.GetValue(field.FieldName);
+                    if (value is not null)
+                    {
+                        row[field.FieldName] = FormatValueForInput(field.FieldName, value);
+                    }
+                }
+
+                formRows.Add(row);
+            }
+
+            if (formRows.Count == 0)
+            {
+                formRows.Add(CreateEmptyRow());
+            }
+
+            return;
+        }
+
+        if (structuralCategory == "ItemCoded")
+        {
+            var keyField = allFields.FirstOrDefault(x => x.IsKeyField);
+            if (keyField is null)
+            {
+                return;
+            }
+
+            foreach (var existingRow in existing.Rows)
+            {
+                var keyValue = existingRow.GetValue(keyField.FieldName)?.ToString();
+                if (string.IsNullOrWhiteSpace(keyValue))
+                {
+                    continue;
+                }
+
+                var targetRow = formRows.FirstOrDefault(x =>
+                    string.Equals(
+                        x.TryGetValue(keyField.FieldName, out var currentKey) ? currentKey : string.Empty,
+                        keyValue,
+                        StringComparison.OrdinalIgnoreCase));
+                if (targetRow is null)
+                {
+                    continue;
+                }
+
+                foreach (var field in allFields)
+                {
+                    var value = existingRow.GetValue(field.FieldName);
+                    if (value is not null)
+                    {
+                        targetRow[field.FieldName] = FormatValueForInput(field.FieldName, value);
+                    }
+                }
+            }
+        }
+    }
+
+    private void StartLockHeartbeatLoop()
+    {
+        lockHeartbeatCts?.Cancel();
+        lockHeartbeatCts?.Dispose();
+        lockHeartbeatCts = new CancellationTokenSource();
+        var token = lockHeartbeatCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                while (!token.IsCancellationRequested)
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(60), token);
+
+                    if (!tenantId.HasValue || !userId.HasValue || draftSubmissionId <= 0)
+                    {
+                        continue;
+                    }
+
+                    var heartbeat = await ReturnLockService.Heartbeat(
+                        tenantId.Value,
+                        draftSubmissionId,
+                        userId.Value,
+                        token);
+
+                    if (!heartbeat.Acquired)
+                    {
+                        isReadOnlyLocked = true;
+                        lockStatusMessage = heartbeat.Message ?? "The return is now locked by another user.";
+                        saveStatus = "Read-only";
+                        await InvokeAsync(StateHasChanged);
+                        break;
+                    }
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                // ignore
+            }
+        }, token);
+    }
+
+    private void ApplyCarryForwardValues(IReadOnlyDictionary<string, object?> values)
+    {
+        carryForwardKeys.Clear();
+        if (values.Count == 0 || formRows.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var pair in values)
+        {
+            if (!formRows[0].ContainsKey(pair.Key))
+            {
+                continue;
+            }
+
+            if (!string.IsNullOrWhiteSpace(formRows[0][pair.Key]))
+            {
+                continue;
+            }
+
+            formRows[0][pair.Key] = FormatValueForInput(pair.Key, pair.Value);
+            carryForwardKeys.Add(GetFieldErrorKey(0, pair.Key));
+        }
+
+        if (carryForwardKeys.Count > 0)
+        {
+            isDirty = true;
+            saveStatus = "Unsaved changes...";
+        }
+    }
+
     // ── Initialization ────────────────────────────────────────────
 
     private void InitializeFormRows()
@@ -521,16 +837,28 @@
 
     private void AddRow()
     {
+        if (isReadOnlyLocked)
+        {
+            return;
+        }
+
         formRows.Add(CreateEmptyRow());
+        MarkDirtyAndDebounce();
     }
 
     private void RemoveRow(int index)
     {
+        if (isReadOnlyLocked)
+        {
+            return;
+        }
+
         if (index >= 0 && index < formRows.Count && formRows.Count > 1)
         {
             formRows.RemoveAt(index);
             // Clean up errors for removed and renumbered rows
             fieldErrors.Clear();
+            MarkDirtyAndDebounce();
         }
     }
 
@@ -538,11 +866,18 @@
 
     private void OnFieldChanged(int rowIndex, string fieldName, string value)
     {
+        if (isReadOnlyLocked)
+        {
+            return;
+        }
+
         if (rowIndex >= 0 && rowIndex < formRows.Count)
         {
             formRows[rowIndex][fieldName] = value;
             fieldErrors.Remove(GetFieldErrorKey(rowIndex, fieldName));
+            carryForwardKeys.Remove(GetFieldErrorKey(rowIndex, fieldName));
             RecalculateSumFormulas(rowIndex);
+            MarkDirtyAndDebounce();
         }
     }
 
@@ -595,6 +930,65 @@
         catch
         {
             return new();
+        }
+    }
+
+    private void MarkDirtyAndDebounce()
+    {
+        if (isReadOnlyLocked)
+        {
+            return;
+        }
+
+        isDirty = true;
+        saveStatus = "Unsaved changes...";
+        autoSaveCts?.Cancel();
+        autoSaveCts?.Dispose();
+        autoSaveCts = new CancellationTokenSource();
+        var token = autoSaveCts.Token;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(2000, token);
+                await InvokeAsync(AutoSave);
+            }
+            catch (TaskCanceledException)
+            {
+                // ignored
+            }
+        }, token);
+    }
+
+    private async Task AutoSave()
+    {
+        if (!isDirty || isReadOnlyLocked || draftSubmissionId <= 0 || !tenantId.HasValue)
+        {
+            return;
+        }
+
+        saveStatus = "Saving...";
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await DraftDataService.SaveDraftRows(tenantId.Value, draftSubmissionId, ReturnCode, formRows);
+            isDirty = false;
+            saveStatus = $"Saved at {DateTime.Now:HH:mm:ss}";
+
+            if (userId.HasValue)
+            {
+                await ReturnLockService.Heartbeat(tenantId.Value, draftSubmissionId, userId.Value);
+            }
+        }
+        catch (Exception ex)
+        {
+            saveStatus = $"Error saving: {ex.Message}";
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -664,6 +1058,12 @@
         serverErrors.Clear();
         submitError = "";
 
+        if (isReadOnlyLocked)
+        {
+            submitError = "This return is currently locked by another user and is read-only.";
+            return;
+        }
+
         if (!ValidateClientSide())
         {
             submitError = "Please fix the highlighted field errors before submitting.";
@@ -681,6 +1081,8 @@
 
         try
         {
+            await AutoSave();
+
             var selectedPeriod = availablePeriods.FirstOrDefault(p => p.ReturnPeriodId == selectedPeriodId);
             var reportingDate = selectedPeriod is not null
                 ? selectedPeriod.ReportingDate.ToString("yyyy-MM-dd")
@@ -710,6 +1112,7 @@
 
             // Accepted or AcceptedWithWarnings
             submissionComplete = true;
+            await ReleaseLock();
         }
         catch (Exception ex)
         {
@@ -724,6 +1127,11 @@
 
     private async Task ExportAsXml()
     {
+        if (isReadOnlyLocked)
+        {
+            return;
+        }
+
         try
         {
             var selectedPeriod = availablePeriods.FirstOrDefault(p => p.ReturnPeriodId == selectedPeriodId);
@@ -745,11 +1153,18 @@
 
     private void ClearForm()
     {
+        if (isReadOnlyLocked)
+        {
+            return;
+        }
+
         fieldErrors.Clear();
         serverErrors.Clear();
         showValidationResult = false;
         submitError = "";
         InitializeFormRows();
+        carryForwardKeys.Clear();
+        MarkDirtyAndDebounce();
     }
 
     // ── Render Helpers ────────────────────────────────────────────
@@ -760,6 +1175,11 @@
         var hasError = fieldErrors.ContainsKey(GetFieldErrorKey(rowIdx, field.FieldName));
         var cssClass = "portal-form-input portal-form-input-sm" + (hasError ? " portal-form-input-error" : "");
         var isComputedTarget = sumFormulas.Any(f => f.TargetField == field.FieldName);
+        var isCarryForward = carryForwardKeys.Contains(GetFieldErrorKey(rowIdx, field.FieldName));
+        var carryStyle = isCarryForward ? "color:#1d4ed8;font-style:italic;" : "";
+        var carryTooltip = isCarryForward && !string.IsNullOrWhiteSpace(carryForwardSourcePeriod)
+            ? $"Carried forward from {carryForwardSourcePeriod}. Click to edit."
+            : string.Empty;
 
         var dt = field.DataType;
         string inputType;
@@ -782,6 +1202,8 @@
             <label class="portal-form-checkbox">
                 <input type="checkbox"
                        checked="@(val == "true")"
+                       disabled="@isReadOnlyLocked"
+                       title="@carryTooltip"
                        @onchange="@(e => OnFieldChanged(rowIdx, field.FieldName, ((bool)(e.Value ?? false)) ? "true" : "false"))" />
                 <span>@field.DisplayName</span>
             </label>
@@ -793,7 +1215,9 @@
                    value="@val"
                    step="@step"
                    placeholder="@placeholder"
-                   readonly="@isComputedTarget"
+                   style="@carryStyle"
+                   title="@carryTooltip"
+                   readonly="@(isComputedTarget || isReadOnlyLocked)"
                    @onchange="@(e => OnFieldChanged(rowIdx, field.FieldName, e.Value?.ToString() ?? ""))"
                    aria-label="@field.DisplayName" />
         }
@@ -808,7 +1232,54 @@
         }
     };
 
+    private string FormatValueForInput(string fieldName, object? value)
+    {
+        if (value is null)
+        {
+            return string.Empty;
+        }
+
+        var field = allFields.FirstOrDefault(x => x.FieldName == fieldName);
+        var dataType = field?.DataType ?? "Text";
+
+        return dataType switch
+        {
+            "Date" when value is DateTime dt => dt.ToString("yyyy-MM-dd"),
+            "Date" when DateTime.TryParse(value.ToString(), out var parsedDt) => parsedDt.ToString("yyyy-MM-dd"),
+            "Boolean" when value is bool b => b ? "true" : "false",
+            "Money" or "Decimal" or "Percentage" when decimal.TryParse(value.ToString(), out var dec) => dec.ToString(CultureInfo.InvariantCulture),
+            "Integer" when int.TryParse(value.ToString(), out var i) => i.ToString(CultureInfo.InvariantCulture),
+            _ => value.ToString() ?? string.Empty
+        };
+    }
+
+    private async Task ReleaseLock()
+    {
+        lockHeartbeatCts?.Cancel();
+        lockHeartbeatCts?.Dispose();
+        lockHeartbeatCts = null;
+
+        if (tenantId.HasValue && userId.HasValue && draftSubmissionId > 0)
+        {
+            try
+            {
+                await ReturnLockService.ReleaseLock(tenantId.Value, draftSubmissionId, userId.Value);
+            }
+            catch
+            {
+                // ignore release errors on navigation/dispose
+            }
+        }
+    }
+
     private static string GetFieldErrorKey(int rowIdx, string fieldName) => rowIdx + "_" + fieldName;
+
+    public async ValueTask DisposeAsync()
+    {
+        autoSaveCts?.Cancel();
+        autoSaveCts?.Dispose();
+        await ReleaseLock();
+    }
 
     // ── Display Helpers ───────────────────────────────────────────
 

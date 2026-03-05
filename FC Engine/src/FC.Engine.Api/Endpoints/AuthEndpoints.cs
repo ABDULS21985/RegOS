@@ -6,9 +6,9 @@ namespace FC.Engine.Api.Endpoints;
 
 public static class AuthEndpoints
 {
-    public static void MapAuthEndpoints(this WebApplication app)
+    public static void MapAuthEndpoints(this IEndpointRouteBuilder routes)
     {
-        var group = app.MapGroup("/api/v1/auth").WithTags("Authentication");
+        var group = routes.MapGroup("/auth").WithTags("Authentication");
 
         group.MapPost("/login", async (
             LoginRequest request,

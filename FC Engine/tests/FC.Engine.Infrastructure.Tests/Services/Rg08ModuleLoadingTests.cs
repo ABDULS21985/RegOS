@@ -239,6 +239,7 @@ public class Rg08ModuleLoadingTests
                 9m,
                 "InterModule",
                 "BDC_CBN/BDC_AML/str_filed_count",
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
 
@@ -249,6 +250,7 @@ public class Rg08ModuleLoadingTests
                 13m,
                 "InterModule",
                 "BDC_CBN/BDC_AML/ctr_filed_count",
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -522,6 +524,7 @@ public class Rg08ModuleLoadingTests
                 11m,
                 It.IsAny<string>(),
                 It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -566,6 +569,7 @@ public class Rg08ModuleLoadingTests
                 15m,
                 It.IsAny<string>(),
                 It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -617,6 +621,7 @@ public class Rg08ModuleLoadingTests
                 12m,
                 It.IsAny<string>(),
                 It.IsAny<string>(),
+                It.IsAny<string?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }

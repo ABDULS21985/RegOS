@@ -22,9 +22,11 @@ public class TenantContextMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        // Skip tenant resolution for health endpoints and static files
+        // Skip tenant resolution for health, metrics endpoints and static files
         var path = context.Request.Path.Value ?? "";
         if (path.Equals("/health", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/health/", StringComparison.OrdinalIgnoreCase) ||
+            path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/_", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase))
         {
