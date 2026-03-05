@@ -410,6 +410,34 @@ public partial class FormulaEvaluator : IFormulaEvaluator
                 var minimumPremium = Arg(args, "minimum_premium", "arg3");
                 var rawPremium = insurableDeposits * assessmentRate;
                 return Math.Round(Math.Max(rawPremium, minimumPremium), 2);
+            },
+            ["BDC_MIN_CAPITAL_REQUIRED"] = args =>
+            {
+                var categoryCode = Arg(args, "licence_category_code", "arg1");
+                var categoryAMin = Arg(args, "category_a_minimum_capital", "arg2", defaultValue: 35000000m);
+                var categoryBMin = Arg(args, "category_b_minimum_capital", "arg3", defaultValue: 2000000m);
+
+                return categoryCode switch
+                {
+                    <= 1m => categoryAMin,
+                    2m => categoryBMin,
+                    _ => categoryAMin
+                };
+            },
+            ["MFB_MIN_CAPITAL_REQUIRED"] = args =>
+            {
+                var categoryCode = Arg(args, "mfb_category_code", "arg1");
+                var unitMin = Arg(args, "unit_minimum_capital", "arg2", defaultValue: 50000000m);
+                var stateMin = Arg(args, "state_minimum_capital", "arg3", defaultValue: 200000000m);
+                var nationalMin = Arg(args, "national_minimum_capital", "arg4", defaultValue: 5000000000m);
+
+                return categoryCode switch
+                {
+                    <= 1m => unitMin,
+                    2m => stateMin,
+                    3m => nationalMin,
+                    _ => unitMin
+                };
             }
         };
     }

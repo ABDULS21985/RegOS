@@ -714,6 +714,63 @@ public class FormulaEvaluatorTests
     }
 
     [Fact]
+    public async Task Evaluate_CustomFunction_BdcMinCapitalRequired_CategoryA_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["licence_category_code"] = 1m,
+            ["category_a_minimum_capital"] = 35_000_000m,
+            ["category_b_minimum_capital"] = 2_000_000m,
+            ["calculated_minimum_capital_requirement"] = 35_000_000m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "BDC-CAP-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "calculated_minimum_capital_requirement",
+            OperandFields = "[\"licence_category_code\",\"category_a_minimum_capital\",\"category_b_minimum_capital\"]",
+            CustomExpression = "FUNC:BDC_MIN_CAPITAL_REQUIRED(licence_category_code,category_a_minimum_capital,category_b_minimum_capital)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_MfbMinCapitalRequired_National_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["mfb_category_code"] = 3m,
+            ["unit_minimum_capital"] = 50_000_000m,
+            ["state_minimum_capital"] = 200_000_000m,
+            ["national_minimum_capital"] = 5_000_000_000m,
+            ["calculated_minimum_capital_requirement"] = 5_000_000_000m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "MFB-CAP-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "calculated_minimum_capital_requirement",
+            OperandFields = "[\"mfb_category_code\",\"unit_minimum_capital\",\"state_minimum_capital\",\"national_minimum_capital\"]",
+            CustomExpression = "FUNC:MFB_MIN_CAPITAL_REQUIRED(mfb_category_code,unit_minimum_capital,state_minimum_capital,national_minimum_capital)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Existing_FormulaEvaluator_Functions_Unchanged()
     {
         var record = CreateFixedRowRecord(new Dictionary<string, object?>

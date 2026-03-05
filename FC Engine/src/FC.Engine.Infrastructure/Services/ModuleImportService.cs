@@ -146,6 +146,19 @@ public partial class ModuleImportService : IModuleImportService
                 result.Errors.Add($"Template '{template.ReturnCode}': duplicate field code '{dup}'.");
             }
 
+            var duplicateNormalizedFieldCodes = template.Fields
+                .Where(f => !string.IsNullOrWhiteSpace(f.FieldCode))
+                .GroupBy(f => ToSafeSqlIdentifier(f.FieldCode), StringComparer.OrdinalIgnoreCase)
+                .Where(g => g.Count() > 1)
+                .ToList();
+
+            foreach (var dup in duplicateNormalizedFieldCodes)
+            {
+                var originals = string.Join(", ", dup.Select(f => f.FieldCode));
+                result.Errors.Add(
+                    $"Template '{template.ReturnCode}': field codes [{originals}] normalize to the same SQL identifier '{dup.Key}'.");
+            }
+
             var fieldCodes = template.Fields
                 .Select(f => f.FieldCode)
                 .Where(code => !string.IsNullOrWhiteSpace(code))

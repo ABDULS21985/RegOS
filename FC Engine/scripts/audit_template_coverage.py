@@ -4,6 +4,7 @@
 Checks completed modules:
 - RG-08: BDC_CBN, MFB_PAR, NFIU_AML
 - RG-09: DMB_BASEL3, NDIC_RETURNS, PSP_FINTECH, PMB_CBN
+- RG-10: INSURANCE_NAICOM, PFA_PENCOM, CMO_SEC, DFI_CBN, IMTO_CBN
 
 Compares:
 - Workbook operational sheets vs JSON template count
@@ -75,6 +76,36 @@ MODULES: tuple[ModuleSpec, ...] = (
         workbook="Templates/PMB_CBN_FMBN_Reporting_Templates.xlsx",
         xsd="Templates/PMB_Return_Schema_v1.0.xsd",
         definition_json="FC Engine/docs/module-definitions/rg09/pmb_cbn.json",
+    ),
+    ModuleSpec(
+        module_code="INSURANCE_NAICOM",
+        workbook="Templates/Insurance_NAICOM_Reporting_Templates.xlsx",
+        xsd="Templates/Insurance_Return_Schema_v1.0.xsd",
+        definition_json="FC Engine/docs/module-definitions/rg10/insurance_naicom.json",
+    ),
+    ModuleSpec(
+        module_code="PFA_PENCOM",
+        workbook="Templates/PFA_PenCom_Reporting_Templates.xlsx",
+        xsd="Templates/PFA_Return_Schema_v1.0.xsd",
+        definition_json="FC Engine/docs/module-definitions/rg10/pfa_pencom.json",
+    ),
+    ModuleSpec(
+        module_code="CMO_SEC",
+        workbook="Templates/Capital_Market_SEC_Reporting_Templates.xlsx",
+        xsd="Templates/SEC_CMO_Return_Schema_v1.0.xsd",
+        definition_json="FC Engine/docs/module-definitions/rg10/cmo_sec.json",
+    ),
+    ModuleSpec(
+        module_code="DFI_CBN",
+        workbook="Templates/DFI_CBN_Reporting_Templates.xlsx",
+        xsd="Templates/DFI_Return_Schema_v1.0.xsd",
+        definition_json="FC Engine/docs/module-definitions/rg10/dfi_cbn.json",
+    ),
+    ModuleSpec(
+        module_code="IMTO_CBN",
+        workbook="Templates/IMTO_CBN_Reporting_Templates.xlsx",
+        xsd="Templates/IMTO_Return_Schema_v1.0.xsd",
+        definition_json="FC Engine/docs/module-definitions/rg10/imto_cbn.json",
     ),
 )
 

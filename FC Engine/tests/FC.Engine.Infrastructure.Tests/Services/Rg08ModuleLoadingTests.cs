@@ -139,6 +139,10 @@ public class Rg08ModuleLoadingTests
                 ["retained_earnings"] = 7000000m,
                 ["statutory_reserves"] = 4000000m,
                 ["other_reserves"] = 3000000m,
+                ["licence_category_code"] = 1m,
+                ["category_a_minimum_capital"] = 35000000m,
+                ["category_b_minimum_capital"] = 2000000m,
+                ["calculated_minimum_capital_requirement"] = 35000000m,
                 ["total_shareholders_funds"] = 34000000m,
                 ["total_assets"] = 100000000m,
                 ["minimum_capital_requirement"] = 35000000m,
@@ -362,12 +366,52 @@ public class Rg08ModuleLoadingTests
                 ["share_premium"] = 10000000m,
                 ["retained_earnings"] = 5000000m,
                 ["statutory_reserves"] = 5000000m,
+                ["mfb_category_code"] = 1m,
+                ["unit_minimum_capital"] = 50000000m,
+                ["state_minimum_capital"] = 200000000m,
+                ["national_minimum_capital"] = 5000000000m,
+                ["calculated_minimum_capital_requirement"] = 50000000m,
                 ["total_qualifying_capital"] = 80000000m,
                 ["tier1_capital"] = 70000000m,
                 ["tier2_capital"] = 10000000m,
                 ["total_risk_weighted_assets"] = 200000000m,
                 ["car_ratio"] = 40m,
                 ["minimum_capital_requirement"] = 50000000m
+            });
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task MFB_ECL_Formula_Calculates_Correctly()
+    {
+        await using var db = CreateDbContext(nameof(MFB_ECL_Formula_Calculates_Correctly));
+        await SeedModules(db, "MFB_PAR", "NDIC_RETURNS", "NFIU_AML");
+
+        var cache = new Mock<ITemplateMetadataCache>();
+        var sut = CreateSut(db, cache, out _);
+        (await sut.ImportModule(await LoadDefinition("rg08-mfb-par-module-definition.json"), "rg08-test")).Success.Should().BeTrue();
+
+        var errors = await EvaluateImportedTemplateFormulas(
+            db,
+            "MFB_IFR",
+            new Dictionary<string, object?>
+            {
+                ["stage1_gross_carrying_amount"] = 100m,
+                ["stage1_ecl_provision"] = 5m,
+                ["stage1_net_carrying_amount"] = 95m,
+                ["stage2_gross_carrying_amount"] = 50m,
+                ["stage2_ecl_provision"] = 8m,
+                ["stage2_net_carrying_amount"] = 42m,
+                ["stage3_gross_carrying_amount"] = 20m,
+                ["stage3_ecl_provision"] = 6m,
+                ["stage3_net_carrying_amount"] = 14m,
+                ["stage_migration_1_to_2"] = 3m,
+                ["stage_migration_2_to_3"] = 2m,
+                ["pd"] = 0.05m,
+                ["lgd"] = 0.45m,
+                ["ead"] = 1_000_000_000m,
+                ["ecl_model_output"] = 22_500_000m
             });
 
         errors.Should().BeEmpty();
@@ -578,6 +622,76 @@ public class Rg08ModuleLoadingTests
     }
 
     [Fact]
+    public async Task MFB_CrossSheet_Rules_Fire_Correctly()
+    {
+        await using var db = CreateDbContext(nameof(MFB_CrossSheet_Rules_Fire_Correctly));
+        await SeedModules(db, "MFB_PAR", "NDIC_RETURNS", "NFIU_AML");
+
+        var cache = new Mock<ITemplateMetadataCache>();
+        var sut = CreateSut(db, cache, out _);
+        (await sut.ImportModule(await LoadDefinition("rg08-mfb-par-module-definition.json"), "rg08-test")).Success.Should().BeTrue();
+
+        var rules = await db.CrossSheetRules
+            .Include(r => r.Operands)
+            .Include(r => r.Expression)
+            .Where(r => r.IsActive && r.Operands.Any(o => o.TemplateReturnCode == "MFB_DEP"))
+            .ToListAsync();
+
+        var formulaRepo = new Mock<IFormulaRepository>();
+        formulaRepo.Setup(r => r.GetCrossSheetRulesForTemplate("MFB_DEP", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(rules);
+
+        var dataRepo = new Mock<IGenericDataRepository>();
+        dataRepo.Setup(d => d.GetByInstitutionAndPeriod("MFB_FIN", 77, 202601, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateRecord("MFB_FIN", ("deposits", 900m)));
+
+        var validator = new CrossSheetValidator(
+            formulaRepo.Object,
+            dataRepo.Object,
+            cache.Object);
+
+        var depRecord = CreateRecord("MFB_DEP", ("total_deposits", 1000m));
+        var errors = await validator.Validate(depRecord, 77, 202601, CancellationToken.None);
+
+        errors.Should().Contain(e => e.RuleId.Contains("MFB_PAR_MFB_DEP_CSR_1", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task NFIU_CrossSheet_Rules_Fire_Correctly()
+    {
+        await using var db = CreateDbContext(nameof(NFIU_CrossSheet_Rules_Fire_Correctly));
+        await SeedModules(db, "NFIU_AML");
+
+        var cache = new Mock<ITemplateMetadataCache>();
+        var sut = CreateSut(db, cache, out _);
+        (await sut.ImportModule(await LoadDefinition("rg08-nfiu-aml-module-definition.json"), "rg08-test")).Success.Should().BeTrue();
+
+        var rules = await db.CrossSheetRules
+            .Include(r => r.Operands)
+            .Include(r => r.Expression)
+            .Where(r => r.IsActive && r.Operands.Any(o => o.TemplateReturnCode == "NFIU_STR"))
+            .ToListAsync();
+
+        var formulaRepo = new Mock<IFormulaRepository>();
+        formulaRepo.Setup(r => r.GetCrossSheetRulesForTemplate("NFIU_STR", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(rules);
+
+        var dataRepo = new Mock<IGenericDataRepository>();
+        dataRepo.Setup(d => d.GetByInstitutionAndPeriod("NFIU_DIC", 77, 202601, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateRecord("NFIU_DIC", ("STRsFiled", 4m)));
+
+        var validator = new CrossSheetValidator(
+            formulaRepo.Object,
+            dataRepo.Object,
+            cache.Object);
+
+        var strRecord = CreateRecord("NFIU_STR", ("str_filed_count", 10m));
+        var errors = await validator.Validate(strRecord, 77, 202601, CancellationToken.None);
+
+        errors.Should().Contain(e => e.RuleId.Contains("NFIU_AML_NFIU_STR_CSR_1", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task NFIU_CTR_Threshold_5M_NGN_Validates()
     {
         await using var db = CreateDbContext(nameof(NFIU_CTR_Threshold_5M_NGN_Validates));
@@ -638,6 +752,11 @@ public class Rg08ModuleLoadingTests
             "MFB_CAP",
             new Dictionary<string, object?>
             {
+                ["mfb_category_code"] = minimumCapital == 50000000m ? 1m : minimumCapital == 200000000m ? 2m : 3m,
+                ["unit_minimum_capital"] = 50000000m,
+                ["state_minimum_capital"] = 200000000m,
+                ["national_minimum_capital"] = 5000000000m,
+                ["calculated_minimum_capital_requirement"] = minimumCapital,
                 ["paid_up_capital"] = paidUpCapital,
                 ["share_premium"] = 0m,
                 ["retained_earnings"] = 0m,
