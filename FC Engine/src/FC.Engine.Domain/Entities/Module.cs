@@ -14,6 +14,10 @@ public class Module
     public string DefaultFrequency { get; set; } = "Monthly";
     public bool IsActive { get; set; } = true;
     public int DisplayOrder { get; set; }
+
+    /// <summary>Custom deadline offset in days from period end. Null uses frequency defaults (Monthly=30, Quarterly=45, SemiAnnual=60, Annual=90).</summary>
+    public int? DeadlineOffsetDays { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     // Navigation

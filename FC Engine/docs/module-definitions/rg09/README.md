@@ -13,7 +13,7 @@ Total across RG-09 definitions:
 - Fields: 1717
 - Formulas: 475
 - Cross-sheet rules: 80
-- Inter-module data flows: 25
+- Inter-module data flows: 28
 
 Traceability notes for regulatory source templates in `/Templates`:
 

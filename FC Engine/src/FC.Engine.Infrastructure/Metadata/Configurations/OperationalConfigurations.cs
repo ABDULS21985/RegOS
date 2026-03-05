@@ -75,7 +75,23 @@ public class ReturnPeriodConfiguration : IEntityTypeConfiguration<ReturnPeriod>
         builder.Property(p => p.TenantId).IsRequired();
         builder.Property(p => p.Frequency).HasMaxLength(20).IsRequired();
 
+        // ── Filing Calendar (RG-12) ──
+        builder.Property(p => p.ModuleId);
+        builder.Property(p => p.Quarter);
+        builder.Property(p => p.DeadlineDate);
+        builder.Property(p => p.DeadlineOverrideDate);
+        builder.Property(p => p.DeadlineOverrideBy);
+        builder.Property(p => p.DeadlineOverrideReason).HasMaxLength(500);
+        builder.Property(p => p.AutoCreatedReturnId);
+        builder.Property(p => p.Status).HasMaxLength(20).HasDefaultValue("Upcoming");
+        builder.Property(p => p.NotificationLevel).HasDefaultValue(0);
+        builder.Ignore(p => p.EffectiveDeadline);
+
+        builder.HasOne(p => p.Module).WithMany().HasForeignKey(p => p.ModuleId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(p => p.AutoCreatedReturn).WithMany().HasForeignKey(p => p.AutoCreatedReturnId).OnDelete(DeleteBehavior.SetNull);
+
         builder.HasIndex(p => p.TenantId);
+        builder.HasIndex(p => new { p.TenantId, p.ModuleId, p.Year, p.Month, p.Quarter });
     }
 }
 

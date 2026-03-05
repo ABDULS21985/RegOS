@@ -81,6 +81,20 @@ public class ModuleImportServiceTests
     }
 
     [Fact]
+    public async Task Duplicate_FieldCode_After_Sql_Normalization_Rejected()
+    {
+        await using var db = CreateDbContext(nameof(Duplicate_FieldCode_After_Sql_Normalization_Rejected));
+        SeedModule(db, "BDC_CBN");
+        var cache = new Mock<ITemplateMetadataCache>();
+        var sut = CreateSut(db, cache);
+
+        var result = await sut.ValidateDefinition(DuplicateNormalizedFieldCodeJson());
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.Contains("normalize to the same SQL identifier", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public async Task Invalid_Formula_Reference_Rejected()
     {
         await using var db = CreateDbContext(nameof(Invalid_Formula_Reference_Rejected));
@@ -383,6 +397,28 @@ public class ModuleImportServiceTests
                      "fields": [
                        { "fieldCode": "x", "label": "X", "dataType": "Money", "required": true, "displayOrder": 1 },
                        { "fieldCode": "x", "label": "X2", "dataType": "Money", "required": true, "displayOrder": 2 }
+                     ],
+                     "formulas": []
+                   }
+                 ]
+               }
+               """;
+    }
+
+    private static string DuplicateNormalizedFieldCodeJson()
+    {
+        return """
+               {
+                 "moduleCode": "BDC_CBN",
+                 "templates": [
+                   {
+                     "returnCode": "BDC_DUPE",
+                     "name": "Duplicate Normalize",
+                     "frequency": "Monthly",
+                     "structuralCategory": "FixedRow",
+                     "fields": [
+                       { "fieldCode": "Submission_Type", "label": "Submission Type Enum", "dataType": "Enum", "required": true, "displayOrder": 1 },
+                       { "fieldCode": "Submission Type", "label": "Submission Type Text", "dataType": "Text", "required": false, "displayOrder": 2 }
                      ],
                      "formulas": []
                    }

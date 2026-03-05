@@ -5,6 +5,7 @@ Checks completed modules:
 - RG-08: BDC_CBN, MFB_PAR, NFIU_AML
 - RG-09: DMB_BASEL3, NDIC_RETURNS, PSP_FINTECH, PMB_CBN
 - RG-10: INSURANCE_NAICOM, PFA_PENCOM, CMO_SEC, DFI_CBN, IMTO_CBN
+- RG-11: FATF_EVAL
 
 Compares:
 - Workbook operational sheets vs JSON template count
@@ -106,6 +107,12 @@ MODULES: tuple[ModuleSpec, ...] = (
         workbook="Templates/IMTO_CBN_Reporting_Templates.xlsx",
         xsd="Templates/IMTO_Return_Schema_v1.0.xsd",
         definition_json="FC Engine/docs/module-definitions/rg10/imto_cbn.json",
+    ),
+    ModuleSpec(
+        module_code="FATF_EVAL",
+        workbook="Templates/FATF_Mutual_Evaluation_Templates.xlsx",
+        xsd="Templates/FATF_ME_Schema_v1.0.xsd",
+        definition_json="FC Engine/docs/module-definitions/rg11/fatf_eval.json",
     ),
 )
 

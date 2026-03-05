@@ -77,6 +77,9 @@ public class MetadataDbContext : DbContext
     public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
     public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();
 
+    // Filing SLA (RG-12)
+    public DbSet<FilingSlaRecord> FilingSlaRecords => Set<FilingSlaRecord>();
+
     // Audit
     public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
     public DbSet<DdlMigrationRecord> DdlMigrations => Set<DdlMigrationRecord>();

@@ -1,4 +1,5 @@
 using Dapper;
+using FC.Engine.Application.Models;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.DataRecord;
 using FC.Engine.Domain.Entities;
@@ -19,6 +20,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Text.Json;
 using Xunit;
 
 namespace FC.Engine.Integration.Tests.ModuleLoading;
@@ -41,6 +43,13 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         ("NFIU_AML", "rg08-nfiu-aml-module-definition.json", 12)
     ];
 
+    private static readonly HashSet<string> SqlIsolatedModules = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "BDC_CBN",
+        "MFB_PAR",
+        "NFIU_AML"
+    };
+
     public async Task InitializeAsync()
     {
         _connectionString = await TestSqlConnectionResolver.ResolveAsync();
@@ -59,8 +68,15 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         await EnsureRg08ModulesExistAsync(db);
         await EnsureRg08IsImportedAndPublishedAsync(db, CancellationToken.None);
 
-        var moduleCodes = Rg08Definitions.Select(d => d.ModuleCode).ToArray();
+        var moduleCodes = Rg08Definitions.Select(d => ToSqlTestModuleCode(d.ModuleCode)).ToArray();
         var moduleCodeList = moduleCodes.ToList();
+        var bdcModuleCode = ToSqlTestModuleCode("BDC_CBN");
+        var mfbModuleCode = ToSqlTestModuleCode("MFB_PAR");
+        var nfiuModuleCode = ToSqlTestModuleCode("NFIU_AML");
+        var bdcAmlCode = ToSqlTestReturnCode("BDC_AML");
+        var mfbAmlCode = ToSqlTestReturnCode("MFB_AML");
+        var nfiuStrCode = ToSqlTestReturnCode("NFIU_STR");
+        var nfiuCtrCode = ToSqlTestReturnCode("NFIU_CTR");
 
         var templates = await db.ReturnTemplates
             .AsNoTracking()
@@ -148,10 +164,10 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         db.ReturnPeriods.Add(returnPeriod);
         await db.SaveChangesAsync();
 
-        var bdcSubmission = Submission.Create(institution.Id, returnPeriod.Id, "BDC_AML", tenant.TenantId);
-        var mfbSubmission = Submission.Create(institution.Id, returnPeriod.Id, "MFB_AML", tenant.TenantId);
-        var nfiuStrSubmission = Submission.Create(institution.Id, returnPeriod.Id, "NFIU_STR", tenant.TenantId);
-        var nfiuCtrSubmission = Submission.Create(institution.Id, returnPeriod.Id, "NFIU_CTR", tenant.TenantId);
+        var bdcSubmission = Submission.Create(institution.Id, returnPeriod.Id, bdcAmlCode, tenant.TenantId);
+        var mfbSubmission = Submission.Create(institution.Id, returnPeriod.Id, mfbAmlCode, tenant.TenantId);
+        var nfiuStrSubmission = Submission.Create(institution.Id, returnPeriod.Id, nfiuStrCode, tenant.TenantId);
+        var nfiuCtrSubmission = Submission.Create(institution.Id, returnPeriod.Id, nfiuCtrCode, tenant.TenantId);
         db.Submissions.AddRange(bdcSubmission, mfbSubmission, nfiuStrSubmission, nfiuCtrSubmission);
         await db.SaveChangesAsync();
 
@@ -167,7 +183,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
 
         var bdcRecord = await BuildDefaultRecord(
             templateCache,
-            "BDC_AML",
+            bdcAmlCode,
             new Dictionary<string, object?>
             {
                 ["str_filed_count"] = 8m,
@@ -177,7 +193,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
 
         var mfbRecord = await BuildDefaultRecord(
             templateCache,
-            "MFB_AML",
+            mfbAmlCode,
             new Dictionary<string, object?>
             {
                 ["str_filed_count"] = 5m,
@@ -187,7 +203,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
 
         var nfiuStrRecord = await BuildDefaultRecord(
             templateCache,
-            "NFIU_STR",
+            nfiuStrCode,
             new Dictionary<string, object?>
             {
                 ["str_filed_count"] = 0m
@@ -196,7 +212,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
 
         var nfiuCtrRecord = await BuildDefaultRecord(
             templateCache,
-            "NFIU_CTR",
+            nfiuCtrCode,
             new Dictionary<string, object?>
             {
                 ["ctr_filed_count"] = 0m
@@ -213,8 +229,8 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         await dataFlowEngine.ProcessDataFlows(
             tenant.TenantId,
             bdcSubmission.Id,
-            "BDC_CBN",
-            "BDC_AML",
+            bdcModuleCode,
+            bdcAmlCode,
             institution.Id,
             returnPeriod.Id,
             CancellationToken.None);
@@ -222,14 +238,14 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         await dataFlowEngine.ProcessDataFlows(
             tenant.TenantId,
             mfbSubmission.Id,
-            "MFB_PAR",
-            "MFB_AML",
+            mfbModuleCode,
+            mfbAmlCode,
             institution.Id,
             returnPeriod.Id,
             CancellationToken.None);
 
-        var nfiuStrAfterFlow = await dataRepo.ReadFieldValue("NFIU_STR", nfiuStrSubmission.Id, "str_filed_count");
-        var nfiuCtrAfterFlow = await dataRepo.ReadFieldValue("NFIU_CTR", nfiuCtrSubmission.Id, "ctr_filed_count");
+        var nfiuStrAfterFlow = await dataRepo.ReadFieldValue(nfiuStrCode, nfiuStrSubmission.Id, "str_filed_count");
+        var nfiuCtrAfterFlow = await dataRepo.ReadFieldValue(nfiuCtrCode, nfiuCtrSubmission.Id, "ctr_filed_count");
 
         Convert.ToDecimal(nfiuStrAfterFlow).Should().Be(13m);
         Convert.ToDecimal(nfiuCtrAfterFlow).Should().Be(10m);
@@ -238,7 +254,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
             .AsNoTracking()
             .FirstOrDefaultAsync(x =>
                 x.TenantId == tenant.TenantId
-                && x.ReturnCode == "NFIU_STR"
+                && x.ReturnCode == nfiuStrCode
                 && x.SubmissionId == nfiuStrSubmission.Id
                 && x.FieldName == "str_filed_count");
 
@@ -246,8 +262,8 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         flowMetadata!.DataSource.Should().Be("InterModule");
         flowMetadata.SourceDetail.Should().EndWith("/str_filed_count");
 
-        var bdcModuleId = await db.Modules.Where(m => m.ModuleCode == "BDC_CBN").Select(m => m.Id).SingleAsync();
-        var nfiuModuleId = await db.Modules.Where(m => m.ModuleCode == "NFIU_AML").Select(m => m.Id).SingleAsync();
+        var bdcModuleId = await db.Modules.Where(m => m.ModuleCode == bdcModuleCode).Select(m => m.Id).SingleAsync();
+        var nfiuModuleId = await db.Modules.Where(m => m.ModuleCode == nfiuModuleCode).Select(m => m.Id).SingleAsync();
 
         var ruleCode = $"RG08_SQL_RULE_{Guid.NewGuid():N}"[..30];
         var crossRule = new CrossSheetRule
@@ -259,9 +275,9 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
             ModuleId = bdcModuleId,
             SourceModuleId = bdcModuleId,
             TargetModuleId = nfiuModuleId,
-            SourceTemplateCode = "BDC_AML",
+            SourceTemplateCode = bdcAmlCode,
             SourceFieldCode = "str_filed_count",
-            TargetTemplateCode = "NFIU_STR",
+            TargetTemplateCode = nfiuStrCode,
             TargetFieldCode = "str_filed_count",
             Operator = "Equals",
             ToleranceAmount = 0m,
@@ -280,14 +296,14 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         crossRule.AddOperand(new CrossSheetRuleOperand
         {
             OperandAlias = "A",
-            TemplateReturnCode = "BDC_AML",
+            TemplateReturnCode = bdcAmlCode,
             FieldName = "str_filed_count",
             SortOrder = 1
         });
         crossRule.AddOperand(new CrossSheetRuleOperand
         {
             OperandAlias = "B",
-            TemplateReturnCode = "NFIU_STR",
+            TemplateReturnCode = nfiuStrCode,
             FieldName = "str_filed_count",
             SortOrder = 2
         });
@@ -296,7 +312,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         await db.SaveChangesAsync();
 
         await dataRepo.WriteFieldValue(
-            "NFIU_STR",
+            nfiuStrCode,
             nfiuStrSubmission.Id,
             "str_filed_count",
             1m,
@@ -307,7 +323,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         var formulaRepo = new FormulaRepository(db);
         var validator = new CrossSheetValidator(formulaRepo, dataRepo, templateCache, db, entitlement);
 
-        var sourceRecord = await dataRepo.GetBySubmission("BDC_AML", bdcSubmission.Id);
+        var sourceRecord = await dataRepo.GetBySubmission(bdcAmlCode, bdcSubmission.Id);
         sourceRecord.Should().NotBeNull();
 
         var crossSheetErrors = await validator.Validate(
@@ -320,7 +336,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         var crossModuleErrors = await validator.ValidateCrossModule(
             tenant.TenantId,
             bdcSubmission.Id,
-            "BDC_CBN",
+            bdcModuleCode,
             institution.Id,
             returnPeriod.Id,
             CancellationToken.None);
@@ -329,8 +345,9 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
 
     private async Task EnsureRg08ModulesExistAsync(MetadataDbContext db)
     {
-        foreach (var (moduleCode, _, _) in Rg08Definitions)
+        foreach (var (baseModuleCode, _, _) in Rg08Definitions)
         {
+            var moduleCode = ToSqlTestModuleCode(baseModuleCode);
             var exists = await db.Modules.AnyAsync(m => m.ModuleCode == moduleCode);
             if (exists)
             {
@@ -349,25 +366,28 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
             });
         }
 
+        // Keep this available for MFB -> NDIC inter-module flow FK references.
+        if (!await db.Modules.AnyAsync(m => m.ModuleCode == "NDIC_RETURNS"))
+        {
+            db.Modules.Add(new Module
+            {
+                ModuleCode = "NDIC_RETURNS",
+                ModuleName = "NDIC_RETURNS Module",
+                RegulatorCode = "NDIC",
+                Description = "Seeded NDIC module for RG-08 SQL integration flow references.",
+                DefaultFrequency = "Quarterly",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+        }
+
         await db.SaveChangesAsync();
     }
 
     private async Task EnsureRg08IsImportedAndPublishedAsync(MetadataDbContext db, CancellationToken ct)
     {
-        var moduleCodes = Rg08Definitions.Select(d => d.ModuleCode).ToArray();
+        var moduleCodes = Rg08Definitions.Select(d => ToSqlTestModuleCode(d.ModuleCode)).ToArray();
         var moduleCodeList = moduleCodes.ToList();
-        var existingCount = await db.ReturnTemplates
-            .Include(t => t.Module)
-            .CountAsync(
-                t => t.ModuleId != null
-                     && t.Module != null
-                     && moduleCodeList.Contains(t.Module.ModuleCode),
-                ct);
-
-        if (existingCount != 36)
-        {
-            await CleanupRg08MetadataAndTablesAsync();
-        }
 
         var cache = new NoopTemplateMetadataCache();
         var importService = new ModuleImportService(
@@ -381,15 +401,16 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
 
         foreach (var (moduleCode, fileName, expectedTemplates) in Rg08Definitions)
         {
+            var sqlModuleCode = ToSqlTestModuleCode(moduleCode);
             var currentTemplateCount = await db.ReturnTemplates
                 .Include(t => t.Module)
-                .CountAsync(t => t.Module != null && t.Module.ModuleCode == moduleCode, ct);
+                .CountAsync(t => t.Module != null && t.Module.ModuleCode == sqlModuleCode, ct);
 
             if (currentTemplateCount == expectedTemplates)
             {
                 var hasPublished = await db.TemplateVersions
                     .Join(
-                        db.ReturnTemplates.Where(t => t.Module != null && t.Module.ModuleCode == moduleCode),
+                        db.ReturnTemplates.Where(t => t.Module != null && t.Module.ModuleCode == sqlModuleCode),
                         v => v.TemplateId,
                         t => t.Id,
                         (v, _) => v)
@@ -401,14 +422,14 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
                 }
             }
 
-            var definition = await LoadDefinition(fileName);
+            var definition = await LoadDefinition(fileName, applySqlIsolation: true);
             var validation = await importService.ValidateDefinition(definition, ct);
             validation.IsValid.Should().BeTrue(string.Join(" | ", validation.Errors));
 
             var importResult = await importService.ImportModule(definition, "rg08-sql-test", ct);
             importResult.Success.Should().BeTrue(string.Join(" | ", importResult.Errors));
 
-            var publishResult = await importService.PublishModule(moduleCode, "rg08-sql-approver", ct);
+            var publishResult = await importService.PublishModule(sqlModuleCode, "rg08-sql-approver", ct);
             publishResult.Success.Should().BeTrue(string.Join(" | ", publishResult.Errors));
             publishResult.TablesCreated.Should().Be(expectedTemplates);
         }
@@ -582,7 +603,7 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         await using var conn = new SqlConnection(_connectionString);
         await conn.OpenAsync();
 
-        var moduleCodes = Rg08Definitions.Select(d => d.ModuleCode).ToArray();
+        var moduleCodes = Rg08Definitions.Select(d => ToSqlTestModuleCode(d.ModuleCode)).ToArray();
         var dynamicTables = (await conn.QueryAsync<string>(
             """
             SELECT rt.PhysicalTableName
@@ -792,12 +813,24 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         };
     }
 
-    private static async Task<string> LoadDefinition(string fileName)
+    private static async Task<string> LoadDefinition(string fileName, bool applySqlIsolation)
     {
         var root = FindSolutionRoot();
         var path = Path.Combine(root, "src", "FC.Engine.Migrator", "SeedData", "ModuleDefinitions", fileName);
         File.Exists(path).Should().BeTrue($"Expected RG-08 definition file at {path}");
-        return await File.ReadAllTextAsync(path);
+        var raw = await File.ReadAllTextAsync(path);
+        if (!applySqlIsolation)
+        {
+            return raw;
+        }
+
+        var definition = JsonSerializer.Deserialize<ModuleDefinition>(raw, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+        definition.Should().NotBeNull();
+        ApplySqlIsolation(definition!);
+        return JsonSerializer.Serialize(definition);
     }
 
     private static string FindSolutionRoot()
@@ -831,6 +864,79 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         }
 
         return normalized;
+    }
+
+    private static void ApplySqlIsolation(ModuleDefinition definition)
+    {
+        var templateCodeMap = definition.Templates
+            .Select(t => t.ReturnCode)
+            .Where(code => !string.IsNullOrWhiteSpace(code))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(code => code, ToSqlTestReturnCode, StringComparer.OrdinalIgnoreCase);
+
+        definition.ModuleCode = ToSqlTestModuleCode(definition.ModuleCode);
+
+        foreach (var template in definition.Templates)
+        {
+            if (templateCodeMap.TryGetValue(template.ReturnCode, out var mappedTemplateCode))
+            {
+                template.ReturnCode = mappedTemplateCode;
+            }
+
+            foreach (var rule in template.CrossSheetRules)
+            {
+                if (templateCodeMap.TryGetValue(rule.SourceTemplate, out var mappedSource))
+                {
+                    rule.SourceTemplate = mappedSource;
+                }
+
+                if (templateCodeMap.TryGetValue(rule.TargetTemplate, out var mappedTarget))
+                {
+                    rule.TargetTemplate = mappedTarget;
+                }
+            }
+        }
+
+        foreach (var flow in definition.InterModuleDataFlows)
+        {
+            flow.SourceTemplate = ToSqlTestReturnCode(flow.SourceTemplate);
+            flow.TargetTemplate = ToSqlTestReturnCode(flow.TargetTemplate);
+            flow.TargetModule = ToSqlTestModuleCode(flow.TargetModule);
+        }
+    }
+
+    private static string ToSqlTestModuleCode(string moduleCode)
+    {
+        if (string.IsNullOrWhiteSpace(moduleCode))
+        {
+            return moduleCode;
+        }
+
+        if (!SqlIsolatedModules.Contains(moduleCode))
+        {
+            return moduleCode;
+        }
+
+        return moduleCode.EndsWith("_Z", StringComparison.OrdinalIgnoreCase)
+            ? moduleCode
+            : $"{moduleCode}_Z";
+    }
+
+    private static string ToSqlTestReturnCode(string returnCode)
+    {
+        if (string.IsNullOrWhiteSpace(returnCode))
+        {
+            return returnCode;
+        }
+
+        if (returnCode.EndsWith("Z", StringComparison.OrdinalIgnoreCase))
+        {
+            return returnCode;
+        }
+
+        return returnCode.Length >= 20
+            ? $"{returnCode[..19]}Z"
+            : $"{returnCode}Z";
     }
 
     private sealed class MutableTenantContext : ITenantContext

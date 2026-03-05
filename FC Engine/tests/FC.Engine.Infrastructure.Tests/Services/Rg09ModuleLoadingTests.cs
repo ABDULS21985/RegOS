@@ -31,7 +31,7 @@ public class Rg09ModuleLoadingTests
         import.Success.Should().BeTrue(string.Join(" | ", import.Errors));
         import.TemplatesCreated.Should().Be(15);
 
-        (await db.InterModuleDataFlows.CountAsync(f => f.SourceModuleId == module.Id)).Should().Be(10);
+        (await db.InterModuleDataFlows.CountAsync(f => f.SourceModuleId == module.Id)).Should().Be(13);
         (await db.IntraSheetFormulas.AnyAsync(f => f.CustomExpression != null && f.CustomExpression.Contains("FUNC:CAR", StringComparison.OrdinalIgnoreCase))).Should().BeTrue();
         (await db.IntraSheetFormulas.AnyAsync(f => f.CustomExpression != null && f.CustomExpression.Contains("FUNC:LCR", StringComparison.OrdinalIgnoreCase))).Should().BeTrue();
         (await db.IntraSheetFormulas.AnyAsync(f => f.CustomExpression != null && f.CustomExpression.Contains("FUNC:NSFR", StringComparison.OrdinalIgnoreCase))).Should().BeTrue();
@@ -165,7 +165,7 @@ public class Rg09ModuleLoadingTests
         (await db.TemplateFields.CountAsync()).Should().BeGreaterOrEqualTo(1100);
         (await db.IntraSheetFormulas.CountAsync()).Should().BeGreaterOrEqualTo(400);
         (await db.CrossSheetRules.CountAsync()).Should().Be(80);
-        (await db.InterModuleDataFlows.CountAsync()).Should().Be(25);
+        (await db.InterModuleDataFlows.CountAsync()).Should().Be(28);
 
         foreach (var code in new[] { "DMB_BASEL3", "NDIC_RETURNS", "PSP_FINTECH", "PMB_CBN" })
         {
