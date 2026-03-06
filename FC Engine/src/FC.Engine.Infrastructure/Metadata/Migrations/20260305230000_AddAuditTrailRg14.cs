@@ -19,7 +19,10 @@ public partial class AddAuditTrailRg14 : Migration
                 ALTER TABLE meta.audit_log ADD PreviousHash NVARCHAR(64) NOT NULL DEFAULT 'GENESIS';
                 ALTER TABLE meta.audit_log ADD SequenceNumber BIGINT NOT NULL DEFAULT 0;
             END;
+        ");
 
+        // Create index in separate batch so SequenceNumber column is visible
+        migrationBuilder.Sql(@"
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_audit_log_TenantId_SequenceNumber' AND object_id = OBJECT_ID('meta.audit_log'))
                 CREATE UNIQUE INDEX IX_audit_log_TenantId_SequenceNumber
                     ON meta.audit_log(TenantId, SequenceNumber)
