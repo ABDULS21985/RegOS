@@ -128,6 +128,7 @@ public static class DependencyInjection
         services.AddScoped<IEntitlementService, EntitlementService>();
         services.AddScoped<ISubscriptionService, SubscriptionService>();
         services.AddScoped<ITenantOnboardingService, TenantOnboardingService>();
+        services.AddScoped<IPartnerManagementService, PartnerManagementService>();
         services.AddScoped<IPermissionService, PermissionService>();
         services.AddScoped<IModuleImportService, ModuleImportService>();
         services.AddScoped<IInterModuleDataFlowEngine, InterModuleDataFlowEngine>();

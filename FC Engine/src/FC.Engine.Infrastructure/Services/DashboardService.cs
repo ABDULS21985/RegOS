@@ -575,6 +575,222 @@ public class DashboardService : IDashboardService
         });
     }
 
+    public Task<PartnerDashboardData> GetPartnerDashboard(Guid partnerTenantId, CancellationToken ct = default)
+    {
+        return GetOrCreateCached($"dashboard:partner:{partnerTenantId}", async () =>
+        {
+            var partnerTenant = await _db.Tenants
+                .AsNoTracking()
+                .FirstOrDefaultAsync(t => t.TenantId == partnerTenantId, ct)
+                ?? throw new InvalidOperationException($"Tenant {partnerTenantId} not found.");
+
+            if (partnerTenant.TenantType != TenantType.WhiteLabelPartner)
+            {
+                throw new InvalidOperationException("Tenant is not a white-label partner.");
+            }
+
+            var subTenants = await _db.Tenants
+                .AsNoTracking()
+                .Where(t => t.ParentTenantId == partnerTenantId)
+                .ToListAsync(ct);
+
+            if (subTenants.Count == 0)
+            {
+                return new PartnerDashboardData
+                {
+                    Portfolio = new PartnerPortfolioMetrics(),
+                    Revenue = new PartnerRevenueMetrics
+                    {
+                        BillingModel = PartnerBillingModel.Direct.ToString()
+                    },
+                    FilingHealth = new PartnerFilingHealth()
+                };
+            }
+
+            var subTenantIds = subTenants.Select(t => t.TenantId).ToList();
+            var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+            var thirtyDaysAgo = DateTime.UtcNow.Date.AddDays(-30);
+            var sixtyDaysAgo = DateTime.UtcNow.Date.AddDays(-60);
+            var renewalThreshold = DateTime.UtcNow.Date.AddDays(14);
+
+            var subscriptions = await _db.Subscriptions
+                .AsNoTracking()
+                .Include(s => s.Plan)
+                .Where(s => subTenantIds.Contains(s.TenantId)
+                            && s.Status != SubscriptionStatus.Cancelled
+                            && s.Status != SubscriptionStatus.Expired)
+                .OrderByDescending(s => s.Id)
+                .ToListAsync(ct);
+
+            var latestSubscriptionByTenant = subscriptions
+                .GroupBy(s => s.TenantId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var planDistribution = latestSubscriptionByTenant.Values
+                .GroupBy(s => s.Plan?.PlanName ?? "Unknown")
+                .Select(g => new RevenueBreakdownItem
+                {
+                    Label = g.Key,
+                    Amount = g.Count()
+                })
+                .OrderByDescending(x => x.Amount)
+                .ToList();
+
+            var moduleUsageRows = await _db.SubscriptionModules
+                .AsNoTracking()
+                .Where(sm => sm.IsActive
+                             && sm.Subscription != null
+                             && subTenantIds.Contains(sm.Subscription.TenantId))
+                .GroupBy(sm => sm.ModuleId)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToListAsync(ct);
+
+            var moduleMap = await _db.Modules
+                .AsNoTracking()
+                .Where(m => moduleUsageRows.Select(x => x.Key).Contains(m.Id))
+                .ToDictionaryAsync(m => m.Id, ct);
+
+            var moduleUsageDistribution = moduleUsageRows
+                .Select(x => new RevenueBreakdownItem
+                {
+                    Label = moduleMap.TryGetValue(x.Key, out var module) ? module.ModuleCode : $"Module-{x.Key}",
+                    Amount = x.Count
+                })
+                .OrderByDescending(x => x.Amount)
+                .ToList();
+
+            var activeUsers = await _db.InstitutionUsers
+                .AsNoTracking()
+                .CountAsync(u => subTenantIds.Contains(u.TenantId) && u.IsActive, ct);
+
+            var activeInstitutions = await _db.Institutions
+                .AsNoTracking()
+                .CountAsync(i => subTenantIds.Contains(i.TenantId) && i.IsActive, ct);
+
+            var submittedReturnsThisMonth = await _db.Submissions
+                .AsNoTracking()
+                .CountAsync(s => subTenantIds.Contains(s.TenantId)
+                                 && s.SubmittedAt >= monthStart
+                                 && s.Status != SubmissionStatus.Draft, ct);
+
+            var partnerConfig = await _db.PartnerConfigs
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.TenantId == partnerTenantId, ct);
+
+            var revenueRows = await _db.PartnerRevenueRecords
+                .AsNoTracking()
+                .Where(r => r.PartnerTenantId == partnerTenantId && r.CreatedAt >= monthStart)
+                .ToListAsync(ct);
+
+            var recentUsage = await _db.Submissions
+                .AsNoTracking()
+                .Where(s => subTenantIds.Contains(s.TenantId)
+                            && s.SubmittedAt >= thirtyDaysAgo
+                            && s.Status != SubmissionStatus.Draft)
+                .GroupBy(s => s.TenantId)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+
+            var previousUsage = await _db.Submissions
+                .AsNoTracking()
+                .Where(s => subTenantIds.Contains(s.TenantId)
+                            && s.SubmittedAt >= sixtyDaysAgo
+                            && s.SubmittedAt < thirtyDaysAgo
+                            && s.Status != SubmissionStatus.Draft)
+                .GroupBy(s => s.TenantId)
+                .Select(g => new { g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.Key, x => x.Count, ct);
+
+            var churnRisk = new List<PartnerChurnRiskItem>();
+            foreach (var tenant in subTenants)
+            {
+                var recent = recentUsage.GetValueOrDefault(tenant.TenantId);
+                var previous = previousUsage.GetValueOrDefault(tenant.TenantId);
+                decimal usageChangePercent;
+                if (previous <= 0)
+                {
+                    usageChangePercent = recent > 0 ? 100m : 0m;
+                }
+                else
+                {
+                    usageChangePercent = decimal.Round(((recent - previous) * 100m) / previous, 2);
+                }
+
+                latestSubscriptionByTenant.TryGetValue(tenant.TenantId, out var sub);
+                var renewalDate = sub?.CurrentPeriodEnd;
+
+                var renewalSoon = renewalDate.HasValue && renewalDate.Value.Date <= renewalThreshold;
+                var declining = usageChangePercent <= -20m;
+                if (renewalSoon || declining)
+                {
+                    churnRisk.Add(new PartnerChurnRiskItem
+                    {
+                        TenantId = tenant.TenantId,
+                        TenantName = tenant.TenantName,
+                        UsageChangePercent = usageChangePercent,
+                        RenewalDate = renewalDate
+                    });
+                }
+            }
+
+            var openPeriods = await _db.ReturnPeriods
+                .AsNoTracking()
+                .Where(rp => subTenantIds.Contains(rp.TenantId))
+                .Where(rp => rp.DeadlineDate >= DateTime.UtcNow.Date.AddDays(-90))
+                .ToListAsync(ct);
+
+            var health = new PartnerFilingHealth();
+            foreach (var period in openPeriods)
+            {
+                if (string.Equals(period.Status, "Overdue", StringComparison.OrdinalIgnoreCase))
+                {
+                    health.Red++;
+                }
+                else if (string.Equals(period.Status, "DueSoon", StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(period.Status, "Open", StringComparison.OrdinalIgnoreCase))
+                {
+                    health.Amber++;
+                }
+                else
+                {
+                    health.Green++;
+                }
+            }
+
+            return new PartnerDashboardData
+            {
+                Portfolio = new PartnerPortfolioMetrics
+                {
+                    TotalSubTenants = subTenants.Count,
+                    ActiveSubTenants = subTenants.Count(t => t.Status == TenantStatus.Active),
+                    PlanDistribution = planDistribution,
+                    ModuleUsageDistribution = moduleUsageDistribution
+                },
+                Revenue = new PartnerRevenueMetrics
+                {
+                    BillingModel = partnerConfig?.BillingModel.ToString() ?? PartnerBillingModel.Direct.ToString(),
+                    GrossBilled = decimal.Round(revenueRows.Sum(r => r.GrossAmount), 2),
+                    CommissionsEarned = decimal.Round(revenueRows.Sum(r => r.CommissionAmount), 2),
+                    WholesaleDiscountAmount = decimal.Round(revenueRows.Sum(r => r.WholesaleDiscountAmount), 2),
+                    NetPlatformRevenue = decimal.Round(revenueRows.Sum(r => r.NetAmount), 2)
+                },
+                Usage = new PartnerUsageAggregate
+                {
+                    ActiveUsers = activeUsers,
+                    ActiveInstitutions = activeInstitutions,
+                    SubmittedReturnsThisMonth = submittedReturnsThisMonth
+                },
+                ChurnRisk = churnRisk
+                    .OrderBy(x => x.UsageChangePercent)
+                    .ThenBy(x => x.RenewalDate)
+                    .Take(20)
+                    .ToList(),
+                FilingHealth = health,
+                GeneratedAt = DateTime.UtcNow
+            };
+        });
+    }
+
     public Task<PlatformDashboardData> GetPlatformDashboard(CancellationToken ct = default)
     {
         return GetOrCreateCached("dashboard:platform", async () =>

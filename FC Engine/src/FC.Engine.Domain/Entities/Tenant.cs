@@ -6,6 +6,7 @@ namespace FC.Engine.Domain.Entities;
 public class Tenant
 {
     public Guid TenantId { get; private set; }
+    public Guid? ParentTenantId { get; private set; }
     public string TenantName { get; private set; } = string.Empty;
     public string TenantSlug { get; private set; } = string.Empty;
     public TenantType TenantType { get; private set; }
@@ -39,6 +40,9 @@ public class Tenant
     public List<TenantLicenceType> TenantLicenceTypes { get; set; } = new();
     public List<Subscription> Subscriptions { get; set; } = new();
     public TenantSsoConfig? SsoConfig { get; set; }
+    public Tenant? ParentTenant { get; set; }
+    public List<Tenant> ChildTenants { get; set; } = new();
+    public PartnerConfig? PartnerConfig { get; set; }
 
     // Required by EF Core
     private Tenant() { }
@@ -107,6 +111,12 @@ public class Tenant
         ContactEmail = contactEmail;
         ContactPhone = contactPhone;
         Address = address;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetParentTenant(Guid? parentTenantId)
+    {
+        ParentTenantId = parentTenantId;
         UpdatedAt = DateTime.UtcNow;
     }
 

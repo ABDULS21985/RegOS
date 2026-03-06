@@ -1,0 +1,276 @@
+@page "/reports/saved"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using System.Security.Claims
+@using System.Text.Json
+@using FC.Engine.Domain.ValueObjects
+@inject FC.Engine.Portal.Services.ReportBuilderService ReportSvc
+@inject FC.Engine.Portal.Services.ToastService Toast
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<PageTitle>Saved Reports — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-report-filter-bar">
+        <h2 class="portal-report-filter-title">Saved Reports</h2>
+        <div class="portal-report-filter-row">
+            <input type="text" class="portal-form-input" placeholder="Search reports..."
+                   @bind="searchTerm" @bind:event="oninput" style="max-width:280px;" />
+            <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick='() => Nav.NavigateTo("/reports/builder")'>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                New Report
+            </button>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="portal-card" style="padding: 2rem;">
+            <div class="portal-skeleton portal-skeleton-block" style="height: 300px;"></div>
+        </div>
+    }
+    else if (filteredReports.Count == 0)
+    {
+        <div class="portal-card" style="padding: 2rem; text-align: center;">
+            <p style="color: var(--cbn-gray-500); margin-bottom: 1rem;">No saved reports found.</p>
+            <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick='() => Nav.NavigateTo("/reports/builder")'>
+                Create Your First Report
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="portal-card">
+            <table class="portal-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Shared</th>
+                        <th>Scheduled</th>
+                        <th>Last Run</th>
+                        <th>Created</th>
+                        <th style="width:180px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var report in filteredReports)
+                    {
+                        <tr>
+                            <td><strong>@report.Name</strong></td>
+                            <td style="color: var(--cbn-gray-500); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                @(report.Description ?? "—")
+                            </td>
+                            <td>
+                                @if (report.IsShared)
+                                {
+                                    <span class="portal-badge portal-badge-info">Shared</span>
+                                }
+                                else
+                                {
+                                    <span style="color: var(--cbn-gray-400);">Private</span>
+                                }
+                            </td>
+                            <td>
+                                @if (report.IsScheduleActive)
+                                {
+                                    <span class="portal-badge portal-badge-success">Active</span>
+                                }
+                                else
+                                {
+                                    <span style="color: var(--cbn-gray-400);">—</span>
+                                }
+                            </td>
+                            <td style="color: var(--cbn-gray-500); font-size: 0.85rem;">
+                                @(report.LastRunAt?.ToString("dd MMM yyyy HH:mm") ?? "Never")
+                            </td>
+                            <td style="color: var(--cbn-gray-500); font-size: 0.85rem;">
+                                @report.CreatedAt.ToString("dd MMM yyyy")
+                            </td>
+                            <td>
+                                <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+                                    <button class="portal-btn portal-btn-primary portal-btn-xs"
+                                            @onclick="() => RunReport(report)">
+                                        Run
+                                    </button>
+                                    <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                            @onclick="() => EditReport(report)">
+                                        Edit
+                                    </button>
+                                    <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                            @onclick="() => OpenScheduleDialog(report)">
+                                        Schedule
+                                    </button>
+                                    <button class="portal-btn portal-btn-danger portal-btn-xs"
+                                            @onclick="() => DeleteReport(report)">
+                                        Delete
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* Schedule Dialog *@
+    @if (showScheduleDialog)
+    {
+        <div class="portal-modal-backdrop" @onclick="CloseScheduleDialog">
+            <div class="portal-modal" @onclick:stopPropagation="true" style="max-width:480px;">
+                <div class="portal-modal-header">
+                    <h3 class="portal-modal-title">Schedule Report: @scheduleReport?.Name</h3>
+                    <button class="portal-modal-close" @onclick="CloseScheduleDialog">&times;</button>
+                </div>
+                <div class="portal-modal-body">
+                    <div class="portal-form-group">
+                        <label class="portal-form-label">Frequency</label>
+                        <select class="portal-form-select" @bind="scheduleFrequency">
+                            <option value="daily">Daily (8:00 AM UTC)</option>
+                            <option value="weekly">Weekly (Monday 8:00 AM UTC)</option>
+                            <option value="monthly">Monthly (1st, 8:00 AM UTC)</option>
+                        </select>
+                    </div>
+                    <div class="portal-form-group">
+                        <label class="portal-form-label">Export Format</label>
+                        <select class="portal-form-select" @bind="scheduleFormat">
+                            <option value="Excel">Excel</option>
+                            <option value="PDF">PDF</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="portal-modal-footer">
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="CloseScheduleDialog">Cancel</button>
+                    <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="SaveSchedule" disabled="@isSavingSchedule">
+                        @if (isSavingSchedule)
+                        {
+                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                        }
+                        Save Schedule
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private Guid tenantId;
+    private int institutionId;
+    private bool isLoading = true;
+    private string searchTerm = "";
+    private List<FC.Engine.Domain.Entities.SavedReport> reports = new();
+
+    // Schedule dialog
+    private bool showScheduleDialog;
+    private bool isSavingSchedule;
+    private FC.Engine.Domain.Entities.SavedReport? scheduleReport;
+    private string scheduleFrequency = "daily";
+    private string scheduleFormat = "Excel";
+
+    private List<FC.Engine.Domain.Entities.SavedReport> filteredReports =>
+        string.IsNullOrWhiteSpace(searchTerm)
+            ? reports
+            : reports.Where(r =>
+                r.Name.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (r.Description?.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
+              .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState!;
+        tenantId = Guid.Parse(state.User.FindFirst("TenantId")!.Value);
+        institutionId = int.Parse(state.User.FindFirst("InstitutionId")!.Value);
+
+        await LoadReports();
+    }
+
+    private async Task LoadReports()
+    {
+        isLoading = true;
+        try
+        {
+            reports = (await ReportSvc.GetSavedReports(tenantId, institutionId)).ToList();
+        }
+        catch
+        {
+            Toast.Error("Failed to load saved reports.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void RunReport(FC.Engine.Domain.Entities.SavedReport report)
+    {
+        Nav.NavigateTo($"/reports/builder/{report.Id}");
+    }
+
+    private void EditReport(FC.Engine.Domain.Entities.SavedReport report)
+    {
+        Nav.NavigateTo($"/reports/builder/{report.Id}");
+    }
+
+    private async Task DeleteReport(FC.Engine.Domain.Entities.SavedReport report)
+    {
+        try
+        {
+            await ReportSvc.DeleteReport(report.Id);
+            reports.Remove(report);
+            Toast.Success("Report deleted.");
+        }
+        catch
+        {
+            Toast.Error("Failed to delete report.");
+        }
+    }
+
+    private void OpenScheduleDialog(FC.Engine.Domain.Entities.SavedReport report)
+    {
+        scheduleReport = report;
+        scheduleFrequency = "daily";
+        scheduleFormat = report.ScheduleFormat ?? "Excel";
+        showScheduleDialog = true;
+    }
+
+    private void CloseScheduleDialog()
+    {
+        showScheduleDialog = false;
+        scheduleReport = null;
+    }
+
+    private async Task SaveSchedule()
+    {
+        if (scheduleReport is null) return;
+        isSavingSchedule = true;
+        try
+        {
+            var cron = scheduleFrequency switch
+            {
+                "weekly" => "0 8 * * 1",
+                "monthly" => "0 8 1 * *",
+                _ => "0 8 * * *"
+            };
+
+            await ReportSvc.SetSchedule(scheduleReport.Id, cron, scheduleFormat, new List<int>());
+            scheduleReport.IsScheduleActive = true;
+            scheduleReport.ScheduleCron = cron;
+            scheduleReport.ScheduleFormat = scheduleFormat;
+            Toast.Success("Schedule saved.");
+            CloseScheduleDialog();
+        }
+        catch
+        {
+            Toast.Error("Failed to save schedule.");
+        }
+        finally
+        {
+            isSavingSchedule = false;
+        }
+    }
+}

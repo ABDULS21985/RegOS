@@ -54,9 +54,9 @@ public partial class AddFilingCalendarRg12 : Migration
         // STEP 2: Add DeadlineOffsetDays to modules
         // ═══════════════════════════════════════════════════════════
         migrationBuilder.Sql(@"
-            IF EXISTS (SELECT 1 FROM sys.tables WHERE name = 'modules' AND schema_id = SCHEMA_ID('meta'))
+            IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.modules') AND name = 'DeadlineOffsetDays')
             BEGIN
-                ALTER TABLE meta.modules ADD DeadlineOffsetDays INT NULL;
+                ALTER TABLE dbo.modules ADD DeadlineOffsetDays INT NULL;
             END
         ");
 
@@ -161,9 +161,9 @@ public partial class AddFilingCalendarRg12 : Migration
         // REVERSE STEP 2: Remove DeadlineOffsetDays from modules
         // ═══════════════════════════════════════════════════════════
         migrationBuilder.Sql(@"
-            IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'meta.modules') AND name = 'DeadlineOffsetDays')
+            IF EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.modules') AND name = 'DeadlineOffsetDays')
             BEGIN
-                ALTER TABLE meta.modules DROP COLUMN DeadlineOffsetDays;
+                ALTER TABLE dbo.modules DROP COLUMN DeadlineOffsetDays;
             END
         ");
 

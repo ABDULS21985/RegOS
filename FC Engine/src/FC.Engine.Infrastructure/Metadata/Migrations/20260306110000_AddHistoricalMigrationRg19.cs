@@ -18,7 +18,7 @@ public partial class AddHistoricalMigrationRg19 : Migration
                     Id                INT               IDENTITY(1,1) PRIMARY KEY,
                     TenantId          UNIQUEIDENTIFIER  NOT NULL REFERENCES dbo.tenants(TenantId),
                     InstitutionId     INT               NOT NULL,
-                    TemplateId        INT               NOT NULL REFERENCES dbo.return_templates(Id),
+                    TemplateId        INT               NOT NULL REFERENCES meta.return_templates(Id),
                     SourceFormat      NVARCHAR(20)      NOT NULL,
                     SourceIdentifier  NVARCHAR(200)     NULL,
                     MappingConfig     NVARCHAR(MAX)     NOT NULL,
@@ -36,7 +36,7 @@ public partial class AddHistoricalMigrationRg19 : Migration
                 CREATE TABLE dbo.import_jobs (
                     Id                INT               IDENTITY(1,1) PRIMARY KEY,
                     TenantId          UNIQUEIDENTIFIER  NOT NULL REFERENCES dbo.tenants(TenantId),
-                    TemplateId        INT               NOT NULL REFERENCES dbo.return_templates(Id),
+                    TemplateId        INT               NOT NULL REFERENCES meta.return_templates(Id),
                     InstitutionId     INT               NOT NULL,
                     ReturnPeriodId    INT               NULL REFERENCES dbo.return_periods(Id),
                     SourceFileName    NVARCHAR(255)     NOT NULL,

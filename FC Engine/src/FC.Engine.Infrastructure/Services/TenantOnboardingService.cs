@@ -86,6 +86,25 @@ public class TenantOnboardingService : ITenantOnboardingService
                 return result;
             }
 
+            if (request.ParentTenantId.HasValue)
+            {
+                var parentTenant = await _db.Tenants
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.TenantId == request.ParentTenantId.Value, ct);
+
+                if (parentTenant is null)
+                {
+                    result.Errors.Add($"Parent tenant '{request.ParentTenantId}' not found.");
+                    return result;
+                }
+
+                if (parentTenant.TenantType != TenantType.WhiteLabelPartner)
+                {
+                    result.Errors.Add("Parent tenant must be a white-label partner.");
+                    return result;
+                }
+            }
+
             // ── Step 2: Create Tenant ──
             var tenant = Tenant.Create(request.TenantName, slug, request.TenantType, request.ContactEmail);
             tenant.ContactPhone = request.ContactPhone;
@@ -94,6 +113,7 @@ public class TenantOnboardingService : ITenantOnboardingService
             tenant.TaxId = request.TaxId;
             tenant.MaxInstitutions = selectedPlan.MaxEntities;
             tenant.MaxUsersPerEntity = selectedPlan.MaxUsersPerEntity;
+            tenant.SetParentTenant(request.ParentTenantId);
 
             _db.Tenants.Add(tenant);
             await _db.SaveChangesAsync(ct);

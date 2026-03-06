@@ -24,15 +24,18 @@ public class TenantBrandingService : ITenantBrandingService
     private readonly MetadataDbContext _db;
     private readonly IMemoryCache _cache;
     private readonly IFileStorageService _storage;
+    private readonly ISubscriptionService? _subscriptionService;
 
     public TenantBrandingService(
         MetadataDbContext db,
         IMemoryCache cache,
-        IFileStorageService storage)
+        IFileStorageService storage,
+        ISubscriptionService? subscriptionService = null)
     {
         _db = db;
         _cache = cache;
         _storage = storage;
+        _subscriptionService = subscriptionService;
     }
 
     public async Task<BrandingConfig> GetBrandingConfig(Guid tenantId, CancellationToken ct = default)
@@ -48,6 +51,24 @@ public class TenantBrandingService : ITenantBrandingService
             .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct);
 
         var config = tenant?.GetBrandingConfig() ?? BrandingConfig.WithDefaults();
+        if (tenant is not null
+            && tenant.ParentTenantId.HasValue
+            && string.IsNullOrWhiteSpace(tenant.BrandingConfig))
+        {
+            var hasCustomBranding = _subscriptionService is not null
+                && await _subscriptionService.HasFeature(tenantId, "custom_branding", ct);
+            if (!hasCustomBranding)
+            {
+                var parentTenant = await _db.Tenants
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(t => t.TenantId == tenant.ParentTenantId.Value, ct);
+
+                if (parentTenant is not null)
+                {
+                    config = parentTenant.GetBrandingConfig();
+                }
+            }
+        }
 
         _cache.Set(key, config, new MemoryCacheEntryOptions
         {
@@ -62,6 +83,16 @@ public class TenantBrandingService : ITenantBrandingService
         var tenant = await _db.Tenants
             .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Tenant {tenantId} not found");
+
+        if (tenant.ParentTenantId.HasValue)
+        {
+            var hasCustomBranding = _subscriptionService is not null
+                && await _subscriptionService.HasFeature(tenantId, "custom_branding", ct);
+            if (!hasCustomBranding)
+            {
+                throw new InvalidOperationException("Custom branding is managed by your white-label partner for this plan.");
+            }
+        }
 
         ValidateConfig(config);
 

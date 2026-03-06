@@ -1,0 +1,150 @@
+@page "/reports/board-pack"
+@attribute [Authorize(Policy = "InstitutionAdmin")]
+@using System.Security.Claims
+@inject FC.Engine.Portal.Services.ReportBuilderService ReportSvc
+@inject FC.Engine.Portal.Services.ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>Board Pack — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-report-filter-bar">
+        <h2 class="portal-report-filter-title">Board Pack Generator</h2>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="portal-card" style="padding: 2rem;">
+            <div class="portal-skeleton portal-skeleton-block" style="height: 200px;"></div>
+        </div>
+    }
+    else
+    {
+        <div class="portal-card" style="padding: 1.5rem;">
+            <div class="portal-form-group">
+                <label class="portal-form-label">Board Pack Title</label>
+                <input type="text" class="portal-form-input" @bind="packTitle"
+                       placeholder="e.g. Q4 2025 Regulatory Board Pack" style="max-width:480px;" />
+            </div>
+
+            <div class="portal-form-group" style="margin-top:1rem;">
+                <label class="portal-form-label">Select Reports to Include</label>
+                <p style="color: var(--cbn-gray-500); font-size: 0.85rem; margin-bottom: 0.75rem;">
+                    Choose the saved reports to combine into a single branded PDF board pack.
+                </p>
+
+                @if (reports.Count == 0)
+                {
+                    <p style="color: var(--cbn-gray-400);">No saved reports available. Create reports in the Report Builder first.</p>
+                }
+                else
+                {
+                    <div class="rb-boardpack-list">
+                        @foreach (var report in reports)
+                        {
+                            var isSelected = selectedReportIds.Contains(report.Id);
+                            <label class="rb-boardpack-item @(isSelected ? "rb-boardpack-item-selected" : "")">
+                                <input type="checkbox" checked="@isSelected"
+                                       @onchange="() => ToggleReport(report.Id)" />
+                                <div>
+                                    <strong>@report.Name</strong>
+                                    @if (!string.IsNullOrWhiteSpace(report.Description))
+                                    {
+                                        <span style="color: var(--cbn-gray-500); font-size: 0.85rem; display:block;">
+                                            @report.Description
+                                        </span>
+                                    }
+                                </div>
+                            </label>
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (selectedReportIds.Count > 0)
+            {
+                <div style="margin-top:1.5rem; display:flex; gap:0.75rem; align-items:center;">
+                    <button class="portal-btn portal-btn-primary" @onclick="GenerateBoardPack" disabled="@isGenerating">
+                        @if (isGenerating)
+                        {
+                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                        }
+                        Generate Board Pack (@selectedReportIds.Count report@(selectedReportIds.Count != 1 ? "s" : ""))
+                    </button>
+                    <span style="color: var(--cbn-gray-500); font-size: 0.85rem;">PDF download will start automatically.</span>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private Guid tenantId;
+    private int institutionId;
+    private bool isLoading = true;
+    private bool isGenerating;
+    private string packTitle = "";
+    private List<FC.Engine.Domain.Entities.SavedReport> reports = new();
+    private HashSet<int> selectedReportIds = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState!;
+        tenantId = Guid.Parse(state.User.FindFirst("TenantId")!.Value);
+        institutionId = int.Parse(state.User.FindFirst("InstitutionId")!.Value);
+
+        try
+        {
+            reports = (await ReportSvc.GetSavedReports(tenantId, institutionId)).ToList();
+        }
+        catch
+        {
+            Toast.Error("Failed to load saved reports.");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private void ToggleReport(int reportId)
+    {
+        if (!selectedReportIds.Remove(reportId))
+            selectedReportIds.Add(reportId);
+    }
+
+    private async Task GenerateBoardPack()
+    {
+        if (selectedReportIds.Count == 0) return;
+        if (string.IsNullOrWhiteSpace(packTitle))
+        {
+            Toast.Error("Please enter a title for the board pack.");
+            return;
+        }
+
+        isGenerating = true;
+        try
+        {
+            var pdfBytes = await ReportSvc.GenerateBoardPack(
+                tenantId, institutionId,
+                selectedReportIds.ToList(),
+                packTitle);
+
+            var base64 = Convert.ToBase64String(pdfBytes);
+            var fileName = $"BoardPack-{DateTime.UtcNow:yyyyMMdd-HHmm}.pdf";
+            await JS.InvokeVoidAsync("portalDownloadFile", fileName, "application/pdf", base64);
+            Toast.Success("Board pack generated successfully.");
+        }
+        catch
+        {
+            Toast.Error("Failed to generate board pack.");
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+}

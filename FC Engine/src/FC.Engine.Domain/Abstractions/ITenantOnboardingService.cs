@@ -10,6 +10,7 @@ public class TenantOnboardingRequest
     public string TenantName { get; set; } = string.Empty;
     public string? TenantSlug { get; set; }
     public Enums.TenantType TenantType { get; set; }
+    public Guid? ParentTenantId { get; set; }
     public string ContactEmail { get; set; } = string.Empty;
     public string? ContactPhone { get; set; }
     public string? Address { get; set; }

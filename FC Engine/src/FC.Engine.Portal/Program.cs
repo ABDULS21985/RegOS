@@ -47,6 +47,8 @@ builder.Services.AddScoped<FC.Engine.Portal.Services.NotificationService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.CrossSheetDashboardService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.ExportService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.DryRunValidationService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.ReportBuilderService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.PartnerPortalService>();
 
 // Caching
 builder.Services.AddMemoryCache();

@@ -1,0 +1,119 @@
+@page "/platform/partners/onboard"
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@attribute [Authorize(Roles = "PlatformAdmin")]
+@inject IPartnerManagementService PartnerService
+
+<PageTitle>Partner Onboarding</PageTitle>
+
+<header class="dash-header" role="banner">
+    <div class="dash-header-text">
+        <h1>White-Label Partner Onboarding</h1>
+        <p>Registration, agreement capture, tier assignment, and activation.</p>
+    </div>
+</header>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="portal-alert portal-alert-success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
+
+<div class="portal-card">
+    <div class="portal-card-body">
+        <div class="portal-grid portal-grid-2">
+            <div class="portal-form-row"><label>Partner Name</label><input class="portal-input" @bind="_request.TenantName" /></div>
+            <div class="portal-form-row"><label>Tenant Slug</label><input class="portal-input" @bind="_request.TenantSlug" /></div>
+            <div class="portal-form-row"><label>Contact Email</label><input class="portal-input" @bind="_request.ContactEmail" /></div>
+            <div class="portal-form-row"><label>Contact Phone</label><input class="portal-input" @bind="_request.ContactPhone" /></div>
+            <div class="portal-form-row"><label>RC Number</label><input class="portal-input" @bind="_request.RcNumber" /></div>
+            <div class="portal-form-row"><label>Tax ID</label><input class="portal-input" @bind="_request.TaxId" /></div>
+            <div class="portal-form-row"><label>Subscription Plan</label><input class="portal-input" @bind="_request.SubscriptionPlanCode" /></div>
+            <div class="portal-form-row">
+                <label>Partner Tier</label>
+                <select class="portal-input" @bind="_request.PartnerTier">
+                    @foreach (var tier in Enum.GetValues<PartnerTier>())
+                    {
+                        <option value="@tier">@tier</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-row">
+                <label>Billing Model</label>
+                <select class="portal-input" @bind="_request.BillingModel">
+                    @foreach (var model in Enum.GetValues<PartnerBillingModel>())
+                    {
+                        <option value="@model">@model</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-row"><label>Commission Rate</label><input class="portal-input" type="number" step="0.0001" @bind="_request.CommissionRate" /></div>
+            <div class="portal-form-row"><label>Wholesale Discount</label><input class="portal-input" type="number" step="0.0001" @bind="_request.WholesaleDiscount" /></div>
+            <div class="portal-form-row"><label>Max Sub-Tenants</label><input class="portal-input" type="number" min="1" @bind="_request.MaxSubTenants" /></div>
+            <div class="portal-form-row"><label>Agreement Version</label><input class="portal-input" @bind="_request.AgreementVersion" /></div>
+            <div class="portal-form-row"><label>Admin Email</label><input class="portal-input" @bind="_request.AdminEmail" /></div>
+            <div class="portal-form-row"><label>Admin Full Name</label><input class="portal-input" @bind="_request.AdminFullName" /></div>
+        </div>
+
+        <button class="portal-btn portal-btn-primary" @onclick="OnboardAsync" disabled="@_busy">Onboard Partner</button>
+    </div>
+</div>
+
+@code {
+    private bool _busy;
+    private string? _message;
+    private string? _error;
+
+    private PartnerOnboardingRequest _request = new()
+    {
+        SubscriptionPlanCode = "ENTERPRISE",
+        PartnerTier = PartnerTier.Silver,
+        BillingModel = PartnerBillingModel.Direct,
+        MaxSubTenants = 10,
+        AgreementVersion = "v1",
+        AgreementSignedAt = DateTime.UtcNow
+    };
+
+    private async Task OnboardAsync()
+    {
+        _busy = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            _request.AgreementSignedAt ??= DateTime.UtcNow;
+            var result = await PartnerService.OnboardPartner(_request);
+            if (!result.Success)
+            {
+                _error = result.Errors.Count > 0
+                    ? string.Join(" ", result.Errors)
+                    : "Partner onboarding failed.";
+                return;
+            }
+
+            _message = $"Partner onboarded successfully. TenantId: {result.TenantId}. Temporary admin password: {result.AdminTemporaryPassword}";
+            _request = new PartnerOnboardingRequest
+            {
+                SubscriptionPlanCode = "ENTERPRISE",
+                PartnerTier = PartnerTier.Silver,
+                BillingModel = PartnerBillingModel.Direct,
+                MaxSubTenants = 10,
+                AgreementVersion = "v1",
+                AgreementSignedAt = DateTime.UtcNow
+            };
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

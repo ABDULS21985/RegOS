@@ -215,3 +215,51 @@ public class TopTenantUsageItem
     public int ReturnsSubmitted { get; set; }
 }
 
+public class PartnerDashboardData
+{
+    public PartnerPortfolioMetrics Portfolio { get; set; } = new();
+    public PartnerRevenueMetrics Revenue { get; set; } = new();
+    public PartnerUsageAggregate Usage { get; set; } = new();
+    public List<PartnerChurnRiskItem> ChurnRisk { get; set; } = new();
+    public PartnerFilingHealth FilingHealth { get; set; } = new();
+    public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class PartnerPortfolioMetrics
+{
+    public int TotalSubTenants { get; set; }
+    public int ActiveSubTenants { get; set; }
+    public List<RevenueBreakdownItem> PlanDistribution { get; set; } = new();
+    public List<RevenueBreakdownItem> ModuleUsageDistribution { get; set; } = new();
+}
+
+public class PartnerRevenueMetrics
+{
+    public string BillingModel { get; set; } = string.Empty;
+    public decimal GrossBilled { get; set; }
+    public decimal CommissionsEarned { get; set; }
+    public decimal WholesaleDiscountAmount { get; set; }
+    public decimal NetPlatformRevenue { get; set; }
+}
+
+public class PartnerUsageAggregate
+{
+    public int ActiveUsers { get; set; }
+    public int ActiveInstitutions { get; set; }
+    public int SubmittedReturnsThisMonth { get; set; }
+}
+
+public class PartnerChurnRiskItem
+{
+    public Guid TenantId { get; set; }
+    public string TenantName { get; set; } = string.Empty;
+    public decimal UsageChangePercent { get; set; }
+    public DateTime? RenewalDate { get; set; }
+}
+
+public class PartnerFilingHealth
+{
+    public int Green { get; set; }
+    public int Amber { get; set; }
+    public int Red { get; set; }
+}

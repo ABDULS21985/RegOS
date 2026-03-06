@@ -252,6 +252,19 @@ public class SubscriptionService : ISubscriptionService
     {
         var subscription = await GetActiveSubscriptionInternal(tenantId, includeModules: true, ct);
         var plan = subscription.Plan ?? throw new InvalidOperationException("Subscription plan not found");
+        var tenant = await _db.Tenants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct);
+
+        PartnerConfig? partnerConfig = null;
+        Guid? partnerTenantId = null;
+        if (tenant?.ParentTenantId is Guid parentTenantId)
+        {
+            partnerTenantId = parentTenantId;
+            partnerConfig = await _db.PartnerConfigs
+                .AsNoTracking()
+                .FirstOrDefaultAsync(pc => pc.TenantId == parentTenantId, ct);
+        }
 
         var periodStart = DateOnly.FromDateTime(subscription.CurrentPeriodStart.Date);
         var periodEnd = DateOnly.FromDateTime(subscription.CurrentPeriodEnd.Date);
@@ -327,6 +340,36 @@ public class SubscriptionService : ISubscriptionService
             });
         }
 
+        var grossSubtotal = lineItems.Sum(x => x.UnitPrice * x.Quantity);
+        decimal? wholesaleDiscountRate = null;
+        decimal wholesaleDiscountAmount = 0m;
+
+        if (partnerConfig?.BillingModel == PartnerBillingModel.Reseller)
+        {
+            wholesaleDiscountRate = NormalizeRate(
+                partnerConfig.WholesaleDiscount ?? GetDefaultWholesaleDiscount(partnerConfig.PartnerTier));
+
+            if (wholesaleDiscountRate > 0m)
+            {
+                wholesaleDiscountAmount = decimal.Round(
+                    grossSubtotal * wholesaleDiscountRate.Value,
+                    2,
+                    MidpointRounding.AwayFromZero);
+
+                if (wholesaleDiscountAmount > 0m)
+                {
+                    lineItems.Add(new InvoiceLineItem
+                    {
+                        LineType = "PartnerDiscount",
+                        Description = $"Partner wholesale discount ({wholesaleDiscountRate:P0})",
+                        Quantity = 1,
+                        UnitPrice = -wholesaleDiscountAmount,
+                        DisplayOrder = order++
+                    });
+                }
+            }
+        }
+
         foreach (var li in lineItems)
         {
             li.LineTotal = li.UnitPrice * li.Quantity;
@@ -336,6 +379,40 @@ public class SubscriptionService : ISubscriptionService
         invoice.RecalculateTotals();
         _db.Invoices.Add(invoice);
         await _db.SaveChangesAsync(ct);
+
+        if (partnerConfig is not null && partnerTenantId.HasValue)
+        {
+            decimal? commissionRate = null;
+            var commissionAmount = 0m;
+            if (partnerConfig.BillingModel == PartnerBillingModel.Direct)
+            {
+                commissionRate = NormalizeRate(
+                    partnerConfig.CommissionRate ?? GetDefaultCommissionRate(partnerConfig.PartnerTier));
+                commissionAmount = decimal.Round(
+                    grossSubtotal * commissionRate.Value,
+                    2,
+                    MidpointRounding.AwayFromZero);
+            }
+
+            _db.PartnerRevenueRecords.Add(new PartnerRevenueRecord
+            {
+                TenantId = tenantId,
+                PartnerTenantId = partnerTenantId.Value,
+                InvoiceId = invoice.Id,
+                BillingModel = partnerConfig.BillingModel,
+                GrossAmount = decimal.Round(grossSubtotal, 2, MidpointRounding.AwayFromZero),
+                NetAmount = decimal.Round(invoice.Subtotal, 2, MidpointRounding.AwayFromZero),
+                CommissionRate = commissionRate,
+                CommissionAmount = commissionAmount,
+                WholesaleDiscountRate = wholesaleDiscountRate,
+                WholesaleDiscountAmount = wholesaleDiscountAmount,
+                PeriodStart = invoice.PeriodStart,
+                PeriodEnd = invoice.PeriodEnd,
+                CreatedAt = DateTime.UtcNow
+            });
+
+            await _db.SaveChangesAsync(ct);
+        }
 
         return invoice;
     }
@@ -543,6 +620,27 @@ public class SubscriptionService : ISubscriptionService
 
         return $"{prefix}-{seq:D4}";
     }
+
+    private static decimal NormalizeRate(decimal value)
+    {
+        if (value < 0m) return 0m;
+        if (value > 1m) return 1m;
+        return decimal.Round(value, 4, MidpointRounding.AwayFromZero);
+    }
+
+    private static decimal GetDefaultCommissionRate(PartnerTier tier) => tier switch
+    {
+        PartnerTier.Platinum => 0.20m,
+        PartnerTier.Gold => 0.15m,
+        _ => 0.10m
+    };
+
+    private static decimal GetDefaultWholesaleDiscount(PartnerTier tier) => tier switch
+    {
+        PartnerTier.Platinum => 0.40m,
+        PartnerTier.Gold => 0.30m,
+        _ => 0.20m
+    };
 
     private async Task<Subscription> ChangePlan(
         Guid tenantId,

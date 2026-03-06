@@ -35,6 +35,9 @@ public class MetadataDbContext : DbContext
     public DbSet<InvoiceLineItem> InvoiceLineItems => Set<InvoiceLineItem>();
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<UsageRecord> UsageRecords => Set<UsageRecord>();
+    public DbSet<PartnerConfig> PartnerConfigs => Set<PartnerConfig>();
+    public DbSet<PartnerRevenueRecord> PartnerRevenueRecords => Set<PartnerRevenueRecord>();
+    public DbSet<PartnerSupportTicket> PartnerSupportTickets => Set<PartnerSupportTicket>();
 
     // Metadata tables
     public DbSet<ReturnTemplate> ReturnTemplates => Set<ReturnTemplate>();

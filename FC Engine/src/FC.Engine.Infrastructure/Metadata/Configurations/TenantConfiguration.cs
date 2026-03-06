@@ -22,6 +22,8 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
             .HasMaxLength(100)
             .IsRequired();
 
+        builder.Property(t => t.ParentTenantId);
+
         builder.Property(t => t.TenantType)
             .HasMaxLength(30)
             .IsRequired()
@@ -52,6 +54,7 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.Property(t => t.UpdatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
 
         builder.HasIndex(t => t.TenantSlug).IsUnique();
+        builder.HasIndex(t => t.ParentTenantId);
 
         builder.HasMany(t => t.Institutions)
             .WithOne(i => i.Tenant)
@@ -64,5 +67,15 @@ public class TenantConfiguration : IEntityTypeConfiguration<Tenant>
         builder.HasMany(t => t.Subscriptions)
             .WithOne(s => s.Tenant)
             .HasForeignKey(s => s.TenantId);
+
+        builder.HasOne(t => t.ParentTenant)
+            .WithMany(t => t.ChildTenants)
+            .HasForeignKey(t => t.ParentTenantId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(t => t.PartnerConfig)
+            .WithOne(pc => pc.Tenant)
+            .HasForeignKey<PartnerConfig>(pc => pc.TenantId)
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

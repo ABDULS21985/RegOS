@@ -34,6 +34,15 @@ public class SubscriptionServiceTests
         return tenant;
     }
 
+    private static Tenant CreatePartnerTenant(MetadataDbContext db, string slug)
+    {
+        var tenant = Tenant.Create($"Partner {slug}", slug, TenantType.WhiteLabelPartner, $"{slug}@partner.test");
+        tenant.Activate();
+        db.Tenants.Add(tenant);
+        db.SaveChanges();
+        return tenant;
+    }
+
     private static void SeedPlansAndModules(MetadataDbContext db)
     {
         var starter = new SubscriptionPlan
@@ -416,5 +425,92 @@ public class SubscriptionServiceTests
         using var verifyDb = CreateDbContext(databaseName);
         var reloaded = await verifyDb.Subscriptions.FirstAsync(s => s.Id == subscription.Id);
         reloaded.Status.Should().Be(SubscriptionStatus.Expired);
+    }
+
+    [Fact]
+    public async Task Direct_Billing_Records_Partner_Commission()
+    {
+        using var db = CreateDbContext();
+        SeedPlansAndModules(db);
+
+        var partner = CreatePartnerTenant(db, "direct-partner");
+        var subTenant = CreateTenant(db, "direct-subtenant");
+        subTenant.SetParentTenant(partner.TenantId);
+        db.SaveChanges();
+
+        db.PartnerConfigs.Add(new PartnerConfig
+        {
+            TenantId = partner.TenantId,
+            PartnerTier = PartnerTier.Gold,
+            BillingModel = PartnerBillingModel.Direct,
+            CommissionRate = 0.15m,
+            MaxSubTenants = 25,
+            AgreementSignedAt = DateTime.UtcNow,
+            AgreementVersion = "v1"
+        });
+        db.SaveChanges();
+
+        AssignLicence(db, subTenant.TenantId, "BDC");
+
+        var ent = new Mock<IEntitlementService>();
+        var sut = CreateSut(db, ent);
+        await sut.CreateSubscription(subTenant.TenantId, "STARTER", BillingFrequency.Monthly);
+        await sut.ActivateModule(subTenant.TenantId, "BDC_CBN");
+
+        var invoice = await sut.GenerateInvoice(subTenant.TenantId);
+
+        var record = await db.PartnerRevenueRecords
+            .AsNoTracking()
+            .SingleAsync(x => x.InvoiceId == invoice.Id);
+
+        record.BillingModel.Should().Be(PartnerBillingModel.Direct);
+        record.CommissionRate.Should().Be(0.15m);
+        record.CommissionAmount.Should().Be(decimal.Round(record.GrossAmount * 0.15m, 2, MidpointRounding.AwayFromZero));
+        record.WholesaleDiscountAmount.Should().Be(0m);
+        invoice.LineItems.Should().NotContain(li => li.LineType == "PartnerDiscount");
+    }
+
+    [Fact]
+    public async Task Reseller_Billing_Applies_Wholesale_Discount()
+    {
+        using var db = CreateDbContext();
+        SeedPlansAndModules(db);
+
+        var partner = CreatePartnerTenant(db, "reseller-partner");
+        var subTenant = CreateTenant(db, "reseller-subtenant");
+        subTenant.SetParentTenant(partner.TenantId);
+        db.SaveChanges();
+
+        db.PartnerConfigs.Add(new PartnerConfig
+        {
+            TenantId = partner.TenantId,
+            PartnerTier = PartnerTier.Platinum,
+            BillingModel = PartnerBillingModel.Reseller,
+            WholesaleDiscount = 0.30m,
+            MaxSubTenants = 25,
+            AgreementSignedAt = DateTime.UtcNow,
+            AgreementVersion = "v1"
+        });
+        db.SaveChanges();
+
+        AssignLicence(db, subTenant.TenantId, "BDC");
+
+        var ent = new Mock<IEntitlementService>();
+        var sut = CreateSut(db, ent);
+        await sut.CreateSubscription(subTenant.TenantId, "STARTER", BillingFrequency.Monthly);
+        await sut.ActivateModule(subTenant.TenantId, "BDC_CBN");
+
+        var invoice = await sut.GenerateInvoice(subTenant.TenantId);
+
+        invoice.LineItems.Should().Contain(li => li.LineType == "PartnerDiscount" && li.UnitPrice < 0);
+
+        var record = await db.PartnerRevenueRecords
+            .AsNoTracking()
+            .SingleAsync(x => x.InvoiceId == invoice.Id);
+
+        record.BillingModel.Should().Be(PartnerBillingModel.Reseller);
+        record.WholesaleDiscountRate.Should().Be(0.30m);
+        record.WholesaleDiscountAmount.Should().BeGreaterThan(0m);
+        invoice.Subtotal.Should().Be(decimal.Round(record.GrossAmount - record.WholesaleDiscountAmount, 2, MidpointRounding.AwayFromZero));
     }
 }

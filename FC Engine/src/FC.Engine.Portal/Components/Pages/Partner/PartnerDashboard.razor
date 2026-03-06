@@ -1,0 +1,137 @@
+@page "/partner/dashboard"
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Domain.Models
+@attribute [Authorize(Roles = "Admin")]
+@inject FC.Engine.Portal.Services.PartnerPortalService PartnerService
+@inject ITenantContext TenantContext
+
+<PageTitle>Partner Dashboard</PageTitle>
+
+<div class="portal-page-header">
+    <h1 class="portal-page-title">Partner Dashboard</h1>
+    <p class="portal-page-subtitle">Portfolio analytics, revenue insights, churn risk and filing health across managed clients.</p>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
+else if (_loading)
+{
+    <div class="portal-card"><div class="portal-card-body">Loading partner analytics...</div></div>
+}
+else if (!_isPartner)
+{
+    <div class="portal-card"><div class="portal-card-body">This tenant is not configured as a white-label partner.</div></div>
+}
+else if (_data is not null)
+{
+    <div class="portal-stat-grid">
+        <div class="portal-stat-card">
+            <div class="portal-stat-label">Total Clients</div>
+            <div class="portal-stat-value">@_data.Portfolio.TotalSubTenants</div>
+        </div>
+        <div class="portal-stat-card">
+            <div class="portal-stat-label">Active Clients</div>
+            <div class="portal-stat-value">@_data.Portfolio.ActiveSubTenants</div>
+        </div>
+        <div class="portal-stat-card">
+            <div class="portal-stat-label">Returns This Month</div>
+            <div class="portal-stat-value">@_data.Usage.SubmittedReturnsThisMonth</div>
+        </div>
+        <div class="portal-stat-card">
+            <div class="portal-stat-label">Billing Model</div>
+            <div class="portal-stat-value">@_data.Revenue.BillingModel</div>
+        </div>
+    </div>
+
+    <div class="portal-grid portal-grid-2">
+        <section class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Revenue</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-kv"><span>Gross billed (MTD)</span><strong>@FormatCurrency(_data.Revenue.GrossBilled)</strong></div>
+                <div class="portal-kv"><span>Commissions earned</span><strong>@FormatCurrency(_data.Revenue.CommissionsEarned)</strong></div>
+                <div class="portal-kv"><span>Wholesale discounts</span><strong>@FormatCurrency(_data.Revenue.WholesaleDiscountAmount)</strong></div>
+                <div class="portal-kv"><span>Net platform revenue</span><strong>@FormatCurrency(_data.Revenue.NetPlatformRevenue)</strong></div>
+            </div>
+        </section>
+
+        <section class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Filing Health</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-kv"><span>Green</span><strong>@_data.FilingHealth.Green</strong></div>
+                <div class="portal-kv"><span>Amber</span><strong>@_data.FilingHealth.Amber</strong></div>
+                <div class="portal-kv"><span>Red</span><strong>@_data.FilingHealth.Red</strong></div>
+            </div>
+        </section>
+    </div>
+
+    <section class="portal-card">
+        <div class="portal-card-header"><h2 class="portal-card-title">Churn Risk</h2></div>
+        <div class="portal-card-body">
+            @if (_data.ChurnRisk.Count == 0)
+            {
+                <p>No immediate churn signals.</p>
+            }
+            else
+            {
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Client</th>
+                            <th>Usage Change</th>
+                            <th>Renewal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _data.ChurnRisk)
+                        {
+                            <tr>
+                                <td>@row.TenantName</td>
+                                <td>@row.UsageChangePercent.ToString("+0.##;-0.##;0")%</td>
+                                <td>@(row.RenewalDate?.ToString("dd MMM yyyy") ?? "-")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _isPartner;
+    private string? _error;
+    private PartnerDashboardData? _data;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            if (!TenantContext.CurrentTenantId.HasValue)
+            {
+                _error = "Tenant context is not available.";
+                return;
+            }
+
+            var tenantId = TenantContext.CurrentTenantId.Value;
+            _isPartner = await PartnerService.IsPartnerTenant(tenantId);
+            if (_isPartner)
+            {
+                _data = await PartnerService.GetDashboard(tenantId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static string FormatCurrency(decimal value)
+        => $"NGN {value:N2}";
+}

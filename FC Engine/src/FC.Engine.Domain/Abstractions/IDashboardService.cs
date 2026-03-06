@@ -10,6 +10,6 @@ public interface IDashboardService
     Task<TrendData> GetSubmissionTrend(Guid tenantId, string moduleCode, int periods = 6, CancellationToken ct = default);
     Task<TrendData> GetValidationErrorTrend(Guid tenantId, string moduleCode, int periods = 6, CancellationToken ct = default);
     Task<AdminDashboardData> GetAdminDashboard(Guid tenantId, CancellationToken ct = default);
+    Task<PartnerDashboardData> GetPartnerDashboard(Guid partnerTenantId, CancellationToken ct = default);
     Task<PlatformDashboardData> GetPlatformDashboard(CancellationToken ct = default);
 }
-
