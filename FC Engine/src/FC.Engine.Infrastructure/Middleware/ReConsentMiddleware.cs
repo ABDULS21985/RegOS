@@ -15,6 +15,7 @@ public class ReConsentMiddleware
         "/account/login",
         "/login",
         "/_framework",
+        "/_blazor",
         "/css",
         "/js",
         "/images",
