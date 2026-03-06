@@ -97,6 +97,7 @@ public class MetadataDbContext : DbContext
     public DbSet<RolePermission> RolePermissions => Set<RolePermission>();
     public DbSet<TenantSsoConfig> TenantSsoConfigs => Set<TenantSsoConfig>();
     public DbSet<ApiKey> ApiKeys => Set<ApiKey>();
+    public DbSet<FeatureFlag> FeatureFlags => Set<FeatureFlag>();
     public DbSet<EmailTemplate> EmailTemplates => Set<EmailTemplate>();
     public DbSet<NotificationPreference> NotificationPreferences => Set<NotificationPreference>();
     public DbSet<NotificationDelivery> NotificationDeliveries => Set<NotificationDelivery>();

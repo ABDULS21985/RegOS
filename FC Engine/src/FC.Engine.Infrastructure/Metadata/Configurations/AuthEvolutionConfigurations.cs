@@ -149,3 +149,23 @@ public class ApiKeyConfiguration : IEntityTypeConfiguration<ApiKey>
         builder.HasIndex(x => x.ExpiresAt);
     }
 }
+
+public class FeatureFlagConfiguration : IEntityTypeConfiguration<FeatureFlag>
+{
+    public void Configure(EntityTypeBuilder<FeatureFlag> builder)
+    {
+        builder.ToTable("feature_flags");
+        builder.HasKey(x => x.Id);
+
+        builder.Property(x => x.FlagCode).HasMaxLength(50).IsRequired();
+        builder.Property(x => x.Description).HasMaxLength(200).IsRequired();
+        builder.Property(x => x.RolloutPercent).HasDefaultValue(0);
+        builder.Property(x => x.AllowedTenants).HasColumnType("nvarchar(max)");
+        builder.Property(x => x.AllowedPlans).HasColumnType("nvarchar(max)");
+        builder.Property(x => x.IsEnabled).HasDefaultValue(false);
+        builder.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+        builder.Property(x => x.UpdatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
+
+        builder.HasIndex(x => x.FlagCode).IsUnique();
+    }
+}
