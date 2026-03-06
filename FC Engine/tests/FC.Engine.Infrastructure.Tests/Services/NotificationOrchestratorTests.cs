@@ -32,6 +32,7 @@ public class NotificationOrchestratorTests
 
         var notificationRepo = new Mock<IPortalNotificationRepository>();
         var userRepo = new Mock<IInstitutionUserRepository>();
+        var portalUserRepo = new Mock<IPortalUserRepository>();
         var institutionRepo = new Mock<IInstitutionRepository>();
         var preferenceRepo = new Mock<INotificationPreferenceRepository>();
         var deliveryRepo = new Mock<INotificationDeliveryRepository>();
@@ -84,6 +85,7 @@ public class NotificationOrchestratorTests
         var sut = new NotificationOrchestrator(
             notificationRepo.Object,
             userRepo.Object,
+            portalUserRepo.Object,
             institutionRepo.Object,
             preferenceRepo.Object,
             deliveryRepo.Object,
@@ -135,6 +137,7 @@ public class NotificationOrchestratorTests
 
         var notificationRepo = new Mock<IPortalNotificationRepository>();
         var userRepo = new Mock<IInstitutionUserRepository>();
+        var portalUserRepo = new Mock<IPortalUserRepository>();
         var institutionRepo = new Mock<IInstitutionRepository>();
         var preferenceRepo = new Mock<INotificationPreferenceRepository>();
         var deliveryRepo = new Mock<INotificationDeliveryRepository>();
@@ -167,6 +170,7 @@ public class NotificationOrchestratorTests
         var sut = new NotificationOrchestrator(
             notificationRepo.Object,
             userRepo.Object,
+            portalUserRepo.Object,
             institutionRepo.Object,
             preferenceRepo.Object,
             deliveryRepo.Object,
@@ -218,6 +222,7 @@ public class NotificationOrchestratorTests
 
         var notificationRepo = new Mock<IPortalNotificationRepository>();
         var userRepo = new Mock<IInstitutionUserRepository>();
+        var portalUserRepo = new Mock<IPortalUserRepository>();
         var institutionRepo = new Mock<IInstitutionRepository>();
         var preferenceRepo = new Mock<INotificationPreferenceRepository>();
         var deliveryRepo = new Mock<INotificationDeliveryRepository>();
@@ -268,6 +273,7 @@ public class NotificationOrchestratorTests
         var sut = new NotificationOrchestrator(
             notificationRepo.Object,
             userRepo.Object,
+            portalUserRepo.Object,
             institutionRepo.Object,
             preferenceRepo.Object,
             deliveryRepo.Object,
@@ -324,6 +330,7 @@ public class NotificationOrchestratorTests
 
         var notificationRepo = new Mock<IPortalNotificationRepository>();
         var userRepo = new Mock<IInstitutionUserRepository>();
+        var portalUserRepo = new Mock<IPortalUserRepository>();
         var institutionRepo = new Mock<IInstitutionRepository>();
         var preferenceRepo = new Mock<INotificationPreferenceRepository>();
         var deliveryRepo = new Mock<INotificationDeliveryRepository>();
@@ -358,6 +365,7 @@ public class NotificationOrchestratorTests
         var sut = new NotificationOrchestrator(
             notificationRepo.Object,
             userRepo.Object,
+            portalUserRepo.Object,
             institutionRepo.Object,
             preferenceRepo.Object,
             deliveryRepo.Object,

@@ -31,14 +31,14 @@ public class FieldLocalisationService : IFieldLocalisationService
 
         var localisations = await _db.FieldLocalisations
             .AsNoTracking()
-            .Where(x => ids.Contains(x.FieldId) && fallbacks.Contains(x.LanguageCode))
+            .Where(x => ids.Contains(x.FieldId))
             .ToListAsync(ct);
 
         var result = new Dictionary<int, FieldLocalisationValue>();
         foreach (var fieldId in ids)
         {
             var pick = localisations
-                .Where(x => x.FieldId == fieldId)
+                .Where(x => x.FieldId == fieldId && fallbacks.Contains(NormalizeLanguage(x.LanguageCode)))
                 .OrderBy(x => x.LanguageCode.Equals(requested, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .FirstOrDefault();
 

@@ -3,6 +3,7 @@ using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Infrastructure;
+using FC.Engine.Infrastructure.Auth;
 using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Middleware;
 using FC.Engine.Infrastructure.MultiTenancy;

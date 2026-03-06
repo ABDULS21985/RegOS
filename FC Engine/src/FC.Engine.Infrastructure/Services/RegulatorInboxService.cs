@@ -80,13 +80,26 @@ public class RegulatorInboxService : IRegulatorInboxService
             var statusText = filter.Status.Trim();
             if (Enum.TryParse<RegulatorReceiptStatus>(statusText, true, out var receiptStatus))
             {
-                var submissionIdsWithStatus = await _db.RegulatorReceipts
-                    .AsNoTracking()
-                    .Where(r => r.RegulatorTenantId == regulatorTenantId && r.Status == receiptStatus)
-                    .Select(r => r.SubmissionId)
-                    .ToListAsync(ct);
+                if (receiptStatus == RegulatorReceiptStatus.Received)
+                {
+                    var nonReceivedSubmissionIds = await _db.RegulatorReceipts
+                        .AsNoTracking()
+                        .Where(r => r.RegulatorTenantId == regulatorTenantId && r.Status != RegulatorReceiptStatus.Received)
+                        .Select(r => r.SubmissionId)
+                        .ToListAsync(ct);
 
-                scoped = scoped.Where(s => submissionIdsWithStatus.Contains(s.Id));
+                    scoped = scoped.Where(s => !nonReceivedSubmissionIds.Contains(s.Id));
+                }
+                else
+                {
+                    var submissionIdsWithStatus = await _db.RegulatorReceipts
+                        .AsNoTracking()
+                        .Where(r => r.RegulatorTenantId == regulatorTenantId && r.Status == receiptStatus)
+                        .Select(r => r.SubmissionId)
+                        .ToListAsync(ct);
+
+                    scoped = scoped.Where(s => submissionIdsWithStatus.Contains(s.Id));
+                }
             }
             else
             {
@@ -286,7 +299,7 @@ public class RegulatorInboxService : IRegulatorInboxService
             receipt.Notes = notes.Trim();
         }
 
-        if (status is RegulatorReceiptStatus.Accepted or RegulatorReceiptStatus.QueriesRaised)
+        if (status == RegulatorReceiptStatus.Accepted)
         {
             receipt.AcceptedAt = DateTime.UtcNow;
         }
