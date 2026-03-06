@@ -3,6 +3,7 @@ using FC.Engine.Domain.ValueObjects;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace FC.Engine.Infrastructure.Services;
 
@@ -24,18 +25,18 @@ public class TenantBrandingService : ITenantBrandingService
     private readonly MetadataDbContext _db;
     private readonly IMemoryCache _cache;
     private readonly IFileStorageService _storage;
-    private readonly ISubscriptionService? _subscriptionService;
+    private readonly IServiceProvider _serviceProvider;
 
     public TenantBrandingService(
         MetadataDbContext db,
         IMemoryCache cache,
         IFileStorageService storage,
-        ISubscriptionService? subscriptionService = null)
+        IServiceProvider serviceProvider)
     {
         _db = db;
         _cache = cache;
         _storage = storage;
-        _subscriptionService = subscriptionService;
+        _serviceProvider = serviceProvider;
     }
 
     public async Task<BrandingConfig> GetBrandingConfig(Guid tenantId, CancellationToken ct = default)
@@ -55,8 +56,9 @@ public class TenantBrandingService : ITenantBrandingService
             && tenant.ParentTenantId.HasValue
             && string.IsNullOrWhiteSpace(tenant.BrandingConfig))
         {
-            var hasCustomBranding = _subscriptionService is not null
-                && await _subscriptionService.HasFeature(tenantId, "custom_branding", ct);
+            var subscriptionService = _serviceProvider.GetService<ISubscriptionService>();
+            var hasCustomBranding = subscriptionService is not null
+                && await subscriptionService.HasFeature(tenantId, "custom_branding", ct);
             if (!hasCustomBranding)
             {
                 var parentTenant = await _db.Tenants
@@ -86,8 +88,9 @@ public class TenantBrandingService : ITenantBrandingService
 
         if (tenant.ParentTenantId.HasValue)
         {
-            var hasCustomBranding = _subscriptionService is not null
-                && await _subscriptionService.HasFeature(tenantId, "custom_branding", ct);
+            var subscriptionService = _serviceProvider.GetService<ISubscriptionService>();
+            var hasCustomBranding = subscriptionService is not null
+                && await subscriptionService.HasFeature(tenantId, "custom_branding", ct);
             if (!hasCustomBranding)
             {
                 throw new InvalidOperationException("Custom branding is managed by your white-label partner for this plan.");

@@ -348,6 +348,11 @@ public class PlatformAdminService
             .Where(i => i.TenantId == tenantId)
             .OrderBy(i => i.InstitutionName)
             .ToListAsync(ct);
+        var entityNameById = entities.ToDictionary(e => e.Id, e => e.InstitutionName);
+        var branchCountByParentId = entities
+            .Where(e => e.ParentInstitutionId.HasValue && e.EntityType == EntityType.Branch)
+            .GroupBy(e => e.ParentInstitutionId!.Value)
+            .ToDictionary(g => g.Key, g => g.Count());
 
         var periods = await _db.ReturnPeriods
             .AsNoTracking()
@@ -465,7 +470,12 @@ public class PlatformAdminService
                 InstitutionCode = e.InstitutionCode,
                 InstitutionName = e.InstitutionName,
                 IsActive = e.IsActive,
-                ContactEmail = e.ContactEmail
+                ContactEmail = e.ContactEmail,
+                EntityType = e.EntityType.ToString(),
+                ParentInstitutionName = e.ParentInstitutionId.HasValue
+                    ? entityNameById.GetValueOrDefault(e.ParentInstitutionId.Value)
+                    : null,
+                BranchCount = branchCountByParentId.GetValueOrDefault(e.Id)
             }).ToList(),
             FilingMatrix = periods.Select(p =>
             {
@@ -1166,6 +1176,9 @@ public class TenantEntityItem
     public string InstitutionName { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public string? ContactEmail { get; set; }
+    public string EntityType { get; set; } = string.Empty;
+    public string? ParentInstitutionName { get; set; }
+    public int BranchCount { get; set; }
 }
 
 public class TenantFilingMatrixItem

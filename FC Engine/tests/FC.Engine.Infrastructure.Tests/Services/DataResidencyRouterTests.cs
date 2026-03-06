@@ -171,4 +171,51 @@ public class DataResidencyRouterTests
 
         region.Should().Be("WestEurope");
     }
+
+    [Fact]
+    public async Task ResolveConnectionString_Handles_Region_Keys_With_Spaces()
+    {
+        using var db = CreateDb();
+        var cache = new MemoryCache(new MemoryCacheOptions());
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:FcEngine"] = "Server=default;Database=fc;",
+                ["ConnectionStrings:FcEngineUae"] = "Server=uae;Database=fc_uae;",
+                ["DataResidency:DefaultRegion"] = "SouthAfricaNorth",
+                ["DataResidency:RegionConnectionStrings:UAENorth"] = "FcEngineUae"
+            })
+            .Build();
+
+        var tenant = Tenant.Create("Tenant KE", "tenant-ke", TenantType.Institution);
+        db.Tenants.Add(tenant);
+        db.Jurisdictions.Add(new Jurisdiction
+        {
+            Id = 3,
+            CountryCode = "KE",
+            CountryName = "Kenya",
+            Currency = "KES",
+            Timezone = "Africa/Nairobi",
+            RegulatoryBodies = "[]",
+            DateFormat = "dd/MM/yyyy",
+            DataProtectionLaw = "Kenya DPA 2019",
+            DataResidencyRegion = "UAE North",
+            IsActive = false
+        });
+        db.Institutions.Add(new Institution
+        {
+            TenantId = tenant.TenantId,
+            JurisdictionId = 3,
+            InstitutionCode = "KE001",
+            InstitutionName = "KE Institution",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        await db.SaveChangesAsync();
+
+        var sut = new DataResidencyRouter(db, config, cache);
+        var connectionString = await sut.ResolveConnectionString(tenant.TenantId);
+
+        connectionString.Should().Be("Server=uae;Database=fc_uae;");
+    }
 }

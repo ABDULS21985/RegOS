@@ -27,7 +27,7 @@ public class DataResidencyRouter : IDataResidencyRouter
     public async Task<string> ResolveConnectionString(Guid? tenantId, CancellationToken ct = default)
     {
         var region = await ResolveRegion(tenantId, ct);
-        var mappedName = _configuration[$"DataResidency:RegionConnectionStrings:{region}"];
+        var mappedName = ResolveMappedConnectionName(region);
 
         var connectionString = !string.IsNullOrWhiteSpace(mappedName)
             ? _configuration.GetConnectionString(mappedName)
@@ -36,6 +36,33 @@ public class DataResidencyRouter : IDataResidencyRouter
         return connectionString
                ?? _configuration.GetConnectionString("FcEngine")
                ?? throw new InvalidOperationException("Connection string 'FcEngine' not found");
+    }
+
+    private string? ResolveMappedConnectionName(string? region)
+    {
+        if (string.IsNullOrWhiteSpace(region))
+        {
+            return null;
+        }
+
+        var candidates = new[]
+        {
+            region,
+            region.Replace(" ", string.Empty, StringComparison.Ordinal),
+            region.Replace(" ", "_", StringComparison.Ordinal),
+            region.Replace(" ", "-", StringComparison.Ordinal)
+        };
+
+        foreach (var candidate in candidates.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            var mapped = _configuration[$"DataResidency:RegionConnectionStrings:{candidate}"];
+            if (!string.IsNullOrWhiteSpace(mapped))
+            {
+                return mapped;
+            }
+        }
+
+        return null;
     }
 
     public Task<string> ResolveRegion(Guid? tenantId, CancellationToken ct = default)

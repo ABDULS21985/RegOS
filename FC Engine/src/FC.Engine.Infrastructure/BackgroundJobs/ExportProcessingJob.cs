@@ -1,4 +1,5 @@
 using FC.Engine.Domain.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -6,17 +7,14 @@ namespace FC.Engine.Infrastructure.BackgroundJobs;
 
 public class ExportProcessingJob : BackgroundService
 {
-    private readonly IExportRequestRepository _exportRequestRepository;
-    private readonly IExportEngine _exportEngine;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ExportProcessingJob> _logger;
 
     public ExportProcessingJob(
-        IExportRequestRepository exportRequestRepository,
-        IExportEngine exportEngine,
+        IServiceProvider serviceProvider,
         ILogger<ExportProcessingJob> logger)
     {
-        _exportRequestRepository = exportRequestRepository;
-        _exportEngine = exportEngine;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -26,10 +24,14 @@ public class ExportProcessingJob : BackgroundService
         {
             try
             {
-                var queued = await _exportRequestRepository.GetQueuedBatch(5, stoppingToken);
+                using var scope = _serviceProvider.CreateScope();
+                var exportRequestRepository = scope.ServiceProvider.GetRequiredService<IExportRequestRepository>();
+                var exportEngine = scope.ServiceProvider.GetRequiredService<IExportEngine>();
+
+                var queued = await exportRequestRepository.GetQueuedBatch(5, stoppingToken);
                 foreach (var request in queued)
                 {
-                    var result = await _exportEngine.GenerateExport(request.Id, stoppingToken);
+                    var result = await exportEngine.GenerateExport(request.Id, stoppingToken);
                     if (!result.Success)
                     {
                         _logger.LogWarning(

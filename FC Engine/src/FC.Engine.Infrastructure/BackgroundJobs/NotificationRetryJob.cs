@@ -3,6 +3,7 @@ using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Notifications;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -10,23 +11,14 @@ namespace FC.Engine.Infrastructure.BackgroundJobs;
 
 public class NotificationRetryJob : BackgroundService
 {
-    private readonly INotificationDeliveryRepository _deliveryRepository;
-    private readonly IEmailSender _emailSender;
-    private readonly ISmsSender _smsSender;
-    private readonly ITenantBrandingService _brandingService;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<NotificationRetryJob> _logger;
 
     public NotificationRetryJob(
-        INotificationDeliveryRepository deliveryRepository,
-        IEmailSender emailSender,
-        ISmsSender smsSender,
-        ITenantBrandingService brandingService,
+        IServiceProvider serviceProvider,
         ILogger<NotificationRetryJob> logger)
     {
-        _deliveryRepository = deliveryRepository;
-        _emailSender = emailSender;
-        _smsSender = smsSender;
-        _brandingService = brandingService;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
@@ -56,7 +48,13 @@ public class NotificationRetryJob : BackgroundService
 
     private async Task RetryFailedDeliveries(CancellationToken ct)
     {
-        var failedDeliveries = await _deliveryRepository.GetRetryBatch(50, ct);
+        using var scope = _serviceProvider.CreateScope();
+        var deliveryRepository = scope.ServiceProvider.GetRequiredService<INotificationDeliveryRepository>();
+        var emailSender = scope.ServiceProvider.GetRequiredService<IEmailSender>();
+        var smsSender = scope.ServiceProvider.GetRequiredService<ISmsSender>();
+        var brandingService = scope.ServiceProvider.GetRequiredService<ITenantBrandingService>();
+
+        var failedDeliveries = await deliveryRepository.GetRetryBatch(50, ct);
         if (failedDeliveries.Count == 0)
         {
             return;
@@ -64,11 +62,17 @@ public class NotificationRetryJob : BackgroundService
 
         foreach (var delivery in failedDeliveries)
         {
-            await RetryDelivery(delivery, ct);
+            await RetryDelivery(delivery, deliveryRepository, emailSender, smsSender, brandingService, ct);
         }
     }
 
-    private async Task RetryDelivery(NotificationDelivery delivery, CancellationToken ct)
+    private async Task RetryDelivery(
+        NotificationDelivery delivery,
+        INotificationDeliveryRepository deliveryRepository,
+        IEmailSender emailSender,
+        ISmsSender smsSender,
+        ITenantBrandingService brandingService,
+        CancellationToken ct)
     {
         try
         {
@@ -79,8 +83,8 @@ public class NotificationRetryJob : BackgroundService
 
             if (delivery.Channel == NotificationChannel.Email)
             {
-                var branding = await _brandingService.GetBrandingConfig(delivery.TenantId, ct);
-                var emailResult = await _emailSender.SendTemplatedAsync(
+                var branding = await brandingService.GetBrandingConfig(delivery.TenantId, ct);
+                var emailResult = await emailSender.SendTemplatedAsync(
                     delivery.NotificationEventType,
                     variables,
                     delivery.RecipientAddress,
@@ -101,7 +105,7 @@ public class NotificationRetryJob : BackgroundService
                     sms = sms[..157] + "...";
                 }
 
-                var smsResult = await _smsSender.SendAsync(delivery.RecipientAddress, sms, ct);
+                var smsResult = await smsSender.SendAsync(delivery.RecipientAddress, sms, ct);
                 success = smsResult.Success;
                 providerMessageId = smsResult.ProviderMessageId;
                 error = smsResult.ErrorMessage;
@@ -123,7 +127,7 @@ public class NotificationRetryJob : BackgroundService
                 delivery.NextRetryAt = DateTime.UtcNow.Add(GetRetryDelay(delivery.AttemptCount));
             }
 
-            await _deliveryRepository.Update(delivery, ct);
+            await deliveryRepository.Update(delivery, ct);
         }
         catch (Exception ex)
         {
@@ -131,7 +135,7 @@ public class NotificationRetryJob : BackgroundService
             delivery.Status = DeliveryStatus.Failed;
             delivery.ErrorMessage = ex.Message;
             delivery.NextRetryAt = DateTime.UtcNow.Add(GetRetryDelay(delivery.AttemptCount));
-            await _deliveryRepository.Update(delivery, ct);
+            await deliveryRepository.Update(delivery, ct);
             _logger.LogError(ex, "Notification retry failed for delivery {DeliveryId}", delivery.Id);
         }
     }
