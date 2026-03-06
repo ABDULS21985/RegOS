@@ -161,3 +161,44 @@ window.portalAnnounce = function (message) {
         setTimeout(function () { region.textContent = message; }, 100);
     }
 };
+
+// Guided Tour overlay helpers
+window.portalTour = (function () {
+    var activeElement = null;
+
+    function clear() {
+        if (activeElement) {
+            activeElement.classList.remove("portal-tour-highlight");
+            activeElement = null;
+        }
+    }
+
+    function highlight(selector) {
+        clear();
+        if (!selector) {
+            return null;
+        }
+
+        var target = document.querySelector(selector);
+        if (!target) {
+            return null;
+        }
+
+        target.classList.add("portal-tour-highlight");
+        target.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+        activeElement = target;
+
+        var rect = target.getBoundingClientRect();
+        return {
+            top: rect.top + window.scrollY,
+            left: rect.left + window.scrollX,
+            width: rect.width,
+            height: rect.height
+        };
+    }
+
+    return {
+        highlight: highlight,
+        clear: clear
+    };
+})();

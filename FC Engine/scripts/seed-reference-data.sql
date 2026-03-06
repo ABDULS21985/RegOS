@@ -4,10 +4,10 @@
 -- Insert sample institutions
 IF NOT EXISTS (SELECT 1 FROM institutions WHERE InstitutionCode = 'FC001')
 BEGIN
-    INSERT INTO institutions (InstitutionCode, InstitutionName, LicenseType, IsActive, CreatedAt)
+    INSERT INTO institutions (InstitutionCode, InstitutionName, LicenseType, IsActive, CreatedAt, JurisdictionId)
     VALUES
-        ('FC001', 'Sample Finance Company Ltd', 'Finance Company', 1, GETUTCDATE()),
-        ('FC002', 'Example Microfinance Bank', 'Microfinance Bank', 1, GETUTCDATE());
+        ('FC001', 'Sample Finance Company Ltd', 'Finance Company', 1, GETUTCDATE(), 1),
+        ('FC002', 'Example Microfinance Bank', 'Microfinance Bank', 1, GETUTCDATE(), 1);
 END
 
 -- Insert return periods for 2024-2025

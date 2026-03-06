@@ -1,0 +1,143 @@
+@page "/onboarding/sandbox"
+@attribute [Authorize(Roles = "Admin")]
+@inject SandboxService SandboxService
+@inject ITenantContext TenantContext
+@inject NavigationManager Navigation
+
+<PageTitle>Sandbox Training Environment — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-page-header">
+        <h1 class="portal-page-title">Sandbox Training Environment</h1>
+        <p class="portal-page-subtitle">Create or reset a training tenant with realistic sample data.</p>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="portal-alert portal-alert-success">@_message</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="portal-alert portal-alert-danger">@_error</div>
+    }
+
+    @if (_context is null)
+    {
+        <div class="portal-card"><div class="portal-card-body">Tenant context unavailable.</div></div>
+    }
+    else
+    {
+        <div class="portal-card">
+            <div class="portal-card-body">
+                @if (_context.IsSandbox)
+                {
+                    <p>You are currently in <strong>@_context.CurrentTenantName</strong>.</p>
+                    <div class="portal-onboarding-actions">
+                        <button class="portal-btn portal-btn-outline" @onclick="ResetSandbox" disabled="@_busy" type="button">Reset Sandbox Data</button>
+                        @if (!string.IsNullOrWhiteSpace(_context.ProductionLoginUrl))
+                        {
+                            <a class="portal-btn portal-btn-primary" href="@_context.ProductionLoginUrl">Switch to Production Login</a>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <p>Create a sandbox clone for hands-on training. Production data is not copied.</p>
+                    <button class="portal-btn portal-btn-primary" @onclick="CreateSandbox" disabled="@_busy" type="button">
+                        @(_busy ? "Provisioning..." : "Create Sandbox")
+                    </button>
+
+                    @if (_provisionResult is not null && _provisionResult.Success)
+                    {
+                        <div class="portal-alert portal-alert-warning" style="margin-top: 1rem;">
+                            <p><strong>Sandbox URL:</strong> <a href="@_provisionResult.LoginUrl">@_provisionResult.LoginUrl</a></p>
+                            @if (!string.IsNullOrWhiteSpace(_provisionResult.AdminTemporaryPassword))
+                            {
+                                <p><strong>Sandbox admin temporary password:</strong> @_provisionResult.AdminTemporaryPassword</p>
+                            }
+                        </div>
+                    }
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private SandboxContext? _context;
+    private SandboxProvisionResult? _provisionResult;
+    private bool _busy;
+    private string? _message;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        _context = await SandboxService.GetContext(TenantContext.CurrentTenantId.Value);
+    }
+
+    private async Task CreateSandbox()
+    {
+        _busy = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            if (!TenantContext.CurrentTenantId.HasValue)
+            {
+                _error = "Tenant context unavailable.";
+                return;
+            }
+
+            _provisionResult = await SandboxService.CreateSandbox(TenantContext.CurrentTenantId.Value);
+            if (!_provisionResult.Success)
+            {
+                _error = _provisionResult.Errors.Count > 0
+                    ? string.Join(" ", _provisionResult.Errors)
+                    : "Sandbox provisioning failed.";
+                return;
+            }
+
+            _message = "Sandbox provisioned successfully.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ResetSandbox()
+    {
+        _busy = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            if (_context is null)
+            {
+                return;
+            }
+
+            await SandboxService.ResetSandbox(_context.CurrentTenantId);
+            _message = "Sandbox data reset and sample data reloaded.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

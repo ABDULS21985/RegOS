@@ -1,0 +1,487 @@
+@page "/onboarding/wizard"
+@layout LoginLayout
+@inject OnboardingWizardService WizardService
+@inject NavigationManager Navigation
+
+<PageTitle>Onboarding Wizard — FC Engine Portal</PageTitle>
+
+<div class="portal-onboarding-shell">
+    <div class="portal-onboarding-header">
+        <h1>Self-Service Onboarding Wizard</h1>
+        <p>Complete the 8-step setup and provision your tenant in under 60 seconds.</p>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="portal-alert portal-alert-danger">@_error</div>
+    }
+
+    @if (_loading)
+    {
+        <div class="portal-card"><div class="portal-card-body">Loading onboarding options...</div></div>
+    }
+    else
+    {
+        <div class="portal-onboarding-steps">
+            @for (var i = 1; i <= TotalSteps; i++)
+            {
+                <div class="portal-onboarding-step @GetStepClass(i)">
+                    <span>@i</span>
+                    <small>@StepLabels[i - 1]</small>
+                </div>
+            }
+        </div>
+
+        <div class="portal-card portal-onboarding-card">
+            <div class="portal-card-body">
+                @if (_step == 1)
+                {
+                    <h3>Step 1: Institution Profile</h3>
+                    <div class="portal-grid portal-grid-2">
+                        <div class="portal-form-row"><label>Institution Name</label><input class="portal-input" @bind="_request.Profile.InstitutionName" /></div>
+                        <div class="portal-form-row"><label>Preferred Slug (optional)</label><input class="portal-input" @bind="_request.Profile.TenantSlug" /></div>
+                        <div class="portal-form-row"><label>Contact Email</label><input class="portal-input" @bind="_request.Profile.ContactEmail" /></div>
+                        <div class="portal-form-row"><label>Contact Phone</label><input class="portal-input" @bind="_request.Profile.ContactPhone" /></div>
+                        <div class="portal-form-row"><label>RC Number</label><input class="portal-input" @bind="_request.Profile.RcNumber" /></div>
+                        <div class="portal-form-row"><label>TIN</label><input class="portal-input" @bind="_request.Profile.Tin" /></div>
+                        <div class="portal-form-row portal-form-row-span-2"><label>Address</label><input class="portal-input" @bind="_request.Profile.Address" /></div>
+                    </div>
+                }
+                else if (_step == 2)
+                {
+                    <h3>Step 2: Licence Type</h3>
+                    <div class="portal-onboarding-checklist">
+                        @foreach (var licence in _lookup.LicenceTypes)
+                        {
+                            var selected = _request.LicenceTypeCodes.Contains(licence.Code, StringComparer.OrdinalIgnoreCase);
+                            <label class="portal-onboarding-checkitem">
+                                <input type="checkbox"
+                                       checked="@selected"
+                                       @onchange="(e => ToggleLicence(licence.Code, e.Value))" />
+                                <span>
+                                    <strong>@licence.Name</strong>
+                                    <small>@licence.Regulator — @licence.Description</small>
+                                </span>
+                            </label>
+                        }
+                    </div>
+                }
+                else if (_step == 3)
+                {
+                    <h3>Step 3: Module Selection</h3>
+                    <div class="portal-grid portal-grid-2">
+                        <div>
+                            @if (_eligibleModules.Count == 0)
+                            {
+                                <p>Select at least one licence type first.</p>
+                            }
+                            else
+                            {
+                                @foreach (var module in _eligibleModules)
+                                {
+                                    var selected = _request.ModuleCodes.Contains(module.ModuleCode, StringComparer.OrdinalIgnoreCase);
+                                    <label class="portal-onboarding-checkitem @(!module.IsAvailableOnPlan ? "disabled" : "")">
+                                        <input type="checkbox"
+                                               checked="@(module.IsRequired || selected)"
+                                               disabled="@(!module.IsAvailableOnPlan || module.IsRequired)"
+                                               @onchange="(e => ToggleModule(module.ModuleCode, e.Value))" />
+                                        <span>
+                                            <strong>@module.ModuleName (@module.ModuleCode)</strong>
+                                            <small>
+                                                @module.RegulatorCode
+                                                @if (module.IsRequired) { <span> • Required</span> }
+                                                @if (!module.IsAvailableOnPlan) { <span> • Not on selected plan</span> }
+                                            </small>
+                                        </span>
+                                    </label>
+                                }
+                            }
+                        </div>
+                        <div class="portal-onboarding-cost">
+                            <h4>Estimated Monthly Cost</h4>
+                            <div class="portal-kv"><span>Base Plan</span><strong>@FormatMoney(_estimate.BasePriceMonthly)</strong></div>
+                            @foreach (var line in _estimate.ModuleLines)
+                            {
+                                <div class="portal-kv">
+                                    <span>@line.Label</span>
+                                    <strong>@(line.IncludedInBase ? "Included" : FormatMoney(line.Amount))</strong>
+                                </div>
+                            }
+                            <div class="portal-kv"><span>Subtotal</span><strong>@FormatMoney(_estimate.Subtotal)</strong></div>
+                            <div class="portal-kv"><span>VAT (7.5%)</span><strong>@FormatMoney(_estimate.VatAmount)</strong></div>
+                            <div class="portal-kv"><span>Total</span><strong>@FormatMoney(_estimate.Total) / month</strong></div>
+                        </div>
+                    </div>
+                }
+                else if (_step == 4)
+                {
+                    <h3>Step 4: Plan Selection</h3>
+                    <div class="portal-onboarding-plan-grid">
+                        @foreach (var plan in _lookup.Plans)
+                        {
+                            var active = string.Equals(_request.PlanCode, plan.PlanCode, StringComparison.OrdinalIgnoreCase);
+                            <button class="portal-onboarding-plan @(active ? "active" : "")" @onclick="@(() => SelectPlan(plan.PlanCode))" type="button">
+                                <strong>@plan.PlanName (@plan.PlanCode)</strong>
+                                <small>@plan.Description</small>
+                                <span>@FormatMoney(plan.BasePriceMonthly) / month</span>
+                            </button>
+                        }
+                    </div>
+                }
+                else if (_step == 5)
+                {
+                    <h3>Step 5: Entity Structure</h3>
+                    <p>Head office is created automatically. Add branches if applicable.</p>
+                    <div class="portal-onboarding-inline">
+                        <input class="portal-input" placeholder="Branch name" @bind="_branchInput" />
+                        <button class="portal-btn portal-btn-outline" @onclick="AddBranch" type="button">Add Branch</button>
+                    </div>
+                    @if (_request.Branches.Count > 0)
+                    {
+                        <ul class="portal-onboarding-pill-list">
+                            @foreach (var branch in _request.Branches)
+                            {
+                                <li>
+                                    <span>@branch</span>
+                                    <button type="button" @onclick="(() => RemoveBranch(branch))">x</button>
+                                </li>
+                            }
+                        </ul>
+                    }
+                }
+                else if (_step == 6)
+                {
+                    <h3>Step 6: User Setup</h3>
+                    <h4>First Admin</h4>
+                    <div class="portal-grid portal-grid-2">
+                        <div class="portal-form-row"><label>Full Name</label><input class="portal-input" @bind="_request.AdminUser.FullName" /></div>
+                        <div class="portal-form-row"><label>Email</label><input class="portal-input" @bind="_request.AdminUser.Email" /></div>
+                        <div class="portal-form-row"><label>Phone</label><input class="portal-input" @bind="_request.AdminUser.Phone" /></div>
+                    </div>
+
+                    <h4>Additional Users (Maker, Checker, Approver)</h4>
+                    @foreach (var invite in _request.AdditionalUsers.ToList())
+                    {
+                        <div class="portal-grid portal-grid-3 portal-onboarding-user-row">
+                            <input class="portal-input" placeholder="Full name" @bind="invite.FullName" />
+                            <input class="portal-input" placeholder="Email" @bind="invite.Email" />
+                            <div class="portal-onboarding-inline">
+                                <select class="portal-input" @bind="invite.Role">
+                                    <option value="@nameof(InstitutionRole.Maker)">Maker</option>
+                                    <option value="@nameof(InstitutionRole.Checker)">Checker</option>
+                                    <option value="@nameof(InstitutionRole.Approver)">Approver</option>
+                                </select>
+                                <button class="portal-btn portal-btn-ghost" @onclick="(() => RemoveInvite(invite))" type="button">Remove</button>
+                            </div>
+                        </div>
+                    }
+                    <button class="portal-btn portal-btn-outline" @onclick="AddInvite" type="button">Add User</button>
+                }
+                else if (_step == 7)
+                {
+                    <h3>Step 7: Workflow Configuration</h3>
+                    <label class="portal-onboarding-checkitem">
+                        <input type="checkbox" @bind="_request.Workflow.EnableMakerChecker" />
+                        <span><strong>Enable maker-checker workflow</strong><small>Require checker review before final acceptance.</small></span>
+                    </label>
+                    <div class="portal-grid portal-grid-2">
+                        <div class="portal-form-row">
+                            <label>Approval Threshold (NGN)</label>
+                            <input class="portal-input" type="number" step="0.01" @bind="_request.Workflow.ApprovalThreshold" />
+                        </div>
+                        <label class="portal-onboarding-checkitem">
+                            <input type="checkbox" @bind="_request.Workflow.AllowDelegation" />
+                            <span><strong>Allow delegated approvals</strong><small>Enable temporary delegation during absence.</small></span>
+                        </label>
+                    </div>
+                }
+                else if (_step == 8)
+                {
+                    <h3>Step 8: Branding</h3>
+                    <div class="portal-grid portal-grid-2">
+                        <div class="portal-form-row"><label>Primary Color</label><input class="portal-input" type="color" @bind="_request.Branding.PrimaryColor" /></div>
+                        <div class="portal-form-row"><label>Secondary Color</label><input class="portal-input" type="color" @bind="_request.Branding.SecondaryColor" /></div>
+                        <div class="portal-form-row"><label>Accent Color</label><input class="portal-input" type="color" @bind="_request.Branding.AccentColor" /></div>
+                        <div class="portal-form-row">
+                            <label>Logo Upload</label>
+                            <InputFile OnChange="OnLogoSelected" accept=".png,.svg,.jpg,.jpeg" />
+                            @if (!string.IsNullOrWhiteSpace(_logoFileName))
+                            {
+                                <small>Selected: @_logoFileName</small>
+                            }
+                        </div>
+                    </div>
+                    <div class="portal-onboarding-brand-preview"
+                         style="--onb-primary:@(_request.Branding.PrimaryColor ?? "#006B3F");--onb-secondary:@(_request.Branding.SecondaryColor ?? "#E5F4EC");--onb-accent:@(_request.Branding.AccentColor ?? "#0EA5E9");">
+                        <strong>@(_request.Profile.InstitutionName ?? "Institution Name")</strong>
+                        <p>Branding preview for dashboard cards and action buttons.</p>
+                    </div>
+                }
+
+                <div class="portal-onboarding-actions">
+                    <button class="portal-btn portal-btn-outline" @onclick="PreviousStep" disabled="@(_step == 1 || _submitting)" type="button">Back</button>
+                    @if (_step < TotalSteps)
+                    {
+                        <button class="portal-btn portal-btn-primary" @onclick="NextStep" disabled="@_submitting" type="button">Next</button>
+                    }
+                    else
+                    {
+                        <button class="portal-btn portal-btn-primary" @onclick="Submit" disabled="@_submitting" type="button">
+                            @(_submitting ? "Provisioning..." : "Complete Onboarding")
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private const int TotalSteps = 8;
+    private static readonly string[] StepLabels =
+    [
+        "Profile",
+        "Licence",
+        "Modules",
+        "Plan",
+        "Entities",
+        "Users",
+        "Workflow",
+        "Branding"
+    ];
+
+    private readonly OnboardingWizardRequest _request = new()
+    {
+        PlanCode = "STARTER",
+        Workflow = new WorkflowStep
+        {
+            EnableMakerChecker = true,
+            ApprovalThreshold = 0,
+            AllowDelegation = false
+        },
+        Branding = new BrandingStep
+        {
+            PrimaryColor = "#006B3F",
+            SecondaryColor = "#0F172A",
+            AccentColor = "#0891B2"
+        }
+    };
+
+    private OnboardingLookupData _lookup = new();
+    private List<OnboardingModuleOption> _eligibleModules = new();
+    private OnboardingCostEstimate _estimate = new();
+    private int _step = 1;
+    private bool _loading = true;
+    private bool _submitting;
+    private string? _error;
+    private string _branchInput = string.Empty;
+    private string? _logoFileName;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _lookup = await WizardService.GetLookupData();
+            if (_lookup.Plans.Count > 0 && string.IsNullOrWhiteSpace(_request.PlanCode))
+            {
+                _request.PlanCode = _lookup.Plans[0].PlanCode;
+            }
+
+            await RefreshEligibilityAndCost();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshEligibilityAndCost()
+    {
+        _eligibleModules = (await WizardService.GetEligibleModules(_request.LicenceTypeCodes, _request.PlanCode))
+            .ToList();
+
+        var eligibleSet = _eligibleModules
+            .Where(x => x.IsAvailableOnPlan)
+            .Select(x => x.ModuleCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        _request.ModuleCodes = _request.ModuleCodes
+            .Where(eligibleSet.Contains)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        foreach (var required in _eligibleModules.Where(x => x.IsRequired && x.IsAvailableOnPlan).Select(x => x.ModuleCode))
+        {
+            if (!_request.ModuleCodes.Contains(required, StringComparer.OrdinalIgnoreCase))
+            {
+                _request.ModuleCodes.Add(required);
+            }
+        }
+
+        _estimate = await WizardService.EstimateMonthlyCost(
+            _request.PlanCode,
+            _request.LicenceTypeCodes,
+            _request.ModuleCodes);
+    }
+
+    private async Task ToggleLicence(string code, object? value)
+    {
+        var enabled = value as bool? == true;
+        if (enabled)
+        {
+            if (!_request.LicenceTypeCodes.Contains(code, StringComparer.OrdinalIgnoreCase))
+            {
+                _request.LicenceTypeCodes.Add(code);
+            }
+        }
+        else
+        {
+            _request.LicenceTypeCodes.RemoveAll(x => string.Equals(x, code, StringComparison.OrdinalIgnoreCase));
+        }
+
+        await RefreshEligibilityAndCost();
+    }
+
+    private async Task ToggleModule(string code, object? value)
+    {
+        var enabled = value as bool? == true;
+        var module = _eligibleModules.FirstOrDefault(x => string.Equals(x.ModuleCode, code, StringComparison.OrdinalIgnoreCase));
+        if (module is not null && module.IsRequired)
+        {
+            return;
+        }
+
+        if (enabled)
+        {
+            if (!_request.ModuleCodes.Contains(code, StringComparer.OrdinalIgnoreCase))
+            {
+                _request.ModuleCodes.Add(code);
+            }
+        }
+        else
+        {
+            _request.ModuleCodes.RemoveAll(x => string.Equals(x, code, StringComparison.OrdinalIgnoreCase));
+        }
+
+        await RefreshEligibilityAndCost();
+    }
+
+    private async Task SelectPlan(string planCode)
+    {
+        _request.PlanCode = planCode;
+        await RefreshEligibilityAndCost();
+    }
+
+    private void AddBranch()
+    {
+        var name = _branchInput.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return;
+        }
+
+        if (!_request.Branches.Contains(name, StringComparer.OrdinalIgnoreCase))
+        {
+            _request.Branches.Add(name);
+        }
+
+        _branchInput = string.Empty;
+    }
+
+    private void RemoveBranch(string name)
+    {
+        _request.Branches.RemoveAll(x => string.Equals(x, name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void AddInvite()
+    {
+        _request.AdditionalUsers.Add(new AdditionalUserInvite
+        {
+            Role = nameof(InstitutionRole.Maker)
+        });
+    }
+
+    private void RemoveInvite(AdditionalUserInvite invite)
+    {
+        _request.AdditionalUsers.Remove(invite);
+    }
+
+    private async Task OnLogoSelected(InputFileChangeEventArgs args)
+    {
+        var file = args.File;
+        if (file is null)
+        {
+            return;
+        }
+
+        await using var stream = file.OpenReadStream(2 * 1024 * 1024);
+        using var ms = new MemoryStream();
+        await stream.CopyToAsync(ms);
+
+        _request.Branding.LogoBytes = ms.ToArray();
+        _request.Branding.LogoFileName = file.Name;
+        _request.Branding.LogoContentType = file.ContentType;
+        _logoFileName = file.Name;
+    }
+
+    private void NextStep()
+    {
+        _error = null;
+        if (_step < TotalSteps)
+        {
+            _step++;
+        }
+    }
+
+    private void PreviousStep()
+    {
+        _error = null;
+        if (_step > 1)
+        {
+            _step--;
+        }
+    }
+
+    private async Task Submit()
+    {
+        _submitting = true;
+        _error = null;
+
+        try
+        {
+            var result = await WizardService.CompleteOnboarding(_request);
+            if (!result.Success)
+            {
+                _error = result.Errors.Count > 0
+                    ? string.Join(" ", result.Errors)
+                    : "Onboarding failed.";
+                return;
+            }
+
+            var temp = Uri.EscapeDataString(result.AdminTemporaryPassword);
+            var duration = result.ProvisioningDurationMs.ToString();
+            Navigation.NavigateTo($"/onboarding/checklist/{result.TenantId}?temp={temp}&durationMs={duration}", forceLoad: true);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private string GetStepClass(int idx)
+    {
+        if (idx == _step) return "active";
+        if (idx < _step) return "complete";
+        return string.Empty;
+    }
+
+    private static string FormatMoney(decimal amount) => $"NGN {amount:N2}";
+}

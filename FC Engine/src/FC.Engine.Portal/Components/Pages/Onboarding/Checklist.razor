@@ -1,0 +1,93 @@
+@page "/onboarding/checklist/{TenantId:guid}"
+@layout LoginLayout
+@inject OnboardingWizardService WizardService
+
+<PageTitle>Onboarding Checklist — FC Engine Portal</PageTitle>
+
+<div class="portal-onboarding-shell">
+    <div class="portal-onboarding-header">
+        <h1>Getting Started Checklist</h1>
+        <p>Track onboarding completion and finish setup tasks for your institution.</p>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(_tempPassword))
+    {
+        <div class="portal-alert portal-alert-warning">
+            Temporary admin password: <strong>@_tempPassword</strong>
+        </div>
+    }
+
+    @if (_snapshot is null)
+    {
+        <div class="portal-card"><div class="portal-card-body">Checklist not found for this tenant.</div></div>
+    }
+    else
+    {
+        <div class="portal-card portal-onboarding-card">
+            <div class="portal-card-body">
+                <h3>@_snapshot.TenantName</h3>
+                @if (_provisioningDurationMs > 0)
+                {
+                    <p>Provisioning duration: @_provisioningDurationMs ms</p>
+                }
+
+                <div class="portal-onboarding-progress">
+                    <div class="portal-onboarding-progress-bar" style="width:@(_snapshot.CompletionPercent)%"></div>
+                    <span>@_snapshot.CompletionPercent% Complete</span>
+                </div>
+
+                <div class="portal-onboarding-checklist">
+                    @foreach (var item in _snapshot.Items)
+                    {
+                        <div class="portal-onboarding-checkitem @(item.IsComplete ? "done" : "todo")">
+                            <span class="portal-onboarding-checkmark">@(item.IsComplete ? "OK" : "...")</span>
+                            <span>
+                                <strong>@item.Title</strong>
+                                <small>@item.Description</small>
+                            </span>
+                            @if (!item.IsComplete)
+                            {
+                                <a class="portal-btn portal-btn-sm" href="@item.ActionUrl">@item.ActionLabel</a>
+                            }
+                        </div>
+                    }
+                </div>
+
+                @if (_snapshot.CompletionPercent == 100)
+                {
+                    <div class="portal-alert portal-alert-success">
+                        You are all set. Your RegOS setup is complete.
+                    </div>
+                }
+
+                <div class="portal-onboarding-actions">
+                    <a class="portal-btn portal-btn-outline" href="/login">Sign In</a>
+                    <a class="portal-btn portal-btn-primary" href="/onboarding/sandbox">Create Training Sandbox</a>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public Guid TenantId { get; set; }
+
+    [SupplyParameterFromQuery(Name = "temp")]
+    private string? tempPasswordEncoded { get; set; }
+
+    [SupplyParameterFromQuery(Name = "durationMs")]
+    private long? durationMs { get; set; }
+
+    private OnboardingChecklistSnapshot? _snapshot;
+    private string? _tempPassword;
+    private long _provisioningDurationMs;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _snapshot = await WizardService.GetChecklist(TenantId);
+        _tempPassword = string.IsNullOrWhiteSpace(tempPasswordEncoded)
+            ? null
+            : Uri.UnescapeDataString(tempPasswordEncoded);
+        _provisioningDurationMs = durationMs ?? 0;
+    }
+}

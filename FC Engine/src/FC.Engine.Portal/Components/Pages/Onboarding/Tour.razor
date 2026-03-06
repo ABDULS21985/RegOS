@@ -1,0 +1,65 @@
+@page "/onboarding/tour/{Role}"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@inject OnboardingWizardService WizardService
+@inject ITenantContext TenantContext
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Guided Tour — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-page-header">
+        <h1 class="portal-page-title">@_definition.Title</h1>
+        <p class="portal-page-subtitle">Follow the highlighted steps to complete onboarding orientation.</p>
+    </div>
+
+    @if (!_tourFinished)
+    {
+        <GuidedTour Steps="_definition.Steps" OnCompleted="OnCompleted" OnClosed="OnClosed" />
+    }
+    else
+    {
+        <div class="portal-alert portal-alert-success">
+            Guided tour completed.
+        </div>
+        <a class="portal-btn portal-btn-primary" href="/onboarding/checklist/@TenantContext.CurrentTenantId">Back to Checklist</a>
+    }
+</div>
+
+@code {
+    [Parameter] public string Role { get; set; } = "maker";
+
+    private GuidedTourDefinition _definition = GuidedTourCatalog.GetDefinition("maker");
+    private bool _tourFinished;
+
+    protected override void OnParametersSet()
+    {
+        _definition = GuidedTourCatalog.GetDefinition(Role);
+    }
+
+    private async Task OnCompleted()
+    {
+        _tourFinished = true;
+
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var performedBy = state.User.Identity?.Name
+            ?? state.User.FindFirst("DisplayName")?.Value
+            ?? "institution-user";
+
+        await WizardService.MarkGuidedTourCompleted(
+            TenantContext.CurrentTenantId.Value,
+            _definition.Role,
+            performedBy);
+    }
+
+    private Task OnClosed()
+    {
+        Navigation.NavigateTo("/", forceLoad: false);
+        return Task.CompletedTask;
+    }
+}

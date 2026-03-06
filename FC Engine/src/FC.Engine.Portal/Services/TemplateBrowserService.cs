@@ -111,6 +111,7 @@ public class TemplateBrowserService
                     AllowedValues = f.AllowedValues,
                     SectionName = f.SectionName ?? "General",
                     HelpText = localized?.HelpText ?? f.HelpText,
+                    RegulatoryReference = f.RegulatoryReference,
                     FieldOrder = f.FieldOrder
                 };
             })
@@ -364,6 +365,7 @@ public class FieldDisplayItem
     public string? AllowedValues { get; set; }
     public string SectionName { get; set; } = "General";
     public string? HelpText { get; set; }
+    public string? RegulatoryReference { get; set; }
     public int FieldOrder { get; set; }
 
     public string ConstraintsSummary

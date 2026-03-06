@@ -1,0 +1,155 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@if (_visible && Steps.Count > 0)
+{
+    <div class="portal-tour-backdrop" @onclick="Close"></div>
+    <div class="portal-tour-card" style="@GetCardStyle()" role="dialog" aria-live="polite">
+        <div class="portal-tour-header">
+            <h3>@CurrentStep.Title</h3>
+            <button class="portal-tour-close" @onclick="Close" type="button" aria-label="Close guided tour">x</button>
+        </div>
+        <p class="portal-tour-description">@CurrentStep.Description</p>
+        <div class="portal-tour-footer">
+            <span class="portal-tour-progress">Step @(_currentIndex + 1) of @Steps.Count</span>
+            <div class="portal-tour-actions">
+                <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="Previous" disabled="@(_currentIndex == 0)" type="button">Back</button>
+                @if (_currentIndex == Steps.Count - 1)
+                {
+                    <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="Complete" type="button">Finish</button>
+                }
+                else
+                {
+                    <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="Next" type="button">Next</button>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public IReadOnlyList<GuidedTourStepDefinition> Steps { get; set; } = Array.Empty<GuidedTourStepDefinition>();
+    [Parameter] public EventCallback OnCompleted { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private int _currentIndex;
+    private bool _visible = true;
+    private TourTargetRect _targetRect = new();
+    private bool _positionResolved;
+
+    private GuidedTourStepDefinition CurrentStep => Steps[_currentIndex];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_visible || Steps.Count == 0)
+        {
+            return;
+        }
+
+        if (firstRender || !_positionResolved)
+        {
+            await ResolveCurrentStepPosition();
+        }
+    }
+
+    private async Task ResolveCurrentStepPosition()
+    {
+        var rect = await JS.InvokeAsync<TourTargetRect?>("portalTour.highlight", CurrentStep.TargetSelector);
+        _targetRect = rect ?? new TourTargetRect();
+        _positionResolved = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Next()
+    {
+        if (_currentIndex >= Steps.Count - 1)
+        {
+            return;
+        }
+
+        _currentIndex++;
+        _positionResolved = false;
+        await ResolveCurrentStepPosition();
+    }
+
+    private async Task Previous()
+    {
+        if (_currentIndex <= 0)
+        {
+            return;
+        }
+
+        _currentIndex--;
+        _positionResolved = false;
+        await ResolveCurrentStepPosition();
+    }
+
+    private async Task Complete()
+    {
+        _visible = false;
+        await JS.InvokeVoidAsync("portalTour.clear");
+        if (OnCompleted.HasDelegate)
+        {
+            await OnCompleted.InvokeAsync();
+        }
+    }
+
+    private async Task Close()
+    {
+        _visible = false;
+        await JS.InvokeVoidAsync("portalTour.clear");
+        if (OnClosed.HasDelegate)
+        {
+            await OnClosed.InvokeAsync();
+        }
+    }
+
+    private string GetCardStyle()
+    {
+        if (_targetRect.Width <= 0 || _targetRect.Height <= 0)
+        {
+            return "top: 20%; left: 50%; transform: translateX(-50%);";
+        }
+
+        var top = _targetRect.Top + _targetRect.Height + 16;
+        var left = _targetRect.Left;
+        var position = (CurrentStep.Position ?? "bottom").Trim().ToLowerInvariant();
+
+        if (position == "top")
+        {
+            top = Math.Max(16, _targetRect.Top - 220);
+        }
+        else if (position == "left")
+        {
+            left = Math.Max(16, _targetRect.Left - 380);
+            top = _targetRect.Top;
+        }
+        else if (position == "right")
+        {
+            left = _targetRect.Left + _targetRect.Width + 16;
+            top = _targetRect.Top;
+        }
+
+        return $"top:{top}px;left:{left}px;";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("portalTour.clear");
+        }
+        catch
+        {
+            // Ignore disposal-time JS failures.
+        }
+    }
+
+    public class TourTargetRect
+    {
+        public double Top { get; set; }
+        public double Left { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+}

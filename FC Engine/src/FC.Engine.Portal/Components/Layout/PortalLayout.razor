@@ -5,6 +5,7 @@
 @inject NavigationManager Navigation
 @inject ITenantBrandingService BrandingService
 @inject ITenantContext TenantContext
+@inject SandboxService SandboxService
 @implements IDisposable
 
 <TenantThemeProvider />
@@ -118,6 +119,22 @@
         </header>
 
         <main id="main-content" class="portal-content" role="main">
+            @if (_sandboxContext?.IsSandbox == true)
+            {
+                <div class="portal-sandbox-banner">
+                    <span>
+                        TRAINING MODE: This is a sandbox environment. Data here does not affect production.
+                    </span>
+                    <div class="portal-sandbox-actions">
+                        <button class="portal-btn portal-btn-sm portal-btn-outline" @onclick="SwitchToProduction" type="button">Switch to Production</button>
+                        <button class="portal-btn portal-btn-sm portal-btn-outline" @onclick="ResetSandboxData" disabled="@_sandboxBusy" type="button">Reset Sandbox Data</button>
+                    </div>
+                </div>
+            }
+            @if (!string.IsNullOrWhiteSpace(_sandboxMessage))
+            {
+                <div class="portal-alert portal-alert-info">@_sandboxMessage</div>
+            }
             @Body
         </main>
     </div>
@@ -139,6 +156,9 @@
     private string _currentPageName = "Dashboard";
     private string _liveAnnouncement = "";
     private BrandingConfig _branding = BrandingConfig.WithDefaults();
+    private SandboxContext? _sandboxContext;
+    private bool _sandboxBusy;
+    private string? _sandboxMessage;
 
     protected override void OnInitialized()
     {
@@ -151,6 +171,7 @@
         if (TenantContext.CurrentTenantId.HasValue)
         {
             _branding = await BrandingService.GetBrandingConfig(TenantContext.CurrentTenantId.Value);
+            _sandboxContext = await SandboxService.GetContext(TenantContext.CurrentTenantId.Value);
         }
     }
 
@@ -195,6 +216,11 @@
             "help/validation-errors" => "Validation Errors",
             "help/faq" => "FAQ",
             "help/support" => "Contact Support",
+            "help/knowledge-base" => "Knowledge Base",
+            "onboarding/wizard" => "Onboarding Wizard",
+            var p when p.StartsWith("onboarding/checklist/") => "Onboarding Checklist",
+            "onboarding/sandbox" => "Training Sandbox",
+            var p when p.StartsWith("onboarding/tour/") => "Guided Tour",
             "institution" => "My Institution",
             "institution/team" => "Team Members",
             "institution/settings" => "Settings",
@@ -217,6 +243,42 @@
     {
         if (e.Key == "Escape" && _sidebarOpen)
             _sidebarOpen = false;
+    }
+
+    private void SwitchToProduction()
+    {
+        var target = _sandboxContext?.ProductionLoginUrl;
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            target = "/login";
+        }
+
+        Navigation.NavigateTo(target, forceLoad: true);
+    }
+
+    private async Task ResetSandboxData()
+    {
+        if (_sandboxContext is null || !_sandboxContext.IsSandbox || _sandboxBusy)
+        {
+            return;
+        }
+
+        _sandboxBusy = true;
+        _sandboxMessage = null;
+        try
+        {
+            await SandboxService.ResetSandbox(_sandboxContext.CurrentTenantId);
+            _sandboxMessage = "Sandbox data reset and sample data reloaded.";
+        }
+        catch (Exception ex)
+        {
+            _sandboxMessage = ex.Message;
+        }
+        finally
+        {
+            _sandboxBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private static string GetInitials(string name)

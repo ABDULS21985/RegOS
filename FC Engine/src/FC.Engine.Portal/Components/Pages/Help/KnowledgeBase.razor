@@ -1,0 +1,82 @@
+@page "/help/knowledge-base"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "InstitutionUser")]
+@inject KnowledgeBaseService KnowledgeBaseService
+
+<PageTitle>Knowledge Base — Help Center — FC Engine Portal</PageTitle>
+
+<HelpLayout>
+    <div class="help-article">
+        <h2 class="help-article-title">Knowledge Base</h2>
+        <p class="help-article-intro">Search onboarding, filing, troubleshooting, and module-specific guidance.</p>
+
+        <div class="portal-grid portal-grid-3">
+            <div class="portal-form-row">
+                <label>Search</label>
+                <input class="portal-input" @bind="_query" @bind:event="oninput" placeholder="keyword..." />
+            </div>
+            <div class="portal-form-row">
+                <label>Category</label>
+                <select class="portal-input" @bind="_category">
+                    <option value="">All</option>
+                    @foreach (var category in _categories)
+                    {
+                        <option value="@category">@category</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-row">
+                <label>Module</label>
+                <select class="portal-input" @bind="_moduleCode">
+                    <option value="">All</option>
+                    @foreach (var module in _modules)
+                    {
+                        <option value="@module">@module</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="Load">Search</button>
+
+        <div class="portal-onboarding-checklist" style="margin-top:1rem;">
+            @if (_articles.Count == 0)
+            {
+                <div class="portal-card"><div class="portal-card-body">No articles found for this filter.</div></div>
+            }
+            else
+            {
+                @foreach (var article in _articles)
+                {
+                    <article class="portal-card">
+                        <div class="portal-card-body">
+                            <h3>@article.Title</h3>
+                            <p><strong>Category:</strong> @article.Category @if (!string.IsNullOrWhiteSpace(article.ModuleCode)) { <span> • @article.ModuleCode</span> }</p>
+                            <p style="white-space: pre-wrap;">@article.Content</p>
+                        </div>
+                    </article>
+                }
+            }
+        </div>
+    </div>
+</HelpLayout>
+
+@code {
+    private string _query = string.Empty;
+    private string _moduleCode = string.Empty;
+    private string _category = string.Empty;
+    private List<string> _modules = new();
+    private List<string> _categories = new();
+    private List<KnowledgeBaseArticleView> _articles = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _modules = (await KnowledgeBaseService.GetModules()).ToList();
+        _categories = (await KnowledgeBaseService.GetCategories()).ToList();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _articles = (await KnowledgeBaseService.Search(_query, _moduleCode, _category)).ToList();
+    }
+}
