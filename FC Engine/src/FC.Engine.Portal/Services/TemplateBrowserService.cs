@@ -16,19 +16,25 @@ public class TemplateBrowserService
     private readonly IXsdGenerator _xsdGenerator;
     private readonly IEntitlementService _entitlementService;
     private readonly ITenantContext _tenantContext;
+    private readonly IFieldLocalisationService _fieldLocalisationService;
+    private readonly IUserLanguagePreferenceService _languagePreferenceService;
 
     public TemplateBrowserService(
         ITemplateMetadataCache templateCache,
         ISubmissionRepository submissionRepo,
         IXsdGenerator xsdGenerator,
         IEntitlementService entitlementService,
-        ITenantContext tenantContext)
+        ITenantContext tenantContext,
+        IFieldLocalisationService fieldLocalisationService,
+        IUserLanguagePreferenceService languagePreferenceService)
     {
         _templateCache = templateCache;
         _submissionRepo = submissionRepo;
         _xsdGenerator = xsdGenerator;
         _entitlementService = entitlementService;
         _tenantContext = tenantContext;
+        _fieldLocalisationService = fieldLocalisationService;
+        _languagePreferenceService = languagePreferenceService;
     }
 
     /// <summary>
@@ -80,24 +86,33 @@ public class TemplateBrowserService
         }
 
         var version = template.CurrentVersion;
+        var language = await _languagePreferenceService.GetCurrentLanguage(ct);
+        var localisations = await _fieldLocalisationService.GetLocalisations(
+            version.Fields.Select(f => f.Id),
+            language,
+            ct);
 
         var fields = version.Fields
-            .Select(f => new FieldDisplayItem
+            .Select(f =>
             {
-                FieldName = f.FieldName,
-                DisplayName = f.DisplayName,
-                XmlElementName = f.XmlElementName,
-                DataType = f.DataType.ToString(),
-                IsRequired = f.IsRequired,
-                IsComputed = f.IsComputed,
-                IsKeyField = f.IsKeyField,
-                MinValue = f.MinValue,
-                MaxValue = f.MaxValue,
-                MaxLength = f.MaxLength,
-                AllowedValues = f.AllowedValues,
-                SectionName = f.SectionName ?? "General",
-                HelpText = f.HelpText,
-                FieldOrder = f.FieldOrder
+                localisations.TryGetValue(f.Id, out var localized);
+                return new FieldDisplayItem
+                {
+                    FieldName = f.FieldName,
+                    DisplayName = localized?.Label ?? f.DisplayName,
+                    XmlElementName = f.XmlElementName,
+                    DataType = f.DataType.ToString(),
+                    IsRequired = f.IsRequired,
+                    IsComputed = f.IsComputed,
+                    IsKeyField = f.IsKeyField,
+                    MinValue = f.MinValue,
+                    MaxValue = f.MaxValue,
+                    MaxLength = f.MaxLength,
+                    AllowedValues = f.AllowedValues,
+                    SectionName = f.SectionName ?? "General",
+                    HelpText = localized?.HelpText ?? f.HelpText,
+                    FieldOrder = f.FieldOrder
+                };
             })
             .OrderBy(f => f.SectionName)
             .ThenBy(f => f.FieldOrder)

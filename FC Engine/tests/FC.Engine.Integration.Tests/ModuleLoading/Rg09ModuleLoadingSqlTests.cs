@@ -15,9 +15,9 @@ using FC.Engine.Infrastructure.Persistence;
 using FC.Engine.Infrastructure.Services;
 using FC.Engine.Infrastructure.Validation;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -147,7 +147,7 @@ public class Rg09ModuleLoadingSqlTests : IAsyncLifetime
         await using var cacheProvider = BuildCacheServiceProvider(tenantContext);
         var templateCache = new TemplateMetadataCache(cacheProvider);
         var dataRepo = new GenericDataRepository(
-            new TenantAwareConnectionFactory(BuildConfiguration()),
+            new TenantAwareConnectionFactory(new StaticDataResidencyRouter(_connectionString), new HttpContextAccessor()),
             tenantContext,
             templateCache,
             new DynamicSqlBuilder(),
@@ -685,16 +685,6 @@ public class Rg09ModuleLoadingSqlTests : IAsyncLifetime
         return new MetadataDbContext(options);
     }
 
-    private IConfiguration BuildConfiguration()
-    {
-        return new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["ConnectionStrings:FcEngine"] = _connectionString
-            })
-            .Build();
-    }
-
     private ServiceProvider BuildCacheServiceProvider(ITenantContext tenantContext)
     {
         var services = new ServiceCollection();
@@ -802,6 +792,22 @@ public class Rg09ModuleLoadingSqlTests : IAsyncLifetime
             => Task.FromResult(true);
 
         public Task InvalidateCache(Guid tenantId) => Task.CompletedTask;
+    }
+
+    private sealed class StaticDataResidencyRouter : IDataResidencyRouter
+    {
+        private readonly string _connectionString;
+
+        public StaticDataResidencyRouter(string connectionString)
+        {
+            _connectionString = connectionString;
+        }
+
+        public Task<string> ResolveConnectionString(Guid? tenantId, CancellationToken ct = default)
+            => Task.FromResult(_connectionString);
+
+        public Task<string> ResolveRegion(Guid? tenantId, CancellationToken ct = default)
+            => Task.FromResult("SQL-Test");
     }
 
     private sealed class NoopTemplateMetadataCache : ITemplateMetadataCache

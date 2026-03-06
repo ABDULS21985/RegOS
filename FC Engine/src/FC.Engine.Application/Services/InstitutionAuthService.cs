@@ -141,6 +141,7 @@ public class InstitutionAuthService
             Email = email,
             DisplayName = displayName,
             PasswordHash = HashPassword(password),
+            PreferredLanguage = "en",
             Role = role,
             IsActive = true,
             MustChangePassword = true,
@@ -238,6 +239,7 @@ public class InstitutionAuthService
             new(ClaimTypes.Email, user.Email),
             new("DisplayName", user.DisplayName),
             new(ClaimTypes.Role, user.Role.ToString()),
+            new("lang", string.IsNullOrWhiteSpace(user.PreferredLanguage) ? "en" : user.PreferredLanguage),
             new("InstitutionId", user.InstitutionId.ToString()),
             new("InstitutionName", user.Institution?.InstitutionName ?? "Unknown"),
             new("TenantId", user.TenantId.ToString())

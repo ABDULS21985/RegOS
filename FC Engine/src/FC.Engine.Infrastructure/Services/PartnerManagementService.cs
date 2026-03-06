@@ -46,6 +46,7 @@ public class PartnerManagementService : IPartnerManagementService
             SubscriptionPlanCode = request.SubscriptionPlanCode,
             AdminEmail = request.AdminEmail,
             AdminFullName = request.AdminFullName,
+            JurisdictionCode = "NG",
             InstitutionCode = BuildInstitutionCode(request.TenantName),
             InstitutionName = $"{request.TenantName} Partner",
             InstitutionType = "Partner"
@@ -113,6 +114,7 @@ public class PartnerManagementService : IPartnerManagementService
             SubscriptionPlanCode = request.SubscriptionPlanCode,
             AdminEmail = request.AdminEmail,
             AdminFullName = request.AdminFullName,
+            JurisdictionCode = request.JurisdictionCode,
             InstitutionCode = request.InstitutionCode,
             InstitutionName = request.InstitutionName,
             InstitutionType = request.InstitutionType

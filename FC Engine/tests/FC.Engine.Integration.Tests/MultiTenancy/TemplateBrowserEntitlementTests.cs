@@ -28,6 +28,14 @@ public class TemplateBrowserEntitlementTests
         var submissionRepo = new Mock<ISubmissionRepository>();
         var xsdGenerator = new Mock<IXsdGenerator>();
         var entitlement = new Mock<IEntitlementService>();
+        var localisationService = new Mock<IFieldLocalisationService>();
+        localisationService
+            .Setup(x => x.GetLocalisations(It.IsAny<IEnumerable<int>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<int, FieldLocalisationValue>());
+        var languagePreference = new Mock<IUserLanguagePreferenceService>();
+        languagePreference
+            .Setup(x => x.GetCurrentLanguage(It.IsAny<CancellationToken>()))
+            .ReturnsAsync("en");
         entitlement.Setup(e => e.ResolveEntitlements(tenantId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new TenantEntitlement
             {
@@ -52,13 +60,55 @@ public class TemplateBrowserEntitlementTests
             submissionRepo.Object,
             xsdGenerator.Object,
             entitlement.Object,
-            tenantContext);
+            tenantContext,
+            localisationService.Object,
+            languagePreference.Object);
 
         var templates = await sut.GetAllTemplates();
 
         templates.Select(t => t.ReturnCode).Should().Contain("FC_COV");
         templates.Select(t => t.ReturnCode).Should().Contain("BDC_COV");
         templates.Select(t => t.ReturnCode).Should().NotContain("MFB_COV");
+    }
+
+    [Fact]
+    public async Task GetTemplateDetail_Applies_Field_Localisation_For_User_Language()
+    {
+        var cache = new Mock<ITemplateMetadataCache>();
+        cache.Setup(c => c.GetPublishedTemplate("FC_COV", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CreateCachedTemplate("FC_COV", "FC_RETURNS"));
+
+        var submissionRepo = new Mock<ISubmissionRepository>();
+        var xsdGenerator = new Mock<IXsdGenerator>();
+        var entitlement = new Mock<IEntitlementService>();
+        var tenantContext = new StubTenantContext(Guid.NewGuid());
+        var localisationService = new Mock<IFieldLocalisationService>();
+        localisationService
+            .Setup(x => x.GetLocalisations(It.IsAny<IEnumerable<int>>(), "fr", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<int, FieldLocalisationValue>
+            {
+                [10] = new() { Label = "Nom localise", HelpText = "Texte d'aide" }
+            });
+        var languagePreference = new Mock<IUserLanguagePreferenceService>();
+        languagePreference
+            .Setup(x => x.GetCurrentLanguage(It.IsAny<CancellationToken>()))
+            .ReturnsAsync("fr");
+
+        var sut = new TemplateBrowserService(
+            cache.Object,
+            submissionRepo.Object,
+            xsdGenerator.Object,
+            entitlement.Object,
+            tenantContext,
+            localisationService.Object,
+            languagePreference.Object);
+
+        var detail = await sut.GetTemplateDetail("FC_COV");
+
+        detail.Should().NotBeNull();
+        detail!.Fields.Should().ContainSingle();
+        detail.Fields[0].DisplayName.Should().Be("Nom localise");
+        detail.Fields[0].HelpText.Should().Be("Texte d'aide");
     }
 
     private static CachedTemplate CreateCachedTemplate(string returnCode, string? moduleCode)
@@ -82,6 +132,7 @@ public class TemplateBrowserEntitlementTests
                 {
                     new()
                     {
+                        Id = 10,
                         FieldName = "sample",
                         DisplayName = "Sample",
                         XmlElementName = "Sample",

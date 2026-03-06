@@ -1,0 +1,69 @@
+{
+  "moduleCode": "GH_BANK_BOG",
+  "moduleVersion": "0.1.0-draft",
+  "description": "Draft Bank of Ghana prudential return structure for multi-jurisdiction expansion.",
+  "jurisdictionCode": "GH",
+  "regulatorCode": "BOG",
+  "templates": [
+    {
+      "returnCode": "BOG_COV",
+      "name": "Cover and Declaration",
+      "frequency": "Monthly",
+      "structuralCategory": "SingleRow"
+    },
+    {
+      "returnCode": "BOG_CAP",
+      "name": "Capital Adequacy",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow",
+      "keyFormulas": [
+        "CAR(total_qualifying_capital, risk_weighted_assets)",
+        "TIER1_RATIO(tier1_capital, risk_weighted_assets)"
+      ]
+    },
+    {
+      "returnCode": "BOG_AQR",
+      "name": "Asset Quality",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow",
+      "keyFormulas": [
+        "NPL_RATIO(non_performing_loans, gross_loans)"
+      ]
+    },
+    {
+      "returnCode": "BOG_LIQ",
+      "name": "Liquidity Coverage",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow",
+      "keyFormulas": [
+        "LCR(high_quality_liquid_assets, net_cash_outflows_30d)"
+      ]
+    },
+    {
+      "returnCode": "BOG_FIN",
+      "name": "Financial Statements Summary",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow"
+    },
+    {
+      "returnCode": "BOG_AML",
+      "name": "AML/CFT",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow",
+      "interModuleFlows": [
+        "BOG_AML.str_filed_count -> NFIU_STR.str_filed_count (Sum)",
+        "BOG_AML.ctr_filed_count -> NFIU_CTR.ctr_filed_count (Sum)"
+      ]
+    },
+    {
+      "returnCode": "BOG_DIC",
+      "name": "Data Dictionary and Validation Summary",
+      "frequency": "Monthly",
+      "structuralCategory": "SingleRow"
+    }
+  ],
+  "crossSheetRules": [
+    "BOG_CAP.total_assets == BOG_FIN.total_assets",
+    "BOG_AQR.gross_loans <= BOG_FIN.total_assets"
+  ]
+}

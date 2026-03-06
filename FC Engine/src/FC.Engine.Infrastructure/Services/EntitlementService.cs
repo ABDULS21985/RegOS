@@ -55,8 +55,35 @@ public class EntitlementService : IEntitlementService
         var matrixEntries = await _db.LicenceModuleMatrix
             .Where(lmm => licenceTypeIds.Contains(lmm.LicenceTypeId))
             .Include(lmm => lmm.Module)
+            .ThenInclude(m => m!.Jurisdiction)
             .Where(lmm => lmm.Module != null && lmm.Module.IsActive)
             .ToListAsync(ct);
+
+        var tenantJurisdictionIds = await _db.Institutions
+            .AsNoTracking()
+            .Where(i => i.TenantId == tenantId)
+            .Select(i => i.JurisdictionId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (tenantJurisdictionIds.Count == 0)
+        {
+            var nigeriaId = await _db.Jurisdictions
+                .AsNoTracking()
+                .Where(j => j.CountryCode == "NG")
+                .Select(j => j.Id)
+                .FirstOrDefaultAsync(ct);
+            if (nigeriaId > 0)
+            {
+                tenantJurisdictionIds.Add(nigeriaId);
+            }
+        }
+
+        matrixEntries = matrixEntries
+            .Where(lmm => lmm.Module is not null
+                       && (!lmm.Module.JurisdictionId.HasValue
+                           || tenantJurisdictionIds.Contains(lmm.Module.JurisdictionId.Value)))
+            .ToList();
 
         var eligibleModules = matrixEntries
             .GroupBy(lmm => lmm.ModuleId)
@@ -66,6 +93,8 @@ public class EntitlementService : IEntitlementService
                 return new EntitledModule
                 {
                     ModuleId = first.ModuleId,
+                    JurisdictionId = first.Module!.JurisdictionId,
+                    JurisdictionCode = first.Module.Jurisdiction?.CountryCode,
                     ModuleCode = first.Module!.ModuleCode,
                     ModuleName = first.Module.ModuleName,
                     RegulatorCode = first.Module.RegulatorCode,
@@ -174,6 +203,8 @@ public class EntitlementService : IEntitlementService
         return new EntitledModule
         {
             ModuleId = module.ModuleId,
+            JurisdictionId = module.JurisdictionId,
+            JurisdictionCode = module.JurisdictionCode,
             ModuleCode = module.ModuleCode,
             ModuleName = module.ModuleName,
             RegulatorCode = module.RegulatorCode,

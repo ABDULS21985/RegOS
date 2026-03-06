@@ -1,0 +1,75 @@
+{
+  "moduleCode": "KE_BANK_CBK",
+  "moduleVersion": "0.1.0-draft",
+  "description": "Draft Central Bank of Kenya prudential return structure for multi-jurisdiction expansion.",
+  "jurisdictionCode": "KE",
+  "regulatorCode": "CBK",
+  "templates": [
+    {
+      "returnCode": "CBK_COV",
+      "name": "Cover and Declaration",
+      "frequency": "Monthly",
+      "structuralCategory": "SingleRow"
+    },
+    {
+      "returnCode": "CBK_CAP",
+      "name": "Capital Adequacy",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow",
+      "keyFormulas": [
+        "TOTAL_CAPITAL_RATIO(total_capital, total_risk_weighted_assets)",
+        "CORE_CAPITAL_RATIO(core_capital, total_risk_weighted_assets)"
+      ]
+    },
+    {
+      "returnCode": "CBK_AQR",
+      "name": "Asset Quality and NPL",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow",
+      "keyFormulas": [
+        "NPL_RATIO(npl_balance, gross_loans)"
+      ]
+    },
+    {
+      "returnCode": "CBK_LIQ",
+      "name": "Liquidity Risk",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow",
+      "keyFormulas": [
+        "LIQUIDITY_RATIO(liquid_assets, short_term_liabilities)"
+      ]
+    },
+    {
+      "returnCode": "CBK_EAR",
+      "name": "Earnings and Profitability",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow"
+    },
+    {
+      "returnCode": "CBK_FIN",
+      "name": "Financial Statements Summary",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow"
+    },
+    {
+      "returnCode": "CBK_AML",
+      "name": "AML/CFT",
+      "frequency": "Monthly",
+      "structuralCategory": "FixedRow",
+      "interModuleFlows": [
+        "CBK_AML.str_filed_count -> NFIU_STR.str_filed_count (Sum)",
+        "CBK_AML.ctr_filed_count -> NFIU_CTR.ctr_filed_count (Sum)"
+      ]
+    },
+    {
+      "returnCode": "CBK_DIC",
+      "name": "Data Dictionary and Validation Summary",
+      "frequency": "Monthly",
+      "structuralCategory": "SingleRow"
+    }
+  ],
+  "crossSheetRules": [
+    "CBK_CAP.total_assets == CBK_FIN.total_assets",
+    "CBK_AQR.gross_loans <= CBK_FIN.total_assets"
+  ]
+}

@@ -6,6 +6,7 @@ using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.MultiTenancy;
 using FC.Engine.Infrastructure.Persistence.Interceptors;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -205,7 +206,7 @@ public class Rg12FilingCalendarIntegrationTests : IAsyncLifetime
     private MetadataDbContext CreateDbContext(Guid? tenantId = null)
     {
         var tenantContext = new StubTenantContext(tenantId);
-        var interceptor = new TenantSessionContextInterceptor(tenantContext);
+        var interceptor = new TenantSessionContextInterceptor(tenantContext, new HttpContextAccessor());
 
         var options = new DbContextOptionsBuilder<MetadataDbContext>()
             .UseSqlServer(_connectionString)

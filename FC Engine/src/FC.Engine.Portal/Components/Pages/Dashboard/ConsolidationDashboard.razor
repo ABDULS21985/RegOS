@@ -1,0 +1,109 @@
+@page "/dashboard/consolidation"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@inject ITenantContext TenantContext
+@inject IJurisdictionConsolidationService ConsolidationService
+
+<PageTitle>Cross-Jurisdiction Consolidation</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-page-header">
+        <div class="portal-page-header-main">
+            <h1 class="portal-page-title">Cross-Jurisdiction Consolidation</h1>
+            <p class="portal-page-subtitle">Aggregated filing and billing view across subsidiaries and jurisdictions.</p>
+        </div>
+    </div>
+
+    @if (_loading)
+    {
+        <div class="portal-loading"><div class="portal-spinner" aria-hidden="true"></div><p>Loading consolidation...</p></div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="portal-alert portal-alert-danger"><p>@_error</p></div>
+    }
+    else if (_data is not null)
+    {
+        <div class="portal-stats-row">
+            <div class="portal-stat-card">
+                <span class="portal-stat-value">@_data.SubsidiaryCount</span>
+                <span class="portal-stat-label">Subsidiaries</span>
+            </div>
+            <div class="portal-stat-card">
+                <span class="portal-stat-value">@_data.GrossAmount.ToString("N2") @_data.ReportingCurrency</span>
+                <span class="portal-stat-label">Gross</span>
+            </div>
+            <div class="portal-stat-card portal-stat-card-muted">
+                <span class="portal-stat-value">@_data.EliminationAdjustments.ToString("N2") @_data.ReportingCurrency</span>
+                <span class="portal-stat-label">Eliminations</span>
+            </div>
+            <div class="portal-stat-card portal-stat-card-success">
+                <span class="portal-stat-value">@_data.NetAmount.ToString("N2") @_data.ReportingCurrency</span>
+                <span class="portal-stat-label">Net Consolidated</span>
+            </div>
+        </div>
+
+        <div class="portal-card">
+            <h3 class="portal-card-title">By Jurisdiction</h3>
+            <div class="portal-table-responsive">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Jurisdiction</th>
+                            <th>Institutions</th>
+                            <th>Submissions</th>
+                            <th>Overdue</th>
+                            <th>Gross (Local)</th>
+                            <th>FX</th>
+                            <th>Gross (@_data.ReportingCurrency)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _data.Jurisdictions)
+                        {
+                            <tr>
+                                <td>@row.CountryCode - @row.CountryName</td>
+                                <td>@row.InstitutionCount</td>
+                                <td>@row.SubmissionCount</td>
+                                <td>@row.OverdueSubmissionCount</td>
+                                <td>@row.GrossAmountLocal.ToString("N2") @row.Currency</td>
+                                <td>@row.FxRateToReportingCurrency.ToString("N4")</td>
+                                <td>@row.GrossAmountReportingCurrency.ToString("N2") @_data.ReportingCurrency</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private CrossJurisdictionConsolidation? _data;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var tenantId = TenantContext.CurrentTenantId;
+            if (!tenantId.HasValue)
+            {
+                _error = "Tenant context unavailable.";
+                return;
+            }
+
+            _data = await ConsolidationService.GetConsolidation(tenantId.Value, "NGN");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

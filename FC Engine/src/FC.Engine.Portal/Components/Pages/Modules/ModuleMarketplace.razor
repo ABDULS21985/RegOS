@@ -72,6 +72,10 @@
                                 <span class="portal-card-meta-value">@module.RegulatorCode</span>
                             </div>
                             <div class="portal-card-meta-item">
+                                <span class="portal-card-meta-label">Jurisdiction</span>
+                                <span class="portal-card-meta-value">@module.Jurisdiction</span>
+                            </div>
+                            <div class="portal-card-meta-item">
                                 <span class="portal-card-meta-label">Sheets</span>
                                 <span class="portal-card-meta-value">@module.SheetCount</span>
                             </div>
@@ -129,9 +133,32 @@
                 .Select(m => m.ModuleCode)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
+            var tenantJurisdictionIds = await Db.Institutions
+                .AsNoTracking()
+                .Where(i => i.TenantId == tenantId.Value)
+                .Select(i => i.JurisdictionId)
+                .Distinct()
+                .ToListAsync();
+
+            if (tenantJurisdictionIds.Count == 0)
+            {
+                var nigeriaId = await Db.Jurisdictions
+                    .AsNoTracking()
+                    .Where(j => j.CountryCode == "NG")
+                    .Select(j => j.Id)
+                    .FirstOrDefaultAsync();
+
+                if (nigeriaId > 0)
+                {
+                    tenantJurisdictionIds.Add(nigeriaId);
+                }
+            }
+
             _allModules = await Db.Modules
                 .AsNoTracking()
-                .Where(m => m.IsActive)
+                .Include(m => m.Jurisdiction)
+                .Where(m => m.IsActive
+                         && (!m.JurisdictionId.HasValue || tenantJurisdictionIds.Contains(m.JurisdictionId.Value)))
                 .OrderBy(m => m.DisplayOrder)
                 .ThenBy(m => m.ModuleCode)
                 .Select(m => new ModuleViewModel
@@ -139,6 +166,7 @@
                     ModuleCode = m.ModuleCode!,
                     ModuleName = m.ModuleName!,
                     RegulatorCode = m.RegulatorCode!,
+                    Jurisdiction = m.Jurisdiction != null ? m.Jurisdiction.CountryCode : "Global",
                     SheetCount = m.SheetCount,
                     DefaultFrequency = m.DefaultFrequency
                 })
@@ -183,6 +211,7 @@
         public string ModuleCode { get; set; } = "";
         public string ModuleName { get; set; } = "";
         public string RegulatorCode { get; set; } = "";
+        public string Jurisdiction { get; set; } = "Global";
         public int SheetCount { get; set; }
         public string? DefaultFrequency { get; set; }
     }

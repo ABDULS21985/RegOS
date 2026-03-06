@@ -34,6 +34,7 @@ public class UserSettingsService
             Username = user.Username,
             Email = user.Email,
             DisplayName = user.DisplayName,
+            PreferredLanguage = string.IsNullOrWhiteSpace(user.PreferredLanguage) ? "en" : user.PreferredLanguage,
             Role = user.Role.ToString(),
             IsActive = user.IsActive,
             MustChangePassword = user.MustChangePassword,
@@ -53,6 +54,21 @@ public class UserSettingsService
         if (user is null) return false;
 
         user.DisplayName = displayName.Trim();
+        await _userRepo.Update(user, ct);
+        return true;
+    }
+
+    public async Task<bool> UpdatePreferredLanguage(int userId, string languageCode, CancellationToken ct = default)
+    {
+        var user = await _userRepo.GetById(userId, ct);
+        if (user is null)
+        {
+            return false;
+        }
+
+        user.PreferredLanguage = string.IsNullOrWhiteSpace(languageCode)
+            ? "en"
+            : languageCode.Trim().ToLowerInvariant();
         await _userRepo.Update(user, ct);
         return true;
     }
@@ -126,6 +142,7 @@ public class UserProfileModel
     public string Username { get; set; } = "";
     public string Email { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    public string PreferredLanguage { get; set; } = "en";
     public string Role { get; set; } = "";
     public bool IsActive { get; set; }
     public bool MustChangePassword { get; set; }

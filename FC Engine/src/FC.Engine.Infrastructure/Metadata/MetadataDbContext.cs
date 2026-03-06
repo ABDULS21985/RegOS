@@ -81,6 +81,12 @@ public class MetadataDbContext : DbContext
     public DbSet<ImportMapping> ImportMappings => Set<ImportMapping>();
     public DbSet<MigrationModuleSignOff> MigrationModuleSignOffs => Set<MigrationModuleSignOff>();
 
+    // Regulator portal (RG-25)
+    public DbSet<RegulatorReceipt> RegulatorReceipts => Set<RegulatorReceipt>();
+    public DbSet<ExaminerQuery> ExaminerQueries => Set<ExaminerQuery>();
+    public DbSet<ExaminationProject> ExaminationProjects => Set<ExaminationProject>();
+    public DbSet<ExaminationAnnotation> ExaminationAnnotations => Set<ExaminationAnnotation>();
+
     // Security
     public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>();
     public DbSet<PasswordResetToken> PasswordResetTokens => Set<PasswordResetToken>();

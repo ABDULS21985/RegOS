@@ -76,6 +76,7 @@ public class SubTenantCreateRequest
     public string InstitutionCode { get; set; } = string.Empty;
     public string InstitutionName { get; set; } = string.Empty;
     public string? InstitutionType { get; set; }
+    public string? JurisdictionCode { get; set; } = "NG";
 }
 
 public class PartnerSubTenantSummary

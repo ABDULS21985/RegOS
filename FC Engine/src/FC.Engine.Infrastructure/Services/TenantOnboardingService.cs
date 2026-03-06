@@ -105,6 +105,39 @@ public class TenantOnboardingService : ITenantOnboardingService
                 }
             }
 
+            var jurisdictionCode = string.IsNullOrWhiteSpace(request.JurisdictionCode)
+                ? "NG"
+                : request.JurisdictionCode.Trim().ToUpperInvariant();
+
+            var jurisdiction = await _db.Jurisdictions
+                .FirstOrDefaultAsync(j => j.CountryCode == jurisdictionCode, ct);
+
+            if (jurisdiction is null
+                && jurisdictionCode == "NG"
+                && !await _db.Jurisdictions.AnyAsync(ct))
+            {
+                jurisdiction = new Jurisdiction
+                {
+                    CountryCode = "NG",
+                    CountryName = "Nigeria",
+                    Currency = "NGN",
+                    Timezone = "Africa/Lagos",
+                    RegulatoryBodies = "[\"CBN\",\"NDIC\",\"SEC\",\"NAICOM\",\"PenCom\",\"NFIU\"]",
+                    DateFormat = "dd/MM/yyyy",
+                    DataProtectionLaw = "NDPR/NDPA 2023",
+                    DataResidencyRegion = "SouthAfricaNorth",
+                    IsActive = true
+                };
+                _db.Jurisdictions.Add(jurisdiction);
+                await _db.SaveChangesAsync(ct);
+            }
+
+            if (jurisdiction is null)
+            {
+                result.Errors.Add($"Invalid jurisdiction code: {jurisdictionCode}");
+                return result;
+            }
+
             // ── Step 2: Create Tenant ──
             var tenant = Tenant.Create(request.TenantName, slug, request.TenantType, request.ContactEmail);
             tenant.ContactPhone = request.ContactPhone;
@@ -113,6 +146,8 @@ public class TenantOnboardingService : ITenantOnboardingService
             tenant.TaxId = request.TaxId;
             tenant.MaxInstitutions = selectedPlan.MaxEntities;
             tenant.MaxUsersPerEntity = selectedPlan.MaxUsersPerEntity;
+            tenant.Timezone = jurisdiction.Timezone;
+            tenant.DefaultCurrency = jurisdiction.Currency;
             tenant.SetParentTenant(request.ParentTenantId);
 
             _db.Tenants.Add(tenant);
@@ -138,6 +173,7 @@ public class TenantOnboardingService : ITenantOnboardingService
             var institution = new Institution
             {
                 TenantId = tenant.TenantId,
+                JurisdictionId = jurisdiction.Id,
                 InstitutionCode = request.InstitutionCode,
                 InstitutionName = request.InstitutionName,
                 LicenseType = request.InstitutionType,
@@ -165,6 +201,7 @@ public class TenantOnboardingService : ITenantOnboardingService
                 Email = request.AdminEmail,
                 DisplayName = request.AdminFullName,
                 PasswordHash = passwordHash,
+                PreferredLanguage = "en",
                 Role = InstitutionRole.Admin,
                 IsActive = true,
                 MustChangePassword = true,

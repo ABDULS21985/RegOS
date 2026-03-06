@@ -69,16 +69,48 @@ public class EntitlementServiceTests : IDisposable
         return tenant.TenantId;
     }
 
-    private void SeedModule(string moduleCode, string moduleName, string regulator, int sheetCount = 5)
+    private void SeedModule(string moduleCode, string moduleName, string regulator, int sheetCount = 5, int? jurisdictionId = null)
     {
         _db.Modules.Add(new Module
         {
+            JurisdictionId = jurisdictionId,
             ModuleCode = moduleCode,
             ModuleName = moduleName,
             RegulatorCode = regulator,
             SheetCount = sheetCount,
             IsActive = true,
             DisplayOrder = 1,
+            CreatedAt = DateTime.UtcNow
+        });
+        _db.SaveChanges();
+    }
+
+    private void SeedJurisdiction(int id, string code, string name, string currency, string timezone)
+    {
+        _db.Jurisdictions.Add(new Jurisdiction
+        {
+            Id = id,
+            CountryCode = code,
+            CountryName = name,
+            Currency = currency,
+            Timezone = timezone,
+            RegulatoryBodies = "[]",
+            DateFormat = "dd/MM/yyyy",
+            DataResidencyRegion = "WestEurope",
+            IsActive = code == "NG"
+        });
+        _db.SaveChanges();
+    }
+
+    private void SeedInstitution(Guid tenantId, int jurisdictionId)
+    {
+        _db.Institutions.Add(new Institution
+        {
+            TenantId = tenantId,
+            JurisdictionId = jurisdictionId,
+            InstitutionCode = $"INST-{jurisdictionId}",
+            InstitutionName = $"Institution {jurisdictionId}",
+            IsActive = true,
             CreatedAt = DateTime.UtcNow
         });
         _db.SaveChanges();
@@ -246,6 +278,57 @@ public class EntitlementServiceTests : IDisposable
         result.ActiveModules.Should().HaveCount(3);
         // NFIU_AML should be required because at least one mapping has IsRequired=true
         result.ActiveModules.First(m => m.ModuleCode == "NFIU_AML").IsRequired.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ResolveEntitlements_Filters_Modules_By_Tenant_Jurisdiction()
+    {
+        SeedJurisdiction(1, "NG", "Nigeria", "NGN", "Africa/Lagos");
+        SeedJurisdiction(2, "GH", "Ghana", "GHS", "Africa/Accra");
+
+        SeedModule("NG_DMB_BASEL3", "Nigeria DMB", "CBN", jurisdictionId: 1);
+        SeedModule("GH_BANK_BOG", "Ghana BOG", "BOG", jurisdictionId: 2);
+        SeedModule("FATF_EVAL", "FATF", "NFIU", jurisdictionId: null);
+
+        var tenantId = SeedTenantWithLicences("BANK");
+        SeedInstitution(tenantId, 1);
+        SeedMatrixEntry("BANK", "NG_DMB_BASEL3", isRequired: true);
+        SeedMatrixEntry("BANK", "GH_BANK_BOG", isRequired: false);
+        SeedMatrixEntry("BANK", "FATF_EVAL", isRequired: false);
+
+        var subId = SeedSubscription(tenantId);
+        ActivateSubscriptionModule(subId, "NG_DMB_BASEL3");
+        ActivateSubscriptionModule(subId, "GH_BANK_BOG");
+        ActivateSubscriptionModule(subId, "FATF_EVAL");
+
+        var result = await _sut.ResolveEntitlements(tenantId);
+
+        result.ActiveModules.Select(m => m.ModuleCode).Should()
+            .BeEquivalentTo(new[] { "NG_DMB_BASEL3", "FATF_EVAL" });
+        result.ActiveModules.Should().NotContain(m => m.ModuleCode == "GH_BANK_BOG");
+    }
+
+    [Fact]
+    public async Task ResolveEntitlements_Returns_Ghana_Modules_For_Ghana_Institution()
+    {
+        SeedJurisdiction(1, "NG", "Nigeria", "NGN", "Africa/Lagos");
+        SeedJurisdiction(2, "GH", "Ghana", "GHS", "Africa/Accra");
+
+        SeedModule("NG_DMB_BASEL3", "Nigeria DMB", "CBN", jurisdictionId: 1);
+        SeedModule("GH_BANK_BOG", "Ghana BOG", "BOG", jurisdictionId: 2);
+
+        var tenantId = SeedTenantWithLicences("BANK2");
+        SeedInstitution(tenantId, 2);
+        SeedMatrixEntry("BANK2", "NG_DMB_BASEL3");
+        SeedMatrixEntry("BANK2", "GH_BANK_BOG");
+
+        var subId = SeedSubscription(tenantId);
+        ActivateSubscriptionModule(subId, "NG_DMB_BASEL3");
+        ActivateSubscriptionModule(subId, "GH_BANK_BOG");
+
+        var result = await _sut.ResolveEntitlements(tenantId);
+        result.ActiveModules.Should().ContainSingle(x => x.ModuleCode == "GH_BANK_BOG");
+        result.ActiveModules.Should().NotContain(x => x.ModuleCode == "NG_DMB_BASEL3");
     }
 
     [Fact]

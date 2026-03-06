@@ -40,6 +40,7 @@ public static class DependencyInjection
 
         // ── Multi-Tenancy ──
         services.AddScoped<ITenantContext, HttpTenantContext>();
+        services.AddScoped<IDataResidencyRouter, DataResidencyRouter>();
         services.AddScoped<IDbConnectionFactory, TenantAwareConnectionFactory>();
         services.AddScoped<TenantSessionContextInterceptor>();
 
@@ -74,6 +75,9 @@ public static class DependencyInjection
         services.AddScoped<IEmailTemplateRepository, EmailTemplateRepository>();
         services.AddScoped<INotificationPreferenceRepository, NotificationPreferenceRepository>();
         services.AddScoped<INotificationDeliveryRepository, NotificationDeliveryRepository>();
+        services.AddScoped<IFieldLocalisationService, FieldLocalisationService>();
+        services.AddScoped<IUserLanguagePreferenceService, UserLanguagePreferenceService>();
+        services.AddScoped<IJurisdictionConsolidationService, JurisdictionConsolidationService>();
 
         // Dynamic SQL
         services.AddSingleton<DynamicSqlBuilder>();
@@ -202,6 +206,11 @@ public static class DependencyInjection
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IBenchmarkingService, BenchmarkingService>();
         services.AddScoped<ChartJsInterop>();
+        services.AddScoped<IRegulatorInboxService, RegulatorInboxService>();
+        services.AddScoped<ISectorAnalyticsService, SectorAnalyticsService>();
+        services.AddScoped<IEntityBenchmarkingService, EntityBenchmarkingService>();
+        services.AddScoped<IEarlyWarningService, EarlyWarningService>();
+        services.AddScoped<IExaminationWorkspaceService, ExaminationWorkspaceService>();
 
         // ── Report Builder (RG-18) ──
         services.AddScoped<ISavedReportRepository, SavedReportRepository>();

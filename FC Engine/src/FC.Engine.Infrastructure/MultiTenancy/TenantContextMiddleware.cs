@@ -73,6 +73,7 @@ public class TenantContextMiddleware
             }
             // else: no TenantId set → RLS fn_TenantFilter allows all data
 
+            PopulateTenantSessionAttributes(context);
             await _next(context);
             return;
         }
@@ -82,6 +83,7 @@ public class TenantContextMiddleware
         if (tenantClaim != null && Guid.TryParse(tenantClaim.Value, out var tenantId))
         {
             context.Items["TenantId"] = tenantId;
+            PopulateTenantSessionAttributes(context);
             await _next(context);
             return;
         }
@@ -110,6 +112,21 @@ public class TenantContextMiddleware
         }
 
         return null;
+    }
+
+    private static void PopulateTenantSessionAttributes(HttpContext context)
+    {
+        var tenantTypeClaim = context.User.FindFirst("TenantType")?.Value;
+        if (!string.IsNullOrWhiteSpace(tenantTypeClaim))
+        {
+            context.Items["TenantType"] = tenantTypeClaim;
+        }
+
+        var regulatorCodeClaim = context.User.FindFirst("RegulatorCode")?.Value;
+        if (!string.IsNullOrWhiteSpace(regulatorCodeClaim))
+        {
+            context.Items["RegulatorCode"] = regulatorCodeClaim;
+        }
     }
 }
 

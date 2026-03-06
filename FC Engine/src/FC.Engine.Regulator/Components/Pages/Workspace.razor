@@ -1,0 +1,316 @@
+@page "/workspace"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject IExaminationWorkspaceService WorkspaceService
+
+<PageTitle>Examination Workspace</PageTitle>
+
+<h1 class="rg-page-title">Examination Workspace</h1>
+
+<div class="rg-grid rg-grid-2">
+    <section class="rg-card">
+        <h3 style="margin-top:0;">Create Examination Project</h3>
+        <div class="rg-controls">
+            <input placeholder="Project name" @bind="_newName" />
+            <input placeholder="Scope" @bind="_newScope" />
+        </div>
+        <div class="rg-controls">
+            <input placeholder="Institution IDs (comma)" @bind="_newEntityIds" />
+            <input placeholder="Module codes (comma)" @bind="_newModuleCodes" />
+        </div>
+        <div class="rg-controls">
+            <label>From <input type="date" @bind="_newPeriodFrom" /></label>
+            <label>To <input type="date" @bind="_newPeriodTo" /></label>
+            <button class="rg-btn primary" @onclick="CreateProject">Create</button>
+        </div>
+    </section>
+
+    <section class="rg-card">
+        <h3 style="margin-top:0;">Projects</h3>
+        @if (_projects.Count == 0)
+        {
+            <p class="rg-muted">No projects yet.</p>
+        }
+        else
+        {
+            <div class="rg-table-wrap">
+                <table class="rg-table">
+                    <thead>
+                        <tr><th>Name</th><th>Status</th><th>Created</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var project in _projects)
+                        {
+                            <tr>
+                                <td>@project.Name</td>
+                                <td>@project.Status</td>
+                                <td>@project.CreatedAt.ToString("dd MMM yyyy")</td>
+                                <td><button class="rg-btn" @onclick="() => SelectProject(project.Id)">Open</button></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <p class="rg-muted">@_message</p>
+}
+
+@if (_workspace is not null)
+{
+    <section class="rg-card" style="margin-top:0.8rem;">
+        <h3 style="margin-top:0;">@_workspace.Project.Name</h3>
+        <p class="rg-muted">@_workspace.Project.Scope</p>
+
+        <div class="rg-controls">
+            <a class="rg-btn" href="/workspace/@_workspace.Project.Id/report" target="_blank">Download Examination Report (PDF)</a>
+        </div>
+
+        <h4>Submissions</h4>
+        <div class="rg-table-wrap">
+            <table class="rg-table">
+                <thead>
+                    <tr>
+                        <th>Submission</th>
+                        <th>Institution</th>
+                        <th>Module</th>
+                        <th>Period</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_workspace.Submissions.Count == 0)
+                    {
+                        <tr><td colspan="5" class="rg-muted">No submissions in scope.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var row in _workspace.Submissions.Take(300))
+                        {
+                            <tr>
+                                <td>#@row.SubmissionId</td>
+                                <td>@row.InstitutionName</td>
+                                <td>@row.ModuleCode</td>
+                                <td>@row.PeriodLabel</td>
+                                <td>@row.SubmissionStatus</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <h4 style="margin-top:0.8rem;">Add Annotation</h4>
+        <div class="rg-controls">
+            <input placeholder="Submission ID" @bind="_annotationSubmissionId" />
+            <input placeholder="Institution ID (optional)" @bind="_annotationInstitutionId" />
+            <input placeholder="Field code (optional)" @bind="_annotationFieldCode" />
+        </div>
+        <div class="rg-controls">
+            <textarea placeholder="Annotation note" @bind="_annotationNote"></textarea>
+            <button class="rg-btn" @onclick="AddAnnotation">Save Annotation</button>
+        </div>
+
+        <h4 style="margin-top:0.8rem;">Annotations</h4>
+        <div class="rg-table-wrap">
+            <table class="rg-table">
+                <thead>
+                    <tr><th>When</th><th>Submission</th><th>Field</th><th>Note</th></tr>
+                </thead>
+                <tbody>
+                    @if (_workspace.Annotations.Count == 0)
+                    {
+                        <tr><td colspan="4" class="rg-muted">No annotations yet.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var note in _workspace.Annotations.Take(500))
+                        {
+                            <tr>
+                                <td>@note.CreatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>#@note.SubmissionId</td>
+                                <td>@(note.FieldCode ?? "-")</td>
+                                <td>@note.Note</td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private Guid _tenantId;
+    private int _userId;
+    private string _regulatorCode = string.Empty;
+
+    private List<ExaminationProject> _projects = new();
+    private ExaminationWorkspaceData? _workspace;
+    private int _selectedProjectId;
+
+    private string _newName = string.Empty;
+    private string _newScope = string.Empty;
+    private string _newEntityIds = string.Empty;
+    private string _newModuleCodes = string.Empty;
+    private DateTime? _newPeriodFrom;
+    private DateTime? _newPeriodTo;
+
+    private string _annotationSubmissionId = string.Empty;
+    private string _annotationInstitutionId = string.Empty;
+    private string _annotationFieldCode = string.Empty;
+    private string _annotationNote = string.Empty;
+
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ResolveContext();
+        await LoadProjects();
+    }
+
+    private async Task ResolveContext()
+    {
+        var state = await AuthState!;
+
+        var tenantClaim = state.User.FindFirst("TenantId")?.Value;
+        var regulatorClaim = state.User.FindFirst("RegulatorCode")?.Value;
+        var userClaim = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        if (!Guid.TryParse(tenantClaim, out _tenantId)
+            || !int.TryParse(userClaim, out _userId)
+            || string.IsNullOrWhiteSpace(regulatorClaim))
+        {
+            throw new InvalidOperationException("Regulator identity claims are incomplete for this session.");
+        }
+
+        _regulatorCode = regulatorClaim.Trim();
+    }
+
+    private async Task LoadProjects()
+    {
+        _projects = (await WorkspaceService.ListProjects(_tenantId)).ToList();
+    }
+
+    private async Task CreateProject()
+    {
+        try
+        {
+            var request = new ExaminationProjectCreateRequest
+            {
+                Name = _newName,
+                Scope = _newScope,
+                InstitutionIds = ParseIntList(_newEntityIds),
+                ModuleCodes = ParseStringList(_newModuleCodes),
+                PeriodFrom = _newPeriodFrom,
+                PeriodTo = _newPeriodTo
+            };
+
+            var project = await WorkspaceService.CreateProject(_tenantId, _userId, request);
+            _message = $"Project {project.Name} created.";
+
+            _newName = string.Empty;
+            _newScope = string.Empty;
+            _newEntityIds = string.Empty;
+            _newModuleCodes = string.Empty;
+            _newPeriodFrom = null;
+            _newPeriodTo = null;
+
+            await LoadProjects();
+            await SelectProject(project.Id);
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+    }
+
+    private async Task SelectProject(int projectId)
+    {
+        _selectedProjectId = projectId;
+        _workspace = await WorkspaceService.GetWorkspace(_tenantId, _regulatorCode, projectId);
+        if (_workspace is null)
+        {
+            _message = "Project not found.";
+        }
+    }
+
+    private async Task AddAnnotation()
+    {
+        if (_workspace is null)
+        {
+            return;
+        }
+
+        if (!int.TryParse(_annotationSubmissionId, out var submissionId))
+        {
+            _message = "Submission ID is required and must be numeric.";
+            return;
+        }
+
+        int? institutionId = null;
+        if (int.TryParse(_annotationInstitutionId, out var parsedInstitutionId))
+        {
+            institutionId = parsedInstitutionId;
+        }
+
+        try
+        {
+            await WorkspaceService.AddAnnotation(
+                _tenantId,
+                _workspace.Project.Id,
+                submissionId,
+                institutionId,
+                string.IsNullOrWhiteSpace(_annotationFieldCode) ? null : _annotationFieldCode,
+                _annotationNote,
+                _userId);
+
+            _annotationSubmissionId = string.Empty;
+            _annotationInstitutionId = string.Empty;
+            _annotationFieldCode = string.Empty;
+            _annotationNote = string.Empty;
+            _message = "Annotation saved.";
+
+            await SelectProject(_workspace.Project.Id);
+        }
+        catch (Exception ex)
+        {
+            _message = ex.Message;
+        }
+    }
+
+    private static List<int> ParseIntList(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return new List<int>();
+        }
+
+        return value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(x => int.TryParse(x, out var n) ? n : 0)
+            .Where(x => x > 0)
+            .Distinct()
+            .ToList();
+    }
+
+    private static List<string> ParseStringList(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return new List<string>();
+        }
+
+        return value
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim().ToUpperInvariant())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+}

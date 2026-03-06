@@ -36,7 +36,7 @@ public class JurisdictionFxRateConfiguration : IEntityTypeConfiguration<Jurisdic
         builder.Property(x => x.BaseCurrency).HasMaxLength(3).IsRequired();
         builder.Property(x => x.QuoteCurrency).HasMaxLength(3).IsRequired();
         builder.Property(x => x.Rate).HasColumnType("decimal(18,8)").IsRequired();
-        builder.Property(x => x.RateDate).HasConversion<DateOnlyConverter, DateOnlyComparer>();
+        builder.Property(x => x.RateDate).HasColumnType("date").IsRequired();
         builder.Property(x => x.Source).HasMaxLength(50).IsRequired();
         builder.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
 
@@ -56,7 +56,7 @@ public class ConsolidationAdjustmentConfiguration : IEntityTypeConfiguration<Con
         builder.Property(x => x.Amount).HasColumnType("decimal(18,2)").IsRequired();
         builder.Property(x => x.Currency).HasMaxLength(3).IsRequired().HasDefaultValue("NGN");
         builder.Property(x => x.Description).HasMaxLength(500);
-        builder.Property(x => x.EffectiveDate).HasConversion<DateOnlyConverter, DateOnlyComparer>();
+        builder.Property(x => x.EffectiveDate).HasColumnType("date").IsRequired();
         builder.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
 
         builder.HasOne(x => x.SourceInstitution)
@@ -94,4 +94,3 @@ public class FieldLocalisationConfiguration : IEntityTypeConfiguration<FieldLoca
             .OnDelete(DeleteBehavior.Cascade);
     }
 }
-
