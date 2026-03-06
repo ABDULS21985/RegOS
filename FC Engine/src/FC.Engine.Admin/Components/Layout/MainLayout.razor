@@ -2,9 +2,12 @@
 @using System.Security.Claims
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.ValueObjects
+@using FC.Engine.Infrastructure.Metadata
+@using Microsoft.EntityFrameworkCore
 @inject NavigationManager Navigation
 @inject ITenantBrandingService BrandingService
 @inject ITenantContext TenantContext
+@inject MetadataDbContext Db
 @implements IDisposable
 
 <TenantThemeProvider />
@@ -112,6 +115,17 @@
             </div>
         </header>
 
+        @if (_showImpersonationBanner)
+        {
+            <div style="background:#fef3c7; color:#92400e; border:1px solid #f59e0b; margin:0 1.25rem; margin-top:1rem; border-radius:8px; padding:0.75rem 1rem; display:flex; align-items:center; justify-content:space-between; gap:1rem;">
+                <div>
+                    <strong>You are impersonating @(_impersonatedTenantName ?? "tenant").</strong>
+                    <span style="margin-left:0.5rem;">All actions are logged.</span>
+                </div>
+                <a href="/platform/stop-impersonation" style="font-weight:600; color:#92400e; text-decoration:underline;">Stop impersonation</a>
+            </div>
+        }
+
         <main id="main-content" class="shell-content" role="main">
             <!-- Print letterhead (visible only in print) -->
             <div class="print-letterhead" aria-hidden="true">
@@ -140,6 +154,8 @@
     private bool _progressComplete;
     private string _currentPageName = "Dashboard";
     private BrandingConfig _branding = BrandingConfig.WithDefaults();
+    private bool _showImpersonationBanner;
+    private string? _impersonatedTenantName;
 
     protected override void OnInitialized()
     {
@@ -153,6 +169,8 @@
         {
             _branding = await BrandingService.GetBrandingConfig(TenantContext.CurrentTenantId.Value);
         }
+
+        await LoadImpersonationBanner();
     }
 
     private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
@@ -161,6 +179,7 @@
         _progressComplete = false;
         UpdatePageName(e.Location);
         _sidebarOpen = false;
+        await LoadImpersonationBanner();
         StateHasChanged();
 
         await Task.Delay(300);
@@ -180,6 +199,13 @@
         {
             "" or "/" => "Dashboard",
             "dashboard/platform" => "Platform Dashboard",
+            "platform/tenants" => "Tenant List",
+            var p when p.StartsWith("platform/tenants/") => "Tenant Detail",
+            "platform/templates" => "Template Console",
+            "platform/billing-ops" => "Billing Operations",
+            "platform/health" => "Platform Health",
+            "platform/module-analytics" => "Module Analytics",
+            "platform/feature-flags" => "Feature Flags",
             "templates" => "Templates",
             var p when p.StartsWith("templates/") => "Template Detail",
             "formulas" => "Formulas",
@@ -193,6 +219,29 @@
             "users" => "User Management",
             _ => "Page"
         };
+    }
+
+    private async Task LoadImpersonationBanner()
+    {
+        _showImpersonationBanner = TenantContext.IsPlatformAdmin && TenantContext.ImpersonatingTenantId.HasValue;
+        _impersonatedTenantName = null;
+
+        if (!_showImpersonationBanner)
+        {
+            return;
+        }
+
+        var tenantId = TenantContext.ImpersonatingTenantId!.Value;
+        _impersonatedTenantName = await Db.Tenants
+            .AsNoTracking()
+            .Where(t => t.TenantId == tenantId)
+            .Select(t => t.TenantName)
+            .FirstOrDefaultAsync();
+
+        if (string.IsNullOrWhiteSpace(_impersonatedTenantName))
+        {
+            _impersonatedTenantName = tenantId.ToString();
+        }
     }
 
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;

@@ -1,0 +1,117 @@
+@page "/platform/health"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject PlatformAdminService PlatformService
+@inject ChartJsInterop Charts
+
+<PageTitle>Platform Health</PageTitle>
+
+<section class="billing-shell">
+    <header class="billing-hero">
+        <div>
+            <p class="billing-kicker">Platform Console</p>
+            <h1>Platform Health</h1>
+            <p>Latency, error rate, sessions, queue depth, and infrastructure indicators.</p>
+        </div>
+        <div class="billing-hero-note">
+            <button class="btn btn-outline btn-sm" @onclick="Load">Refresh</button>
+        </div>
+    </header>
+
+    @if (_loading || _health is null)
+    {
+        <section class="card billing-surface"><p>Loading platform health...</p></section>
+    }
+    else
+    {
+        <section class="billing-metrics">
+            <article class="billing-metric-card"><p class="billing-metric-label">API p50/p95/p99</p><p class="billing-metric-value">@_health.ApiLatencyP50Ms.ToString("0") / @_health.ApiLatencyP95Ms.ToString("0") / @_health.ApiLatencyP99Ms.ToString("0") ms</p></article>
+            <article class="billing-metric-card"><p class="billing-metric-label">Error Rate</p><p class="billing-metric-value">@_health.ErrorRatePercent.ToString("0.##")%</p></article>
+            <article class="billing-metric-card"><p class="billing-metric-label">Active Sessions</p><p class="billing-metric-value">@_health.ActiveSessions</p></article>
+            <article class="billing-metric-card"><p class="billing-metric-label">Queue Depth</p><p class="billing-metric-value">@_health.QueueDepth</p></article>
+        </section>
+
+        <section class="dash17-chart-grid">
+            <article class="dash17-chart-card">
+                <h3>Latency Gauges</h3>
+                <div class="dash17-chart-wrap"><canvas id="platformLatencyChart"></canvas></div>
+            </article>
+            <article class="dash17-chart-card">
+                <h3>Queue & Errors</h3>
+                <div class="dash17-chart-wrap"><canvas id="platformQueueChart"></canvas></div>
+            </article>
+        </section>
+
+        <section class="card billing-surface">
+            <div class="detail-info-grid">
+                <div class="detail-info-item"><span class="detail-info-label">RabbitMQ pending</span><span class="detail-info-value">@_health.RabbitMqPending</span></div>
+                <div class="detail-info-item"><span class="detail-info-label">DB query duration</span><span class="detail-info-value">@_health.DatabaseQueryDurationMs ms</span></div>
+                <div class="detail-info-item"><span class="detail-info-label">DB pool utilisation</span><span class="detail-info-value">@_health.DatabasePoolUtilisationPercent.ToString("0.##")%</span></div>
+                <div class="detail-info-item"><span class="detail-info-label">Redis hit ratio</span><span class="detail-info-value">@_health.RedisCacheHitRatioPercent.ToString("0.##")%</span></div>
+                <div class="detail-info-item"><span class="detail-info-label">Redis memory</span><span class="detail-info-value">@_health.RedisMemoryUsageMb.ToString("0.##") MB</span></div>
+            </div>
+        </section>
+    }
+</section>
+
+@code {
+    private PlatformHealthData? _health;
+    private bool _loading = true;
+    private bool _chartsRendered;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_health is null || _chartsRendered)
+        {
+            return;
+        }
+
+        await Charts.RenderBarChart("platformLatencyChart", new TrendData
+        {
+            Title = "Latency",
+            Labels = new List<string> { "p50", "p95", "p99" },
+            Datasets =
+            {
+                new TrendDataset
+                {
+                    Label = "ms",
+                    Data = new List<decimal> { _health.ApiLatencyP50Ms, _health.ApiLatencyP95Ms, _health.ApiLatencyP99Ms },
+                    BackgroundColor = "#1d4ed8",
+                    BorderColor = "#1d4ed8"
+                }
+            }
+        });
+
+        await Charts.RenderDoughnutChart("platformQueueChart", new TrendData
+        {
+            Title = "Queue and errors",
+            Labels = new List<string> { "Queue depth", "Error %" },
+            Datasets =
+            {
+                new TrendDataset
+                {
+                    Label = "Health",
+                    Data = new List<decimal> { _health.QueueDepth, _health.ErrorRatePercent },
+                    BackgroundColor = "#d97706",
+                    BorderColor = "#d97706"
+                }
+            }
+        });
+
+        _chartsRendered = true;
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        _chartsRendered = false;
+        _health = await PlatformService.GetPlatformHealth();
+        _loading = false;
+    }
+}

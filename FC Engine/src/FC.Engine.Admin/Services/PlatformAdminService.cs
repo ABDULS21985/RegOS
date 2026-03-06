@@ -196,6 +196,72 @@ public class PlatformAdminService
         };
     }
 
+    public async Task ActivateTenant(Guid tenantId, string actor, CancellationToken ct = default)
+    {
+        var tenant = await _db.Tenants
+            .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct)
+            ?? throw new InvalidOperationException($"Tenant {tenantId} not found.");
+
+        if (tenant.Status == TenantStatus.PendingActivation)
+        {
+            tenant.Activate();
+        }
+        else if (tenant.Status == TenantStatus.Suspended)
+        {
+            tenant.Reactivate();
+        }
+        else if (tenant.Status != TenantStatus.Active)
+        {
+            throw new InvalidOperationException($"Tenant cannot be activated from status {tenant.Status}.");
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        await _auditLogger.Log(
+            "Tenant",
+            0,
+            "PlatformTenantActivated",
+            null,
+            new
+            {
+                TenantId = tenantId,
+                IsPlatformAdmin = true,
+                ImpersonatedTenantId = (Guid?)null
+            },
+            actor,
+            ct);
+    }
+
+    public async Task SuspendTenant(Guid tenantId, string actor, string reason = "Platform admin action", CancellationToken ct = default)
+    {
+        var tenant = await _db.Tenants
+            .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct)
+            ?? throw new InvalidOperationException($"Tenant {tenantId} not found.");
+
+        if (tenant.Status != TenantStatus.Active)
+        {
+            throw new InvalidOperationException($"Only active tenants can be suspended. Current status: {tenant.Status}");
+        }
+
+        tenant.Suspend(reason);
+        await _db.SaveChangesAsync(ct);
+
+        await _auditLogger.Log(
+            "Tenant",
+            0,
+            "PlatformTenantSuspended",
+            null,
+            new
+            {
+                TenantId = tenantId,
+                Reason = reason,
+                IsPlatformAdmin = true,
+                ImpersonatedTenantId = (Guid?)null
+            },
+            actor,
+            ct);
+    }
+
     public async Task<byte[]> ExportTenantListExcel(PlatformTenantListQuery query, CancellationToken ct = default)
     {
         var data = await GetTenantList(query, ct);
@@ -500,6 +566,21 @@ public class PlatformAdminService
         }
 
         await _templateVersioningService.Publish(template.Id, draft.Id, approvedBy, ct);
+
+        await _auditLogger.Log(
+            "TemplateVersion",
+            draft.Id,
+            "Published",
+            null,
+            new
+            {
+                TemplateId = template.Id,
+                draft.VersionNumber,
+                IsPlatformAdmin = true,
+                ImpersonatedTenantId = (Guid?)null
+            },
+            approvedBy,
+            ct);
     }
 
     public async Task DeprecateVersion(int templateId, int versionId, string actor, CancellationToken ct = default)
@@ -742,7 +823,7 @@ public class PlatformAdminService
 
         var queuedImports = await _db.ImportJobs
             .AsNoTracking()
-            .CountAsync(i => i.Status != "Committed" && i.Status != "Failed", ct);
+            .CountAsync(i => i.Status != ImportJobStatus.Committed && i.Status != ImportJobStatus.Failed, ct);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await _db.Tenants.AsNoTracking().Select(t => t.TenantId).FirstOrDefaultAsync(ct);
@@ -832,8 +913,8 @@ public class PlatformAdminService
         var items = new List<ModuleAnalyticsItem>();
         foreach (var module in modules)
         {
-            var tenants = tenantLookup.GetValueOrDefault(module.Id, new HashSet<Guid>());
-            var moduleSubs = submissionByModule.GetValueOrDefault(module.Id, new List<dynamic>());
+            var tenants = tenantLookup.TryGetValue(module.Id, out var t) ? t : new HashSet<Guid>();
+            var moduleSubs = submissionByModule.TryGetValue(module.Id, out var ms) ? (IList<dynamic>)ms : new List<dynamic>();
 
             var submissionCount = moduleSubs.Count;
             var uniqueTenants = tenants.Count;

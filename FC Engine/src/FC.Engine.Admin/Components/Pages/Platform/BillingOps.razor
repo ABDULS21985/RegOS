@@ -1,0 +1,211 @@
+@page "/platform/billing-ops"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject PlatformAdminService PlatformService
+@inject ChartJsInterop Charts
+
+<PageTitle>Billing Operations</PageTitle>
+
+<section class="billing-shell">
+    <header class="billing-hero">
+        <div>
+            <p class="billing-kicker">Platform Console</p>
+            <h1>Billing Operations</h1>
+            <p>MRR/ARR, plan-module revenue mix, churn, ARPU, and invoice operations.</p>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="cbn-alert cbn-alert-success">@_message</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="cbn-alert cbn-alert-error">@_error</div>
+    }
+
+    @if (_loading || _data is null)
+    {
+        <section class="card billing-surface"><p>Loading billing analytics...</p></section>
+    }
+    else
+    {
+        <section class="billing-metrics">
+            <article class="billing-metric-card">
+                <p class="billing-metric-label">MRR</p>
+                <p class="billing-metric-value">NGN @_data.Mrr.ToString("N2")</p>
+            </article>
+            <article class="billing-metric-card">
+                <p class="billing-metric-label">ARR</p>
+                <p class="billing-metric-value">NGN @_data.Arr.ToString("N2")</p>
+            </article>
+            <article class="billing-metric-card">
+                <p class="billing-metric-label">ARPU</p>
+                <p class="billing-metric-value">NGN @_data.Arpu.ToString("N2")</p>
+            </article>
+            <article class="billing-metric-card">
+                <p class="billing-metric-label">Churn (Monthly / 3M)</p>
+                <p class="billing-metric-value">@_data.ChurnRatePercent.ToString("0.##")% / @_data.ChurnRateTrailing3MonthsPercent.ToString("0.##")%</p>
+            </article>
+        </section>
+
+        <section class="dash17-chart-grid">
+            <article class="dash17-chart-card">
+                <h3>Revenue by Plan</h3>
+                <div class="dash17-chart-wrap"><canvas id="billingPlanChart"></canvas></div>
+            </article>
+            <article class="dash17-chart-card">
+                <h3>Revenue by Module</h3>
+                <div class="dash17-chart-wrap"><canvas id="billingModuleChart"></canvas></div>
+            </article>
+        </section>
+
+        <section class="card billing-surface">
+            <div class="billing-toolbar billing-toolbar-wrap">
+                <input class="form-control billing-search"
+                       type="search"
+                       @bind="_search"
+                       @bind:event="oninput"
+                       placeholder="Search invoice / tenant" />
+
+                <select class="form-control billing-select" @bind="_statusFilter">
+                    <option value="ALL">All statuses</option>
+                    @foreach (var status in Enum.GetValues<InvoiceStatus>())
+                    {
+                        <option value="@status.ToString()">@status</option>
+                    }
+                </select>
+            </div>
+
+            <div class="billing-table-wrap">
+                <table class="data-table billing-table">
+                    <thead>
+                        <tr>
+                            <th>Invoice</th>
+                            <th>Tenant</th>
+                            <th>Status</th>
+                            <th>Total</th>
+                            <th>Due Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var invoice in FilteredInvoices)
+                        {
+                            <tr>
+                                <td>@invoice.InvoiceNumber</td>
+                                <td>@invoice.TenantName</td>
+                                <td>@invoice.Status</td>
+                                <td>@invoice.TotalAmount.ToString("N2")</td>
+                                <td>@(invoice.DueDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                                <td>
+                                    <div class="billing-actions-grid">
+                                        @if (invoice.Status is InvoiceStatus.Issued or InvoiceStatus.Overdue)
+                                        {
+                                            <button class="btn btn-success btn-sm" @onclick="() => RecordPayment(invoice.InvoiceId)">Record Payment</button>
+                                            <button class="btn btn-outline btn-sm" @onclick="() => SendDunning(invoice.InvoiceId)">Send Dunning</button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+</section>
+
+@code {
+    private PlatformBillingOpsData? _data;
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private string _search = string.Empty;
+    private string _statusFilter = "ALL";
+    private string? _message;
+    private string? _error;
+
+    private IEnumerable<PlatformBillingInvoiceRow> FilteredInvoices => (_data?.Invoices ?? new List<PlatformBillingInvoiceRow>())
+        .Where(i => string.IsNullOrWhiteSpace(_search)
+            || i.InvoiceNumber.Contains(_search, StringComparison.OrdinalIgnoreCase)
+            || i.TenantName.Contains(_search, StringComparison.OrdinalIgnoreCase))
+        .Where(i => _statusFilter == "ALL" || i.Status.ToString() == _statusFilter)
+        .OrderByDescending(i => i.CreatedAt);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is null || _chartsRendered)
+        {
+            return;
+        }
+
+        await Charts.RenderDoughnutChart("billingPlanChart", BuildRevenueChart(_data.RevenueByPlan, "Revenue by plan"));
+        await Charts.RenderBarChart("billingModuleChart", BuildRevenueChart(_data.RevenueByModule, "Revenue by module"));
+        _chartsRendered = true;
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        _chartsRendered = false;
+        _data = await PlatformService.GetBillingOps();
+        _loading = false;
+    }
+
+    private async Task RecordPayment(int invoiceId)
+    {
+        _message = null;
+        _error = null;
+        try
+        {
+            await PlatformService.RecordManualPayment(invoiceId, "platform-admin");
+            _message = $"Payment recorded for invoice {invoiceId}.";
+            await Load();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task SendDunning(int invoiceId)
+    {
+        _message = null;
+        _error = null;
+        try
+        {
+            await PlatformService.SendDunningReminder(invoiceId, "platform-admin");
+            _message = $"Dunning reminder sent for invoice {invoiceId}.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private static TrendData BuildRevenueChart(List<RevenueBreakdownItem> rows, string title)
+    {
+        return new TrendData
+        {
+            Title = title,
+            Labels = rows.Select(r => r.Label).ToList(),
+            Datasets =
+            {
+                new TrendDataset
+                {
+                    Label = "Amount",
+                    Data = rows.Select(r => r.Amount).ToList(),
+                    BackgroundColor = "#0f766e",
+                    BorderColor = "#0f766e"
+                }
+            }
+        };
+    }
+}

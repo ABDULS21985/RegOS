@@ -1,217 +1,277 @@
 @page "/platform/tenants"
 @attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Admin.Services
 @using FC.Engine.Domain.Enums
-@using Microsoft.AspNetCore.WebUtilities
 @inject PlatformAdminService PlatformService
-@inject TenantManagementService TenantManagementService
 @inject NavigationManager Navigation
 
-<PageTitle>Platform Tenants</PageTitle>
+<PageTitle>Tenant List</PageTitle>
 
-<section class="billing-shell">
-    <header class="billing-hero">
-        <div>
-            <p class="billing-kicker">Platform Console</p>
-            <h1>Global Tenant List</h1>
-            <p>Search, filter, sort, export, and perform quick tenant actions.</p>
-        </div>
-        <div class="billing-hero-note">
-            <button class="btn btn-outline btn-sm" @onclick="Export">Export Excel</button>
-            <span>@DateTime.UtcNow.ToString("dd MMM yyyy HH:mm") UTC</span>
-        </div>
-    </header>
+<header class="dash-header" role="banner">
+    <div class="dash-header-text">
+        <h1>Global Tenant List</h1>
+        <p>Search, filter, sort, export, and take quick tenant actions.</p>
+    </div>
+</header>
 
-    <section class="card billing-surface">
-        <div class="billing-toolbar billing-toolbar-wrap">
-            <input class="form-control billing-search"
-                   type="search"
-                   placeholder="Search tenant name, slug, email"
-                   @bind="_query.Search"
-                   @bind:event="oninput"
-                   @oninput="async _ => await Load()" />
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="portal-alert portal-alert-success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
 
-            <select class="form-control billing-select" @bind="_query.Status" @onchange="async _ => await Load()">
-                <option value="">All statuses</option>
-                @foreach (var status in Enum.GetValues<TenantStatus>())
-                {
-                    <option value="@status.ToString()">@status</option>
-                }
-            </select>
-
-            <select class="form-control billing-select" @bind="_query.PlanCode" @onchange="async _ => await Load()">
-                <option value="">All plans</option>
-                @foreach (var plan in _planOptions)
-                {
-                    <option value="@plan">@plan</option>
-                }
-            </select>
-
-            <select class="form-control billing-select" @bind="_query.LicenceType" @onchange="async _ => await Load()">
-                <option value="">All licence types</option>
-                @foreach (var licence in _licenceOptions)
-                {
-                    <option value="@licence">@licence</option>
-                }
-            </select>
-
-            <select class="form-control billing-select" @bind="_query.SortBy" @onchange="async _ => await Load()">
-                <option value="name">Sort: Name</option>
-                <option value="status">Sort: Status</option>
-                <option value="plan">Sort: Plan</option>
-                <option value="modules">Sort: Active modules</option>
-                <option value="users">Sort: Users</option>
-                <option value="entities">Sort: Entities</option>
-                <option value="mrr">Sort: MRR</option>
-                <option value="created">Sort: Created</option>
-            </select>
-
-            <label style="display:flex; align-items:center; gap:0.45rem;">
-                <input type="checkbox" @bind="_query.SortDescending" @onchange="async _ => await Load()" />
-                Desc
-            </label>
-        </div>
-    </section>
-
-    @if (_loading)
-    {
-        <section class="card billing-surface">
-            <p>Loading tenants...</p>
-        </section>
-    }
-    else
-    {
-        <section class="card billing-surface">
-            <div class="billing-table-wrap">
-                <table class="data-table billing-table">
-                    <thead>
-                        <tr>
-                            <th>Tenant Name</th>
-                            <th>Slug</th>
-                            <th>Status</th>
-                            <th>Plan</th>
-                            <th>Active Modules</th>
-                            <th>Users</th>
-                            <th>Entities</th>
-                            <th>MRR</th>
-                            <th>Created</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (_tenants.Count == 0)
-                        {
-                            <tr>
-                                <td colspan="10" class="billing-empty-cell">No tenants match current filters.</td>
-                            </tr>
-                        }
-                        else
-                        {
-                            @foreach (var tenant in _tenants)
-                            {
-                                <tr>
-                                    <td>
-                                        <div class="billing-plan-name">@tenant.TenantName</div>
-                                        <div class="billing-plan-code">@tenant.LicenceType</div>
-                                    </td>
-                                    <td><code>@tenant.TenantSlug</code></td>
-                                    <td><span class="badge @GetBadge(tenant.Status)">@tenant.Status</span></td>
-                                    <td>@tenant.PlanName</td>
-                                    <td>@tenant.ActiveModules</td>
-                                    <td>@tenant.Users</td>
-                                    <td>@tenant.Entities</td>
-                                    <td>@tenant.Mrr.ToString("N2")</td>
-                                    <td>@tenant.CreatedAt.ToString("yyyy-MM-dd")</td>
-                                    <td>
-                                        <div class="billing-actions-grid">
-                                            <button class="btn btn-outline btn-sm" @onclick="() => OpenTenant(tenant.TenantId)">View</button>
-                                            <button class="btn btn-primary btn-sm" @onclick="() => Impersonate(tenant.TenantId)">Impersonate</button>
-                                            @if (tenant.Status == TenantStatus.Active)
-                                            {
-                                                <button class="btn btn-danger btn-sm" @onclick="() => Suspend(tenant.TenantId)">Suspend</button>
-                                            }
-                                            @if (tenant.Status == TenantStatus.PendingActivation || tenant.Status == TenantStatus.Suspended)
-                                            {
-                                                <button class="btn btn-success btn-sm" @onclick="() => Activate(tenant.TenantId)">Activate</button>
-                                            }
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
-                        }
-                    </tbody>
-                </table>
+<div class="portal-card" style="margin-bottom:1rem;">
+    <div class="portal-card-body">
+        <div class="portal-grid portal-grid-3">
+            <div class="portal-form-row">
+                <label>Search</label>
+                <input class="portal-input" @bind="_query.Search" placeholder="Tenant, slug, email" />
             </div>
-        </section>
-    }
-</section>
+            <div class="portal-form-row">
+                <label>Status</label>
+                <select class="portal-input" @bind="_query.Status">
+                    <option value="">All</option>
+                    @foreach (var status in Enum.GetNames<TenantStatus>())
+                    {
+                        <option value="@status">@status</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-row">
+                <label>Plan</label>
+                <select class="portal-input" @bind="_query.PlanCode">
+                    <option value="">All</option>
+                    @foreach (var plan in _data.PlanOptions)
+                    {
+                        <option value="@plan">@plan</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-row">
+                <label>Licence Type</label>
+                <select class="portal-input" @bind="_query.LicenceType">
+                    <option value="">All</option>
+                    @foreach (var licence in _data.LicenceOptions)
+                    {
+                        <option value="@licence">@licence</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-row">
+                <label>Min Modules</label>
+                <input class="portal-input" type="number" min="0" @bind="_query.MinModuleCount" />
+            </div>
+            <div class="portal-form-row">
+                <label>Sort By</label>
+                <select class="portal-input" @bind="_query.SortBy">
+                    <option value="name">Name</option>
+                    <option value="status">Status</option>
+                    <option value="plan">Plan</option>
+                    <option value="modules">Modules</option>
+                    <option value="users">Users</option>
+                    <option value="entities">Entities</option>
+                    <option value="mrr">MRR</option>
+                    <option value="created">Created</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap; align-items:center;">
+            <label style="display:flex; gap:0.35rem; align-items:center; font-size:0.9rem; color:#475569;">
+                <input type="checkbox" @bind="_query.SortDescending" />
+                Descending
+            </label>
+            <button class="portal-btn portal-btn-primary" @onclick="LoadAsync" disabled="@_loading">Apply</button>
+            <button class="portal-btn portal-btn-outline" @onclick="ResetFilters" disabled="@_loading">Reset</button>
+            <button class="portal-btn portal-btn-outline" @onclick="Export" disabled="@_loading">Export Excel</button>
+            <span style="margin-left:auto; color:#64748b; font-size:0.9rem;">@_data.Tenants.Count tenant(s)</span>
+        </div>
+    </div>
+</div>
+
+@if (_loading)
+{
+    <div class="portal-card"><div class="portal-card-body">Loading tenants...</div></div>
+}
+else
+{
+    <div class="portal-card">
+        <div class="portal-card-body" style="padding:0; overflow:auto;">
+            <table class="portal-table">
+                <thead>
+                    <tr>
+                        <th>Tenant Name</th>
+                        <th>Slug</th>
+                        <th>Status</th>
+                        <th>Plan</th>
+                        <th>Active Modules</th>
+                        <th>Users</th>
+                        <th>Entities</th>
+                        <th>MRR</th>
+                        <th>Created</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var tenant in _data.Tenants)
+                    {
+                        <tr>
+                            <td>
+                                <div style="font-weight:600;">@tenant.TenantName</div>
+                                <small style="color:#64748b;">@(tenant.ContactEmail ?? "-")</small>
+                            </td>
+                            <td><code>@tenant.TenantSlug</code></td>
+                            <td><span class="portal-badge @GetStatusBadge(tenant.Status)">@tenant.Status</span></td>
+                            <td>@tenant.PlanName</td>
+                            <td>@tenant.ActiveModules</td>
+                            <td>@tenant.Users</td>
+                            <td>@tenant.Entities</td>
+                            <td>NGN @tenant.Mrr.ToString("N2")</td>
+                            <td>@tenant.CreatedAt.ToString("dd MMM yyyy")</td>
+                            <td>
+                                <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+                                    <button class="portal-btn portal-btn-xs portal-btn-outline" @onclick="() => OpenTenant(tenant.TenantId)">View</button>
+                                    <button class="portal-btn portal-btn-xs portal-btn-outline" @onclick="() => ImpersonateTenant(tenant.TenantId)">Impersonate</button>
+                                    @if (tenant.Status == TenantStatus.Active)
+                                    {
+                                        <button class="portal-btn portal-btn-xs" style="background:#b91c1c;color:#fff;" @onclick="() => SuspendTenant(tenant.TenantId)">Suspend</button>
+                                    }
+                                    else if (tenant.Status == TenantStatus.PendingActivation || tenant.Status == TenantStatus.Suspended)
+                                    {
+                                        <button class="portal-btn portal-btn-xs" style="background:#166534;color:#fff;" @onclick="() => ActivateTenant(tenant.TenantId)">Activate</button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
 
 @code {
-    private readonly PlatformTenantListQuery _query = new();
-    private List<PlatformTenantListItem> _tenants = new();
-    private List<string> _planOptions = new();
-    private List<string> _licenceOptions = new();
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private PlatformTenantListQuery _query = new();
+    private PlatformTenantListResult _data = new();
     private bool _loading = true;
+    private string? _error;
+    private string? _message;
 
     protected override async Task OnInitializedAsync()
     {
-        await Load();
+        await LoadAsync();
     }
 
-    private async Task Load()
+    private async Task LoadAsync()
     {
         _loading = true;
-        var result = await PlatformService.GetTenantList(_query);
-        _tenants = result.Tenants;
-        _planOptions = result.PlanOptions;
-        _licenceOptions = result.LicenceOptions;
-        _loading = false;
+        _error = null;
+        _message = null;
+
+        try
+        {
+            _data = await PlatformService.GetTenantList(_query);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ActivateTenant(Guid tenantId)
+    {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.ActivateTenant(tenantId, actor);
+            _message = "Tenant activated.";
+        });
+    }
+
+    private async Task SuspendTenant(Guid tenantId)
+    {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.SuspendTenant(tenantId, actor);
+            _message = "Tenant suspended.";
+        });
     }
 
     private void OpenTenant(Guid tenantId)
-    {
-        Navigation.NavigateTo($"/platform/tenants/{tenantId}");
-    }
+        => Navigation.NavigateTo($"/platform/tenants/{tenantId}");
 
-    private void Impersonate(Guid tenantId)
-    {
-        Navigation.NavigateTo($"/platform/impersonate?tenantId={tenantId}", forceLoad: true);
-    }
+    private void ImpersonateTenant(Guid tenantId)
+        => Navigation.NavigateTo($"/platform/impersonate?tenantId={tenantId}", forceLoad: true);
 
-    private async Task Activate(Guid tenantId)
+    private void ResetFilters()
     {
-        await TenantManagementService.ActivateTenantAsync(tenantId);
-        await Load();
-    }
-
-    private async Task Suspend(Guid tenantId)
-    {
-        await TenantManagementService.SuspendTenantAsync(tenantId);
-        await Load();
+        _query = new PlatformTenantListQuery();
+        _ = LoadAsync();
     }
 
     private void Export()
     {
-        var query = new Dictionary<string, string?>
-        {
-            ["search"] = _query.Search,
-            ["status"] = _query.Status,
-            ["plan"] = _query.PlanCode,
-            ["licence"] = _query.LicenceType,
-            ["sortBy"] = _query.SortBy,
-            ["sortDesc"] = _query.SortDescending.ToString().ToLowerInvariant()
-        };
+        var query = new List<string>();
+        AddQuery(query, "search", _query.Search);
+        AddQuery(query, "status", _query.Status);
+        AddQuery(query, "plan", _query.PlanCode);
+        AddQuery(query, "licence", _query.LicenceType);
+        AddQuery(query, "sortBy", _query.SortBy);
+        AddQuery(query, "sortDesc", _query.SortDescending ? "true" : "false");
+        AddQuery(query, "minModules", _query.MinModuleCount?.ToString());
 
-        var url = QueryHelpers.AddQueryString("/platform/tenants/export", query!);
-        Navigation.NavigateTo(url, forceLoad: true);
+        var qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
+        Navigation.NavigateTo($"/platform/tenants/export{qs}", forceLoad: true);
     }
 
-    private static string GetBadge(TenantStatus status) => status switch
+    private async Task ExecuteAction(Func<string, Task> action)
     {
-        TenantStatus.Active => "badge-published",
-        TenantStatus.PendingActivation => "badge-review",
-        TenantStatus.Suspended => "badge-deprecated",
-        TenantStatus.Deactivated => "badge-deprecated",
-        TenantStatus.Archived => "badge-draft",
-        _ => "badge-review"
+        _error = null;
+        _message = null;
+        try
+        {
+            var actor = await GetActor();
+            await action(actor);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return state?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? state?.User.Identity?.Name
+               ?? "platform-admin";
+    }
+
+    private static void AddQuery(List<string> list, string key, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            list.Add($"{Uri.EscapeDataString(key)}={Uri.EscapeDataString(value)}");
+        }
+    }
+
+    private static string GetStatusBadge(TenantStatus status) => status switch
+    {
+        TenantStatus.Active => "portal-badge-success",
+        TenantStatus.PendingActivation => "portal-badge-warning",
+        TenantStatus.Suspended => "portal-badge-danger",
+        TenantStatus.Deactivated => "portal-badge-neutral",
+        _ => "portal-badge-neutral"
     };
 }

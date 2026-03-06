@@ -1,0 +1,114 @@
+@page "/platform/module-analytics"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject PlatformAdminService PlatformService
+
+<PageTitle>Module Analytics</PageTitle>
+
+<section class="billing-shell">
+    <header class="billing-hero">
+        <div>
+            <p class="billing-kicker">Platform Console</p>
+            <h1>Module Analytics</h1>
+            <p>Adoption matrix with filing volume and validation error hotspots.</p>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <section class="card billing-surface"><p>Loading module analytics...</p></section>
+    }
+    else
+    {
+        <section class="card billing-surface">
+            <div class="billing-table-wrap">
+                <table class="data-table billing-table">
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Tenant Count</th>
+                            <th>Active Users</th>
+                            <th>Returns Submitted</th>
+                            <th>Validation Error Rate</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var item in _data.Items.OrderByDescending(x => x.TenantCount))
+                        {
+                            var isOpen = _expandedModuleId == item.ModuleId;
+                            <tr style="@GetHeatStyle(item.Heat)">
+                                <td>
+                                    <div class="billing-plan-name">@item.ModuleName</div>
+                                    <div class="billing-plan-code">@item.ModuleCode</div>
+                                </td>
+                                <td>@item.TenantCount</td>
+                                <td>@item.ActiveUsers</td>
+                                <td>@item.ReturnsSubmitted</td>
+                                <td>@item.ValidationErrorRate.ToString("0.##")%</td>
+                                <td>
+                                    <button class="btn btn-outline btn-sm" @onclick="() => Toggle(item.ModuleId)">
+                                        @(isOpen ? "Hide hotspots" : "View hotspots")
+                                    </button>
+                                </td>
+                            </tr>
+
+                            @if (isOpen)
+                            {
+                                <tr>
+                                    <td colspan="6">
+                                        @if (item.Hotspots.Count == 0)
+                                        {
+                                            <p class="billing-muted">No validation hotspots for this module.</p>
+                                        }
+                                        else
+                                        {
+                                            <div class="billing-table-wrap">
+                                                <table class="data-table billing-table">
+                                                    <thead><tr><th>Rule</th><th>Field</th><th>Count</th></tr></thead>
+                                                    <tbody>
+                                                        @foreach (var hotspot in item.Hotspots)
+                                                        {
+                                                            <tr>
+                                                                <td>@hotspot.RuleId</td>
+                                                                <td>@hotspot.Field</td>
+                                                                <td>@hotspot.Count</td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+</section>
+
+@code {
+    private ModuleAnalyticsData _data = new();
+    private bool _loading = true;
+    private int? _expandedModuleId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _data = await PlatformService.GetModuleAnalytics();
+        _loading = false;
+    }
+
+    private void Toggle(int moduleId)
+    {
+        _expandedModuleId = _expandedModuleId == moduleId ? null : moduleId;
+    }
+
+    private static string GetHeatStyle(string heat) => heat switch
+    {
+        "red" => "background:#ffe4e6;",
+        "amber" => "background:#fef3c7;",
+        _ => "background:#ecfdf3;"
+    };
+}

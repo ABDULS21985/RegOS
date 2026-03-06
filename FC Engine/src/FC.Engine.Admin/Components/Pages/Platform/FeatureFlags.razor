@@ -1,0 +1,158 @@
+@page "/platform/feature-flags"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using FC.Engine.Domain.Entities
+@inject PlatformAdminService PlatformService
+
+<PageTitle>Feature Flags</PageTitle>
+
+<section class="billing-shell">
+    <header class="billing-hero">
+        <div>
+            <p class="billing-kicker">Platform Console</p>
+            <h1>Feature Flags</h1>
+            <p>Global toggles with gradual rollout and tenant/plan targeting.</p>
+        </div>
+    </header>
+
+    @if (!string.IsNullOrWhiteSpace(_message))
+    {
+        <div class="cbn-alert cbn-alert-success">@_message</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="cbn-alert cbn-alert-error">@_error</div>
+    }
+
+    <section class="card billing-surface">
+        <h3>Create or update feature flag</h3>
+        <div class="detail-add-grid">
+            <div class="detail-float-field">
+                <input class="detail-float-input" @bind="_edit.FlagCode" placeholder=" " />
+                <label class="detail-float-label">Flag code</label>
+            </div>
+            <div class="detail-float-field">
+                <input class="detail-float-input" @bind="_edit.Description" placeholder=" " />
+                <label class="detail-float-label">Description</label>
+            </div>
+            <div class="detail-float-field">
+                <input class="detail-float-input" type="number" min="0" max="100" @bind="_edit.RolloutPercent" placeholder=" " />
+                <label class="detail-float-label">Rollout %</label>
+            </div>
+            <div class="detail-float-field">
+                <input class="detail-float-input" @bind="_edit.AllowedPlans" placeholder=" " />
+                <label class="detail-float-label">Allowed plans (comma)</label>
+            </div>
+            <div class="detail-float-field" style="grid-column:span 2;">
+                <input class="detail-float-input" @bind="_edit.AllowedTenants" placeholder=" " />
+                <label class="detail-float-label">Allowed tenant IDs (comma)</label>
+            </div>
+            <label style="display:flex; align-items:center; gap:0.5rem;">
+                <input type="checkbox" @bind="_edit.IsEnabled" />
+                Enabled globally
+            </label>
+        </div>
+        <div class="detail-add-actions">
+            <button class="btn btn-primary btn-sm" @onclick="Save">Save</button>
+            <button class="btn btn-outline btn-sm" @onclick="Clear">Clear</button>
+        </div>
+    </section>
+
+    <section class="card billing-surface">
+        <div class="billing-table-wrap">
+            <table class="data-table billing-table">
+                <thead>
+                    <tr>
+                        <th>Flag</th>
+                        <th>Description</th>
+                        <th>Enabled</th>
+                        <th>Rollout %</th>
+                        <th>Allowed Plans</th>
+                        <th>Allowed Tenants</th>
+                        <th>Updated</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (_flags.Count == 0)
+                    {
+                        <tr><td colspan="8" class="billing-empty-cell">No flags configured.</td></tr>
+                    }
+                    else
+                    {
+                        @foreach (var flag in _flags)
+                        {
+                            <tr>
+                                <td><code>@flag.FlagCode</code></td>
+                                <td>@flag.Description</td>
+                                <td>@(flag.IsEnabled ? "Yes" : "No")</td>
+                                <td>@flag.RolloutPercent</td>
+                                <td>@(flag.AllowedPlans ?? "-")</td>
+                                <td>@(flag.AllowedTenants ?? "-")</td>
+                                <td>@flag.UpdatedAt.ToString("yyyy-MM-dd HH:mm")</td>
+                                <td>
+                                    <button class="btn btn-outline btn-sm" @onclick="() => Edit(flag)">Edit</button>
+                                </td>
+                            </tr>
+                        }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+</section>
+
+@code {
+    private List<FeatureFlag> _flags = new();
+    private UpdateFeatureFlagRequest _edit = new();
+    private string? _message;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _flags = (await PlatformService.GetFeatureFlags()).ToList();
+    }
+
+    private async Task Save()
+    {
+        _message = null;
+        _error = null;
+
+        try
+        {
+            await PlatformService.UpsertFeatureFlag(_edit, "platform-admin");
+            _message = $"Feature flag '{_edit.FlagCode}' saved.";
+            await Load();
+            Clear();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void Edit(FeatureFlag flag)
+    {
+        _edit = new UpdateFeatureFlagRequest
+        {
+            FlagCode = flag.FlagCode,
+            Description = flag.Description,
+            IsEnabled = flag.IsEnabled,
+            RolloutPercent = flag.RolloutPercent,
+            AllowedPlans = flag.AllowedPlans,
+            AllowedTenants = flag.AllowedTenants
+        };
+    }
+
+    private void Clear()
+    {
+        _edit = new UpdateFeatureFlagRequest
+        {
+            RolloutPercent = 0
+        };
+    }
+}

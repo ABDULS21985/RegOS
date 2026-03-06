@@ -1,0 +1,278 @@
+@page "/platform/tenants/{TenantId:guid}"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using FC.Engine.Admin.Services
+@using FC.Engine.Domain.Enums
+@inject PlatformAdminService PlatformService
+@inject NavigationManager Navigation
+
+<PageTitle>Tenant Detail</PageTitle>
+
+<header class="dash-header" role="banner">
+    <div class="dash-header-text">
+        <h1>Tenant Detail</h1>
+        <p>Comprehensive tenant profile, billing, usage, filings, audit, and support history.</p>
+    </div>
+</header>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
+
+@if (_loading)
+{
+    <div class="portal-card"><div class="portal-card-body">Loading tenant profile...</div></div>
+}
+else if (_data is null)
+{
+    <div class="portal-card"><div class="portal-card-body">Tenant not found.</div></div>
+}
+else
+{
+    <div class="portal-card" style="margin-bottom:1rem;">
+        <div class="portal-card-body" style="display:flex; justify-content:space-between; gap:1rem; align-items:center; flex-wrap:wrap;">
+            <div>
+                <h2 style="margin:0 0 0.25rem 0;">@_data.TenantName</h2>
+                <div style="color:#64748b;"><code>@_data.TenantSlug</code> · @_data.CurrentPlanName (@_data.CurrentPlanCode)</div>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+                <button class="portal-btn portal-btn-outline" @onclick="Back">Back</button>
+                <button class="portal-btn portal-btn-outline" @onclick="Impersonate">Impersonate</button>
+            </div>
+        </div>
+    </div>
+
+    <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:1rem;">
+        <button class="portal-btn @(TabClass("overview"))" @onclick='() => SetTab("overview")'>Overview</button>
+        <button class="portal-btn @(TabClass("subscription"))" @onclick='() => SetTab("subscription")'>Subscription</button>
+        <button class="portal-btn @(TabClass("users"))" @onclick='() => SetTab("users")'>Users</button>
+        <button class="portal-btn @(TabClass("entities"))" @onclick='() => SetTab("entities")'>Entities</button>
+        <button class="portal-btn @(TabClass("filings"))" @onclick='() => SetTab("filings")'>Filings</button>
+        <button class="portal-btn @(TabClass("audit"))" @onclick='() => SetTab("audit")'>Audit</button>
+        <button class="portal-btn @(TabClass("support"))" @onclick='() => SetTab("support")'>Support</button>
+    </div>
+
+    @if (_tab == "overview")
+    {
+        <div class="portal-grid portal-grid-3" style="margin-bottom:1rem;">
+            <div class="portal-card"><div class="portal-card-body"><div class="portal-kv"><span>Status</span><strong>@_data.Status</strong></div><div class="portal-kv"><span>Created</span><strong>@_data.CreatedAt.ToString("dd MMM yyyy")</strong></div></div></div>
+            <div class="portal-card"><div class="portal-card-body"><div class="portal-kv"><span>Timezone</span><strong>@_data.Timezone</strong></div><div class="portal-kv"><span>Currency</span><strong>@_data.DefaultCurrency</strong></div></div></div>
+            <div class="portal-card"><div class="portal-card-body"><div class="portal-kv"><span>Usage Meter</span><strong>@_data.Usage.UsersUsed / @_data.Usage.UsersLimit users</strong></div><div class="portal-kv"><span>Modules</span><strong>@_data.Usage.ModulesUsed / @_data.Usage.ModulesLimit</strong></div></div></div>
+        </div>
+
+        <div class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Contact</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-kv"><span>Email</span><strong>@(_data.ContactEmail ?? "-")</strong></div>
+                <div class="portal-kv"><span>Phone</span><strong>@(_data.ContactPhone ?? "-")</strong></div>
+                <div class="portal-kv"><span>Address</span><strong>@(_data.Address ?? "-")</strong></div>
+            </div>
+        </div>
+    }
+
+    @if (_tab == "subscription")
+    {
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-header"><h2 class="portal-card-title">Subscription History</h2></div>
+            <div class="portal-card-body" style="padding:0; overflow:auto;">
+                <table class="portal-table">
+                    <thead><tr><th>Plan</th><th>Status</th><th>Billing</th><th>Period</th><th>Modules</th></tr></thead>
+                    <tbody>
+                        @foreach (var row in _data.SubscriptionHistory)
+                        {
+                            <tr>
+                                <td>@row.PlanName (@row.PlanCode)</td>
+                                <td>@row.Status</td>
+                                <td>@row.BillingFrequency</td>
+                                <td>@row.CurrentPeriodStart.ToString("dd MMM yyyy") - @row.CurrentPeriodEnd.ToString("dd MMM yyyy")</td>
+                                <td>@string.Join(", ", row.Modules)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="portal-grid portal-grid-2">
+            <div class="portal-card">
+                <div class="portal-card-header"><h2 class="portal-card-title">Invoices</h2></div>
+                <div class="portal-card-body" style="padding:0; overflow:auto; max-height:420px;">
+                    <table class="portal-table">
+                        <thead><tr><th>Invoice</th><th>Status</th><th>Amount</th><th>Due</th></tr></thead>
+                        <tbody>
+                            @foreach (var row in _data.Invoices)
+                            {
+                                <tr>
+                                    <td>@row.InvoiceNumber</td>
+                                    <td>@row.Status</td>
+                                    <td>@row.Currency @row.TotalAmount.ToString("N2")</td>
+                                    <td>@(row.DueDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="portal-card">
+                <div class="portal-card-header"><h2 class="portal-card-title">Payments</h2></div>
+                <div class="portal-card-body" style="padding:0; overflow:auto; max-height:420px;">
+                    <table class="portal-table">
+                        <thead><tr><th>Payment</th><th>InvoiceId</th><th>Status</th><th>Amount</th></tr></thead>
+                        <tbody>
+                            @foreach (var row in _data.Payments)
+                            {
+                                <tr>
+                                    <td>#@row.PaymentId</td>
+                                    <td>#@row.InvoiceId</td>
+                                    <td>@row.Status</td>
+                                    <td>@row.Currency @row.Amount.ToString("N2")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+
+    @if (_tab == "users")
+    {
+        <div class="portal-card"><div class="portal-card-body" style="padding:0; overflow:auto;">
+            <table class="portal-table">
+                <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>MFA</th><th>Last Login</th></tr></thead>
+                <tbody>
+                    @foreach (var user in _data.Users)
+                    {
+                        <tr>
+                            <td>@user.DisplayName</td>
+                            <td>@user.Email</td>
+                            <td>@user.Role</td>
+                            <td>@(user.MfaEnabled ? "Enabled" : "Disabled")</td>
+                            <td>@(user.LastLoginAt?.ToString("dd MMM yyyy HH:mm") ?? "Never")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div></div>
+    }
+
+    @if (_tab == "entities")
+    {
+        <div class="portal-card"><div class="portal-card-body" style="padding:0; overflow:auto;">
+            <table class="portal-table">
+                <thead><tr><th>Code</th><th>Name</th><th>Status</th><th>Contact</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _data.Entities)
+                    {
+                        <tr>
+                            <td><code>@row.InstitutionCode</code></td>
+                            <td>@row.InstitutionName</td>
+                            <td>@(row.IsActive ? "Active" : "Inactive")</td>
+                            <td>@(row.ContactEmail ?? "-")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div></div>
+    }
+
+    @if (_tab == "filings")
+    {
+        <div class="portal-card"><div class="portal-card-body" style="padding:0; overflow:auto;">
+            <table class="portal-table">
+                <thead><tr><th>Module</th><th>Period</th><th>Deadline</th><th>RAG</th><th>Submission</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _data.FilingMatrix)
+                    {
+                        <tr>
+                            <td>@row.ModuleName</td>
+                            <td>@row.PeriodLabel</td>
+                            <td>@row.Deadline.ToString("dd MMM yyyy")</td>
+                            <td>@row.RagStatus</td>
+                            <td>@row.SubmissionStatus</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div></div>
+    }
+
+    @if (_tab == "audit")
+    {
+        <div class="portal-card"><div class="portal-card-body" style="padding:0; overflow:auto; max-height:560px;">
+            <table class="portal-table">
+                <thead><tr><th>When</th><th>Action</th><th>Entity</th><th>Actor</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _data.AuditEntries)
+                    {
+                        <tr>
+                            <td>@row.PerformedAt.ToString("dd MMM yyyy HH:mm")</td>
+                            <td>@row.Action</td>
+                            <td>@row.EntityType #@row.EntityId</td>
+                            <td>@row.PerformedBy</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div></div>
+    }
+
+    @if (_tab == "support")
+    {
+        <div class="portal-card"><div class="portal-card-body" style="padding:0; overflow:auto;">
+            <table class="portal-table">
+                <thead><tr><th>Ticket</th><th>Title</th><th>Priority</th><th>Status</th><th>SLA Due</th></tr></thead>
+                <tbody>
+                    @foreach (var row in _data.SupportTickets)
+                    {
+                        <tr>
+                            <td>#@row.TicketId</td>
+                            <td>@row.Title</td>
+                            <td>@row.Priority</td>
+                            <td>@row.Status</td>
+                            <td>@row.SlaDueAt.ToString("dd MMM yyyy HH:mm")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div></div>
+    }
+}
+
+@code {
+    [Parameter] public Guid TenantId { get; set; }
+
+    private PlatformTenantDetailData? _data;
+    private bool _loading = true;
+    private string? _error;
+    private string _tab = "overview";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _data = await PlatformService.GetTenantDetail(TenantId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void SetTab(string tab) => _tab = tab;
+
+    private string TabClass(string tab)
+        => _tab == tab ? "portal-btn-primary" : "portal-btn-outline";
+
+    private void Back() => Navigation.NavigateTo("/platform/tenants");
+
+    private void Impersonate()
+        => Navigation.NavigateTo($"/platform/impersonate?tenantId={TenantId}", forceLoad: true);
+}
