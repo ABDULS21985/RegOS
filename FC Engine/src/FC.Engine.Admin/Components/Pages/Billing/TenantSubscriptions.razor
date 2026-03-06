@@ -4,95 +4,89 @@
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Infrastructure.Metadata
+@using FC.Engine.Admin.Services
 @using Microsoft.EntityFrameworkCore
 @attribute [Authorize(Policy = "PlatformAdmin")]
 @inject MetadataDbContext Db
 @inject ISubscriptionService SubscriptionService
+@inject ToastService Toast
+@inject DialogService Dialog
 
 <PageTitle>Tenant Subscriptions</PageTitle>
 
-<div class="billing-shell">
-    <section class="billing-hero">
-        <div>
-            <p class="billing-kicker">Platform Billing</p>
-            <h1>Tenant Subscriptions</h1>
-            <p>Monitor lifecycle status, adjust plans, and manage subscription operations.</p>
-        </div>
-        <div class="billing-hero-note">
-            <span class="badge badge-review">Supervision Console</span>
-            <span>@DateTime.UtcNow.ToString("dd MMM yyyy HH:mm") UTC</span>
-        </div>
-    </section>
+<div class="admin-page">
 
+    <!-- Breadcrumb -->
+    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Dashboard</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <a href="/billing/plans">Billing</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="detail-breadcrumb-current">Subscriptions</span>
+    </nav>
+
+    <!-- Page Header -->
+    <div class="admin-header">
+        <div class="admin-header-top">
+            <div>
+                <h1>Tenant Subscriptions</h1>
+                <p class="admin-header-subtitle">Monitor lifecycle status, adjust plans, and manage subscription operations across all tenants.</p>
+            </div>
+        </div>
+
+        @if (!_loading && _subscriptions.Any())
+        {
+            <div class="admin-summary-chips">
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@_subscriptions.Count</span> Total
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-dot admin-chip-dot-active" aria-hidden="true"></span>
+                    <span class="admin-chip-count">@_subscriptions.Count(s => s.Status == SubscriptionStatus.Active)</span> Active
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-dot" style="background:#f59e0b;" aria-hidden="true"></span>
+                    <span class="admin-chip-count">@_subscriptions.Count(s => s.Status == SubscriptionStatus.PastDue)</span> Past Due
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-dot admin-chip-dot-inactive" aria-hidden="true"></span>
+                    <span class="admin-chip-count">@_subscriptions.Count(s => s.Status is SubscriptionStatus.Suspended or SubscriptionStatus.Cancelled)</span> Suspended/Cancelled
+                </span>
+            </div>
+        }
+    </div>
+
+    <!-- Toolbar -->
+    <div class="admin-toolbar">
+        <div class="admin-toolbar-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search tenant or plan..." @bind="_searchTerm" @bind:event="oninput" aria-label="Search subscriptions" />
+        </div>
+        <div class="admin-toolbar-filter">
+            <select @bind="_statusFilter" aria-label="Filter by status">
+                <option value="ALL">All Statuses</option>
+                @foreach (var status in Enum.GetValues<SubscriptionStatus>())
+                {
+                    <option value="@status.ToString()">@status</option>
+                }
+            </select>
+            <select @bind="_planFilter" aria-label="Filter by plan">
+                <option value="ALL">All Plans</option>
+                @foreach (var plan in _planOptions)
+                {
+                    <option value="@plan.PlanCode">@plan.PlanName (@plan.PlanCode)</option>
+                }
+            </select>
+            <button class="admin-btn-outline" @onclick="ClearFilters" type="button">Clear</button>
+        </div>
+    </div>
+
+    <!-- Content -->
     @if (_loading)
     {
-        <section class="card billing-surface">
-            <p>Loading subscriptions...</p>
-        </section>
-    }
-    else
-    {
-        @if (!string.IsNullOrWhiteSpace(_error))
-        {
-            <div class="cbn-alert cbn-alert-error">@_error</div>
-        }
-        @if (!string.IsNullOrWhiteSpace(_message))
-        {
-            <div class="cbn-alert cbn-alert-success">@_message</div>
-        }
-
-        <section class="billing-metrics">
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Total Subscriptions</p>
-                <p class="billing-metric-value">@_subscriptions.Count</p>
-                <p class="billing-metric-sub">across all tenants</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Active</p>
-                <p class="billing-metric-value">@_subscriptions.Count(s => s.Status == SubscriptionStatus.Active)</p>
-                <p class="billing-metric-sub">billing in good standing</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Past Due</p>
-                <p class="billing-metric-value">@_subscriptions.Count(s => s.Status == SubscriptionStatus.PastDue)</p>
-                <p class="billing-metric-sub">requires follow-up</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Suspended/Cancelled</p>
-                <p class="billing-metric-value">@_subscriptions.Count(s => s.Status is SubscriptionStatus.Suspended or SubscriptionStatus.Cancelled)</p>
-                <p class="billing-metric-sub">inactive operations</p>
-            </article>
-        </section>
-
-        <section class="card billing-surface">
-            <div class="billing-toolbar billing-toolbar-wrap">
-                <input class="form-control billing-search"
-                       type="search"
-                       @bind="_searchTerm"
-                       @bind:event="oninput"
-                       placeholder="Search tenant or plan" />
-
-                <select class="form-control billing-select" @bind="_statusFilter">
-                    <option value="ALL">All statuses</option>
-                    @foreach (var status in Enum.GetValues<SubscriptionStatus>())
-                    {
-                        <option value="@status.ToString()">@status</option>
-                    }
-                </select>
-
-                <select class="form-control billing-select" @bind="_planFilter">
-                    <option value="ALL">All plans</option>
-                    @foreach (var plan in _planOptions)
-                    {
-                        <option value="@plan.PlanCode">@plan.PlanName (@plan.PlanCode)</option>
-                    }
-                </select>
-
-                <button class="btn btn-outline btn-sm" @onclick="ClearFilters">Clear</button>
-            </div>
-
-            <div class="billing-table-wrap">
-                <table class="data-table billing-table">
+        <div class="portal-card">
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                <table class="portal-table">
                     <thead>
                         <tr>
                             <th>Tenant</th>
@@ -105,68 +99,109 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @if (!FilteredSubscriptions.Any())
+                        @for (var i = 0; i < 5; i++)
                         {
                             <tr>
-                                <td colspan="7" class="billing-empty-cell">No subscriptions match the selected filters.</td>
+                                <td><div class="skel skel-text" style="width:130px;"></div><div class="skel skel-text" style="width:80px;margin-top:4px;"></div></td>
+                                <td><div class="skel skel-text" style="width:80px;"></div><div class="skel skel-text" style="width:50px;margin-top:4px;"></div></td>
+                                <td><div class="skel" style="width:60px;height:20px;border-radius:var(--radius-pill);"></div></td>
+                                <td><div class="skel skel-text" style="width:60px;"></div></td>
+                                <td><div class="skel skel-text" style="width:80px;"></div><div class="skel skel-text" style="width:80px;margin-top:4px;"></div></td>
+                                <td><div class="skel skel-text" style="width:24px;"></div></td>
+                                <td><div class="skel" style="width:140px;height:28px;border-radius:6px;"></div></td>
                             </tr>
-                        }
-                        else
-                        {
-                            @foreach (var row in FilteredSubscriptions)
-                            {
-                                <tr>
-                                    <td>
-                                        <div class="billing-plan-name">@row.TenantName</div>
-                                        <div class="billing-plan-code">@row.TenantSlug</div>
-                                    </td>
-                                    <td>
-                                        <div class="billing-plan-name">@row.PlanCode</div>
-                                        <div class="billing-plan-code">Tier @row.PlanTier</div>
-                                    </td>
-                                    <td>
-                                        <span class="badge @GetStatusBadgeClass(row.Status)">@row.Status</span>
-                                    </td>
-                                    <td>@row.BillingFrequency</td>
-                                    <td>
-                                        <div class="billing-stack-sm">@row.CurrentPeriodStart.ToString("yyyy-MM-dd")</div>
-                                        <div class="billing-plan-code">to @row.CurrentPeriodEnd.ToString("yyyy-MM-dd")</div>
-                                    </td>
-                                    <td>@row.ActiveModuleCount</td>
-                                    <td>
-                                        <div class="billing-actions-grid">
-                                            <select class="form-control billing-select billing-select-compact" @bind="row.TargetPlanCode">
-                                                @foreach (var plan in _planOptions)
-                                                {
-                                                    <option value="@plan.PlanCode">@plan.PlanCode</option>
-                                                }
-                                            </select>
-                                            <button class="btn btn-outline btn-sm"
-                                                    disabled="@(_busySubscriptionId == row.SubscriptionId)"
-                                                    @onclick="() => ChangePlan(row)">
-                                                Apply Plan
-                                            </button>
-                                            <button class="btn btn-danger btn-sm"
-                                                    disabled="@(_busySubscriptionId == row.SubscriptionId || row.Status is SubscriptionStatus.Cancelled or SubscriptionStatus.Expired)"
-                                                    @onclick="() => CancelSubscription(row)">
-                                                Cancel
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            }
                         }
                     </tbody>
                 </table>
             </div>
-        </section>
+        </div>
+    }
+    else if (!FilteredSubscriptions.Any())
+    {
+        <div class="admin-empty">
+            <div class="admin-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            </div>
+            @if (_searchTerm == string.Empty && _statusFilter == "ALL" && _planFilter == "ALL")
+            {
+                <h3 class="admin-empty-title">No subscriptions found</h3>
+                <p class="admin-empty-text">Tenant subscriptions will appear here once tenants are onboarded.</p>
+            }
+            else
+            {
+                <h3 class="admin-empty-title">No matching subscriptions</h3>
+                <p class="admin-empty-text">Try adjusting your search or filters.</p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="portal-card">
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Tenant</th>
+                            <th>Current Plan</th>
+                            <th>Status</th>
+                            <th>Frequency</th>
+                            <th>Period</th>
+                            <th>Active Modules</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in FilteredSubscriptions)
+                        {
+                            <tr>
+                                <td>
+                                    <div style="font-weight:600;">@row.TenantName</div>
+                                    <small style="color:#64748b;">@row.TenantSlug</small>
+                                </td>
+                                <td>
+                                    <div style="font-weight:500;">@row.PlanCode</div>
+                                    <small style="color:#64748b;">Tier @row.PlanTier</small>
+                                </td>
+                                <td>
+                                    <span class="portal-badge @GetStatusBadgeClass(row.Status)">@row.Status</span>
+                                </td>
+                                <td>@row.BillingFrequency</td>
+                                <td>
+                                    <div>@row.CurrentPeriodStart.ToString("yyyy-MM-dd")</div>
+                                    <small style="color:#64748b;">to @row.CurrentPeriodEnd.ToString("yyyy-MM-dd")</small>
+                                </td>
+                                <td>@row.ActiveModuleCount</td>
+                                <td>
+                                    <div style="display:flex;gap:0.35rem;justify-content:flex-end;align-items:center;">
+                                        <select class="admin-form-input" style="width:auto;min-width:100px;padding:0.25rem 0.5rem;font-size:0.8rem;" @bind="row.TargetPlanCode">
+                                            @foreach (var plan in _planOptions)
+                                            {
+                                                <option value="@plan.PlanCode">@plan.PlanCode</option>
+                                            }
+                                        </select>
+                                        <button class="user-action-btn"
+                                                disabled="@(_busySubscriptionId == row.SubscriptionId)"
+                                                @onclick="() => ChangePlan(row)" type="button">
+                                            Apply Plan
+                                        </button>
+                                        <button class="user-action-btn user-action-btn-danger"
+                                                disabled="@(_busySubscriptionId == row.SubscriptionId || row.Status is SubscriptionStatus.Cancelled or SubscriptionStatus.Expired)"
+                                                @onclick="() => CancelSubscription(row)" type="button">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
     }
 </div>
 
 @code {
     private bool _loading = true;
-    private string? _error;
-    private string? _message;
     private string _searchTerm = string.Empty;
     private string _statusFilter = "ALL";
     private string _planFilter = "ALL";
@@ -245,22 +280,18 @@
     {
         if (string.IsNullOrWhiteSpace(row.TargetPlanCode) || row.TargetPlanCode == row.PlanCode)
         {
-            _message = "Select a different target plan before applying.";
-            _error = null;
+            Toast.Warning("Select a different target plan before applying.");
             return;
         }
 
         var target = _planOptions.FirstOrDefault(p => p.PlanCode == row.TargetPlanCode);
         if (target is null)
         {
-            _error = $"Target plan {row.TargetPlanCode} is not available.";
-            _message = null;
+            Toast.Error($"Target plan {row.TargetPlanCode} is not available.");
             return;
         }
 
         _busySubscriptionId = row.SubscriptionId;
-        _error = null;
-        _message = null;
 
         try
         {
@@ -277,12 +308,12 @@
                 throw new InvalidOperationException("Switching plans on the same tier is not supported by the subscription service.");
             }
 
-            _message = $"Updated {row.TenantName} to {row.TargetPlanCode}.";
+            Toast.Success($"Updated {row.TenantName} to {row.TargetPlanCode}.");
             await LoadData();
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            Toast.Error(ex.Message);
         }
         finally
         {
@@ -292,19 +323,28 @@
 
     private async Task CancelSubscription(SubscriptionRow row)
     {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Cancel Subscription",
+            Message = $"Cancel the subscription for {row.TenantName}? This will terminate their active billing cycle and revoke access to subscribed modules.",
+            ConfirmText = "Cancel Subscription",
+            IsDestructive = true,
+            Icon = "archive"
+        });
+
+        if (!confirmed) return;
+
         _busySubscriptionId = row.SubscriptionId;
-        _error = null;
-        _message = null;
 
         try
         {
             await SubscriptionService.CancelSubscription(row.TenantId, "Cancelled by platform administrator");
-            _message = $"Cancelled subscription for {row.TenantName}.";
+            Toast.Success($"Cancelled subscription for {row.TenantName}.");
             await LoadData();
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            Toast.Error(ex.Message);
         }
         finally
         {
@@ -314,13 +354,13 @@
 
     private static string GetStatusBadgeClass(SubscriptionStatus status) => status switch
     {
-        SubscriptionStatus.Active => "badge-published",
-        SubscriptionStatus.Trial => "badge-review",
-        SubscriptionStatus.PastDue => "badge-draft",
-        SubscriptionStatus.Suspended => "badge-deprecated",
-        SubscriptionStatus.Cancelled => "badge-deprecated",
-        SubscriptionStatus.Expired => "badge-deprecated",
-        _ => "badge-review"
+        SubscriptionStatus.Active => "portal-badge-success",
+        SubscriptionStatus.Trial => "portal-badge-warning",
+        SubscriptionStatus.PastDue => "portal-badge-warning",
+        SubscriptionStatus.Suspended => "portal-badge-danger",
+        SubscriptionStatus.Cancelled => "portal-badge-danger",
+        SubscriptionStatus.Expired => "portal-badge-neutral",
+        _ => "portal-badge-neutral"
     };
 
     private sealed class PlanOption

@@ -5,263 +5,360 @@
 @using FC.Engine.Admin.Services
 @inject JurisdictionManagementService JurisdictionSvc
 @inject ToastService Toast
+@inject DialogService Dialog
 
-<header class="dash-header" role="banner">
-    <div class="dash-header-text">
-        <h1>Jurisdiction Registry</h1>
-        <p>Multi-Jurisdiction Template Extension Framework — RG-27</p>
-    </div>
-</header>
+<PageTitle>Jurisdiction Registry</PageTitle>
 
-@if (_stats is not null)
-{
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:1rem; margin:1.5rem 0;">
-        <div style="padding:1.25rem; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size:2rem; font-weight:700; color:#1e293b;">@_stats.Total</div>
-            <div style="font-size:0.875rem; color:#64748b;">Total Jurisdictions</div>
-        </div>
-        <div style="padding:1.25rem; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size:2rem; font-weight:700; color:#16a34a;">@_stats.Active</div>
-            <div style="font-size:0.875rem; color:#64748b;">Active</div>
-        </div>
-        <div style="padding:1.25rem; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size:2rem; font-weight:700; color:#f59e0b;">@_stats.Planned</div>
-            <div style="font-size:0.875rem; color:#64748b;">Planned</div>
-        </div>
-    </div>
-}
+<div class="admin-page">
 
-<!-- Jurisdiction Table -->
-<div style="background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1); overflow:hidden;">
-    <table style="width:100%; border-collapse:collapse;">
-        <thead>
-            <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Country</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Code</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Currency</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Timezone</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Data Residency</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Regulators</th>
-                <th style="padding:0.75rem 1rem; text-align:center; font-weight:600; font-size:0.8125rem; color:#475569;">Modules</th>
-                <th style="padding:0.75rem 1rem; text-align:center; font-weight:600; font-size:0.8125rem; color:#475569;">Institutions</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Status</th>
-                <th style="padding:0.75rem 1rem; text-align:right; font-weight:600; font-size:0.8125rem; color:#475569;">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            @if (_jurisdictions is not null)
-            {
-                @foreach (var j in _jurisdictions)
+    <!-- Breadcrumb -->
+    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Dashboard</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <a href="/jurisdictions">Platform</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="detail-breadcrumb-current">Jurisdictions</span>
+    </nav>
+
+    <!-- Page Header -->
+    <div class="admin-header">
+        <div class="admin-header-top">
+            <div>
+                <h1>Jurisdiction Registry</h1>
+                <p class="admin-header-subtitle">Multi-Jurisdiction Template Extension Framework — RG-27</p>
+            </div>
+        </div>
+
+        <!-- Summary Chips -->
+        @if (_stats is not null)
+        {
+            <div class="admin-summary-chips">
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@_stats.Total</span> Total
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-dot admin-chip-dot-active" aria-hidden="true"></span>
+                    <span class="admin-chip-count">@_stats.Active</span> Active
+                </span>
+                @if (_stats.Planned > 0)
                 {
-                    <tr style="border-bottom:1px solid #e2e8f0;">
-                        <td style="padding:0.75rem 1rem; font-weight:500;">@j.CountryName</td>
-                        <td style="padding:0.75rem 1rem; font-family:monospace; font-size:0.8125rem; color:#64748b;">@j.CountryCode</td>
-                        <td style="padding:0.75rem 1rem; font-family:monospace; font-size:0.8125rem;">@j.Currency</td>
-                        <td style="padding:0.75rem 1rem; font-size:0.8125rem; color:#64748b;">@j.Timezone</td>
-                        <td style="padding:0.75rem 1rem; font-size:0.8125rem; color:#64748b;">@j.DataResidencyRegion</td>
-                        <td style="padding:0.75rem 1rem; font-size:0.8125rem; color:#64748b;">@FormatRegulators(j.RegulatoryBodies)</td>
-                        <td style="padding:0.75rem 1rem; text-align:center; font-size:0.8125rem;">@j.ModuleCount</td>
-                        <td style="padding:0.75rem 1rem; text-align:center; font-size:0.8125rem;">@j.InstitutionCount</td>
-                        <td style="padding:0.75rem 1rem;">
-                            <span style="padding:0.25rem 0.75rem; border-radius:9999px; font-size:0.75rem; font-weight:500; @(j.IsActive ? "background:#dcfce7; color:#166534;" : "background:#fef3c7; color:#92400e;")">
-                                @(j.IsActive ? "Active" : "Planned")
-                            </span>
-                        </td>
-                        <td style="padding:0.75rem 1rem; text-align:right;">
-                            <button @onclick="() => OpenEditDialog(j)"
-                                    style="padding:0.375rem 0.75rem; background:#3b82f6; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.8125rem; margin-right:0.25rem;">
-                                Edit
-                            </button>
-                            <button @onclick="() => ToggleActive(j.Id)"
-                                    style="padding:0.375rem 0.75rem; border:none; border-radius:4px; cursor:pointer; font-size:0.8125rem; @(j.IsActive ? "background:#ef4444; color:white;" : "background:#16a34a; color:white;")">
-                                @(j.IsActive ? "Deactivate" : "Activate")
-                            </button>
-                        </td>
-                    </tr>
+                    <span class="admin-chip">
+                        <span class="admin-chip-dot admin-chip-dot-inactive" aria-hidden="true"></span>
+                        <span class="admin-chip-count">@_stats.Planned</span> Planned
+                    </span>
                 }
-            }
-        </tbody>
-    </table>
-</div>
+            </div>
+        }
+    </div>
 
-<!-- FX Rates Section -->
-<div style="margin-top:2rem;">
-    <header class="dash-header" role="banner">
-        <div class="dash-header-text">
-            <h2>FX Rates</h2>
-            <p>Cross-jurisdiction currency conversion reference rates</p>
+    <!-- Toolbar -->
+    <div class="admin-toolbar">
+        <div class="admin-toolbar-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search by country name, code, or currency..." @bind="_searchQuery" @bind:event="oninput" aria-label="Search jurisdictions" />
         </div>
-        <div>
-            <button @onclick="OpenFxRateDialog"
-                    style="padding:0.5rem 1rem; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.875rem; font-weight:500;">
-                Add FX Rate
-            </button>
+        <div class="admin-toolbar-filter">
+            <select @bind="_statusFilter" aria-label="Filter by status">
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="planned">Planned</option>
+            </select>
         </div>
-    </header>
+    </div>
 
-    <div style="background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1); overflow:hidden;">
-        <table style="width:100%; border-collapse:collapse;">
-            <thead>
-                <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
-                    <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Base</th>
-                    <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Quote</th>
-                    <th style="padding:0.75rem 1rem; text-align:right; font-weight:600; font-size:0.8125rem; color:#475569;">Rate</th>
-                    <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Date</th>
-                    <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Source</th>
-                    <th style="padding:0.75rem 1rem; text-align:right; font-weight:600; font-size:0.8125rem; color:#475569;">Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                @if (_fxRates is not null)
-                {
-                    @foreach (var rate in _fxRates)
-                    {
-                        <tr style="border-bottom:1px solid #e2e8f0;">
-                            <td style="padding:0.75rem 1rem; font-family:monospace; font-size:0.875rem;">@rate.BaseCurrency</td>
-                            <td style="padding:0.75rem 1rem; font-family:monospace; font-size:0.875rem;">@rate.QuoteCurrency</td>
-                            <td style="padding:0.75rem 1rem; text-align:right; font-family:monospace; font-size:0.875rem;">@rate.Rate.ToString("N6")</td>
-                            <td style="padding:0.75rem 1rem; font-size:0.8125rem; color:#64748b;">@rate.RateDate.ToString("yyyy-MM-dd")</td>
-                            <td style="padding:0.75rem 1rem; font-size:0.8125rem; color:#64748b;">@rate.Source</td>
-                            <td style="padding:0.75rem 1rem; text-align:right;">
-                                <button @onclick="() => DeleteFxRate(rate.Id)"
-                                        style="padding:0.375rem 0.75rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.8125rem;">
-                                    Delete
-                                </button>
-                            </td>
-                        </tr>
-                    }
-
-                    @if (_fxRates.Count == 0)
-                    {
+    <!-- Content -->
+    @if (_loading)
+    {
+        <div class="portal-card">
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                <table class="portal-table">
+                    <thead>
                         <tr>
-                            <td colspan="6" style="padding:2rem; text-align:center; color:#94a3b8; font-size:0.875rem;">
-                                No FX rates configured. Add rates for cross-jurisdiction currency conversion.
-                            </td>
+                            <th>Country</th>
+                            <th>Code</th>
+                            <th>Currency</th>
+                            <th>Timezone</th>
+                            <th>Data Residency</th>
+                            <th>Regulators</th>
+                            <th style="text-align:center;">Modules</th>
+                            <th style="text-align:center;">Institutions</th>
+                            <th>Status</th>
+                            <th style="text-align:right;">Actions</th>
                         </tr>
-                    }
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < 5; i++)
+                        {
+                            <tr>
+                                <td><div class="skel skel-text" style="width:120px;"></div></td>
+                                <td><div class="skel skel-text" style="width:40px;"></div></td>
+                                <td><div class="skel skel-text" style="width:40px;"></div></td>
+                                <td><div class="skel skel-text" style="width:100px;"></div></td>
+                                <td><div class="skel skel-text" style="width:80px;"></div></td>
+                                <td><div class="skel skel-text" style="width:100px;"></div></td>
+                                <td style="text-align:center;"><div class="skel skel-text" style="width:24px;margin:0 auto;"></div></td>
+                                <td style="text-align:center;"><div class="skel skel-text" style="width:24px;margin:0 auto;"></div></td>
+                                <td><div class="skel" style="width:52px;height:20px;border-radius:var(--radius-pill);"></div></td>
+                                <td style="text-align:right;"><div class="skel" style="width:120px;height:28px;border-radius:6px;margin-left:auto;"></div></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (_jurisdictions is not null && !FilteredJurisdictions.Any())
+    {
+        <div class="admin-empty">
+            <div class="admin-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
+            </div>
+            @if (string.IsNullOrEmpty(_searchQuery) && string.IsNullOrEmpty(_statusFilter))
+            {
+                <h3 class="admin-empty-title">No jurisdictions found</h3>
+                <p class="admin-empty-text">No jurisdictions have been configured yet.</p>
+            }
+            else
+            {
+                <h3 class="admin-empty-title">No matching jurisdictions</h3>
+                <p class="admin-empty-text">Try adjusting your search or filters.</p>
+            }
+        </div>
+    }
+    else if (_jurisdictions is not null)
+    {
+        <div class="portal-card">
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Country</th>
+                            <th>Code</th>
+                            <th>Currency</th>
+                            <th>Timezone</th>
+                            <th>Data Residency</th>
+                            <th>Regulators</th>
+                            <th style="text-align:center;">Modules</th>
+                            <th style="text-align:center;">Institutions</th>
+                            <th>Status</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var j in FilteredJurisdictions)
+                        {
+                            <tr>
+                                <td style="font-weight:500;">@j.CountryName</td>
+                                <td><code>@j.CountryCode</code></td>
+                                <td><code>@j.Currency</code></td>
+                                <td>@j.Timezone</td>
+                                <td>@j.DataResidencyRegion</td>
+                                <td>@FormatRegulators(j.RegulatoryBodies)</td>
+                                <td style="text-align:center;">@j.ModuleCount</td>
+                                <td style="text-align:center;">@j.InstitutionCount</td>
+                                <td>
+                                    @if (j.IsActive)
+                                    {
+                                        <span class="portal-badge portal-badge-success">Active</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-badge portal-badge-warning">Planned</span>
+                                    }
+                                </td>
+                                <td style="text-align:right;">
+                                    <div style="display:flex;gap:0.35rem;justify-content:flex-end;">
+                                        <button class="user-action-btn" @onclick="() => OpenEditDialog(j)" type="button" title="Edit jurisdiction">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                            Edit
+                                        </button>
+                                        @if (j.IsActive)
+                                        {
+                                            <button class="user-action-btn user-action-btn-danger" @onclick="() => ToggleActive(j.Id)" type="button" title="Deactivate jurisdiction">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                                                Deactivate
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="user-action-btn" @onclick="() => ToggleActive(j.Id)" type="button" title="Activate jurisdiction">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                                Activate
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+
+    <!-- FX Rates Section -->
+    <div style="margin-top:2rem;">
+        <div class="portal-card">
+            <div class="portal-card-header" style="display:flex;align-items:center;justify-content:space-between;">
+                <div>
+                    <h2 class="portal-card-title">FX Rates</h2>
+                    <p style="color:#64748b;font-size:0.85rem;margin:0;">Cross-jurisdiction currency conversion reference rates</p>
+                </div>
+                <button class="admin-btn-primary" @onclick="OpenFxRateDialog" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add FX Rate
+                </button>
+            </div>
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                @if (_fxRates is not null && _fxRates.Count > 0)
+                {
+                    <table class="portal-table">
+                        <thead>
+                            <tr>
+                                <th>Base</th>
+                                <th>Quote</th>
+                                <th style="text-align:right;">Rate</th>
+                                <th>Date</th>
+                                <th>Source</th>
+                                <th style="text-align:right;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var rate in _fxRates)
+                            {
+                                <tr>
+                                    <td><code>@rate.BaseCurrency</code></td>
+                                    <td><code>@rate.QuoteCurrency</code></td>
+                                    <td style="text-align:right;"><code>@rate.Rate.ToString("N6")</code></td>
+                                    <td>@rate.RateDate.ToString("yyyy-MM-dd")</td>
+                                    <td>@rate.Source</td>
+                                    <td style="text-align:right;">
+                                        <button class="user-action-btn user-action-btn-danger" @onclick="() => DeleteFxRate(rate.Id)" type="button" title="Delete FX rate">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                                            Delete
+                                        </button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
                 }
-            </tbody>
-        </table>
+                else if (_fxRates is not null)
+                {
+                    <div class="admin-empty">
+                        <div class="admin-empty-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+                        </div>
+                        <h3 class="admin-empty-title">No FX rates configured</h3>
+                        <p class="admin-empty-text">Add rates for cross-jurisdiction currency conversion.</p>
+                    </div>
+                }
+            </div>
+        </div>
     </div>
+
 </div>
 
-<!-- Edit Jurisdiction Dialog -->
-@if (_showEditDialog && _editItem is not null)
-{
-    <div style="position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:flex; align-items:center; justify-content:center;"
-         @onclick="CloseDialogs">
-        <div style="background:#fff; border-radius:12px; padding:1.5rem; width:560px; max-height:90vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,0.3);"
-             @onclick:stopPropagation="true">
-            <h3 style="margin:0 0 1.25rem; font-size:1.125rem; font-weight:600;">Edit Jurisdiction — @_editItem.CountryCode</h3>
-
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
-                <div>
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Country Name</label>
-                    <input type="text" @bind="_editCountryName"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem;" />
-                </div>
-                <div>
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Currency (ISO 4217)</label>
-                    <input type="text" @bind="_editCurrency" maxlength="3"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem; font-family:monospace;" />
-                </div>
-                <div>
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Timezone</label>
-                    <input type="text" @bind="_editTimezone"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem;" />
-                </div>
-                <div>
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Date Format</label>
-                    <input type="text" @bind="_editDateFormat"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem; font-family:monospace;" />
-                </div>
-                <div style="grid-column: span 2;">
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Data Residency Region (Azure)</label>
-                    <input type="text" @bind="_editDataResidencyRegion"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem;" />
-                </div>
-                <div style="grid-column: span 2;">
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Regulatory Bodies (JSON array)</label>
-                    <input type="text" @bind="_editRegulatoryBodies"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem; font-family:monospace;" />
-                </div>
-                <div style="grid-column: span 2;">
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Data Protection Law</label>
-                    <input type="text" @bind="_editDataProtectionLaw"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem;" />
-                </div>
+<!-- Edit Jurisdiction Modal -->
+<AppModal @bind-Visible="_showEditDialog"
+          Title="@($"Edit Jurisdiction — {_editItem?.CountryCode}")"
+          Subtitle="Update jurisdiction configuration and compliance settings"
+          Size="lg">
+    <ChildContent>
+        <div class="admin-form-grid">
+            <div class="admin-form-group">
+                <label class="admin-form-label admin-form-label-required">Country Name</label>
+                <input class="admin-form-input" type="text" @bind="_editCountryName" />
             </div>
-
-            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                <button @onclick="CloseDialogs"
-                        style="padding:0.5rem 1rem; background:#f1f5f9; color:#475569; border:none; border-radius:6px; cursor:pointer; font-size:0.875rem;">
-                    Cancel
-                </button>
-                <button @onclick="SaveJurisdiction" disabled="@_isSaving"
-                        style="padding:0.5rem 1rem; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.875rem; font-weight:500;">
-                    @(_isSaving ? "Saving..." : "Save Changes")
-                </button>
+            <div class="admin-form-group">
+                <label class="admin-form-label admin-form-label-required">Currency (ISO 4217)</label>
+                <input class="admin-form-input" type="text" @bind="_editCurrency" maxlength="3" style="font-family:monospace;" />
+            </div>
+            <div class="admin-form-group">
+                <label class="admin-form-label">Timezone</label>
+                <input class="admin-form-input" type="text" @bind="_editTimezone" />
+            </div>
+            <div class="admin-form-group">
+                <label class="admin-form-label">Date Format</label>
+                <input class="admin-form-input" type="text" @bind="_editDateFormat" style="font-family:monospace;" />
             </div>
         </div>
-    </div>
-}
+        <div class="admin-form-group" style="margin-top:1rem;">
+            <label class="admin-form-label">Data Residency Region (Azure)</label>
+            <input class="admin-form-input" type="text" @bind="_editDataResidencyRegion" />
+        </div>
+        <div class="admin-form-group" style="margin-top:1rem;">
+            <label class="admin-form-label">Regulatory Bodies (JSON array)</label>
+            <input class="admin-form-input" type="text" @bind="_editRegulatoryBodies" style="font-family:monospace;" />
+        </div>
+        <div class="admin-form-group" style="margin-top:1rem;">
+            <label class="admin-form-label">Data Protection Law</label>
+            <input class="admin-form-input" type="text" @bind="_editDataProtectionLaw" />
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button class="admin-btn-outline" @onclick="CloseDialogs" type="button">Cancel</button>
+        <button class="admin-btn-primary" @onclick="SaveJurisdiction" disabled="@_isSaving" type="button">
+            @if (_isSaving)
+            {
+                <span class="spinner" style="width:16px;height:16px;"></span>
+            }
+            Save Changes
+        </button>
+    </FooterContent>
+</AppModal>
 
-<!-- Add FX Rate Dialog -->
-@if (_showFxRateDialog)
-{
-    <div style="position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:flex; align-items:center; justify-content:center;"
-         @onclick="CloseDialogs">
-        <div style="background:#fff; border-radius:12px; padding:1.5rem; width:440px; box-shadow:0 20px 60px rgba(0,0,0,0.3);"
-             @onclick:stopPropagation="true">
-            <h3 style="margin:0 0 1.25rem; font-size:1.125rem; font-weight:600;">Add FX Rate</h3>
-
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem;">
-                <div>
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Base Currency</label>
-                    <input type="text" @bind="_fxBaseCurrency" maxlength="3" placeholder="NGN"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem; font-family:monospace;" />
-                </div>
-                <div>
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Quote Currency</label>
-                    <input type="text" @bind="_fxQuoteCurrency" maxlength="3" placeholder="GHS"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem; font-family:monospace;" />
-                </div>
-                <div>
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Rate</label>
-                    <input type="number" step="0.000001" @bind="_fxRate"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem; font-family:monospace;" />
-                </div>
-                <div>
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Rate Date</label>
-                    <input type="date" @bind="_fxRateDate"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem;" />
-                </div>
-                <div style="grid-column: span 2;">
-                    <label style="display:block; font-size:0.8125rem; font-weight:500; color:#475569; margin-bottom:0.25rem;">Source</label>
-                    <input type="text" @bind="_fxSource" placeholder="Manual"
-                           style="width:100%; padding:0.5rem; border:1px solid #d1d5db; border-radius:6px; font-size:0.875rem;" />
-                </div>
+<!-- Add FX Rate Modal -->
+<AppModal @bind-Visible="_showFxRateDialog"
+          Title="Add FX Rate"
+          Subtitle="Define a cross-jurisdiction currency conversion rate"
+          Size="default">
+    <ChildContent>
+        <div class="admin-form-grid">
+            <div class="admin-form-group">
+                <label class="admin-form-label admin-form-label-required">Base Currency</label>
+                <input class="admin-form-input" type="text" @bind="_fxBaseCurrency" maxlength="3" placeholder="NGN" style="font-family:monospace;" />
             </div>
-
-            <div style="display:flex; justify-content:flex-end; gap:0.75rem; margin-top:1.5rem;">
-                <button @onclick="CloseDialogs"
-                        style="padding:0.5rem 1rem; background:#f1f5f9; color:#475569; border:none; border-radius:6px; cursor:pointer; font-size:0.875rem;">
-                    Cancel
-                </button>
-                <button @onclick="SaveFxRate" disabled="@_isSaving"
-                        style="padding:0.5rem 1rem; background:#3b82f6; color:white; border:none; border-radius:6px; cursor:pointer; font-size:0.875rem; font-weight:500;">
-                    @(_isSaving ? "Saving..." : "Add Rate")
-                </button>
+            <div class="admin-form-group">
+                <label class="admin-form-label admin-form-label-required">Quote Currency</label>
+                <input class="admin-form-input" type="text" @bind="_fxQuoteCurrency" maxlength="3" placeholder="GHS" style="font-family:monospace;" />
+            </div>
+            <div class="admin-form-group">
+                <label class="admin-form-label admin-form-label-required">Rate</label>
+                <input class="admin-form-input" type="number" step="0.000001" @bind="_fxRate" style="font-family:monospace;" />
+            </div>
+            <div class="admin-form-group">
+                <label class="admin-form-label admin-form-label-required">Rate Date</label>
+                <input class="admin-form-input" type="date" @bind="_fxRateDate" />
             </div>
         </div>
-    </div>
-}
+        <div class="admin-form-group" style="margin-top:1rem;">
+            <label class="admin-form-label">Source</label>
+            <input class="admin-form-input" type="text" @bind="_fxSource" placeholder="Manual" />
+        </div>
+    </ChildContent>
+    <FooterContent>
+        <button class="admin-btn-outline" @onclick="CloseDialogs" type="button">Cancel</button>
+        <button class="admin-btn-primary" @onclick="SaveFxRate" disabled="@_isSaving" type="button">
+            @if (_isSaving)
+            {
+                <span class="spinner" style="width:16px;height:16px;"></span>
+            }
+            Add Rate
+        </button>
+    </FooterContent>
+</AppModal>
 
 @code {
     private List<JurisdictionListItem>? _jurisdictions;
     private List<JurisdictionFxRate>? _fxRates;
     private JurisdictionDashboardStats? _stats;
     private bool _isSaving;
+    private bool _loading = true;
+
+    // Search & filter
+    private string _searchQuery = "";
+    private string _statusFilter = "";
 
     // Edit dialog state
     private bool _showEditDialog;
@@ -282,9 +379,19 @@
     private DateTime _fxRateDate = DateTime.UtcNow.Date;
     private string _fxSource = "Manual";
 
+    private IEnumerable<JurisdictionListItem> FilteredJurisdictions => (_jurisdictions ?? new())
+        .Where(j => string.IsNullOrEmpty(_searchQuery) ||
+                    j.CountryName.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    j.CountryCode.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    j.Currency.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(j => string.IsNullOrEmpty(_statusFilter) ||
+                    (_statusFilter == "active" && j.IsActive) ||
+                    (_statusFilter == "planned" && !j.IsActive));
+
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
+        _loading = false;
     }
 
     private async Task LoadData()
@@ -399,6 +506,17 @@
 
     private async Task DeleteFxRate(int id)
     {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Delete FX Rate",
+            Message = "Are you sure you want to delete this FX rate? This action cannot be undone.",
+            ConfirmText = "Delete",
+            IsDestructive = true,
+            Icon = "delete"
+        });
+
+        if (!confirmed) return;
+
         try
         {
             await JurisdictionSvc.DeleteFxRateAsync(id);

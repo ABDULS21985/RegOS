@@ -1,147 +1,179 @@
 @page "/modules/import"
 @attribute [Authorize(Roles = "PlatformAdmin")]
 @using System.Text
+@using Microsoft.AspNetCore.Authorization
 @using FC.Engine.Domain.Abstractions
+@using FC.Engine.Admin.Services
 @using Microsoft.AspNetCore.Components.Forms
 @inject IModuleImportService ModuleImportService
 @inject ToastService Toast
 @inject NavigationManager Navigation
 
-<div class="dashboard-card">
-    <div class="dashboard-card-header">
-        <h1 class="dashboard-card-title">Module Import</h1>
-        <p class="dashboard-card-subtitle">Upload a module definition JSON, validate it, import metadata, and publish draft templates.</p>
+<PageTitle>Module Import</PageTitle>
+
+<div class="admin-page">
+
+    <!-- Breadcrumb -->
+    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Dashboard</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <a href="/modules">Modules</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="detail-breadcrumb-current">Import</span>
+    </nav>
+
+    <!-- Page Header -->
+    <div class="admin-header">
+        <div class="admin-header-top">
+            <div>
+                <h1>Module Import</h1>
+                <p class="admin-header-subtitle">Upload a module definition JSON, validate it, import metadata, and publish draft templates.</p>
+            </div>
+            <button class="admin-btn-outline" @onclick="BackToList" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                Back to Modules
+            </button>
+        </div>
     </div>
 
-    <div class="dashboard-card-body">
-        <div class="form-group">
-            <label class="form-label">Definition File (JSON)</label>
-            <InputFile OnChange="OnFileSelected" accept=".json,application/json" />
-        </div>
-
-        <div class="form-group">
-            <label class="form-label">Definition Content</label>
-            <textarea class="form-control" rows="16" @bind="_jsonDefinition" placeholder="Paste module definition JSON here"></textarea>
-        </div>
-
-        <div class="actions-row">
-            <button class="btn btn-outline" disabled="@_busy" @onclick="Validate">Validate</button>
-            <button class="btn btn-primary" disabled="@(_busy || !_canImport)" @onclick="Import">Import</button>
-            <button class="btn btn-gold" disabled="@(_busy || string.IsNullOrWhiteSpace(_moduleCode))" @onclick="Publish">Publish</button>
-            <button class="btn btn-outline" disabled="@_busy" @onclick="BackToList">Back to Module List</button>
-        </div>
-    </div>
-</div>
-
-@if (_validationResult != null)
-{
-    <div class="dashboard-card">
-        <div class="dashboard-card-header">
-            <h2 class="dashboard-card-title">Validation Summary</h2>
-        </div>
-        <div class="dashboard-card-body">
-            <div class="kpi-grid">
-                <div class="kpi-item"><span class="kpi-label">Templates</span><strong>@_validationResult.TemplateCount</strong></div>
-                <div class="kpi-item"><span class="kpi-label">Fields</span><strong>@_validationResult.FieldCount</strong></div>
-                <div class="kpi-item"><span class="kpi-label">Formulas</span><strong>@_validationResult.FormulaCount</strong></div>
-                <div class="kpi-item"><span class="kpi-label">Cross-Sheet Rules</span><strong>@_validationResult.CrossSheetRuleCount</strong></div>
+    <!-- Upload & Editor -->
+    <div class="portal-card" style="margin-bottom:1rem;">
+        <div class="portal-card-body">
+            <div class="admin-form-grid">
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Definition File (JSON)</label>
+                    <InputFile OnChange="OnFileSelected" accept=".json,application/json" class="admin-form-input" />
+                </div>
             </div>
 
-            @if (_validationResult.Errors.Count > 0)
-            {
-                <div class="alert alert-danger">
-                    <strong>Errors</strong>
-                    <ul>
+            <div class="admin-form-group" style="margin-top:var(--space-4);">
+                <label class="admin-form-label">Definition Content</label>
+                <textarea class="admin-form-input" rows="14" @bind="_jsonDefinition" placeholder="Paste module definition JSON here" style="resize:vertical;font-family:var(--font-code);font-size:0.8125rem;"></textarea>
+            </div>
+
+            <div style="display:flex;gap:0.5rem;margin-top:var(--space-4);flex-wrap:wrap;">
+                <button class="admin-btn-outline" disabled="@_busy" @onclick="Validate" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    Validate
+                </button>
+                <button class="admin-btn-primary" disabled="@(_busy || !_canImport)" @onclick="Import" type="button">
+                    @if (_busy && _canImport)
+                    {
+                        <span class="spinner" style="width:16px;height:16px;"></span>
+                    }
+                    Import
+                </button>
+                <button class="admin-btn-gold" disabled="@(_busy || string.IsNullOrWhiteSpace(_moduleCode))" @onclick="Publish" type="button">
+                    Publish
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Validation Result -->
+    @if (_validationResult != null)
+    {
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-header"><h2 class="portal-card-title">Validation Summary</h2></div>
+            <div class="portal-card-body">
+                <div class="admin-summary-chips" style="margin-bottom:1rem;">
+                    <span class="admin-chip"><span class="admin-chip-count">@_validationResult.TemplateCount</span> Templates</span>
+                    <span class="admin-chip"><span class="admin-chip-count">@_validationResult.FieldCount</span> Fields</span>
+                    <span class="admin-chip"><span class="admin-chip-count">@_validationResult.FormulaCount</span> Formulas</span>
+                    <span class="admin-chip"><span class="admin-chip-count">@_validationResult.CrossSheetRuleCount</span> Cross-Sheet Rules</span>
+                </div>
+
+                @if (_validationResult.Errors.Count > 0)
+                {
+                    <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@($"{_validationResult.Errors.Count} error(s) found")" />
+                    <ul style="margin:0.5rem 0 0 1rem;color:#b91c1c;font-size:0.875rem;">
                         @foreach (var error in _validationResult.Errors)
                         {
                             <li>@error</li>
                         }
                     </ul>
-                </div>
-            }
+                }
 
-            @if (_validationResult.Warnings.Count > 0)
-            {
-                <div class="alert alert-warning">
-                    <strong>Warnings</strong>
-                    <ul>
-                        @foreach (var warning in _validationResult.Warnings)
-                        {
-                            <li>@warning</li>
-                        }
-                    </ul>
-                </div>
-            }
+                @if (_validationResult.Warnings.Count > 0)
+                {
+                    <div style="margin-top:0.75rem;">
+                        <AppAlert Variant="AppAlert.AlertVariant.Warning" Message="@($"{_validationResult.Warnings.Count} warning(s)")" />
+                        <ul style="margin:0.5rem 0 0 1rem;color:#92400e;font-size:0.875rem;">
+                            @foreach (var warning in _validationResult.Warnings)
+                            {
+                                <li>@warning</li>
+                            }
+                        </ul>
+                    </div>
+                }
+            </div>
         </div>
-    </div>
-}
+    }
 
-@if (_importResult != null)
-{
-    <div class="dashboard-card">
-        <div class="dashboard-card-header">
-            <h2 class="dashboard-card-title">Import Result</h2>
-        </div>
-        <div class="dashboard-card-body">
-            @if (_importResult.Success)
-            {
-                <p>Imported module <strong>@_importResult.ModuleCode</strong>.</p>
-                <div class="kpi-grid">
-                    <div class="kpi-item"><span class="kpi-label">Templates</span><strong>@_importResult.TemplatesCreated</strong></div>
-                    <div class="kpi-item"><span class="kpi-label">Fields</span><strong>@_importResult.FieldsCreated</strong></div>
-                    <div class="kpi-item"><span class="kpi-label">Formulas</span><strong>@_importResult.FormulasCreated</strong></div>
-                    <div class="kpi-item"><span class="kpi-label">Cross-Sheet Rules</span><strong>@_importResult.CrossSheetRulesCreated</strong></div>
-                </div>
-            }
-            else
-            {
-                <div class="alert alert-danger">
-                    <strong>Import failed</strong>
-                    <ul>
+    <!-- Import Result -->
+    @if (_importResult != null)
+    {
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-header"><h2 class="portal-card-title">Import Result</h2></div>
+            <div class="portal-card-body">
+                @if (_importResult.Success)
+                {
+                    <p style="margin-bottom:0.75rem;">Imported module <code>@_importResult.ModuleCode</code> successfully.</p>
+                    <div class="admin-summary-chips">
+                        <span class="admin-chip"><span class="admin-chip-count">@_importResult.TemplatesCreated</span> Templates</span>
+                        <span class="admin-chip"><span class="admin-chip-count">@_importResult.FieldsCreated</span> Fields</span>
+                        <span class="admin-chip"><span class="admin-chip-count">@_importResult.FormulasCreated</span> Formulas</span>
+                        <span class="admin-chip"><span class="admin-chip-count">@_importResult.CrossSheetRulesCreated</span> Cross-Sheet Rules</span>
+                    </div>
+                }
+                else
+                {
+                    <AppAlert Variant="AppAlert.AlertVariant.Error" Message="Import failed" />
+                    <ul style="margin:0.5rem 0 0 1rem;color:#b91c1c;font-size:0.875rem;">
                         @foreach (var error in _importResult.Errors)
                         {
                             <li>@error</li>
                         }
                     </ul>
-                </div>
-            }
+                }
+            </div>
         </div>
-    </div>
-}
+    }
 
-@if (_publishResult != null)
-{
-    <div class="dashboard-card">
-        <div class="dashboard-card-header">
-            <h2 class="dashboard-card-title">Publish Result</h2>
-        </div>
-        <div class="dashboard-card-body">
-            @if (_publishResult.Success)
-            {
-                <p>Published module <strong>@_publishResult.ModuleCode</strong>. Tables created: <strong>@_publishResult.TablesCreated</strong>.</p>
-                <details>
-                    <summary>DDL Statements (@_publishResult.DdlStatements.Count)</summary>
-                    @foreach (var ddl in _publishResult.DdlStatements)
+    <!-- Publish Result -->
+    @if (_publishResult != null)
+    {
+        <div class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Publish Result</h2></div>
+            <div class="portal-card-body">
+                @if (_publishResult.Success)
+                {
+                    <p>Published module <code>@_publishResult.ModuleCode</code>. Tables created: <strong>@_publishResult.TablesCreated</strong>.</p>
+                    @if (_publishResult.DdlStatements.Count > 0)
                     {
-                        <pre style="white-space: pre-wrap;">@ddl</pre>
+                        <details style="margin-top:0.75rem;">
+                            <summary style="cursor:pointer;font-weight:500;color:#475569;">DDL Statements (@_publishResult.DdlStatements.Count)</summary>
+                            @foreach (var ddl in _publishResult.DdlStatements)
+                            {
+                                <pre style="white-space:pre-wrap;background:#f8fafc;padding:0.75rem;border-radius:var(--radius-md);margin-top:0.5rem;font-size:0.8125rem;font-family:var(--font-code);border:1px solid var(--border);">@ddl</pre>
+                            }
+                        </details>
                     }
-                </details>
-            }
-            else
-            {
-                <div class="alert alert-danger">
-                    <strong>Publish failed</strong>
-                    <ul>
+                }
+                else
+                {
+                    <AppAlert Variant="AppAlert.AlertVariant.Error" Message="Publish failed" />
+                    <ul style="margin:0.5rem 0 0 1rem;color:#b91c1c;font-size:0.875rem;">
                         @foreach (var error in _publishResult.Errors)
                         {
                             <li>@error</li>
                         }
                     </ul>
-                </div>
-            }
+                }
+            </div>
         </div>
-    </div>
-}
+    }
+</div>
 
 @code {
     private string _jsonDefinition = string.Empty;
@@ -224,10 +256,7 @@
 
     private async Task Publish()
     {
-        if (string.IsNullOrWhiteSpace(_moduleCode))
-        {
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(_moduleCode)) return;
 
         _busy = true;
         try
@@ -252,10 +281,7 @@
         }
     }
 
-    private void BackToList()
-    {
-        Navigation.NavigateTo("/modules");
-    }
+    private void BackToList() => Navigation.NavigateTo("/modules");
 
     private static string? TryReadModuleCode(string json)
     {
@@ -267,11 +293,7 @@
                 return moduleCode.GetString();
             }
         }
-        catch
-        {
-            // Ignore parse errors here; full validation handles reporting.
-        }
-
+        catch { }
         return null;
     }
 }

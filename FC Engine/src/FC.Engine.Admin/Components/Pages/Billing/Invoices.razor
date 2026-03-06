@@ -3,142 +3,185 @@
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Infrastructure.Metadata
+@using FC.Engine.Admin.Services
 @using Microsoft.EntityFrameworkCore
 @attribute [Authorize(Policy = "PlatformAdmin")]
 @inject MetadataDbContext Db
 @inject ISubscriptionService SubscriptionService
+@inject ToastService Toast
+@inject DialogService Dialog
 
 <PageTitle>Invoices</PageTitle>
 
-<div class="billing-shell">
-    <section class="billing-hero">
-        <div>
-            <p class="billing-kicker">Platform Billing</p>
-            <h1>Invoices & Collections</h1>
-            <p>Issue invoices, capture payments, and manage overdue exposure across tenants.</p>
+<div class="admin-page">
+
+    <!-- Breadcrumb -->
+    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Dashboard</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <a href="/billing/plans">Billing</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="detail-breadcrumb-current">Invoices</span>
+    </nav>
+
+    <!-- Page Header -->
+    <div class="admin-header">
+        <div class="admin-header-top">
+            <div>
+                <h1>Invoices &amp; Collections</h1>
+                <p class="admin-header-subtitle">Issue invoices, capture payments, and manage overdue exposure across tenants.</p>
+            </div>
         </div>
-        <div class="billing-hero-note">
-            <span class="badge badge-review">Collections Desk</span>
-            <span>@DateTime.UtcNow.ToString("dd MMM yyyy HH:mm") UTC</span>
-        </div>
-    </section>
+
+        @if (!_loading)
+        {
+            <!-- Summary Chips -->
+            <div class="admin-summary-chips">
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@FormatCurrency(_outstandingAmount)</span> Outstanding Amount
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@FormatCurrency(_paidThisMonth)</span> Paid This Month
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@_invoices.Count(i => i.Status == InvoiceStatus.Overdue)</span> Overdue
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@_invoices.Count(i => i.Status == InvoiceStatus.Draft)</span> Drafts
+                </span>
+            </div>
+        }
+    </div>
 
     @if (_loading)
     {
-        <section class="card billing-surface">
-            <p>Loading invoice data...</p>
-        </section>
+        <!-- Skeleton Loading State -->
+        <div class="portal-card">
+            <div class="portal-card-body">
+                <div class="skel skel-text" style="width:200px;margin-bottom:1rem;"></div>
+                <div class="skel skel-text" style="width:100%;height:40px;margin-bottom:0.75rem;"></div>
+                @for (var i = 0; i < 5; i++)
+                {
+                    <div style="display:flex;gap:1rem;margin-bottom:0.75rem;">
+                        <div class="skel skel-text" style="width:15%;"></div>
+                        <div class="skel skel-text" style="width:20%;"></div>
+                        <div class="skel skel-text" style="width:10%;"></div>
+                        <div class="skel skel-text" style="width:18%;"></div>
+                        <div class="skel skel-text" style="width:12%;"></div>
+                        <div class="skel skel-text" style="width:12%;"></div>
+                        <div class="skel skel-text" style="width:13%;"></div>
+                    </div>
+                }
+            </div>
+        </div>
     }
     else
     {
-        @if (!string.IsNullOrWhiteSpace(_error))
-        {
-            <div class="cbn-alert cbn-alert-error">@_error</div>
-        }
-        @if (!string.IsNullOrWhiteSpace(_message))
-        {
-            <div class="cbn-alert cbn-alert-success">@_message</div>
-        }
-
-        <section class="billing-metrics">
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Outstanding Amount</p>
-                <p class="billing-metric-value">@FormatCurrency(_outstandingAmount)</p>
-                <p class="billing-metric-sub">issued + overdue invoices</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Paid This Month</p>
-                <p class="billing-metric-value">@FormatCurrency(_paidThisMonth)</p>
-                <p class="billing-metric-sub">cash receipts in current month</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Overdue Count</p>
-                <p class="billing-metric-value">@_invoices.Count(i => i.Status == InvoiceStatus.Overdue)</p>
-                <p class="billing-metric-sub">needs immediate recovery</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Draft Invoices</p>
-                <p class="billing-metric-value">@_invoices.Count(i => i.Status == InvoiceStatus.Draft)</p>
-                <p class="billing-metric-sub">awaiting issue</p>
-            </article>
-        </section>
-
-        <section class="card billing-surface">
-            <div class="billing-inline-form">
-                <label for="tenant-generate">Generate invoice for tenant</label>
-                <select id="tenant-generate" class="form-control billing-select" @bind="_selectedTenantId">
-                    <option value="">Select tenant</option>
-                    @foreach (var tenant in _tenantOptions)
-                    {
-                        <option value="@tenant.TenantId.ToString()">@tenant.TenantName (@tenant.PlanCode)</option>
-                    }
-                </select>
-                <button class="btn btn-primary"
-                        disabled="@(_busyInvoiceId.HasValue || string.IsNullOrWhiteSpace(_selectedTenantId))"
-                        @onclick="GenerateForTenant">
-                    Generate Draft
-                </button>
+        <!-- Generate Invoice -->
+        <div class="portal-card">
+            <div class="portal-card-header">
+                <h2 class="portal-card-title">Generate Invoice</h2>
             </div>
-        </section>
+            <div class="portal-card-body">
+                <div style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap;">
+                    <div class="admin-form-group" style="flex:1;min-width:240px;">
+                        <label class="admin-form-label">Tenant</label>
+                        <select class="admin-form-input" @bind="_selectedTenantId">
+                            <option value="">Select tenant</option>
+                            @foreach (var tenant in _tenantOptions)
+                            {
+                                <option value="@tenant.TenantId.ToString()">@tenant.TenantName (@tenant.PlanCode)</option>
+                            }
+                        </select>
+                    </div>
+                    <button class="admin-btn-primary"
+                            disabled="@(_busyInvoiceId.HasValue || string.IsNullOrWhiteSpace(_selectedTenantId))"
+                            @onclick="GenerateForTenant"
+                            type="button">
+                        Generate Draft
+                    </button>
+                </div>
+            </div>
+        </div>
 
-        <section class="card billing-surface">
-            <div class="billing-toolbar billing-toolbar-wrap">
-                <input class="form-control billing-search"
-                       type="search"
+        <!-- Toolbar -->
+        <div class="admin-toolbar">
+            <div class="admin-toolbar-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="search"
+                       placeholder="Search invoice or tenant..."
                        @bind="_searchTerm"
                        @bind:event="oninput"
-                       placeholder="Search invoice or tenant" />
-
-                <select class="form-control billing-select" @bind="_statusFilter">
+                       aria-label="Search invoices" />
+            </div>
+            <div class="admin-toolbar-filter">
+                <select @bind="_statusFilter" aria-label="Filter by status">
                     <option value="ALL">All statuses</option>
                     @foreach (var status in Enum.GetValues<InvoiceStatus>())
                     {
                         <option value="@status.ToString()">@status</option>
                     }
                 </select>
-
-                <button class="btn btn-outline btn-sm" @onclick="ClearFilters">Clear</button>
+                <button class="admin-btn-outline" @onclick="ClearFilters" type="button">Clear</button>
             </div>
+        </div>
 
-            <div class="billing-table-wrap">
-                <table class="data-table billing-table">
-                    <thead>
-                        <tr>
-                            <th>Invoice</th>
-                            <th>Tenant</th>
-                            <th>Status</th>
-                            <th>Period</th>
-                            <th>Total (NGN)</th>
-                            <th>Due</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @if (!FilteredInvoices.Any())
+        <!-- Invoice Table -->
+        <div class="portal-card">
+            <div class="portal-card-header">
+                <h2 class="portal-card-title">Invoices</h2>
+            </div>
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                @if (!FilteredInvoices.Any())
+                {
+                    <div class="admin-empty">
+                        <div class="admin-empty-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                        </div>
+                        @if (string.IsNullOrWhiteSpace(_searchTerm) && _statusFilter == "ALL")
                         {
-                            <tr>
-                                <td colspan="7" class="billing-empty-cell">No invoices match the selected filters.</td>
-                            </tr>
+                            <h3 class="admin-empty-title">No invoices yet</h3>
+                            <p class="admin-empty-text">Generate your first invoice using the form above.</p>
                         }
                         else
                         {
+                            <h3 class="admin-empty-title">No matching invoices</h3>
+                            <p class="admin-empty-text">Try adjusting your search or filters.</p>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <table class="portal-table">
+                        <thead>
+                            <tr>
+                                <th>Invoice</th>
+                                <th>Tenant</th>
+                                <th>Status</th>
+                                <th>Period</th>
+                                <th>Total (NGN)</th>
+                                <th>Due</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
                             @foreach (var invoice in FilteredInvoices)
                             {
                                 <tr>
                                     <td>
-                                        <div class="billing-plan-name">@invoice.InvoiceNumber</div>
-                                        <div class="billing-plan-code">Created @invoice.CreatedAt.ToString("yyyy-MM-dd")</div>
+                                        <div style="font-weight:600;">@invoice.InvoiceNumber</div>
+                                        <small style="color:#64748b;">Created @invoice.CreatedAt.ToString("yyyy-MM-dd")</small>
                                     </td>
                                     <td>
-                                        <div class="billing-plan-name">@invoice.TenantName</div>
-                                        <div class="billing-plan-code">@invoice.TenantSlug</div>
+                                        <div style="font-weight:600;">@invoice.TenantName</div>
+                                        <small style="color:#64748b;">@invoice.TenantSlug</small>
                                     </td>
                                     <td>
-                                        <span class="badge @GetInvoiceBadgeClass(invoice.Status)">@invoice.Status</span>
+                                        <span class="portal-badge @GetInvoiceBadgeClass(invoice.Status)">@invoice.Status</span>
                                     </td>
                                     <td>
-                                        <div class="billing-stack-sm">@invoice.PeriodStart.ToString("yyyy-MM-dd")</div>
-                                        <div class="billing-plan-code">to @invoice.PeriodEnd.ToString("yyyy-MM-dd")</div>
+                                        <div>@invoice.PeriodStart.ToString("yyyy-MM-dd")</div>
+                                        <small style="color:#64748b;">to @invoice.PeriodEnd.ToString("yyyy-MM-dd")</small>
                                     </td>
                                     <td>@FormatCurrency(invoice.TotalAmount)</td>
                                     <td>
@@ -148,32 +191,35 @@
                                         }
                                         else
                                         {
-                                            <span class="billing-muted">-</span>
+                                            <span style="color:#94a3b8;">-</span>
                                         }
                                     </td>
                                     <td>
-                                        <div class="billing-actions-grid">
+                                        <div style="display:flex;gap:0.35rem;flex-wrap:wrap;">
                                             @if (invoice.Status == InvoiceStatus.Draft)
                                             {
-                                                <button class="btn btn-outline btn-sm"
+                                                <button class="user-action-btn"
                                                         disabled="@(_busyInvoiceId == invoice.Id)"
-                                                        @onclick="() => IssueInvoice(invoice.Id)">
+                                                        @onclick="() => IssueInvoice(invoice.Id)"
+                                                        type="button">
                                                     Issue
                                                 </button>
                                             }
                                             @if (invoice.Status is InvoiceStatus.Issued or InvoiceStatus.Overdue)
                                             {
-                                                <button class="btn btn-success btn-sm"
+                                                <button class="user-action-btn"
                                                         disabled="@(_busyInvoiceId == invoice.Id)"
-                                                        @onclick="() => RecordManualPayment(invoice)">
+                                                        @onclick="() => RecordManualPayment(invoice)"
+                                                        type="button">
                                                     Mark Paid
                                                 </button>
                                             }
                                             @if (invoice.Status is InvoiceStatus.Draft or InvoiceStatus.Issued or InvoiceStatus.Overdue)
                                             {
-                                                <button class="btn btn-danger btn-sm"
+                                                <button class="user-action-btn user-action-btn-danger"
                                                         disabled="@(_busyInvoiceId == invoice.Id)"
-                                                        @onclick="() => VoidInvoice(invoice.Id)">
+                                                        @onclick="() => VoidInvoice(invoice.Id)"
+                                                        type="button">
                                                     Void
                                                 </button>
                                             }
@@ -181,18 +227,16 @@
                                     </td>
                                 </tr>
                             }
-                        }
-                    </tbody>
-                </table>
+                        </tbody>
+                    </table>
+                }
             </div>
-        </section>
+        </div>
     }
 </div>
 
 @code {
     private bool _loading = true;
-    private string? _error;
-    private string? _message;
     private string _searchTerm = string.Empty;
     private string _statusFilter = "ALL";
     private string? _selectedTenantId;
@@ -280,23 +324,21 @@
     {
         if (!Guid.TryParse(_selectedTenantId, out var tenantId))
         {
-            _error = "Select a tenant with an active subscription first.";
+            Toast.Error("Select a tenant with an active subscription first.");
             return;
         }
 
         _busyInvoiceId = -1;
-        _error = null;
-        _message = null;
 
         try
         {
             var invoice = await SubscriptionService.GenerateInvoice(tenantId);
-            _message = $"Generated draft invoice {invoice.InvoiceNumber}.";
+            Toast.Success($"Generated draft invoice {invoice.InvoiceNumber}.");
             await LoadData();
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            Toast.Error(ex.Message);
         }
         finally
         {
@@ -307,18 +349,16 @@
     private async Task IssueInvoice(int invoiceId)
     {
         _busyInvoiceId = invoiceId;
-        _error = null;
-        _message = null;
 
         try
         {
             var invoice = await SubscriptionService.IssueInvoice(invoiceId);
-            _message = $"Issued invoice {invoice.InvoiceNumber}.";
+            Toast.Success($"Issued invoice {invoice.InvoiceNumber}.");
             await LoadData();
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            Toast.Error(ex.Message);
         }
         finally
         {
@@ -328,9 +368,18 @@
 
     private async Task RecordManualPayment(InvoiceRow invoice)
     {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Record Manual Payment",
+            Message = $"Mark invoice {invoice.InvoiceNumber} as paid ({FormatCurrency(invoice.TotalAmount)} {invoice.Currency})? This action will record a manual payment entry.",
+            ConfirmText = "Mark Paid",
+            IsDestructive = false,
+            Icon = "publish"
+        });
+
+        if (!confirmed) return;
+
         _busyInvoiceId = invoice.Id;
-        _error = null;
-        _message = null;
 
         try
         {
@@ -344,12 +393,12 @@
                 IsSuccessful = true
             });
 
-            _message = $"Recorded payment for {invoice.InvoiceNumber}.";
+            Toast.Success($"Recorded payment for {invoice.InvoiceNumber}.");
             await LoadData();
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            Toast.Error(ex.Message);
         }
         finally
         {
@@ -359,19 +408,28 @@
 
     private async Task VoidInvoice(int invoiceId)
     {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Void Invoice",
+            Message = $"Void invoice ID {invoiceId}? This action cannot be undone and the invoice will be permanently marked as voided.",
+            ConfirmText = "Void",
+            IsDestructive = true,
+            Icon = "delete"
+        });
+
+        if (!confirmed) return;
+
         _busyInvoiceId = invoiceId;
-        _error = null;
-        _message = null;
 
         try
         {
             await SubscriptionService.VoidInvoice(invoiceId, "Voided by platform administrator");
-            _message = $"Voided invoice ID {invoiceId}.";
+            Toast.Success($"Voided invoice ID {invoiceId}.");
             await LoadData();
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            Toast.Error(ex.Message);
         }
         finally
         {
@@ -383,12 +441,12 @@
 
     private static string GetInvoiceBadgeClass(InvoiceStatus status) => status switch
     {
-        InvoiceStatus.Draft => "badge-review",
-        InvoiceStatus.Issued => "badge-draft",
-        InvoiceStatus.Overdue => "badge-deprecated",
-        InvoiceStatus.Paid => "badge-published",
-        InvoiceStatus.Voided => "badge-deprecated",
-        _ => "badge-review"
+        InvoiceStatus.Draft => "portal-badge-neutral",
+        InvoiceStatus.Issued => "portal-badge-warning",
+        InvoiceStatus.Overdue => "portal-badge-danger",
+        InvoiceStatus.Paid => "portal-badge-success",
+        InvoiceStatus.Voided => "portal-badge-danger",
+        _ => "portal-badge-neutral"
     };
 
     private sealed class InvoiceRow

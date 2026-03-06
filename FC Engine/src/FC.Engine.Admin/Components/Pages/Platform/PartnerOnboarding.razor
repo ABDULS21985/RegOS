@@ -2,71 +2,135 @@
 @using Microsoft.AspNetCore.Authorization
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Enums
+@using FC.Engine.Admin.Services
 @attribute [Authorize(Roles = "PlatformAdmin")]
 @inject IPartnerManagementService PartnerService
+@inject ToastService Toast
 
 <PageTitle>Partner Onboarding</PageTitle>
 
-<header class="dash-header" role="banner">
-    <div class="dash-header-text">
-        <h1>White-Label Partner Onboarding</h1>
-        <p>Registration, agreement capture, tier assignment, and activation.</p>
+<div class="admin-page">
+
+    <!-- Breadcrumb -->
+    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Dashboard</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <a href="/platform/partners">Platform</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="detail-breadcrumb-current">Partner Onboarding</span>
+    </nav>
+
+    <!-- Page Header -->
+    <div class="admin-header">
+        <div class="admin-header-top">
+            <div>
+                <h1>White-Label Partner Onboarding</h1>
+                <p class="admin-header-subtitle">Registration, agreement capture, tier assignment, and activation.</p>
+            </div>
+        </div>
     </div>
-</header>
 
-@if (!string.IsNullOrWhiteSpace(_message))
-{
-    <div class="portal-alert portal-alert-success">@_message</div>
-}
-@if (!string.IsNullOrWhiteSpace(_error))
-{
-    <div class="portal-alert portal-alert-danger">@_error</div>
-}
+    <!-- Onboarding Form -->
+    <div class="admin-form-grid">
 
-<div class="portal-card">
-    <div class="portal-card-body">
-        <div class="portal-grid portal-grid-2">
-            <div class="portal-form-row"><label>Partner Name</label><input class="portal-input" @bind="_request.TenantName" /></div>
-            <div class="portal-form-row"><label>Tenant Slug</label><input class="portal-input" @bind="_request.TenantSlug" /></div>
-            <div class="portal-form-row"><label>Contact Email</label><input class="portal-input" @bind="_request.ContactEmail" /></div>
-            <div class="portal-form-row"><label>Contact Phone</label><input class="portal-input" @bind="_request.ContactPhone" /></div>
-            <div class="portal-form-row"><label>RC Number</label><input class="portal-input" @bind="_request.RcNumber" /></div>
-            <div class="portal-form-row"><label>Tax ID</label><input class="portal-input" @bind="_request.TaxId" /></div>
-            <div class="portal-form-row"><label>Subscription Plan</label><input class="portal-input" @bind="_request.SubscriptionPlanCode" /></div>
-            <div class="portal-form-row">
-                <label>Partner Tier</label>
-                <select class="portal-input" @bind="_request.PartnerTier">
-                    @foreach (var tier in Enum.GetValues<PartnerTier>())
-                    {
-                        <option value="@tier">@tier</option>
-                    }
-                </select>
-            </div>
-            <div class="portal-form-row">
-                <label>Billing Model</label>
-                <select class="portal-input" @bind="_request.BillingModel">
-                    @foreach (var model in Enum.GetValues<PartnerBillingModel>())
-                    {
-                        <option value="@model">@model</option>
-                    }
-                </select>
-            </div>
-            <div class="portal-form-row"><label>Commission Rate</label><input class="portal-input" type="number" step="0.0001" @bind="_request.CommissionRate" /></div>
-            <div class="portal-form-row"><label>Wholesale Discount</label><input class="portal-input" type="number" step="0.0001" @bind="_request.WholesaleDiscount" /></div>
-            <div class="portal-form-row"><label>Max Sub-Tenants</label><input class="portal-input" type="number" min="1" @bind="_request.MaxSubTenants" /></div>
-            <div class="portal-form-row"><label>Agreement Version</label><input class="portal-input" @bind="_request.AgreementVersion" /></div>
-            <div class="portal-form-row"><label>Admin Email</label><input class="portal-input" @bind="_request.AdminEmail" /></div>
-            <div class="portal-form-row"><label>Admin Full Name</label><input class="portal-input" @bind="_request.AdminFullName" /></div>
+        <!-- Partner Details Section -->
+        <div class="admin-form-section-label">Partner Details</div>
+
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Partner Name</label>
+            <input class="admin-form-input" @bind="_request.TenantName" placeholder="e.g. Acme Financial Services" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Tenant Slug</label>
+            <input class="admin-form-input" @bind="_request.TenantSlug" placeholder="e.g. acme-financial" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Contact Email</label>
+            <input class="admin-form-input" type="email" @bind="_request.ContactEmail" placeholder="e.g. contact@acme.com" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label">Contact Phone</label>
+            <input class="admin-form-input" type="tel" @bind="_request.ContactPhone" placeholder="e.g. +234 800 000 0000" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label">RC Number</label>
+            <input class="admin-form-input" @bind="_request.RcNumber" placeholder="e.g. RC123456" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label">Tax ID</label>
+            <input class="admin-form-input" @bind="_request.TaxId" placeholder="e.g. TIN-00000000-0001" />
         </div>
 
-        <button class="portal-btn portal-btn-primary" @onclick="OnboardAsync" disabled="@_busy">Onboard Partner</button>
+        <!-- Subscription & Tier Section -->
+        <div class="admin-form-section-label">Subscription &amp; Tier</div>
+
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Subscription Plan</label>
+            <input class="admin-form-input" @bind="_request.SubscriptionPlanCode" placeholder="e.g. ENTERPRISE" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Partner Tier</label>
+            <select class="admin-form-input" @bind="_request.PartnerTier">
+                @foreach (var tier in Enum.GetValues<PartnerTier>())
+                {
+                    <option value="@tier">@tier</option>
+                }
+            </select>
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Billing Model</label>
+            <select class="admin-form-input" @bind="_request.BillingModel">
+                @foreach (var model in Enum.GetValues<PartnerBillingModel>())
+                {
+                    <option value="@model">@model</option>
+                }
+            </select>
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label">Commission Rate</label>
+            <input class="admin-form-input" type="number" step="0.0001" @bind="_request.CommissionRate" placeholder="e.g. 0.05" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label">Wholesale Discount</label>
+            <input class="admin-form-input" type="number" step="0.0001" @bind="_request.WholesaleDiscount" placeholder="e.g. 0.10" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label">Max Sub-Tenants</label>
+            <input class="admin-form-input" type="number" min="1" @bind="_request.MaxSubTenants" />
+        </div>
+
+        <!-- Agreement & Admin Section -->
+        <div class="admin-form-section-label">Agreement &amp; Admin</div>
+
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Agreement Version</label>
+            <input class="admin-form-input" @bind="_request.AgreementVersion" placeholder="e.g. v1" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Admin Email</label>
+            <input class="admin-form-input" type="email" @bind="_request.AdminEmail" placeholder="e.g. admin@acme.com" />
+        </div>
+        <div class="admin-form-group">
+            <label class="admin-form-label admin-form-label-required">Admin Full Name</label>
+            <input class="admin-form-input" @bind="_request.AdminFullName" placeholder="e.g. John Doe" />
+        </div>
     </div>
+
+    <!-- Submit Button -->
+    <div style="margin-top:var(--space-6);">
+        <button class="admin-btn-primary" @onclick="OnboardAsync" disabled="@_busy" type="button">
+            @if (_busy)
+            {
+                <span class="spinner" style="width:16px;height:16px;"></span>
+            }
+            Onboard Partner
+        </button>
+    </div>
+
 </div>
 
 @code {
     private bool _busy;
-    private string? _message;
-    private string? _error;
 
     private PartnerOnboardingRequest _request = new()
     {
@@ -81,8 +145,6 @@
     private async Task OnboardAsync()
     {
         _busy = true;
-        _message = null;
-        _error = null;
 
         try
         {
@@ -90,13 +152,14 @@
             var result = await PartnerService.OnboardPartner(_request);
             if (!result.Success)
             {
-                _error = result.Errors.Count > 0
+                var errorMsg = result.Errors.Count > 0
                     ? string.Join(" ", result.Errors)
                     : "Partner onboarding failed.";
+                Toast.Error(errorMsg);
                 return;
             }
 
-            _message = $"Partner onboarded successfully. TenantId: {result.TenantId}. Temporary admin password: {result.AdminTemporaryPassword}";
+            Toast.Success($"Partner onboarded successfully. TenantId: {result.TenantId}. Temporary admin password: {result.AdminTemporaryPassword}");
             _request = new PartnerOnboardingRequest
             {
                 SubscriptionPlanCode = "ENTERPRISE",
@@ -109,7 +172,7 @@
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            Toast.Error(ex.Message);
         }
         finally
         {

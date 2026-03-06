@@ -1,69 +1,133 @@
 @page "/modules/{ModuleCode}"
 @attribute [Authorize(Roles = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Authorization
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.Metadata
+@using FC.Engine.Admin.Services
 @using FC.Engine.Infrastructure.Metadata
 @using Microsoft.EntityFrameworkCore
 @inject MetadataDbContext Db
 @inject IModuleImportService ModuleImportService
 @inject NavigationManager Navigation
 @inject ToastService Toast
+@inject DialogService Dialog
 
-<div class="list-page">
-    <div class="list-page-header">
-        <div class="list-page-header-text">
-            <h1>Module Detail: @ModuleCode</h1>
-            @if (_module != null)
-            {
-                <p>@_module.ModuleName (@_module.RegulatorCode)</p>
-            }
+<PageTitle>Module: @ModuleCode</PageTitle>
+
+<div class="admin-page">
+
+    <!-- Breadcrumb -->
+    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Dashboard</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <a href="/modules">Modules</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="detail-breadcrumb-current">@ModuleCode</span>
+    </nav>
+
+    <!-- Page Header -->
+    <div class="admin-header">
+        <div class="admin-header-top">
+            <div>
+                <h1>@(_module?.ModuleName ?? ModuleCode)</h1>
+                @if (_module is not null)
+                {
+                    <p class="admin-header-subtitle">@_module.RegulatorCode regulatory module with @_module.SheetCount template sheet(s).</p>
+                }
+            </div>
+            <div style="display:flex;gap:0.5rem;">
+                <button class="admin-btn-outline" @onclick="OpenImport" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    Import Update
+                </button>
+                <button class="admin-btn-gold" disabled="@_publishing" @onclick="PublishDrafts" type="button">
+                    @if (_publishing)
+                    {
+                        <span class="spinner" style="width:16px;height:16px;"></span>
+                    }
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+                    Publish Drafts
+                </button>
+            </div>
         </div>
-        <div class="list-toolbar-actions">
-            <button class="btn btn-outline" @onclick="BackToList">Back</button>
-            <button class="btn btn-primary" @onclick="OpenImport">Import Update</button>
-            <button class="btn btn-gold" disabled="@_publishing" @onclick="PublishDrafts">Publish Drafts</button>
-        </div>
+
+        @if (_module is not null)
+        {
+            <div class="admin-summary-chips">
+                <span class="admin-chip">
+                    <span class="admin-chip-dot @(_module.IsActive ? "admin-chip-dot-active" : "admin-chip-dot-inactive")" aria-hidden="true"></span>
+                    @(_module.IsActive ? "Active" : "Inactive")
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@_moduleVersions.Count</span> Versions
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@_templateRows.Count</span> Templates
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@_templateRows.Sum(t => t.FieldCount)</span> Fields
+                </span>
+            </div>
+        }
     </div>
 
+    <!-- Content -->
     @if (_loading)
     {
-        <p>Loading module details...</p>
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                <table class="portal-table">
+                    <thead><tr><th>Version</th><th>Status</th><th>Published</th><th>Deprecated</th></tr></thead>
+                    <tbody>
+                        @for (var i = 0; i < 3; i++)
+                        {
+                            <tr>
+                                <td><div class="skel skel-text" style="width:60px;"></div></td>
+                                <td><div class="skel skel-text" style="width:60px;"></div></td>
+                                <td><div class="skel skel-text" style="width:120px;"></div></td>
+                                <td><div class="skel skel-text" style="width:120px;"></div></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
     }
-    else if (_module == null)
+    else if (_module is null)
     {
-        <div class="alert alert-danger">Module not found.</div>
+        <div class="admin-empty">
+            <div class="admin-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <h3 class="admin-empty-title">Module not found</h3>
+            <p class="admin-empty-text">The module code "@ModuleCode" does not exist in the registry.</p>
+        </div>
     }
     else
     {
-        <div class="dashboard-card">
-            <div class="dashboard-card-header">
-                <h2 class="dashboard-card-title">Module Versions</h2>
-            </div>
-            <div class="dashboard-card-body">
+        <!-- Module Versions -->
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-header"><h2 class="portal-card-title">Module Versions</h2></div>
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
                 @if (_moduleVersions.Count == 0)
                 {
-                    <p>No module version records yet.</p>
+                    <div style="padding:2rem;text-align:center;color:#94a3b8;">No module version records yet.</div>
                 }
                 else
                 {
-                    <table class="list-table">
-                        <thead>
-                            <tr>
-                                <th>Version</th>
-                                <th>Status</th>
-                                <th>Published</th>
-                                <th>Deprecated</th>
-                            </tr>
-                        </thead>
+                    <table class="portal-table">
+                        <thead><tr><th>Version</th><th>Status</th><th>Published</th><th>Deprecated</th></tr></thead>
                         <tbody>
                             @foreach (var version in _moduleVersions)
                             {
                                 <tr>
-                                    <td>@version.VersionCode</td>
-                                    <td>@version.Status</td>
-                                    <td>@version.PublishedAt?.ToString("yyyy-MM-dd HH:mm")</td>
-                                    <td>@version.DeprecatedAt?.ToString("yyyy-MM-dd HH:mm")</td>
+                                    <td><code>@version.VersionCode</code></td>
+                                    <td>
+                                        <span class="portal-badge @GetVersionBadge(version.Status)">@version.Status</span>
+                                    </td>
+                                    <td>@(version.PublishedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</td>
+                                    <td>@(version.DeprecatedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</td>
                                 </tr>
                             }
                         </tbody>
@@ -72,18 +136,17 @@
             </div>
         </div>
 
-        <div class="dashboard-card">
-            <div class="dashboard-card-header">
-                <h2 class="dashboard-card-title">Templates</h2>
-            </div>
-            <div class="dashboard-card-body">
+        <!-- Templates -->
+        <div class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Templates</h2></div>
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
                 @if (_templateRows.Count == 0)
                 {
-                    <p>No templates are linked to this module.</p>
+                    <div style="padding:2rem;text-align:center;color:#94a3b8;">No templates are linked to this module.</div>
                 }
                 else
                 {
-                    <table class="list-table">
+                    <table class="portal-table">
                         <thead>
                             <tr>
                                 <th>Return Code</th>
@@ -99,13 +162,13 @@
                             @foreach (var row in _templateRows)
                             {
                                 <tr>
-                                    <td class="list-cell-code">@row.ReturnCode</td>
-                                    <td>@row.Name</td>
-                                    <td>@row.VersionNumber</td>
-                                    <td>@row.Status</td>
-                                    <td>@row.FieldCount</td>
-                                    <td>@row.FormulaCount</td>
-                                    <td class="list-cell-code">@row.PhysicalTableName</td>
+                                    <td><code>@row.ReturnCode</code></td>
+                                    <td style="font-weight:500;">@row.Name</td>
+                                    <td><span class="portal-badge portal-badge-neutral">v@row.VersionNumber</span></td>
+                                    <td><span class="portal-badge @GetTemplateBadge(row.Status)">@row.Status</span></td>
+                                    <td><span class="portal-badge portal-badge-neutral">@row.FieldCount</span></td>
+                                    <td><span class="portal-badge portal-badge-neutral">@row.FormulaCount</span></td>
+                                    <td><code style="font-size:0.75rem;">@row.PhysicalTableName</code></td>
                                 </tr>
                             }
                         </tbody>
@@ -117,8 +180,7 @@
 </div>
 
 @code {
-    [Parameter]
-    public string ModuleCode { get; set; } = string.Empty;
+    [Parameter] public string ModuleCode { get; set; } = string.Empty;
 
     private bool _loading = true;
     private bool _publishing;
@@ -189,12 +251,21 @@
         _loading = false;
     }
 
-    private void BackToList() => Navigation.NavigateTo("/modules");
-
     private void OpenImport() => Navigation.NavigateTo("/modules/import");
 
     private async Task PublishDrafts()
     {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Publish Module Drafts",
+            Message = $"Publish all draft templates for module '{ModuleCode}'? This will create physical database tables.",
+            ConfirmText = "Publish",
+            IsDestructive = false,
+            Icon = "publish"
+        });
+
+        if (!confirmed) return;
+
         _publishing = true;
         try
         {
@@ -218,6 +289,22 @@
             _publishing = false;
         }
     }
+
+    private static string GetVersionBadge(string status) => status switch
+    {
+        "Published" => "portal-badge-success",
+        "Draft" => "portal-badge-warning",
+        "Deprecated" => "portal-badge-danger",
+        _ => "portal-badge-neutral"
+    };
+
+    private static string GetTemplateBadge(string status) => status switch
+    {
+        "Published" => "portal-badge-success",
+        "Draft" => "portal-badge-warning",
+        "Deprecated" => "portal-badge-danger",
+        _ => "portal-badge-neutral"
+    };
 
     private sealed class TemplateRow
     {

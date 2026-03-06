@@ -1,5 +1,6 @@
 @page "/platform/module-analytics"
 @attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Authorization
 @using FC.Engine.Admin.Services
 @using FC.Engine.Domain.Models
 @using FC.Engine.Infrastructure.Charts
@@ -8,116 +9,170 @@
 
 <PageTitle>Module Analytics</PageTitle>
 
-<header class="dash-header" role="banner">
-    <div class="dash-header-text">
-        <h1>Module Analytics</h1>
-        <p>Adoption heatmap and validation hotspot drilldown across active modules.</p>
-    </div>
-</header>
+<div class="admin-page">
 
-@if (!string.IsNullOrWhiteSpace(_error))
-{
-    <div class="portal-alert portal-alert-danger">@_error</div>
-}
+    <!-- Breadcrumb -->
+    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Dashboard</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <a href="/modules">Modules</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="detail-breadcrumb-current">Analytics</span>
+    </nav>
 
-@if (_loading)
-{
-    <div class="portal-card"><div class="portal-card-body">Loading module analytics...</div></div>
-}
-else if (_data is not null)
-{
-    <div class="portal-card" style="margin-bottom:1rem;">
-        <div class="portal-card-header"><h2 class="portal-card-title">Adoption Matrix</h2></div>
-        <div class="portal-card-body" style="padding:0; overflow:auto;">
-            <table class="portal-table">
-                <thead>
-                    <tr>
-                        <th>Module</th>
-                        <th>Tenants</th>
-                        <th>Active Users</th>
-                        <th>Returns Submitted</th>
-                        <th>Validation Error Rate</th>
-                        <th>Heat</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in _data.Items)
-                    {
-                        <tr style="background:@HeatColor(row.Heat);">
-                            <td><strong>@row.ModuleName</strong> <small>(@row.ModuleCode)</small></td>
-                            <td>@row.TenantCount</td>
-                            <td>@row.ActiveUsers</td>
-                            <td>@row.ReturnsSubmitted</td>
-                            <td>@row.ValidationErrorRate.ToString("0.##")%</td>
-                            <td style="text-transform:capitalize;">@row.Heat</td>
-                            <td>
-                                <button class="portal-btn portal-btn-xs portal-btn-outline" @onclick="() => SelectModule(row.ModuleId)">Drilldown</button>
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <div class="portal-card" style="margin-bottom:1rem;">
-        <div class="portal-card-header"><h2 class="portal-card-title">Module Filing Volumes</h2></div>
-        <div class="portal-card-body" style="height:320px;"><canvas id="moduleVolumeChart"></canvas></div>
-    </div>
-
-    @if (_selected is not null)
-    {
-        <div class="portal-card">
-            <div class="portal-card-header">
-                <h2 class="portal-card-title">Error Hotspots: @_selected.ModuleName (@_selected.ModuleCode)</h2>
+    <!-- Page Header -->
+    <div class="admin-header">
+        <div class="admin-header-top">
+            <div>
+                <h1>Module Analytics</h1>
+                <p class="admin-header-subtitle">Adoption heatmap and validation hotspot drilldown across active modules.</p>
             </div>
-            <div class="portal-card-body" style="padding:0; overflow:auto;">
+        </div>
+
+        @if (_data is not null)
+        {
+            <div class="admin-summary-chips">
+                <span class="admin-chip"><span class="admin-chip-count">@_data.Items.Count</span> Modules</span>
+                <span class="admin-chip"><span class="admin-chip-count">@_data.Items.Sum(i => i.TenantCount)</span> Tenant Deployments</span>
+                <span class="admin-chip"><span class="admin-chip-count">@_data.Items.Sum(i => i.ReturnsSubmitted)</span> Returns Filed</span>
+                <span class="admin-chip">
+                    <span class="admin-chip-dot @(_data.Items.Any(i => i.Heat == "red") ? "admin-chip-dot-inactive" : "admin-chip-dot-active")" aria-hidden="true"></span>
+                    @(_data.Items.Count(i => i.Heat == "red")) Hot Modules
+                </span>
+            </div>
+        }
+    </div>
+
+    <!-- Content -->
+    @if (_loading)
+    {
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
                 <table class="portal-table">
-                    <thead><tr><th>Rule</th><th>Field</th><th>Count</th></tr></thead>
+                    <thead><tr><th>Module</th><th>Tenants</th><th>Active Users</th><th>Returns</th><th>Error Rate</th><th>Heat</th><th></th></tr></thead>
                     <tbody>
-                        @if (_selected.Hotspots.Count == 0)
+                        @for (var i = 0; i < 5; i++)
                         {
-                            <tr><td colspan="3">No validation hotspots found.</td></tr>
-                        }
-                        else
-                        {
-                            @foreach (var hotspot in _selected.Hotspots)
-                            {
-                                <tr>
-                                    <td>@hotspot.RuleId</td>
-                                    <td>@hotspot.Field</td>
-                                    <td>@hotspot.Count</td>
-                                </tr>
-                            }
+                            <tr>
+                                <td><div class="skel skel-text" style="width:140px;"></div></td>
+                                <td><div class="skel skel-text" style="width:30px;"></div></td>
+                                <td><div class="skel skel-text" style="width:30px;"></div></td>
+                                <td><div class="skel skel-text" style="width:30px;"></div></td>
+                                <td><div class="skel skel-text" style="width:50px;"></div></td>
+                                <td><div class="skel" style="width:50px;height:20px;border-radius:var(--radius-pill);"></div></td>
+                                <td><div class="skel" style="width:70px;height:28px;border-radius:6px;"></div></td>
+                            </tr>
                         }
                     </tbody>
                 </table>
             </div>
         </div>
     }
-}
+    else if (_data is not null)
+    {
+        <!-- Adoption Matrix -->
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-header"><h2 class="portal-card-title">Adoption Matrix</h2></div>
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Tenants</th>
+                            <th>Active Users</th>
+                            <th>Returns Submitted</th>
+                            <th>Validation Error Rate</th>
+                            <th>Heat</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _data.Items)
+                        {
+                            <tr>
+                                <td>
+                                    <div style="font-weight:600;">@row.ModuleName</div>
+                                    <small style="color:#64748b;">@row.ModuleCode</small>
+                                </td>
+                                <td><span class="portal-badge portal-badge-neutral">@row.TenantCount</span></td>
+                                <td>@row.ActiveUsers</td>
+                                <td>@row.ReturnsSubmitted</td>
+                                <td>
+                                    <span class="portal-badge @(row.ValidationErrorRate > 10 ? "portal-badge-danger" : row.ValidationErrorRate > 5 ? "portal-badge-warning" : "portal-badge-success")">
+                                        @row.ValidationErrorRate.ToString("0.##")%
+                                    </span>
+                                </td>
+                                <td>
+                                    <span class="portal-badge @HeatBadge(row.Heat)" style="text-transform:capitalize;">@row.Heat</span>
+                                </td>
+                                <td style="text-align:right;">
+                                    <button class="user-action-btn @(_selected?.ModuleId == row.ModuleId ? "user-action-btn-active" : "")" @onclick="() => SelectModule(row.ModuleId)" type="button" title="Drilldown">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                                        Drilldown
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Chart -->
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-header"><h2 class="portal-card-title">Module Filing Volumes</h2></div>
+            <div class="portal-card-body" style="height:320px;"><canvas id="moduleVolumeChart"></canvas></div>
+        </div>
+
+        <!-- Hotspot Drilldown -->
+        @if (_selected is not null)
+        {
+            <div class="portal-card">
+                <div class="portal-card-header">
+                    <h2 class="portal-card-title">Error Hotspots: @_selected.ModuleName (@_selected.ModuleCode)</h2>
+                </div>
+                <div class="portal-card-body" style="padding:0;overflow:auto;">
+                    @if (_selected.Hotspots.Count == 0)
+                    {
+                        <div style="padding:2rem;text-align:center;color:#94a3b8;">No validation hotspots found for this module.</div>
+                    }
+                    else
+                    {
+                        <table class="portal-table">
+                            <thead><tr><th>Rule</th><th>Field</th><th>Count</th></tr></thead>
+                            <tbody>
+                                @foreach (var hotspot in _selected.Hotspots)
+                                {
+                                    <tr>
+                                        <td><code>@hotspot.RuleId</code></td>
+                                        <td>@hotspot.Field</td>
+                                        <td><span class="portal-badge portal-badge-danger">@hotspot.Count</span></td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        }
+    }
+</div>
 
 @code {
     private ModuleAnalyticsData? _data;
     private ModuleAnalyticsItem? _selected;
     private bool _loading = true;
     private bool _chartsRendered;
-    private string? _error;
 
     protected override async Task OnInitializedAsync()
     {
         _loading = true;
-        _error = null;
         try
         {
             _data = await PlatformService.GetModuleAnalytics();
             _selected = _data.Items.OrderByDescending(x => x.ValidationErrorRate).FirstOrDefault();
         }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
+        catch { }
         finally
         {
             _loading = false;
@@ -126,48 +181,36 @@ else if (_data is not null)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_data is null || _chartsRendered)
-        {
-            return;
-        }
-
+        if (_data is null || _chartsRendered) return;
         await Charts.RenderBarChart("moduleVolumeChart", BuildVolumeChart(_data));
         _chartsRendered = true;
     }
 
     private void SelectModule(int moduleId)
     {
-        if (_data is null)
-        {
-            return;
-        }
-
-        _selected = _data.Items.FirstOrDefault(x => x.ModuleId == moduleId);
+        _selected = _data?.Items.FirstOrDefault(x => x.ModuleId == moduleId);
     }
 
-    private static string HeatColor(string heat) => heat.ToLowerInvariant() switch
+    private static string HeatBadge(string heat) => heat.ToLowerInvariant() switch
     {
-        "red" => "#fef2f2",
-        "amber" => "#fffbeb",
-        _ => "#f0fdf4"
+        "red" => "portal-badge-danger",
+        "amber" => "portal-badge-warning",
+        _ => "portal-badge-success"
     };
 
-    private static TrendData BuildVolumeChart(ModuleAnalyticsData data)
+    private static TrendData BuildVolumeChart(ModuleAnalyticsData data) => new()
     {
-        return new TrendData
+        Title = "Returns by Module",
+        Labels = data.Items.Select(i => i.ModuleCode).ToList(),
+        Datasets =
         {
-            Title = "Returns by Module",
-            Labels = data.Items.Select(i => i.ModuleCode).ToList(),
-            Datasets =
+            new TrendDataset
             {
-                new TrendDataset
-                {
-                    Label = "Returns Submitted",
-                    Data = data.Items.Select(i => (decimal)i.ReturnsSubmitted).ToList(),
-                    BackgroundColor = "#0f766e",
-                    BorderColor = "#0f766e"
-                }
+                Label = "Returns Submitted",
+                Data = data.Items.Select(i => (decimal)i.ReturnsSubmitted).ToList(),
+                BackgroundColor = "#0f766e",
+                BorderColor = "#0f766e"
             }
-        };
-    }
+        }
+    };
 }

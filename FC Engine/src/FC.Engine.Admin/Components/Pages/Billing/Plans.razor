@@ -3,226 +3,287 @@
 @using System.Text.Json
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Infrastructure.Metadata
+@using FC.Engine.Admin.Services
 @using Microsoft.EntityFrameworkCore
 @attribute [Authorize(Policy = "PlatformAdmin")]
 @inject MetadataDbContext Db
+@inject ToastService Toast
+@inject DialogService Dialog
 
 <PageTitle>Billing Plans</PageTitle>
 
-<div class="billing-shell">
-    <section class="billing-hero">
-        <div>
-            <p class="billing-kicker">Platform Billing</p>
-            <h1>Subscription Plans</h1>
-            <p>Manage commercial plans, limits, and base pricing for all tenants.</p>
-        </div>
-        <div class="billing-hero-note">
-            <span class="badge badge-review">Platform Admin</span>
-            <span>@DateTime.UtcNow.ToString("dd MMM yyyy HH:mm") UTC</span>
-        </div>
-    </section>
+<div class="admin-page">
 
+    <!-- Breadcrumb -->
+    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
+        <a href="/">Dashboard</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <a href="/billing/plans">Billing</a>
+        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
+        <span class="detail-breadcrumb-current">Plans</span>
+    </nav>
+
+    <!-- Page Header -->
+    <div class="admin-header">
+        <div class="admin-header-top">
+            <div>
+                <h1>Subscription Plans</h1>
+                <p class="admin-header-subtitle">Manage commercial plans, limits, and base pricing for all tenants.</p>
+            </div>
+        </div>
+
+        @if (!_loading && _plans.Any())
+        {
+            <div class="admin-summary-chips">
+                <span class="admin-chip">
+                    <span class="admin-chip-dot admin-chip-dot-active" aria-hidden="true"></span>
+                    <span class="admin-chip-count">@_plans.Count(p => p.IsActive)</span> Active Plans
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@FormatCurrency(_plans.Any() ? _plans.Average(p => p.BasePriceMonthly) : 0)</span> Avg Monthly Price
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@FormatCurrency(_plans.Any() ? _plans.Max(p => p.BasePriceMonthly) : 0)</span> Highest Price
+                </span>
+                <span class="admin-chip">
+                    <span class="admin-chip-count">@_plans.Sum(p => CountFeatures(p.Features))</span> Feature Flags
+                </span>
+            </div>
+        }
+    </div>
+
+    <!-- Toolbar -->
+    <div class="admin-toolbar">
+        <div class="admin-toolbar-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search by code, name, or description..." @bind="_searchTerm" @bind:event="oninput" aria-label="Search plans" />
+        </div>
+        <div class="admin-toolbar-filter">
+            <select @bind="_statusFilter" aria-label="Filter by status">
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Content -->
     @if (_loading)
     {
-        <section class="card billing-surface">
-            <p>Loading plans...</p>
-        </section>
+        <div class="portal-card">
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Plan</th>
+                            <th>Tier</th>
+                            <th>Monthly</th>
+                            <th>Annual</th>
+                            <th>Limits</th>
+                            <th>Features</th>
+                            <th>Status</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < 5; i++)
+                        {
+                            <tr>
+                                <td>
+                                    <div class="skel skel-text" style="width:120px;"></div>
+                                    <div class="skel skel-text" style="width:80px;margin-top:4px;"></div>
+                                </td>
+                                <td><div class="skel skel-text" style="width:30px;"></div></td>
+                                <td><div class="skel skel-text" style="width:70px;"></div></td>
+                                <td><div class="skel skel-text" style="width:70px;"></div></td>
+                                <td>
+                                    <div class="skel skel-text" style="width:90px;"></div>
+                                    <div class="skel skel-text" style="width:80px;margin-top:4px;"></div>
+                                </td>
+                                <td><div class="skel skel-text" style="width:24px;"></div></td>
+                                <td><div class="skel" style="width:52px;height:20px;border-radius:var(--radius-pill);"></div></td>
+                                <td style="text-align:right;"><div class="skel" style="width:50px;height:28px;border-radius:6px;"></div></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (!FilteredPlans.Any())
+    {
+        <div class="admin-empty">
+            <div class="admin-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+            </div>
+            @if (string.IsNullOrEmpty(_searchTerm) && string.IsNullOrEmpty(_statusFilter))
+            {
+                <h3 class="admin-empty-title">No subscription plans found</h3>
+                <p class="admin-empty-text">Plans will appear here once they have been configured in the system.</p>
+            }
+            else
+            {
+                <h3 class="admin-empty-title">No matching plans</h3>
+                <p class="admin-empty-text">Try adjusting your search or filters.</p>
+            }
+        </div>
     }
     else
     {
-        @if (!string.IsNullOrWhiteSpace(_error))
-        {
-            <div class="cbn-alert cbn-alert-error">@_error</div>
-        }
-        @if (!string.IsNullOrWhiteSpace(_message))
-        {
-            <div class="cbn-alert cbn-alert-success">@_message</div>
-        }
-
-        <section class="billing-metrics">
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Active Plans</p>
-                <p class="billing-metric-value">@_plans.Count(p => p.IsActive)</p>
-                <p class="billing-metric-sub">of @_plans.Count total plans</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Average Monthly Price</p>
-                <p class="billing-metric-value">@FormatCurrency(_plans.Any() ? _plans.Average(p => p.BasePriceMonthly) : 0)</p>
-                <p class="billing-metric-sub">NGN across plan catalogue</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Highest Plan Price</p>
-                <p class="billing-metric-value">@FormatCurrency(_plans.Any() ? _plans.Max(p => p.BasePriceMonthly) : 0)</p>
-                <p class="billing-metric-sub">monthly base fee</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Feature Flags</p>
-                <p class="billing-metric-value">@_plans.Sum(p => CountFeatures(p.Features))</p>
-                <p class="billing-metric-sub">declared features across plans</p>
-            </article>
-        </section>
-
-        <section class="billing-layout">
-            <section class="card billing-surface">
-                <div class="billing-toolbar">
-                    <input class="form-control billing-search"
-                           type="search"
-                           @bind="_searchTerm"
-                           @bind:event="oninput"
-                           placeholder="Search by code, name, or description" />
-                    <button class="btn btn-outline btn-sm" @onclick="ClearSearch">Clear</button>
-                </div>
-
-                <div class="billing-table-wrap">
-                    <table class="data-table billing-table">
-                        <thead>
+        <div class="portal-card">
+            <div class="portal-card-body" style="padding:0;overflow:auto;">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Plan</th>
+                            <th>Tier</th>
+                            <th>Monthly</th>
+                            <th>Annual</th>
+                            <th>Limits</th>
+                            <th>Features</th>
+                            <th>Status</th>
+                            <th style="text-align:right;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var plan in FilteredPlans)
+                        {
                             <tr>
-                                <th>Plan</th>
-                                <th>Tier</th>
-                                <th>Monthly</th>
-                                <th>Annual</th>
-                                <th>Limits</th>
-                                <th>Features</th>
-                                <th>Status</th>
-                                <th>Action</th>
+                                <td>
+                                    <div style="font-weight:500;">@plan.PlanName</div>
+                                    <div style="font-size:var(--text-caption);color:var(--cbn-text-muted);">@plan.PlanCode</div>
+                                </td>
+                                <td>@plan.Tier</td>
+                                <td>@FormatCurrency(plan.BasePriceMonthly)</td>
+                                <td>@FormatCurrency(plan.BasePriceAnnual)</td>
+                                <td>
+                                    <div style="font-size:var(--text-caption);">Modules: @plan.MaxModules</div>
+                                    <div style="font-size:var(--text-caption);">Users: @plan.MaxUsersPerEntity</div>
+                                    <div style="font-size:var(--text-caption);">Entities: @plan.MaxEntities</div>
+                                </td>
+                                <td><span class="portal-badge portal-badge-neutral">@CountFeatures(plan.Features)</span></td>
+                                <td>
+                                    @if (plan.IsActive)
+                                    {
+                                        <span class="portal-badge portal-badge-success">Active</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-badge portal-badge-danger">Inactive</span>
+                                    }
+                                </td>
+                                <td style="text-align:right;">
+                                    <button class="user-action-btn" @onclick="() => BeginEdit(plan)" type="button" title="Edit plan">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                        Edit
+                                    </button>
+                                </td>
                             </tr>
-                        </thead>
-                        <tbody>
-                            @if (!FilteredPlans.Any())
-                            {
-                                <tr>
-                                    <td colspan="8" class="billing-empty-cell">No plans match your filter.</td>
-                                </tr>
-                            }
-                            else
-                            {
-                                @foreach (var plan in FilteredPlans)
-                                {
-                                    <tr class="@(IsEditing(plan.Id) ? "billing-row-active" : string.Empty)">
-                                        <td>
-                                            <div class="billing-plan-name">@plan.PlanName</div>
-                                            <div class="billing-plan-code">@plan.PlanCode</div>
-                                        </td>
-                                        <td>@plan.Tier</td>
-                                        <td>@FormatCurrency(plan.BasePriceMonthly)</td>
-                                        <td>@FormatCurrency(plan.BasePriceAnnual)</td>
-                                        <td>
-                                            <div class="billing-stack-sm">Modules: @plan.MaxModules</div>
-                                            <div class="billing-stack-sm">Users: @plan.MaxUsersPerEntity</div>
-                                            <div class="billing-stack-sm">Entities: @plan.MaxEntities</div>
-                                        </td>
-                                        <td>@CountFeatures(plan.Features)</td>
-                                        <td>
-                                            <span class="badge @(plan.IsActive ? "badge-published" : "badge-deprecated")">
-                                                @(plan.IsActive ? "Active" : "Inactive")
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <button class="btn btn-outline btn-sm" @onclick="() => BeginEdit(plan)">Edit</button>
-                                        </td>
-                                    </tr>
-                                }
-                            }
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <aside class="card billing-editor">
-                <div class="billing-editor-header">
-                    <h2>Plan Editor</h2>
-                    @if (_editing is not null)
-                    {
-                        <span class="badge badge-review">@_editing.PlanCode</span>
-                    }
-                </div>
-
-                @if (_editing is null)
-                {
-                    <p class="billing-muted">Select a plan from the table to edit pricing and limits.</p>
-                }
-                else
-                {
-                    <div class="form-group">
-                        <label>Plan Name</label>
-                        <input class="form-control" @bind="_editing.PlanName" />
-                    </div>
-
-                    <div class="billing-grid-2">
-                        <div class="form-group">
-                            <label>Tier</label>
-                            <input class="form-control" type="number" min="0" @bind="_editing.Tier" />
-                        </div>
-                        <div class="form-group">
-                            <label>Trial Days</label>
-                            <input class="form-control" type="number" min="0" @bind="_editing.TrialDays" />
-                        </div>
-                    </div>
-
-                    <div class="billing-grid-2">
-                        <div class="form-group">
-                            <label>Monthly Price (NGN)</label>
-                            <input class="form-control" type="number" min="0" step="0.01" @bind="_editing.BasePriceMonthly" />
-                        </div>
-                        <div class="form-group">
-                            <label>Annual Price (NGN)</label>
-                            <input class="form-control" type="number" min="0" step="0.01" @bind="_editing.BasePriceAnnual" />
-                        </div>
-                    </div>
-
-                    <div class="billing-grid-3">
-                        <div class="form-group">
-                            <label>Max Modules</label>
-                            <input class="form-control" type="number" min="1" @bind="_editing.MaxModules" />
-                        </div>
-                        <div class="form-group">
-                            <label>Max Users / Entity</label>
-                            <input class="form-control" type="number" min="1" @bind="_editing.MaxUsersPerEntity" />
-                        </div>
-                        <div class="form-group">
-                            <label>Max Entities</label>
-                            <input class="form-control" type="number" min="1" @bind="_editing.MaxEntities" />
-                        </div>
-                    </div>
-
-                    <div class="billing-grid-2">
-                        <div class="form-group">
-                            <label>API Calls / Month</label>
-                            <input class="form-control" type="number" min="0" @bind="_editing.MaxApiCallsPerMonth" />
-                        </div>
-                        <div class="form-group">
-                            <label>Storage (MB)</label>
-                            <input class="form-control" type="number" min="0" @bind="_editing.MaxStorageMb" />
-                        </div>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Features (JSON array or comma-separated)</label>
-                        <textarea class="form-control" rows="4" @bind="_editing.Features"></textarea>
-                    </div>
-
-                    <div class="form-group billing-toggle-row">
-                        <label>
-                            <input type="checkbox" @bind="_editing.IsActive" />
-                            <span>Plan is active</span>
-                        </label>
-                    </div>
-
-                    <div class="billing-editor-actions">
-                        <button class="btn btn-primary" @onclick="SaveEdit">Save Changes</button>
-                        <button class="btn btn-outline" @onclick="CancelEdit">Cancel</button>
-                    </div>
-                }
-            </aside>
-        </section>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
     }
 </div>
 
+<!-- Edit Plan Modal -->
+<AppModal @bind-Visible="_showModal" Title="@($"Edit Plan: {_editing?.PlanCode}")"
+          Subtitle="Update pricing, limits, and feature configuration" Size="lg">
+    <ChildContent>
+        @if (!string.IsNullOrEmpty(_formError))
+        {
+            <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@_formError" Dismissible="true" OnDismiss="() => _formError = null" />
+        }
+
+        @if (_editing is not null)
+        {
+            <div class="admin-form-grid">
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Plan Name</label>
+                    <input class="admin-form-input" @bind="_editing.PlanName" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Tier</label>
+                    <input class="admin-form-input" type="number" min="0" @bind="_editing.Tier" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Trial Days</label>
+                    <input class="admin-form-input" type="number" min="0" @bind="_editing.TrialDays" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Monthly Price (NGN)</label>
+                    <input class="admin-form-input" type="number" min="0" step="0.01" @bind="_editing.BasePriceMonthly" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Annual Price (NGN)</label>
+                    <input class="admin-form-input" type="number" min="0" step="0.01" @bind="_editing.BasePriceAnnual" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Max Modules</label>
+                    <input class="admin-form-input" type="number" min="1" @bind="_editing.MaxModules" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Max Users / Entity</label>
+                    <input class="admin-form-input" type="number" min="1" @bind="_editing.MaxUsersPerEntity" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Max Entities</label>
+                    <input class="admin-form-input" type="number" min="1" @bind="_editing.MaxEntities" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">API Calls / Month</label>
+                    <input class="admin-form-input" type="number" min="0" @bind="_editing.MaxApiCallsPerMonth" />
+                </div>
+
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Storage (MB)</label>
+                    <input class="admin-form-input" type="number" min="0" @bind="_editing.MaxStorageMb" />
+                </div>
+            </div>
+
+            <div style="margin-top:var(--space-4);">
+                <div class="admin-form-group">
+                    <label class="admin-form-label">Features (JSON array or comma-separated)</label>
+                    <textarea class="admin-form-input" rows="4" @bind="_editing.Features"></textarea>
+                </div>
+            </div>
+
+            <div style="margin-top:var(--space-4);">
+                <div class="admin-form-group" style="display:flex;align-items:center;gap:var(--space-2);">
+                    <input type="checkbox" id="plan-is-active" @bind="_editing.IsActive" />
+                    <label class="admin-form-label" for="plan-is-active" style="margin:0;">Plan is active</label>
+                </div>
+            </div>
+        }
+    </ChildContent>
+    <FooterContent>
+        <button class="admin-btn-outline" @onclick="CancelEdit" type="button">Cancel</button>
+        <button class="admin-btn-primary" @onclick="SaveEdit" disabled="@_saving" type="button">
+            @if (_saving)
+            {
+                <span class="spinner" style="width:16px;height:16px;"></span>
+            }
+            Save Changes
+        </button>
+    </FooterContent>
+</AppModal>
+
 @code {
     private bool _loading = true;
+    private bool _saving;
     private string _searchTerm = string.Empty;
-    private string? _error;
-    private string? _message;
+    private string _statusFilter = string.Empty;
+    private string? _formError;
+    private bool _showModal;
     private List<SubscriptionPlan> _plans = new();
     private PlanEditorModel? _editing;
 
@@ -232,6 +293,9 @@
             || p.PlanName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)
             || (!string.IsNullOrWhiteSpace(p.Description)
                 && p.Description.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)))
+        .Where(p => string.IsNullOrEmpty(_statusFilter)
+            || (_statusFilter == "active" && p.IsActive)
+            || (_statusFilter == "inactive" && !p.IsActive))
         .OrderBy(p => p.DisplayOrder)
         .ThenBy(p => p.PlanCode);
 
@@ -250,12 +314,9 @@
             .ToListAsync();
     }
 
-    private void ClearSearch() => _searchTerm = string.Empty;
-
     private void BeginEdit(SubscriptionPlan plan)
     {
-        _error = null;
-        _message = null;
+        _formError = null;
 
         _editing = new PlanEditorModel
         {
@@ -274,6 +335,8 @@
             Features = plan.Features,
             IsActive = plan.IsActive
         };
+
+        _showModal = true;
     }
 
     private async Task SaveEdit()
@@ -283,12 +346,16 @@
             return;
         }
 
+        _formError = null;
+        _saving = true;
+
         try
         {
             var plan = await Db.SubscriptionPlans.FirstOrDefaultAsync(p => p.Id == _editing.Id);
             if (plan is null)
             {
-                _error = "Selected plan no longer exists.";
+                _formError = "Selected plan no longer exists.";
+                _saving = false;
                 return;
             }
 
@@ -308,22 +375,26 @@
             await Db.SaveChangesAsync();
             await LoadPlans();
 
-            _message = $"Updated plan {plan.PlanCode}.";
+            Toast.Success($"Updated plan {plan.PlanCode}.");
+            _showModal = false;
             _editing = null;
         }
         catch (Exception ex)
         {
-            _error = ex.Message;
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
         }
     }
 
     private void CancelEdit()
     {
         _editing = null;
-        _error = null;
+        _formError = null;
+        _showModal = false;
     }
-
-    private bool IsEditing(int planId) => _editing?.Id == planId;
 
     private static string FormatCurrency(decimal value) => value.ToString("N2");
 
