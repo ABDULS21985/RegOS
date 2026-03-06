@@ -6,6 +6,7 @@
 @inject JurisdictionManagementService JurisdictionSvc
 @inject ToastService Toast
 @inject DialogService Dialog
+@implements IDisposable
 
 <PageTitle>Jurisdiction Registry</PageTitle>
 
@@ -26,7 +27,10 @@
         <ToolbarContent>
             <div class="fc-toolbar-search">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input type="text" placeholder="Search by country name, code, or currency..." @bind="_searchQuery" @bind:event="oninput" aria-label="Search jurisdictions" />
+                <input type="text" placeholder="Search by country name, code, or currency..."
+                       value="@_searchQuery" @oninput="OnSearchInput"
+                       aria-label="Search jurisdictions" />
+                @if (_searchTyping) { <span class="fc-search-typing" aria-hidden="true" title="Filtering…"></span> }
             </div>
             <div class="fc-toolbar-filter">
                 <select @bind="_statusFilter" aria-label="Filter by status">
@@ -268,6 +272,9 @@
 
     // Search & filter
     private string _searchQuery = "";
+    private string _filterQuery = "";   // debounced version used for LINQ
+    private bool _searchTyping;
+    private CancellationTokenSource? _searchCts;
     private string _statusFilter = "";
 
     // Edit dialog state
@@ -290,10 +297,10 @@
     private string _fxSource = "Manual";
 
     private IReadOnlyList<JurisdictionListItem> FilteredJurisdictions => (_jurisdictions ?? new())
-        .Where(j => string.IsNullOrEmpty(_searchQuery) ||
-                    j.CountryName.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                    j.CountryCode.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
-                    j.Currency.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(j => string.IsNullOrEmpty(_filterQuery) ||
+                    j.CountryName.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase) ||
+                    j.CountryCode.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase) ||
+                    j.Currency.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase))
         .Where(j => string.IsNullOrEmpty(_statusFilter) ||
                     (_statusFilter == "active" && j.IsActive) ||
                     (_statusFilter == "planned" && !j.IsActive))
@@ -324,17 +331,47 @@
 
     private async Task ToggleActive(int id)
     {
+        var idx = _jurisdictions?.FindIndex(j => j.Id == id) ?? -1;
+        if (idx < 0) return;
+
+        // Optimistic update — flip locally, revert on error
+        var original = _jurisdictions![idx];
+        _jurisdictions[idx] = original with { IsActive = !original.IsActive };
+        StateHasChanged();
+
         try
         {
             await JurisdictionSvc.ToggleActiveAsync(id);
-            await LoadData();
             Toast.Success("Jurisdiction status updated.");
+            _stats = await JurisdictionSvc.GetStatsAsync(); // lightweight stats-only refresh
         }
         catch (Exception ex)
         {
+            _jurisdictions[idx] = original; // revert
+            StateHasChanged();
             Toast.Error($"Failed to update jurisdiction: {ex.Message}");
         }
     }
+
+    private async void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchQuery = e.Value?.ToString() ?? "";
+        _searchTyping = true;
+        StateHasChanged();
+
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(200, _searchCts.Token);
+            _filterQuery = _searchQuery;
+            _searchTyping = false;
+            StateHasChanged();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    public void Dispose() => _searchCts?.Dispose();
 
     private void OpenEditDialog(JurisdictionListItem item)
     {

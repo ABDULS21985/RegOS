@@ -9,6 +9,8 @@
 @inject TemplateService TemplateService
 @inject NavigationManager Nav
 @inject ToastService Toast
+@inject DataCacheService DataCache
+@implements IDisposable
 
 <PageHeader Title="Return Templates"
             Subtitle="Manage all published return templates, their fields, formulas, and physical table mappings"
@@ -87,7 +89,9 @@
             <div class="fc-list-toolbar-filters">
                 <div class="fc-list-search-wrap">
                     <svg class="fc-list-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                    <input class="fc-list-search-input" placeholder="Search by code or name..." @bind="_searchTerm" @bind:event="oninput" />
+                    <input class="fc-list-search-input" placeholder="Search by code or name..."
+                           value="@_searchTerm" @oninput="OnSearchInput" />
+                    @if (_searchTyping) { <span class="fc-search-typing" aria-hidden="true" title="Filtering…"></span> }
                 </div>
                 <select class="fc-list-filter-select" @bind="_frequencyFilter">
                     <option value="">All Frequencies</option>
@@ -160,6 +164,9 @@
     private bool _loading = true;
     private IReadOnlyList<CachedTemplate> _templates = Array.Empty<CachedTemplate>();
     private string _searchTerm = "";
+    private string _filterTerm = "";   // debounced; FilteredTemplates uses this
+    private bool _searchTyping;
+    private CancellationTokenSource? _searchCts;
     private string _frequencyFilter = "";
     private string _categoryFilter = "";
 
@@ -170,18 +177,50 @@
     private StructuralCategory _createCategory = StructuralCategory.FixedRow;
 
     private IEnumerable<CachedTemplate> FilteredTemplates => _templates
-        .Where(t => string.IsNullOrEmpty(_searchTerm) ||
-                    t.ReturnCode.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ||
-                    t.Name.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+        .Where(t => string.IsNullOrEmpty(_filterTerm) ||
+                    t.ReturnCode.Contains(_filterTerm, StringComparison.OrdinalIgnoreCase) ||
+                    t.Name.Contains(_filterTerm, StringComparison.OrdinalIgnoreCase))
         .Where(t => string.IsNullOrEmpty(_categoryFilter) || t.StructuralCategory == _categoryFilter)
         .Where(t => string.IsNullOrEmpty(_frequencyFilter) || GetFrequency(t.ReturnCode) == _frequencyFilter)
         .OrderBy(t => t.ReturnCode);
 
     protected override async Task OnInitializedAsync()
     {
-        _templates = await Cache.GetAllPublishedTemplates();
+        // Register loader so NavMenu hover-prefetch can warm this data
+        DataCache.RegisterLoader("/templates", async () =>
+        {
+            var data = await Cache.GetAllPublishedTemplates();
+            DataCache.Set("templates:all", data);
+        });
+
+        _templates = await DataCache.GetOrFetchAsync(
+            "templates:all",
+            () => Cache.GetAllPublishedTemplates(),
+            TimeSpan.FromMinutes(5),
+            updated => { _templates = updated; InvokeAsync(StateHasChanged); }
+        );
         _loading = false;
     }
+
+    private async void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchTerm = e.Value?.ToString() ?? "";
+        _searchTyping = true;
+        StateHasChanged();
+
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(200, _searchCts.Token);
+            _filterTerm = _searchTerm;
+            _searchTyping = false;
+            StateHasChanged();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    public void Dispose() => _searchCts?.Dispose();
 
     private void ViewTemplate(string returnCode) => Nav.NavigateTo($"/templates/{returnCode}");
 
@@ -201,6 +240,7 @@
             _createRequest.StructuralCategory = _createCategory;
             _createRequest.CreatedBy = "system";
             var result = await TemplateService.CreateTemplate(_createRequest);
+            DataCache.Invalidate("templates:all");
             Toast.Success($"Template '{result.ReturnCode}' created successfully.", "Template Created");
             _showCreateForm = false;
             Nav.NavigateTo($"/templates/{result.ReturnCode}");

@@ -8,6 +8,7 @@
 @inject NavigationManager Navigation
 @inject ToastService Toast
 @inject IJSRuntime JS
+@inject DataCacheService DataCache
 @implements IAsyncDisposable
 
 <AuthorizeView>
@@ -221,7 +222,7 @@
                          Match="@(item.Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)"
                          class="fc-nav__item"
                          @oncontextmenu="(e) => OnRightClick(e, item)"
-                         @onmouseenter="() => ShowTooltip(item)"
+                         @onmouseenter="() => OnNavItemHover(item)"
                          @onmouseleave="HideTooltip"
                          aria-label="@item.Label">
                     <svg class="fc-nav__item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -298,15 +299,18 @@
         InvokeAsync(StateHasChanged);
     }
 
-    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
-        // Track the visited page in the Recent section
-        var item = FindNavItemByHref(e.Location);
-        if (item != null)
+        _ = InvokeAsync(async () =>
         {
-            await SidebarState.AddRecentPageAsync(
-                new SidebarNavItem(item.Label, item.Href, item.IconPath));
-        }
+            // Track the visited page in the Recent section
+            var item = FindNavItemByHref(e.Location);
+            if (item != null)
+            {
+                await SidebarState.AddRecentPageAsync(
+                    new SidebarNavItem(item.Label, item.Href, item.IconPath));
+            }
+        });
     }
 
     // ── Navigation model ─────────────────────────────────────────────
@@ -542,13 +546,34 @@
 
     // ── Tooltip (collapsed mode) ──────────────────────────────────────
 
-    private async Task ShowTooltip(NavItemModel item)
+    private void OnNavItemHover(NavItemModel item)
     {
-        if (!SidebarState.IsCollapsed) return;
+        ShowTooltip(item);
+        PrefetchRoute(item.Href);
+    }
+
+    private void ShowTooltip(NavItemModel item)
+    {
         // tooltip is positioned by CSS :after in collapsed mode; JS as fallback
     }
 
     private Task HideTooltip() => Task.CompletedTask;
+
+    // ── Hover prefetch ────────────────────────────────────────────────
+
+    private CancellationTokenSource? _prefetchCts;
+
+    private async void PrefetchRoute(string route)
+    {
+        _prefetchCts?.Cancel();
+        _prefetchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, _prefetchCts.Token);
+            await DataCache.PrefetchAsync(route);
+        }
+        catch (TaskCanceledException) { }
+    }
 
     // ── Dispose ──────────────────────────────────────────────────────
 
@@ -557,6 +582,7 @@
         SidebarState.OnStateChanged -= OnSidebarStateChanged;
         Navigation.LocationChanged  -= OnLocationChanged;
         _dotNetRef?.Dispose();
+        _prefetchCts?.Dispose();
         return ValueTask.CompletedTask;
     }
 }

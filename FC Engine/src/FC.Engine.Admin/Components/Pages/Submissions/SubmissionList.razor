@@ -6,6 +6,7 @@
 @using FC.Engine.Domain.Enums
 @inject ISubmissionRepository SubmissionRepo
 @inject NavigationManager Nav
+@implements IDisposable
 
 <PageHeader Title="Submissions"
             Subtitle="View all return submissions and their validation results"
@@ -27,7 +28,9 @@
                 <div class="fc-list-toolbar-filters">
                     <div class="fc-list-search-wrap">
                         <svg class="fc-list-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-                        <input class="fc-list-search-input" placeholder="Search by return code or institution..." @bind="_searchTerm" @bind:event="oninput" />
+                        <input class="fc-list-search-input" placeholder="Search by return code or institution..."
+                               value="@_searchTerm" @oninput="OnSearchInput" />
+                        @if (_searchTyping) { <span class="fc-search-typing" aria-hidden="true" title="Filtering…"></span> }
                     </div>
                     <input class="fc-list-filter-select" type="number" placeholder="Institution ID" @bind="_institutionId" style="max-width:160px;" />
                     <select class="fc-list-filter-select" @bind="_statusFilter">
@@ -142,13 +145,16 @@
     private bool _loading;
     private string? _error;
     private string _searchTerm = "";
+    private string _filterTerm = "";   // debounced version used for LINQ
+    private bool _searchTyping;
+    private CancellationTokenSource? _searchCts;
     private string _statusFilter = "";
     private List<Submission> _submissions = new();
 
     private IEnumerable<Submission> FilteredSubmissions => _submissions
-        .Where(s => string.IsNullOrEmpty(_searchTerm) ||
-                    s.ReturnCode.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ||
-                    (s.Institution?.InstitutionName?.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase) ?? false))
+        .Where(s => string.IsNullOrEmpty(_filterTerm) ||
+                    s.ReturnCode.Contains(_filterTerm, StringComparison.OrdinalIgnoreCase) ||
+                    (s.Institution?.InstitutionName?.Contains(_filterTerm, StringComparison.OrdinalIgnoreCase) ?? false))
         .Where(s => string.IsNullOrEmpty(_statusFilter) || s.Status.ToString() == _statusFilter);
 
     private async Task Search()
@@ -179,8 +185,29 @@
         _searched = false;
         _error = null;
         _searchTerm = "";
+        _filterTerm = "";
         _statusFilter = "";
     }
+
+    private async void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchTerm = e.Value?.ToString() ?? "";
+        _searchTyping = true;
+        StateHasChanged();
+
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(200, _searchCts.Token);
+            _filterTerm = _searchTerm;
+            _searchTyping = false;
+            StateHasChanged();
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    public void Dispose() => _searchCts?.Dispose();
 
     private void ViewSubmission(int id) => Nav.NavigateTo($"/submissions/{id}");
 

@@ -196,8 +196,13 @@
         if (firstRender && !_jsInit)
         {
             _ref = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("FCAccessibility.initShortcuts", _ref);
-            _jsInit = true;
+            try
+            {
+                await JS.InvokeVoidAsync("FCAccessibility.initShortcuts", _ref);
+                _jsInit = true;
+            }
+            catch (JSDisconnectedException) { }
+            catch (JSException) { /* script not yet loaded — shortcuts unavailable */ }
         }
     }
 

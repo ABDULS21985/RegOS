@@ -127,7 +127,7 @@ public class JurisdictionManagementService
     }
 }
 
-public class JurisdictionListItem
+public record JurisdictionListItem
 {
     public int Id { get; set; }
     public string CountryCode { get; set; } = string.Empty;

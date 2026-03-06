@@ -44,6 +44,7 @@ builder.Services.AddScoped<FC.Engine.Admin.Services.CommandPaletteService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.SidebarStateService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.DataTableExportService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.HelpService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.DataCacheService>();
 
 // Platform Admin services
 builder.Services.AddScoped<FC.Engine.Admin.Services.TenantManagementService>();

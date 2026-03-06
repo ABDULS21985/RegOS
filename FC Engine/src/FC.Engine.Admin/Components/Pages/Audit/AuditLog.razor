@@ -50,7 +50,10 @@
     <div class="fc-audit-filters fc-card">
         <div class="fc-toolbar-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>
-            <input type="text" placeholder="Search events, users, entities..." @bind="_searchQuery" @bind:event="oninput" aria-label="Search audit events" />
+            <input type="text" placeholder="Search events, users, entities..."
+                   value="@_searchQuery" @oninput="OnSearchInput"
+                   aria-label="Search audit events" />
+            @if (_searchTyping) { <span class="fc-search-typing" aria-hidden="true" title="Filtering…"></span> }
         </div>
         <select @bind="_userFilter" aria-label="Filter by user">
             <option value="">All Users</option>
@@ -251,8 +254,7 @@
         else
         {
             <div class="fc-audit-feed" role="feed" aria-label="Audit trail timeline">
-                @foreach (var entry in PagedEntries)
-                {
+                <Virtualize Items="@PagedEntries.ToList()" Context="entry" ItemSize="88" OverscanCount="5">
                     <div class="fc-audit-event @(entry.IsNew ? "fc-audit-event--new" : "") @(entry.IsFlagged ? "fc-audit-event--flagged" : "")">
                         <div class="fc-audit-avatar" style="background:@GetAvatarColor(entry.PerformedBy);" aria-hidden="true" title="@entry.PerformedBy">@GetInitials(entry.PerformedBy)</div>
                         <div class="fc-audit-event-spine" aria-hidden="true"></div>
@@ -355,7 +357,7 @@
                             </div>
                         </div>
                     </div>
-                }
+                </Virtualize>
 
                 @if (FilteredCount > _currentPage * PageSize)
                 {
@@ -393,6 +395,9 @@
 
     // ── Filters ─────────────────────────────────────────────────────────────
     private string _searchQuery = string.Empty;
+    private string _filterQuery = string.Empty;   // debounced; FilteredEntries uses this
+    private bool _searchTyping;
+    private CancellationTokenSource? _searchCts;
     private string _userFilter = string.Empty;
     private string _actionFilter = string.Empty;
     private string _entityFilter = string.Empty;
@@ -405,12 +410,12 @@
 
     // ── Computed ─────────────────────────────────────────────────────────────
     private IEnumerable<AuditDisplayEntry> FilteredEntries => _entries
-        .Where(e => string.IsNullOrEmpty(_searchQuery)
-            || e.Action.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)
-            || e.EntityType.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)
-            || e.PerformedBy.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)
-            || (!string.IsNullOrEmpty(e.EntityId) && e.EntityId.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
-            || (!string.IsNullOrEmpty(e.NewValues) && e.NewValues.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase)))
+        .Where(e => string.IsNullOrEmpty(_filterQuery)
+            || e.Action.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase)
+            || e.EntityType.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase)
+            || e.PerformedBy.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrEmpty(e.EntityId) && e.EntityId.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase))
+            || (!string.IsNullOrEmpty(e.NewValues) && e.NewValues.Contains(_filterQuery, StringComparison.OrdinalIgnoreCase)))
         .Where(e => string.IsNullOrEmpty(_userFilter) || e.PerformedBy == _userFilter)
         .Where(e => string.IsNullOrEmpty(_actionFilter) || e.Action == _actionFilter)
         .Where(e => string.IsNullOrEmpty(_entityFilter) || e.EntityType == _entityFilter)
@@ -423,7 +428,7 @@
     private int FilteredCount => FilteredEntries.Count();
 
     private bool HasActiveFilters =>
-        !string.IsNullOrEmpty(_searchQuery) ||
+        !string.IsNullOrEmpty(_filterQuery) ||
         !string.IsNullOrEmpty(_userFilter) ||
         !string.IsNullOrEmpty(_actionFilter) ||
         !string.IsNullOrEmpty(_entityFilter) ||
@@ -481,6 +486,7 @@
     {
         _pollTimer?.Dispose();
         _clockTimer?.Dispose();
+        _searchCts?.Dispose();
     }
 
     // ── Data loading ──────────────────────────────────────────────────────────
@@ -578,11 +584,30 @@
     private void ClearFilters()
     {
         _searchQuery = string.Empty;
+        _filterQuery = string.Empty;
         _userFilter = string.Empty;
         _actionFilter = string.Empty;
         _entityFilter = string.Empty;
         _dateFrom = null;
         _dateTo = null;
+    }
+
+    private async void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchQuery = e.Value?.ToString() ?? "";
+        _searchTyping = true;
+        StateHasChanged();
+
+        _searchCts?.Cancel();
+        _searchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(200, _searchCts.Token);
+            _filterQuery = _searchQuery;
+            _searchTyping = false;
+            StateHasChanged();
+        }
+        catch (TaskCanceledException) { }
     }
 
     private void LoadMore() => _currentPage++;

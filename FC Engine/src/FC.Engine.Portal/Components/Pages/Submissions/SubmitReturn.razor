@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "InstitutionMaker")]
 @inject SubmissionService SubmissionService
 @inject NavigationManager Navigation
+@implements IDisposable
 
 <PageTitle>Submit Return — FC Engine Portal</PageTitle>
 
@@ -587,6 +588,7 @@
 
     // ── Step 3: File Upload ──────────────────────────────────────
     private IBrowserFile? uploadedFile;
+    private MemoryStream? _xmlFileStream;
     private string pastedXml = "";
     private bool showPasteMode;
     private bool isDragOver;
@@ -730,6 +732,18 @@
             return;
         }
 
+        // Read the file into memory NOW, before re-render removes the InputFile
+        // element from the DOM (which would make OpenReadStream fail later).
+        var ms = new MemoryStream();
+        await using (var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024))
+        {
+            await stream.CopyToAsync(ms);
+        }
+        ms.Position = 0;
+
+        _xmlFileStream?.Dispose();
+        _xmlFileStream = ms;
+
         uploadedFile = file;
         pastedXml = "";
         displayFileName = file.Name;
@@ -760,6 +774,8 @@
     private void RemoveFile()
     {
         uploadedFile = null;
+        _xmlFileStream?.Dispose();
+        _xmlFileStream = null;
         pastedXml = "";
         displayFileName = "";
         displayFileSize = "";
@@ -780,15 +796,13 @@
 
         try
         {
-            // Prepare XML stream
+            // Prepare XML stream — use pre-buffered stream (file was read in HandleFileUpload
+            // before InputFile was removed from the DOM).
             Stream xmlStream;
-            if (uploadedFile is not null)
+            if (_xmlFileStream is not null)
             {
-                var ms = new MemoryStream();
-                await using var fileStream = uploadedFile.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
-                await fileStream.CopyToAsync(ms);
-                ms.Position = 0;
-                xmlStream = ms;
+                _xmlFileStream.Position = 0;
+                xmlStream = _xmlFileStream;
             }
             else
             {
@@ -938,5 +952,10 @@
         if (bytes >= 1048576) return $"{bytes / 1048576.0:F1} MB";
         if (bytes >= 1024) return $"{bytes / 1024.0:F1} KB";
         return $"{bytes} bytes";
+    }
+
+    public void Dispose()
+    {
+        _xmlFileStream?.Dispose();
     }
 }

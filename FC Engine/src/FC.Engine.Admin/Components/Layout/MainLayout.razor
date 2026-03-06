@@ -33,7 +33,7 @@
     <!-- Sidebar -->
     <aside id="fc-sidebar-nav" class="fc-shell__sidebar" aria-label="Main navigation" @onkeydown="HandleSidebarKeyDown">
         <div class="fc-sidebar__brand">
-            <img src="@_branding.LogoSmallUrl" alt="@_branding.CompanyName" class="fc-sidebar__logo" width="40" height="33" />
+            <img src="@_branding.LogoSmallUrl" alt="@_branding.CompanyName" class="fc-sidebar__logo fc-img-lazyload" loading="lazy" width="40" height="33" />
             <div class="fc-sidebar__brand-text">
                 <span class="fc-sidebar-brand-name">@_branding.CompanyName</span>
                 <span class="fc-sidebar-brand-sub">Admin Portal</span>
@@ -165,7 +165,7 @@
             </div>
         }
 
-        <main id="main-content" class="fc-shell__content" role="main" @ref="_mainContentRef">
+        <main id="main-content" class="fc-shell__content @(_navigating ? "fc-navigating" : "")" role="main" @ref="_mainContentRef">
             <!-- Print letterhead (visible only in print) -->
             <div class="print-letterhead" aria-hidden="true">
                 <div class="print-letterhead-title">@_branding.CompanyName</div>
@@ -221,7 +221,12 @@
         {
             _jsInitialized = true;
             try { await JS.InvokeVoidAsync("FCAccessibility.initRouteAnnouncer"); }
-            catch (JSDisconnectedException) { }
+            catch { }
+
+            try { await JS.InvokeVoidAsync("FCPerf.initConnectionQuality"); }
+            catch { }
+            try { await JS.InvokeVoidAsync("FCPerf.initLazyImages"); }
+            catch { }
 
             // Pull-to-refresh (mobile only — JS guards against desktop)
             try
@@ -243,27 +248,29 @@
         await LoadImpersonationBanner();
     }
 
-    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
     {
-        _navigating = true;
-        _progressComplete = false;
-        UpdatePageName(e.Location);
-        _sidebarOpen = false;
-        await LoadImpersonationBanner();
-        StateHasChanged();
+        _ = InvokeAsync(async () =>
+        {
+            _navigating = true;
+            _progressComplete = false;
+            UpdatePageName(e.Location);
+            _sidebarOpen = false;
+            await LoadImpersonationBanner();
+            StateHasChanged();
 
-        await Task.Delay(300);
-        _navigating = false;
-        _progressComplete = true;
-        StateHasChanged();
+            await Task.Delay(300);
+            _navigating = false;
+            _progressComplete = true;
+            StateHasChanged();
 
-        // Announce page change to screen readers
-        try { await JS.InvokeVoidAsync("FCAccessibility.announceRoute", _currentPageName); }
-        catch (JSDisconnectedException) { }
+            try { await JS.InvokeVoidAsync("FCAccessibility.announceRoute", _currentPageName); }
+            catch { }
 
-        await Task.Delay(500);
-        _progressComplete = false;
-        StateHasChanged();
+            await Task.Delay(500);
+            _progressComplete = false;
+            StateHasChanged();
+        });
     }
 
     private void UpdatePageName(string uri)
