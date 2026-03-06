@@ -1,172 +1,184 @@
 @page "/platform/templates"
 @attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Admin.Services
 @inject PlatformAdminService PlatformService
-@inject NavigationManager Navigation
 
 <PageTitle>Template Console</PageTitle>
 
-<section class="billing-shell">
-    <header class="billing-hero">
-        <div>
-            <p class="billing-kicker">Platform Console</p>
-            <h1>Template Management Console</h1>
-            <p>Version visibility, publish/deprecate operations, and version diffs.</p>
-        </div>
-    </header>
+<header class="dash-header" role="banner">
+    <div class="dash-header-text">
+        <h1>Template Management Console</h1>
+        <p>Publish drafts, deprecate versions, and compare template versions.</p>
+    </div>
+</header>
 
-    @if (!string.IsNullOrWhiteSpace(_message))
-    {
-        <div class="cbn-alert cbn-alert-success">@_message</div>
-    }
-    @if (!string.IsNullOrWhiteSpace(_error))
-    {
-        <div class="cbn-alert cbn-alert-error">@_error</div>
-    }
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="portal-alert portal-alert-success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
 
-    @if (_loading)
-    {
-        <section class="card billing-surface"><p>Loading templates...</p></section>
-    }
-    else
-    {
-        <section class="card billing-surface">
-            <div class="billing-table-wrap">
-                <table class="data-table billing-table">
-                    <thead>
+@if (_loading)
+{
+    <div class="portal-card"><div class="portal-card-body">Loading template console...</div></div>
+}
+else
+{
+    <div class="portal-card" style="margin-bottom:1rem;">
+        <div class="portal-card-body" style="padding:0; overflow:auto;">
+            <table class="portal-table">
+                <thead>
+                    <tr>
+                        <th>Module</th>
+                        <th>Return Code</th>
+                        <th>Template</th>
+                        <th>Current</th>
+                        <th>Draft</th>
+                        <th>Fields</th>
+                        <th>Formulas</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in _data.Items)
+                    {
                         <tr>
-                            <th>Module</th>
-                            <th>Template</th>
-                            <th>Current Version</th>
-                            <th>Draft Version</th>
-                            <th>Fields</th>
-                            <th>Formulas</th>
-                            <th>Actions</th>
+                            <td>@row.ModuleName (@row.ModuleCode)</td>
+                            <td><code>@row.ReturnCode</code></td>
+                            <td>@row.TemplateName</td>
+                            <td>@(row.CurrentVersionNumber?.ToString() ?? "-")</td>
+                            <td>@(row.DraftVersionNumber?.ToString() ?? "-") <small>@(row.DraftStatus ?? "")</small></td>
+                            <td>@row.FieldCount</td>
+                            <td>@row.FormulaCount</td>
+                            <td>
+                                <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+                                    <a class="portal-btn portal-btn-xs portal-btn-outline" href="/templates/@row.ReturnCode">View</a>
+                                    @if (row.DraftVersionId.HasValue)
+                                    {
+                                        <button class="portal-btn portal-btn-xs portal-btn-primary" @onclick="() => PublishDraft(row.TemplateId)">Publish Draft</button>
+                                    }
+                                    @if (row.CurrentVersionId.HasValue)
+                                    {
+                                        <button class="portal-btn portal-btn-xs" style="background:#7f1d1d;color:#fff;" @onclick="() => Deprecate(row.TemplateId, row.CurrentVersionId.Value)">Deprecate</button>
+                                    }
+                                    <button class="portal-btn portal-btn-xs portal-btn-outline" @onclick="() => LoadDiff(row.TemplateId, row.CurrentVersionId, row.DraftVersionId)">Diff</button>
+                                </div>
+                            </td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var item in _items)
-                        {
-                            <tr>
-                                <td>
-                                    <div class="billing-plan-name">@item.ModuleName</div>
-                                    <div class="billing-plan-code">@item.ModuleCode</div>
-                                </td>
-                                <td>
-                                    <div class="billing-plan-name">@item.TemplateName</div>
-                                    <div class="billing-plan-code">@item.ReturnCode</div>
-                                </td>
-                                <td>@(item.CurrentVersionNumber.HasValue ? $"v{item.CurrentVersionNumber}" : "-")</td>
-                                <td>
-                                    @if (item.DraftVersionNumber.HasValue)
-                                    {
-                                        <span>v@item.DraftVersionNumber (@item.DraftStatus)</span>
-                                    }
-                                    else
-                                    {
-                                        <span>-</span>
-                                    }
-                                </td>
-                                <td>@item.FieldCount</td>
-                                <td>@item.FormulaCount</td>
-                                <td>
-                                    <div class="billing-actions-grid">
-                                        <button class="btn btn-outline btn-sm" @onclick="() => ViewDefinition(item.ReturnCode)">Definition</button>
-                                        @if (item.DraftVersionId.HasValue)
-                                        {
-                                            <button class="btn btn-primary btn-sm" @onclick="() => Publish(item.TemplateId)">Publish Draft</button>
-                                        }
-                                        @if (item.CurrentVersionId.HasValue)
-                                        {
-                                            <button class="btn btn-danger btn-sm" @onclick="() => Deprecate(item.TemplateId, item.CurrentVersionId.Value)">Deprecate</button>
-                                        }
-                                        <button class="btn btn-outline btn-sm" @onclick="() => ShowDiff(item.TemplateId, item.TemplateName, item.ReturnCode)">Diff</button>
-                                    </div>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    }
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
 
     @if (_diff is not null)
     {
-        <section class="card billing-surface">
-            <h3>Version Diff — @_diff.TemplateName (@_diff.ReturnCode)</h3>
-            <p>v@_diff.FromVersionNumber → v@_diff.ToVersionNumber</p>
-            <div class="detail-info-grid">
-                <div class="detail-info-item">
-                    <span class="detail-info-label">Added fields</span>
-                    <span class="detail-info-value">@string.Join(", ", _diff.AddedFields.DefaultIfEmpty("-"))</span>
-                </div>
-                <div class="detail-info-item">
-                    <span class="detail-info-label">Removed fields</span>
-                    <span class="detail-info-value">@string.Join(", ", _diff.RemovedFields.DefaultIfEmpty("-"))</span>
-                </div>
-                <div class="detail-info-item">
-                    <span class="detail-info-label">Changed fields</span>
-                    <span class="detail-info-value">@string.Join(", ", _diff.ChangedFields.DefaultIfEmpty("-"))</span>
-                </div>
-                <div class="detail-info-item">
-                    <span class="detail-info-label">Formula count</span>
-                    <span class="detail-info-value">@_diff.FormulaCountFrom → @_diff.FormulaCountTo</span>
-                </div>
+        <div class="portal-card">
+            <div class="portal-card-header">
+                <h2 class="portal-card-title">Diff: @_diff.ReturnCode (v@_diff.FromVersionNumber → v@_diff.ToVersionNumber)</h2>
             </div>
-        </section>
+            <div class="portal-card-body">
+                <div class="portal-grid portal-grid-3">
+                    <div>
+                        <h4 style="margin-top:0;">Added Fields (@_diff.AddedFields.Count)</h4>
+                        <ul>
+                            @foreach (var field in _diff.AddedFields)
+                            {
+                                <li>@field</li>
+                            }
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="margin-top:0;">Removed Fields (@_diff.RemovedFields.Count)</h4>
+                        <ul>
+                            @foreach (var field in _diff.RemovedFields)
+                            {
+                                <li>@field</li>
+                            }
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 style="margin-top:0;">Changed Fields (@_diff.ChangedFields.Count)</h4>
+                        <ul>
+                            @foreach (var field in _diff.ChangedFields)
+                            {
+                                <li>@field</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+                <div class="portal-kv" style="margin-top:0.75rem;"><span>Formula Count</span><strong>@_diff.FormulaCountFrom → @_diff.FormulaCountTo</strong></div>
+            </div>
+        </div>
     }
-</section>
+}
 
 @code {
-    private bool _loading = true;
-    private string? _message;
-    private string? _error;
-    private List<TemplateConsoleItem> _items = new();
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private TemplateConsoleData _data = new();
     private TemplateVersionDiffData? _diff;
+    private bool _loading = true;
+    private string? _error;
+    private string? _message;
 
     protected override async Task OnInitializedAsync()
     {
-        await Load();
+        await LoadAsync();
     }
 
-    private async Task Load()
+    private async Task LoadAsync()
     {
         _loading = true;
-        var data = await PlatformService.GetTemplateConsole();
-        _items = data.Items;
-        _loading = false;
-    }
-
-    private void ViewDefinition(string returnCode)
-    {
-        Navigation.NavigateTo($"/templates/{returnCode}");
-    }
-
-    private async Task Publish(int templateId)
-    {
         _error = null;
         _message = null;
         try
         {
-            await PlatformService.PublishDraftVersion(templateId, "platform-admin");
-            _message = "Draft version published successfully.";
-            await Load();
+            _data = await PlatformService.GetTemplateConsole();
         }
         catch (Exception ex)
         {
             _error = ex.Message;
         }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task PublishDraft(int templateId)
+    {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.PublishDraftVersion(templateId, actor);
+            _message = "Draft version published.";
+        });
     }
 
     private async Task Deprecate(int templateId, int versionId)
     {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.DeprecateVersion(templateId, versionId, actor);
+            _message = "Version deprecated.";
+        });
+    }
+
+    private async Task LoadDiff(int templateId, int? fromVersionId, int? toVersionId)
+    {
         _error = null;
-        _message = null;
         try
         {
-            await PlatformService.DeprecateVersion(templateId, versionId, "platform-admin");
-            _message = $"Version {versionId} deprecated.";
-            await Load();
+            _diff = await PlatformService.GetTemplateDiff(templateId, fromVersionId, toVersionId);
+            if (_diff is null)
+            {
+                _message = "No diff available for selected template versions.";
+            }
         }
         catch (Exception ex)
         {
@@ -174,17 +186,27 @@
         }
     }
 
-    private async Task ShowDiff(int templateId, string templateName, string returnCode)
+    private async Task ExecuteAction(Func<string, Task> action)
     {
         _error = null;
-        _diff = await PlatformService.GetTemplateDiff(templateId, null, null);
-        if (_diff is null)
+        _message = null;
+        try
         {
-            _error = "No comparable versions available for diff.";
-            return;
+            var actor = await GetActor();
+            await action(actor);
+            await LoadAsync();
         }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
 
-        _diff.TemplateName = templateName;
-        _diff.ReturnCode = returnCode;
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return state?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? state?.User.Identity?.Name
+               ?? "platform-admin";
     }
 }

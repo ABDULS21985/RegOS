@@ -1,137 +1,153 @@
 @page "/platform/feature-flags"
 @attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Admin.Services
+@using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Entities
 @inject PlatformAdminService PlatformService
+@inject IFeatureFlagService FeatureFlagService
 
 <PageTitle>Feature Flags</PageTitle>
 
-<section class="billing-shell">
-    <header class="billing-hero">
-        <div>
-            <p class="billing-kicker">Platform Console</p>
-            <h1>Feature Flags</h1>
-            <p>Global toggles with gradual rollout and tenant/plan targeting.</p>
-        </div>
-    </header>
+<header class="dash-header" role="banner">
+    <div class="dash-header-text">
+        <h1>Feature Flags</h1>
+        <p>Global toggles, gradual rollout, and tenant/plan targeting with audit logging.</p>
+    </div>
+</header>
 
-    @if (!string.IsNullOrWhiteSpace(_message))
-    {
-        <div class="cbn-alert cbn-alert-success">@_message</div>
-    }
-    @if (!string.IsNullOrWhiteSpace(_error))
-    {
-        <div class="cbn-alert cbn-alert-error">@_error</div>
-    }
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="portal-alert portal-alert-success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
 
-    <section class="card billing-surface">
-        <h3>Create or update feature flag</h3>
-        <div class="detail-add-grid">
-            <div class="detail-float-field">
-                <input class="detail-float-input" @bind="_edit.FlagCode" placeholder=" " />
-                <label class="detail-float-label">Flag code</label>
+@if (_loading)
+{
+    <div class="portal-card"><div class="portal-card-body">Loading feature flags...</div></div>
+}
+else
+{
+    <div class="portal-grid portal-grid-2" style="margin-bottom:1rem;">
+        <section class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Create / Update Flag</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-form-row"><label>Flag Code</label><input class="portal-input" @bind="_edit.FlagCode" placeholder="e.g. rg28_beta_console" /></div>
+                <div class="portal-form-row"><label>Description</label><input class="portal-input" @bind="_edit.Description" /></div>
+                <div class="portal-form-row"><label>Rollout Percent (0-100)</label><input class="portal-input" type="number" min="0" max="100" @bind="_edit.RolloutPercent" /></div>
+                <div class="portal-form-row"><label>Allowed Tenants (CSV or JSON array)</label><textarea class="portal-input" rows="3" @bind="_edit.AllowedTenants"></textarea></div>
+                <div class="portal-form-row"><label>Allowed Plans (CSV or JSON array)</label><textarea class="portal-input" rows="3" @bind="_edit.AllowedPlans"></textarea></div>
+                <div class="portal-form-row" style="display:flex; gap:0.5rem; align-items:center;">
+                    <input type="checkbox" @bind="_edit.IsEnabled" /> <label style="margin:0;">Globally Enabled</label>
+                </div>
+                <div style="display:flex; gap:0.5rem; margin-top:1rem;">
+                    <button class="portal-btn portal-btn-primary" @onclick="Save">Save</button>
+                    <button class="portal-btn portal-btn-outline" @onclick="ResetForm">Reset</button>
+                </div>
             </div>
-            <div class="detail-float-field">
-                <input class="detail-float-input" @bind="_edit.Description" placeholder=" " />
-                <label class="detail-float-label">Description</label>
-            </div>
-            <div class="detail-float-field">
-                <input class="detail-float-input" type="number" min="0" max="100" @bind="_edit.RolloutPercent" placeholder=" " />
-                <label class="detail-float-label">Rollout %</label>
-            </div>
-            <div class="detail-float-field">
-                <input class="detail-float-input" @bind="_edit.AllowedPlans" placeholder=" " />
-                <label class="detail-float-label">Allowed plans (comma)</label>
-            </div>
-            <div class="detail-float-field" style="grid-column:span 2;">
-                <input class="detail-float-input" @bind="_edit.AllowedTenants" placeholder=" " />
-                <label class="detail-float-label">Allowed tenant IDs (comma)</label>
-            </div>
-            <label style="display:flex; align-items:center; gap:0.5rem;">
-                <input type="checkbox" @bind="_edit.IsEnabled" />
-                Enabled globally
-            </label>
-        </div>
-        <div class="detail-add-actions">
-            <button class="btn btn-primary btn-sm" @onclick="Save">Save</button>
-            <button class="btn btn-outline btn-sm" @onclick="Clear">Clear</button>
-        </div>
-    </section>
+        </section>
 
-    <section class="card billing-surface">
-        <div class="billing-table-wrap">
-            <table class="data-table billing-table">
+        <section class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Quick Evaluation</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-form-row"><label>Flag Code</label><input class="portal-input" @bind="_evalFlagCode" /></div>
+                <div class="portal-form-row"><label>Tenant Id (optional)</label><input class="portal-input" @bind="_evalTenantId" placeholder="GUID" /></div>
+                <button class="portal-btn portal-btn-outline" @onclick="Evaluate">Evaluate</button>
+                @if (_evalResult.HasValue)
+                {
+                    <div style="margin-top:0.75rem; font-weight:600; color:@(_evalResult.Value ? "#166534" : "#991b1b");">
+                        Result: @(_evalResult.Value ? "Enabled" : "Disabled")
+                    </div>
+                }
+            </div>
+        </section>
+    </div>
+
+    <div class="portal-card">
+        <div class="portal-card-header"><h2 class="portal-card-title">Existing Flags</h2></div>
+        <div class="portal-card-body" style="padding:0; overflow:auto;">
+            <table class="portal-table">
                 <thead>
                     <tr>
-                        <th>Flag</th>
+                        <th>Code</th>
                         <th>Description</th>
                         <th>Enabled</th>
                         <th>Rollout %</th>
-                        <th>Allowed Plans</th>
                         <th>Allowed Tenants</th>
+                        <th>Allowed Plans</th>
                         <th>Updated</th>
-                        <th></th>
+                        <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    @if (_flags.Count == 0)
+                    @foreach (var flag in _flags)
                     {
-                        <tr><td colspan="8" class="billing-empty-cell">No flags configured.</td></tr>
-                    }
-                    else
-                    {
-                        @foreach (var flag in _flags)
-                        {
-                            <tr>
-                                <td><code>@flag.FlagCode</code></td>
-                                <td>@flag.Description</td>
-                                <td>@(flag.IsEnabled ? "Yes" : "No")</td>
-                                <td>@flag.RolloutPercent</td>
-                                <td>@(flag.AllowedPlans ?? "-")</td>
-                                <td>@(flag.AllowedTenants ?? "-")</td>
-                                <td>@flag.UpdatedAt.ToString("yyyy-MM-dd HH:mm")</td>
-                                <td>
-                                    <button class="btn btn-outline btn-sm" @onclick="() => Edit(flag)">Edit</button>
-                                </td>
-                            </tr>
-                        }
+                        <tr>
+                            <td><code>@flag.FlagCode</code></td>
+                            <td>@flag.Description</td>
+                            <td>
+                                <span class="portal-badge @(flag.IsEnabled ? "portal-badge-success" : "portal-badge-muted")">
+                                    @(flag.IsEnabled ? "Enabled" : "Disabled")
+                                </span>
+                            </td>
+                            <td>@flag.RolloutPercent</td>
+                            <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;">@(flag.AllowedTenants ?? "-")</td>
+                            <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;">@(flag.AllowedPlans ?? "-")</td>
+                            <td>@flag.UpdatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                            <td>
+                                <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+                                    <button class="portal-btn portal-btn-xs portal-btn-outline" @onclick="() => Edit(flag)">Edit</button>
+                                    <button class="portal-btn portal-btn-xs portal-btn-primary" @onclick="() => Toggle(flag)">
+                                        @(flag.IsEnabled ? "Disable" : "Enable")
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
                     }
                 </tbody>
             </table>
         </div>
-    </section>
-</section>
+    </div>
+}
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private List<FeatureFlag> _flags = new();
     private UpdateFeatureFlagRequest _edit = new();
-    private string? _message;
+    private bool _loading = true;
     private string? _error;
+    private string? _message;
+    private string _evalFlagCode = string.Empty;
+    private string _evalTenantId = string.Empty;
+    private bool? _evalResult;
 
     protected override async Task OnInitializedAsync()
     {
-        await Load();
+        await LoadAsync();
     }
 
-    private async Task Load()
+    private async Task LoadAsync()
     {
-        _flags = (await PlatformService.GetFeatureFlags()).ToList();
-    }
-
-    private async Task Save()
-    {
-        _message = null;
+        _loading = true;
         _error = null;
+        _message = null;
 
         try
         {
-            await PlatformService.UpsertFeatureFlag(_edit, "platform-admin");
-            _message = $"Feature flag '{_edit.FlagCode}' saved.";
-            await Load();
-            Clear();
+            _flags = (await PlatformService.GetFeatureFlags()).ToList();
         }
         catch (Exception ex)
         {
             _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
         }
     }
 
@@ -143,16 +159,93 @@
             Description = flag.Description,
             IsEnabled = flag.IsEnabled,
             RolloutPercent = flag.RolloutPercent,
-            AllowedPlans = flag.AllowedPlans,
-            AllowedTenants = flag.AllowedTenants
+            AllowedTenants = flag.AllowedTenants,
+            AllowedPlans = flag.AllowedPlans
         };
     }
 
-    private void Clear()
+    private async Task Save()
     {
-        _edit = new UpdateFeatureFlagRequest
+        _error = null;
+        _message = null;
+
+        if (string.IsNullOrWhiteSpace(_edit.FlagCode) || string.IsNullOrWhiteSpace(_edit.Description))
         {
-            RolloutPercent = 0
-        };
+            _error = "Flag code and description are required.";
+            return;
+        }
+
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.UpsertFeatureFlag(_edit, actor);
+            _message = "Feature flag saved.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task Toggle(FeatureFlag flag)
+    {
+        _error = null;
+        _message = null;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.UpsertFeatureFlag(new UpdateFeatureFlagRequest
+            {
+                FlagCode = flag.FlagCode,
+                Description = flag.Description,
+                IsEnabled = !flag.IsEnabled,
+                RolloutPercent = flag.RolloutPercent,
+                AllowedTenants = flag.AllowedTenants,
+                AllowedPlans = flag.AllowedPlans
+            }, actor);
+
+            _message = $"Flag '{flag.FlagCode}' {(!flag.IsEnabled ? "enabled" : "disabled")}.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private void ResetForm()
+    {
+        _edit = new UpdateFeatureFlagRequest();
+        _evalResult = null;
+    }
+
+    private async Task Evaluate()
+    {
+        _error = null;
+        _evalResult = null;
+
+        try
+        {
+            Guid? tenantId = null;
+            if (!string.IsNullOrWhiteSpace(_evalTenantId))
+            {
+                tenantId = Guid.Parse(_evalTenantId.Trim());
+            }
+
+            _evalResult = await FeatureFlagService.IsEnabled(_evalFlagCode, tenantId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return state?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? state?.User.Identity?.Name
+               ?? "platform-admin";
     }
 }

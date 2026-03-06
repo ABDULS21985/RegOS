@@ -1,5 +1,8 @@
 @page "/platform/billing-ops"
 @attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Admin.Services
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.Models
 @using FC.Engine.Infrastructure.Charts
@@ -8,135 +11,113 @@
 
 <PageTitle>Billing Operations</PageTitle>
 
-<section class="billing-shell">
-    <header class="billing-hero">
-        <div>
-            <p class="billing-kicker">Platform Console</p>
-            <h1>Billing Operations</h1>
-            <p>MRR/ARR, plan-module revenue mix, churn, ARPU, and invoice operations.</p>
-        </div>
-    </header>
+<header class="dash-header" role="banner">
+    <div class="dash-header-text">
+        <h1>Billing Operations</h1>
+        <p>MRR, ARR, ARPU, churn, invoice operations, and dunning workflows.</p>
+    </div>
+</header>
 
-    @if (!string.IsNullOrWhiteSpace(_message))
-    {
-        <div class="cbn-alert cbn-alert-success">@_message</div>
-    }
-    @if (!string.IsNullOrWhiteSpace(_error))
-    {
-        <div class="cbn-alert cbn-alert-error">@_error</div>
-    }
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="portal-alert portal-alert-success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
 
-    @if (_loading || _data is null)
-    {
-        <section class="card billing-surface"><p>Loading billing analytics...</p></section>
-    }
-    else
-    {
-        <section class="billing-metrics">
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">MRR</p>
-                <p class="billing-metric-value">NGN @_data.Mrr.ToString("N2")</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">ARR</p>
-                <p class="billing-metric-value">NGN @_data.Arr.ToString("N2")</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">ARPU</p>
-                <p class="billing-metric-value">NGN @_data.Arpu.ToString("N2")</p>
-            </article>
-            <article class="billing-metric-card">
-                <p class="billing-metric-label">Churn (Monthly / 3M)</p>
-                <p class="billing-metric-value">@_data.ChurnRatePercent.ToString("0.##")% / @_data.ChurnRateTrailing3MonthsPercent.ToString("0.##")%</p>
-            </article>
-        </section>
+@if (_loading)
+{
+    <div class="portal-card"><div class="portal-card-body">Loading billing operations...</div></div>
+}
+else if (_data is not null)
+{
+    <div class="portal-grid portal-grid-4" style="margin-bottom:1rem;">
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">MRR</div><div class="portal-stat-value">NGN @_data.Mrr.ToString("N2")</div></div></div>
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">ARR</div><div class="portal-stat-value">NGN @_data.Arr.ToString("N2")</div></div></div>
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">ARPU</div><div class="portal-stat-value">NGN @_data.Arpu.ToString("N2")</div></div></div>
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">Churn</div><div class="portal-stat-value">@_data.ChurnRatePercent.ToString("0.##")%</div><div style="color:#64748b; font-size:0.85rem;">Trailing 3M: @_data.ChurnRateTrailing3MonthsPercent.ToString("0.##")%</div></div></div>
+    </div>
 
-        <section class="dash17-chart-grid">
-            <article class="dash17-chart-card">
-                <h3>Revenue by Plan</h3>
-                <div class="dash17-chart-wrap"><canvas id="billingPlanChart"></canvas></div>
-            </article>
-            <article class="dash17-chart-card">
-                <h3>Revenue by Module</h3>
-                <div class="dash17-chart-wrap"><canvas id="billingModuleChart"></canvas></div>
-            </article>
-        </section>
+    <div class="portal-grid portal-grid-2" style="margin-bottom:1rem;">
+        <div class="portal-card"><div class="portal-card-header"><h2 class="portal-card-title">Revenue by Plan</h2></div><div class="portal-card-body" style="height:320px;"><canvas id="billingByPlanChart"></canvas></div></div>
+        <div class="portal-card"><div class="portal-card-header"><h2 class="portal-card-title">Revenue by Module</h2></div><div class="portal-card-body" style="height:320px;"><canvas id="billingByModuleChart"></canvas></div></div>
+    </div>
 
-        <section class="card billing-surface">
-            <div class="billing-toolbar billing-toolbar-wrap">
-                <input class="form-control billing-search"
-                       type="search"
-                       @bind="_search"
-                       @bind:event="oninput"
-                       placeholder="Search invoice / tenant" />
-
-                <select class="form-control billing-select" @bind="_statusFilter">
-                    <option value="ALL">All statuses</option>
-                    @foreach (var status in Enum.GetValues<InvoiceStatus>())
+    <div class="portal-card" style="margin-bottom:1rem;">
+        <div class="portal-card-body" style="display:flex; gap:0.75rem; align-items:end; flex-wrap:wrap;">
+            <div class="portal-form-row" style="min-width:220px; margin:0;">
+                <label>Invoice Status</label>
+                <select class="portal-input" @bind="_statusFilter">
+                    <option value="">All</option>
+                    @foreach (var status in Enum.GetNames<InvoiceStatus>())
                     {
-                        <option value="@status.ToString()">@status</option>
+                        <option value="@status">@status</option>
                     }
                 </select>
             </div>
+            <button class="portal-btn portal-btn-outline" @onclick="ApplyFilter">Apply Filter</button>
+        </div>
+    </div>
 
-            <div class="billing-table-wrap">
-                <table class="data-table billing-table">
-                    <thead>
+    <div class="portal-card">
+        <div class="portal-card-header"><h2 class="portal-card-title">Invoice Management</h2></div>
+        <div class="portal-card-body" style="padding:0; overflow:auto;">
+            <table class="portal-table">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Tenant</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                        <th>Due Date</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var invoice in _filteredInvoices)
+                    {
                         <tr>
-                            <th>Invoice</th>
-                            <th>Tenant</th>
-                            <th>Status</th>
-                            <th>Total</th>
-                            <th>Due Date</th>
-                            <th>Actions</th>
+                            <td>@invoice.InvoiceNumber</td>
+                            <td>@invoice.TenantName</td>
+                            <td>@invoice.Status</td>
+                            <td>NGN @invoice.TotalAmount.ToString("N2")</td>
+                            <td>@(invoice.DueDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                            <td>
+                                <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
+                                    @if (invoice.Status != InvoiceStatus.Paid)
+                                    {
+                                        <button class="portal-btn portal-btn-xs portal-btn-primary" @onclick="() => RecordPayment(invoice.InvoiceId)">Record Payment</button>
+                                    }
+                                    @if (invoice.Status == InvoiceStatus.Issued || invoice.Status == InvoiceStatus.Overdue)
+                                    {
+                                        <button class="portal-btn portal-btn-xs portal-btn-outline" @onclick="() => SendDunning(invoice.InvoiceId)">Send Dunning</button>
+                                    }
+                                </div>
+                            </td>
                         </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var invoice in FilteredInvoices)
-                        {
-                            <tr>
-                                <td>@invoice.InvoiceNumber</td>
-                                <td>@invoice.TenantName</td>
-                                <td>@invoice.Status</td>
-                                <td>@invoice.TotalAmount.ToString("N2")</td>
-                                <td>@(invoice.DueDate?.ToString("yyyy-MM-dd") ?? "-")</td>
-                                <td>
-                                    <div class="billing-actions-grid">
-                                        @if (invoice.Status is InvoiceStatus.Issued or InvoiceStatus.Overdue)
-                                        {
-                                            <button class="btn btn-success btn-sm" @onclick="() => RecordPayment(invoice.InvoiceId)">Record Payment</button>
-                                            <button class="btn btn-outline btn-sm" @onclick="() => SendDunning(invoice.InvoiceId)">Send Dunning</button>
-                                        }
-                                    </div>
-                                </td>
-                            </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    }
-</section>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private PlatformBillingOpsData? _data;
+    private List<PlatformBillingInvoiceRow> _filteredInvoices = new();
+    private string? _statusFilter;
     private bool _loading = true;
     private bool _chartsRendered;
-    private string _search = string.Empty;
-    private string _statusFilter = "ALL";
-    private string? _message;
     private string? _error;
-
-    private IEnumerable<PlatformBillingInvoiceRow> FilteredInvoices => (_data?.Invoices ?? new List<PlatformBillingInvoiceRow>())
-        .Where(i => string.IsNullOrWhiteSpace(_search)
-            || i.InvoiceNumber.Contains(_search, StringComparison.OrdinalIgnoreCase)
-            || i.TenantName.Contains(_search, StringComparison.OrdinalIgnoreCase))
-        .Where(i => _statusFilter == "ALL" || i.Status.ToString() == _statusFilter)
-        .OrderByDescending(i => i.CreatedAt);
+    private string? _message;
 
     protected override async Task OnInitializedAsync()
     {
-        await Load();
+        await LoadAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -146,28 +127,79 @@
             return;
         }
 
-        await Charts.RenderDoughnutChart("billingPlanChart", BuildRevenueChart(_data.RevenueByPlan, "Revenue by plan"));
-        await Charts.RenderBarChart("billingModuleChart", BuildRevenueChart(_data.RevenueByModule, "Revenue by module"));
+        await Charts.RenderDoughnutChart("billingByPlanChart", BuildRevenueChart(_data.RevenueByPlan, "Revenue by Plan"));
+        await Charts.RenderBarChart("billingByModuleChart", BuildRevenueChart(_data.RevenueByModule, "Revenue by Module"));
         _chartsRendered = true;
     }
 
-    private async Task Load()
+    private async Task LoadAsync()
     {
         _loading = true;
+        _error = null;
+        _message = null;
         _chartsRendered = false;
-        _data = await PlatformService.GetBillingOps();
-        _loading = false;
+
+        try
+        {
+            _data = await PlatformService.GetBillingOps();
+            ApplyFilter();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        if (_data is null)
+        {
+            _filteredInvoices = new List<PlatformBillingInvoiceRow>();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_statusFilter))
+        {
+            _filteredInvoices = _data.Invoices.ToList();
+            return;
+        }
+
+        _filteredInvoices = _data.Invoices
+            .Where(i => string.Equals(i.Status.ToString(), _statusFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
     }
 
     private async Task RecordPayment(int invoiceId)
     {
-        _message = null;
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.RecordManualPayment(invoiceId, actor);
+            _message = "Manual payment recorded.";
+        });
+    }
+
+    private async Task SendDunning(int invoiceId)
+    {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.SendDunningReminder(invoiceId, actor);
+            _message = "Dunning reminder sent.";
+        });
+    }
+
+    private async Task ExecuteAction(Func<string, Task> action)
+    {
         _error = null;
+        _message = null;
         try
         {
-            await PlatformService.RecordManualPayment(invoiceId, "platform-admin");
-            _message = $"Payment recorded for invoice {invoiceId}.";
-            await Load();
+            var actor = await GetActor();
+            await action(actor);
+            await LoadAsync();
         }
         catch (Exception ex)
         {
@@ -175,19 +207,12 @@
         }
     }
 
-    private async Task SendDunning(int invoiceId)
+    private async Task<string> GetActor()
     {
-        _message = null;
-        _error = null;
-        try
-        {
-            await PlatformService.SendDunningReminder(invoiceId, "platform-admin");
-            _message = $"Dunning reminder sent for invoice {invoiceId}.";
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
+        var state = AuthState is null ? null : await AuthState;
+        return state?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+               ?? state?.User.Identity?.Name
+               ?? "platform-admin";
     }
 
     private static TrendData BuildRevenueChart(List<RevenueBreakdownItem> rows, string title)
@@ -202,8 +227,8 @@
                 {
                     Label = "Amount",
                     Data = rows.Select(r => r.Amount).ToList(),
-                    BackgroundColor = "#0f766e",
-                    BorderColor = "#0f766e"
+                    BackgroundColor = "#1d4ed8",
+                    BorderColor = "#1d4ed8"
                 }
             }
         };

@@ -1,117 +1,171 @@
 @page "/platform/health"
 @attribute [Authorize(Policy = "PlatformAdmin")]
+@using FC.Engine.Admin.Services
 @using FC.Engine.Domain.Models
 @using FC.Engine.Infrastructure.Charts
 @inject PlatformAdminService PlatformService
 @inject ChartJsInterop Charts
+@implements IDisposable
 
 <PageTitle>Platform Health</PageTitle>
 
-<section class="billing-shell">
-    <header class="billing-hero">
-        <div>
-            <p class="billing-kicker">Platform Console</p>
-            <h1>Platform Health</h1>
-            <p>Latency, error rate, sessions, queue depth, and infrastructure indicators.</p>
-        </div>
-        <div class="billing-hero-note">
-            <button class="btn btn-outline btn-sm" @onclick="Load">Refresh</button>
-        </div>
-    </header>
+<header class="dash-header" role="banner">
+    <div class="dash-header-text">
+        <h1>Platform Health</h1>
+        <p>Latency, error rate, sessions, queue depth, database, and cache telemetry.</p>
+    </div>
+</header>
 
-    @if (_loading || _health is null)
-    {
-        <section class="card billing-surface"><p>Loading platform health...</p></section>
-    }
-    else
-    {
-        <section class="billing-metrics">
-            <article class="billing-metric-card"><p class="billing-metric-label">API p50/p95/p99</p><p class="billing-metric-value">@_health.ApiLatencyP50Ms.ToString("0") / @_health.ApiLatencyP95Ms.ToString("0") / @_health.ApiLatencyP99Ms.ToString("0") ms</p></article>
-            <article class="billing-metric-card"><p class="billing-metric-label">Error Rate</p><p class="billing-metric-value">@_health.ErrorRatePercent.ToString("0.##")%</p></article>
-            <article class="billing-metric-card"><p class="billing-metric-label">Active Sessions</p><p class="billing-metric-value">@_health.ActiveSessions</p></article>
-            <article class="billing-metric-card"><p class="billing-metric-label">Queue Depth</p><p class="billing-metric-value">@_health.QueueDepth</p></article>
-        </section>
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
 
-        <section class="dash17-chart-grid">
-            <article class="dash17-chart-card">
-                <h3>Latency Gauges</h3>
-                <div class="dash17-chart-wrap"><canvas id="platformLatencyChart"></canvas></div>
-            </article>
-            <article class="dash17-chart-card">
-                <h3>Queue & Errors</h3>
-                <div class="dash17-chart-wrap"><canvas id="platformQueueChart"></canvas></div>
-            </article>
-        </section>
+@if (_loading)
+{
+    <div class="portal-card"><div class="portal-card-body">Loading platform health...</div></div>
+}
+else if (_data is not null)
+{
+    <div class="portal-grid portal-grid-4" style="margin-bottom:1rem;">
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">Latency p50</div><div class="portal-stat-value">@_data.ApiLatencyP50Ms.ToString("0") ms</div></div></div>
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">Latency p95</div><div class="portal-stat-value">@_data.ApiLatencyP95Ms.ToString("0") ms</div></div></div>
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">Latency p99</div><div class="portal-stat-value">@_data.ApiLatencyP99Ms.ToString("0") ms</div></div></div>
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">Error Rate</div><div class="portal-stat-value">@_data.ErrorRatePercent.ToString("0.##")%</div></div></div>
+    </div>
 
-        <section class="card billing-surface">
-            <div class="detail-info-grid">
-                <div class="detail-info-item"><span class="detail-info-label">RabbitMQ pending</span><span class="detail-info-value">@_health.RabbitMqPending</span></div>
-                <div class="detail-info-item"><span class="detail-info-label">DB query duration</span><span class="detail-info-value">@_health.DatabaseQueryDurationMs ms</span></div>
-                <div class="detail-info-item"><span class="detail-info-label">DB pool utilisation</span><span class="detail-info-value">@_health.DatabasePoolUtilisationPercent.ToString("0.##")%</span></div>
-                <div class="detail-info-item"><span class="detail-info-label">Redis hit ratio</span><span class="detail-info-value">@_health.RedisCacheHitRatioPercent.ToString("0.##")%</span></div>
-                <div class="detail-info-item"><span class="detail-info-label">Redis memory</span><span class="detail-info-value">@_health.RedisMemoryUsageMb.ToString("0.##") MB</span></div>
-            </div>
-        </section>
-    }
-</section>
+    <div class="portal-grid portal-grid-3" style="margin-bottom:1rem;">
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-kv"><span>Active Sessions</span><strong>@_data.ActiveSessions</strong></div><div class="portal-kv"><span>Queue Depth</span><strong>@_data.QueueDepth</strong></div><div class="portal-kv"><span>RabbitMQ Pending</span><strong>@_data.RabbitMqPending</strong></div></div></div>
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-kv"><span>DB Query Duration</span><strong>@_data.DatabaseQueryDurationMs ms</strong></div><div class="portal-kv"><span>DB Pool Utilisation</span><strong>@_data.DatabasePoolUtilisationPercent.ToString("0.##")%</strong></div></div></div>
+        <div class="portal-card"><div class="portal-card-body"><div class="portal-kv"><span>Redis Hit Ratio</span><strong>@_data.RedisCacheHitRatioPercent.ToString("0.##")%</strong></div><div class="portal-kv"><span>Redis Memory</span><strong>@_data.RedisMemoryUsageMb.ToString("0.##") MB</strong></div></div></div>
+    </div>
+
+    <div class="portal-grid portal-grid-2">
+        <div class="portal-card"><div class="portal-card-header"><h2 class="portal-card-title">Latency Percentiles</h2></div><div class="portal-card-body" style="height:320px;"><canvas id="healthLatencyChart"></canvas></div></div>
+        <div class="portal-card"><div class="portal-card-header"><h2 class="portal-card-title">Error Rate (Live Samples)</h2></div><div class="portal-card-body" style="height:320px;"><canvas id="healthErrorTrendChart"></canvas></div></div>
+    </div>
+
+    <div style="margin-top:0.75rem; color:#64748b; font-size:0.85rem;">
+        Auto-refresh every 30 seconds. Last update: @_lastUpdated.ToString("dd MMM yyyy HH:mm:ss")
+    </div>
+}
 
 @code {
-    private PlatformHealthData? _health;
+    private PlatformHealthData? _data;
     private bool _loading = true;
-    private bool _chartsRendered;
+    private string? _error;
+    private bool _chartDirty;
+    private Timer? _refreshTimer;
+    private DateTime _lastUpdated = DateTime.UtcNow;
+    private readonly Queue<decimal> _errorSamples = new();
+    private readonly Queue<string> _errorLabels = new();
 
     protected override async Task OnInitializedAsync()
     {
-        await Load();
+        await LoadAsync();
+
+        _refreshTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadAsync(silent: true);
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_health is null || _chartsRendered)
+        if (_data is null || !_chartDirty)
         {
             return;
         }
 
-        await Charts.RenderBarChart("platformLatencyChart", new TrendData
+        await Charts.RenderBarChart("healthLatencyChart", BuildLatencyChart(_data));
+        await Charts.RenderLineChart("healthErrorTrendChart", BuildErrorTrendChart());
+        _chartDirty = false;
+    }
+
+    private async Task LoadAsync(bool silent = false)
+    {
+        if (!silent)
         {
-            Title = "Latency",
+            _loading = true;
+            _error = null;
+        }
+
+        try
+        {
+            _data = await PlatformService.GetPlatformHealth();
+            _lastUpdated = DateTime.UtcNow;
+
+            EnqueueSample(_errorSamples, _data.ErrorRatePercent, 24);
+            EnqueueSample(_errorLabels, _lastUpdated.ToString("HH:mm:ss"), 24);
+
+            _chartDirty = true;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            if (!silent)
+            {
+                _loading = false;
+            }
+        }
+    }
+
+    private static void EnqueueSample<T>(Queue<T> queue, T value, int max)
+    {
+        queue.Enqueue(value);
+        while (queue.Count > max)
+        {
+            queue.Dequeue();
+        }
+    }
+
+    private static TrendData BuildLatencyChart(PlatformHealthData data)
+    {
+        return new TrendData
+        {
+            Title = "API Latency",
             Labels = new List<string> { "p50", "p95", "p99" },
             Datasets =
             {
                 new TrendDataset
                 {
-                    Label = "ms",
-                    Data = new List<decimal> { _health.ApiLatencyP50Ms, _health.ApiLatencyP95Ms, _health.ApiLatencyP99Ms },
-                    BackgroundColor = "#1d4ed8",
-                    BorderColor = "#1d4ed8"
+                    Label = "Milliseconds",
+                    Data = new List<decimal> { data.ApiLatencyP50Ms, data.ApiLatencyP95Ms, data.ApiLatencyP99Ms },
+                    BackgroundColor = "#0f766e",
+                    BorderColor = "#0f766e"
                 }
             }
-        });
+        };
+    }
 
-        await Charts.RenderDoughnutChart("platformQueueChart", new TrendData
+    private TrendData BuildErrorTrendChart()
+    {
+        return new TrendData
         {
-            Title = "Queue and errors",
-            Labels = new List<string> { "Queue depth", "Error %" },
+            Title = "Error Rate Trend",
+            Labels = _errorLabels.ToList(),
             Datasets =
             {
                 new TrendDataset
                 {
-                    Label = "Health",
-                    Data = new List<decimal> { _health.QueueDepth, _health.ErrorRatePercent },
-                    BackgroundColor = "#d97706",
-                    BorderColor = "#d97706"
+                    Label = "5xx Error Rate %",
+                    Data = _errorSamples.ToList(),
+                    BackgroundColor = "#b91c1c",
+                    BorderColor = "#b91c1c"
                 }
             }
-        });
-
-        _chartsRendered = true;
+        };
     }
 
-    private async Task Load()
+    public void Dispose()
     {
-        _loading = true;
-        _chartsRendered = false;
-        _health = await PlatformService.GetPlatformHealth();
-        _loading = false;
+        _refreshTimer?.Dispose();
     }
 }

@@ -31,6 +31,12 @@ public class PartnerPortalService
     public Task<List<PartnerSubTenantUserSummary>> GetSubTenantUsers(Guid partnerTenantId, Guid subTenantId, CancellationToken ct = default)
         => _partnerService.GetSubTenantUsers(partnerTenantId, subTenantId, ct);
 
+    public Task<PartnerSubTenantUserSummary> CreateSubTenantUser(Guid partnerTenantId, Guid subTenantId, PartnerSubTenantUserCreateRequest request, CancellationToken ct = default)
+        => _partnerService.CreateSubTenantUser(partnerTenantId, subTenantId, request, ct);
+
+    public Task SetSubTenantUserStatus(Guid partnerTenantId, Guid subTenantId, int userId, bool isActive, CancellationToken ct = default)
+        => _partnerService.SetSubTenantUserStatus(partnerTenantId, subTenantId, userId, isActive, ct);
+
     public Task<List<PartnerSubTenantSubmissionSummary>> GetSubTenantSubmissions(Guid partnerTenantId, Guid subTenantId, int take = 20, CancellationToken ct = default)
         => _partnerService.GetSubTenantSubmissions(partnerTenantId, subTenantId, take, ct);
 

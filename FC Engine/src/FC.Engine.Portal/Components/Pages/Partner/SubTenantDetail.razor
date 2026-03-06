@@ -1,6 +1,7 @@
 @page "/partner/sub-tenants/{SubTenantId:guid}"
 @using Microsoft.AspNetCore.Authorization
 @using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.ValueObjects
 @attribute [Authorize(Roles = "Admin")]
 @inject FC.Engine.Portal.Services.PartnerPortalService PartnerService
@@ -37,6 +38,25 @@ else
         <section class="portal-card">
             <div class="portal-card-header"><h2 class="portal-card-title">Users</h2></div>
             <div class="portal-card-body">
+                <div class="portal-grid portal-grid-2" style="margin-bottom: 1rem;">
+                    <div class="portal-form-row"><label>Display Name</label><input class="portal-input" @bind="_newUser.DisplayName" /></div>
+                    <div class="portal-form-row"><label>Username</label><input class="portal-input" @bind="_newUser.Username" /></div>
+                    <div class="portal-form-row"><label>Email</label><input class="portal-input" type="email" @bind="_newUser.Email" /></div>
+                    <div class="portal-form-row">
+                        <label>Role</label>
+                        <select class="portal-input" @bind="_newUser.Role">
+                            @foreach (var role in Enum.GetNames<InstitutionRole>())
+                            {
+                                <option value="@role">@role</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="portal-form-row"><label>Temporary Password</label><input class="portal-input" type="password" @bind="_newUser.TemporaryPassword" /></div>
+                    <div class="portal-form-row" style="display:flex; align-items:end;">
+                        <button class="portal-btn portal-btn-primary" @onclick="CreateUser" disabled="@_busy">Create User</button>
+                    </div>
+                </div>
+
                 @if (_users.Count == 0)
                 {
                     <p>No users found for this sub-tenant.</p>
@@ -45,7 +65,7 @@ else
                 {
                     <table class="portal-table">
                         <thead>
-                            <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th></tr>
+                            <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr>
                         </thead>
                         <tbody>
                             @foreach (var user in _users)
@@ -56,6 +76,16 @@ else
                                     <td>@user.Role</td>
                                     <td>@(user.IsActive ? "Active" : "Disabled")</td>
                                     <td>@(user.LastLoginAt?.ToString("dd MMM yyyy HH:mm") ?? "-")</td>
+                                    <td>
+                                        @if (user.IsActive)
+                                        {
+                                            <button class="portal-btn portal-btn-sm" style="background:#b91c1c;color:#fff;" @onclick="() => ToggleUserStatus(user.UserId, false)" disabled="@_busy">Deactivate</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="portal-btn portal-btn-sm" style="background:#166534;color:#fff;" @onclick="() => ToggleUserStatus(user.UserId, true)" disabled="@_busy">Activate</button>
+                                        }
+                                    </td>
                                 </tr>
                             }
                         </tbody>
@@ -120,6 +150,10 @@ else
     private BrandingConfig _branding = BrandingConfig.WithDefaults();
     private List<PartnerSubTenantUserSummary> _users = new();
     private List<PartnerSubTenantSubmissionSummary> _submissions = new();
+    private PartnerSubTenantUserCreateRequest _newUser = new()
+    {
+        Role = InstitutionRole.Maker.ToString()
+    };
 
     protected override async Task OnParametersSetAsync()
     {
@@ -176,6 +210,73 @@ else
         {
             await PartnerService.UpdateSubTenantBranding(TenantContext.CurrentTenantId.Value, SubTenantId, _branding);
             _message = "Sub-tenant branding updated.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreateUser()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            await PartnerService.CreateSubTenantUser(
+                TenantContext.CurrentTenantId.Value,
+                SubTenantId,
+                _newUser);
+
+            _message = "Sub-tenant user created.";
+            _newUser = new PartnerSubTenantUserCreateRequest
+            {
+                Role = InstitutionRole.Maker.ToString()
+            };
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ToggleUserStatus(int userId, bool isActive)
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            await PartnerService.SetSubTenantUserStatus(
+                TenantContext.CurrentTenantId.Value,
+                SubTenantId,
+                userId,
+                isActive);
+
+            _message = isActive ? "User activated." : "User deactivated.";
+            await LoadAsync();
         }
         catch (Exception ex)
         {

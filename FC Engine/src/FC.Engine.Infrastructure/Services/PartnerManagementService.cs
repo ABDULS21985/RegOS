@@ -1,6 +1,8 @@
+using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Notifications;
 using FC.Engine.Domain.ValueObjects;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
@@ -15,19 +17,22 @@ public class PartnerManagementService : IPartnerManagementService
     private readonly ITenantBrandingService _tenantBrandingService;
     private readonly ISubscriptionService _subscriptionService;
     private readonly ILogger<PartnerManagementService> _logger;
+    private readonly INotificationOrchestrator? _notificationOrchestrator;
 
     public PartnerManagementService(
         MetadataDbContext db,
         ITenantOnboardingService tenantOnboardingService,
         ITenantBrandingService tenantBrandingService,
         ISubscriptionService subscriptionService,
-        ILogger<PartnerManagementService> logger)
+        ILogger<PartnerManagementService> logger,
+        INotificationOrchestrator? notificationOrchestrator = null)
     {
         _db = db;
         _tenantOnboardingService = tenantOnboardingService;
         _tenantBrandingService = tenantBrandingService;
         _subscriptionService = subscriptionService;
         _logger = logger;
+        _notificationOrchestrator = notificationOrchestrator;
     }
 
     public async Task<TenantOnboardingResult> OnboardPartner(PartnerOnboardingRequest request, CancellationToken ct = default)
@@ -284,6 +289,88 @@ public class PartnerManagementService : IPartnerManagementService
             .ToListAsync(ct);
     }
 
+    public async Task<PartnerSubTenantUserSummary> CreateSubTenantUser(Guid partnerTenantId, Guid subTenantId, PartnerSubTenantUserCreateRequest request, CancellationToken ct = default)
+    {
+        await EnsureSubTenantBelongsToPartner(partnerTenantId, subTenantId, ct);
+
+        if (string.IsNullOrWhiteSpace(request.Username)
+            || string.IsNullOrWhiteSpace(request.Email)
+            || string.IsNullOrWhiteSpace(request.DisplayName)
+            || string.IsNullOrWhiteSpace(request.TemporaryPassword))
+        {
+            throw new InvalidOperationException("Username, email, display name, and temporary password are required.");
+        }
+
+        if (request.TemporaryPassword.Trim().Length < 8)
+        {
+            throw new InvalidOperationException("Temporary password must be at least 8 characters.");
+        }
+
+        if (await _db.InstitutionUsers.AnyAsync(u => u.Username == request.Username, ct))
+        {
+            throw new InvalidOperationException($"Username '{request.Username}' is already taken.");
+        }
+
+        if (await _db.InstitutionUsers.AnyAsync(u => u.Email == request.Email, ct))
+        {
+            throw new InvalidOperationException($"Email '{request.Email}' is already registered.");
+        }
+
+        if (!Enum.TryParse<InstitutionRole>(request.Role, true, out var parsedRole))
+        {
+            throw new InvalidOperationException($"Invalid role '{request.Role}'.");
+        }
+
+        var institutionId = request.InstitutionId
+            ?? await _db.Institutions
+                .AsNoTracking()
+                .Where(i => i.TenantId == subTenantId && i.IsActive)
+                .OrderBy(i => i.Id)
+                .Select(i => (int?)i.Id)
+                .FirstOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException("No active institution found for sub-tenant.");
+
+        var user = new InstitutionUser
+        {
+            TenantId = subTenantId,
+            InstitutionId = institutionId,
+            Username = request.Username.Trim(),
+            Email = request.Email.Trim(),
+            DisplayName = request.DisplayName.Trim(),
+            PasswordHash = AuthService.HashPassword(request.TemporaryPassword.Trim()),
+            PreferredLanguage = "en",
+            Role = parsedRole,
+            IsActive = true,
+            MustChangePassword = true,
+            CreatedAt = DateTime.UtcNow
+        };
+
+        _db.InstitutionUsers.Add(user);
+        await _db.SaveChangesAsync(ct);
+
+        return new PartnerSubTenantUserSummary
+        {
+            UserId = user.Id,
+            DisplayName = user.DisplayName,
+            Email = user.Email,
+            Role = user.Role.ToString(),
+            IsActive = user.IsActive,
+            LastLoginAt = user.LastLoginAt
+        };
+    }
+
+    public async Task SetSubTenantUserStatus(Guid partnerTenantId, Guid subTenantId, int userId, bool isActive, CancellationToken ct = default)
+    {
+        await EnsureSubTenantBelongsToPartner(partnerTenantId, subTenantId, ct);
+
+        var user = await _db.InstitutionUsers
+            .FirstOrDefaultAsync(u => u.Id == userId && u.TenantId == subTenantId, ct)
+            ?? throw new InvalidOperationException($"User {userId} not found for sub-tenant.");
+
+        user.IsActive = isActive;
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task<List<PartnerSubTenantSubmissionSummary>> GetSubTenantSubmissions(Guid partnerTenantId, Guid subTenantId, int take = 20, CancellationToken ct = default)
     {
         await EnsureSubTenantBelongsToPartner(partnerTenantId, subTenantId, ct);
@@ -352,6 +439,28 @@ public class PartnerManagementService : IPartnerManagementService
 
         _db.PartnerSupportTickets.Add(ticket);
         await _db.SaveChangesAsync(ct);
+
+        if (_notificationOrchestrator is not null)
+        {
+            await _notificationOrchestrator.Notify(new NotificationRequest
+            {
+                TenantId = partnerTenantId,
+                EventType = NotificationEvents.SystemAnnouncement,
+                Title = $"Partner Support Ticket #{ticket.Id}",
+                Message = $"New ticket from {tenant.TenantName}: {ticket.Title}",
+                Priority = priority is PartnerSupportTicketPriority.Critical or PartnerSupportTicketPriority.High
+                    ? NotificationPriority.High
+                    : NotificationPriority.Normal,
+                RecipientRoles = new List<string> { "Admin" },
+                Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["TicketId"] = ticket.Id.ToString(),
+                    ["TenantId"] = tenantId.ToString(),
+                    ["Priority"] = priority.ToString()
+                }
+            }, ct);
+        }
+
         return ticket;
     }
 
@@ -403,6 +512,24 @@ public class PartnerManagementService : IPartnerManagementService
             partnerTenantId,
             ticketId,
             escalatedByUserId);
+
+        if (_notificationOrchestrator is not null)
+        {
+            await _notificationOrchestrator.Notify(new NotificationRequest
+            {
+                TenantId = partnerTenantId,
+                EventType = NotificationEvents.SystemAnnouncement,
+                Title = $"Ticket #{ticket.Id} Escalated",
+                Message = $"Support ticket '{ticket.Title}' has been escalated to RegOS platform support.",
+                Priority = NotificationPriority.High,
+                RecipientRoles = new List<string> { "Admin" },
+                Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["TicketId"] = ticket.Id.ToString(),
+                    ["EscalationLevel"] = ticket.EscalationLevel.ToString()
+                }
+            }, ct);
+        }
 
         return ticket;
     }

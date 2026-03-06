@@ -432,6 +432,12 @@ app.MapGet("/platform/stop-impersonation", async (
     HttpContext context,
     IAuditLogger auditLogger) =>
 {
+    if (!context.User.IsInRole("PlatformAdmin") && !context.User.HasClaim("IsPlatformAdmin", "true"))
+    {
+        context.Response.StatusCode = 403;
+        return;
+    }
+
     if (context.Request.Cookies.TryGetValue("ImpersonateTenantId", out var existingTenantId))
     {
         var performedBy = context.User.FindFirstValue(ClaimTypes.NameIdentifier)

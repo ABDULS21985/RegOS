@@ -14,6 +14,8 @@ public interface IPartnerManagementService
     Task<bool> IsPartnerTenant(Guid tenantId, CancellationToken ct = default);
     Task<List<Guid>> GetPartnerSubTenantIds(Guid partnerTenantId, CancellationToken ct = default);
     Task<List<PartnerSubTenantUserSummary>> GetSubTenantUsers(Guid partnerTenantId, Guid subTenantId, CancellationToken ct = default);
+    Task<PartnerSubTenantUserSummary> CreateSubTenantUser(Guid partnerTenantId, Guid subTenantId, PartnerSubTenantUserCreateRequest request, CancellationToken ct = default);
+    Task SetSubTenantUserStatus(Guid partnerTenantId, Guid subTenantId, int userId, bool isActive, CancellationToken ct = default);
     Task<List<PartnerSubTenantSubmissionSummary>> GetSubTenantSubmissions(Guid partnerTenantId, Guid subTenantId, int take = 20, CancellationToken ct = default);
     Task UpdateSubTenantBranding(Guid partnerTenantId, Guid subTenantId, BrandingConfig config, CancellationToken ct = default);
 
@@ -112,6 +114,16 @@ public class PartnerSubTenantUserSummary
     public string Role { get; set; } = string.Empty;
     public bool IsActive { get; set; }
     public DateTime? LastLoginAt { get; set; }
+}
+
+public class PartnerSubTenantUserCreateRequest
+{
+    public int? InstitutionId { get; set; }
+    public string Username { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public string Role { get; set; } = InstitutionRole.Maker.ToString();
+    public string TemporaryPassword { get; set; } = string.Empty;
 }
 
 public class PartnerSubTenantSubmissionSummary
