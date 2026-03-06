@@ -10,6 +10,7 @@ using FC.Engine.Infrastructure.Export;
 using FC.Engine.Infrastructure.Export.Adapters;
 using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Metadata.Repositories;
+using FC.Engine.Infrastructure.Importing.Parsers;
 using FC.Engine.Infrastructure.Services;
 using FC.Engine.Infrastructure.MultiTenancy;
 using FC.Engine.Infrastructure.Persistence;
@@ -35,6 +36,7 @@ public static class DependencyInjection
 
         services.AddHttpContextAccessor();
         services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));
+        services.Configure<PrivacyComplianceOptions>(configuration.GetSection(PrivacyComplianceOptions.SectionName));
 
         // ── Multi-Tenancy ──
         services.AddScoped<ITenantContext, HttpTenantContext>();
@@ -90,6 +92,14 @@ public static class DependencyInjection
         services.AddScoped<IReturnLockService, ReturnLockService>();
         services.AddScoped<IDataFeedService, DataFeedService>();
         services.AddScoped<IDraftDataService, DraftDataService>();
+        services.AddScoped<IConsentService, ConsentService>();
+        services.AddScoped<IDsarService, DsarService>();
+        services.AddScoped<IDataBreachService, DataBreachService>();
+        services.AddScoped<IPrivacyDashboardService, PrivacyDashboardService>();
+        services.AddScoped<IHistoricalMigrationService, HistoricalMigrationService>();
+        services.AddScoped<IFileParser, ExcelFileParser>();
+        services.AddScoped<IFileParser, CsvFileParser>();
+        services.AddScoped<IFileParser, PdfTableFileParser>();
         services.AddScoped<IExportEngine, ExportEngine>();
         services.AddScoped<IExportGenerator, ExcelExportGenerator>();
         services.AddScoped<IExportGenerator, PdfExportGenerator>();
@@ -200,6 +210,8 @@ public static class DependencyInjection
         services.AddHostedService<ExportProcessingJob>();
         services.AddHostedService<ExportCleanupJob>();
         services.AddHostedService<AuditIntegrityVerificationJob>();
+        services.AddHostedService<DataBreachEscalationJob>();
+        services.AddHostedService<RetentionEnforcementJob>();
 
         return services;
     }

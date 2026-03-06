@@ -66,6 +66,13 @@ public class MetadataDbContext : DbContext
     public DbSet<ReturnLock> ReturnLocks => Set<ReturnLock>();
     public DbSet<DataFeedRequestLog> DataFeedRequestLogs => Set<DataFeedRequestLog>();
     public DbSet<TenantFieldMapping> TenantFieldMappings => Set<TenantFieldMapping>();
+    public DbSet<ConsentRecord> ConsentRecords => Set<ConsentRecord>();
+    public DbSet<DataSubjectRequest> DataSubjectRequests => Set<DataSubjectRequest>();
+    public DbSet<DataProcessingActivity> DataProcessingActivities => Set<DataProcessingActivity>();
+    public DbSet<DataBreachIncident> DataBreachIncidents => Set<DataBreachIncident>();
+    public DbSet<ImportJob> ImportJobs => Set<ImportJob>();
+    public DbSet<ImportMapping> ImportMappings => Set<ImportMapping>();
+    public DbSet<MigrationModuleSignOff> MigrationModuleSignOffs => Set<MigrationModuleSignOff>();
 
     // Security
     public DbSet<LoginAttempt> LoginAttempts => Set<LoginAttempt>();

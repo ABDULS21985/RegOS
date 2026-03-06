@@ -28,6 +28,7 @@ public class TemplateField
     public string? HelpText { get; set; }
     public bool IsYtdField { get; set; }
     public int? YtdSourceFieldId { get; set; }
+    public DataClassification DataClassification { get; set; } = DataClassification.Internal;
     public DateTime CreatedAt { get; set; }
 
     public TemplateField Clone()
@@ -55,6 +56,7 @@ public class TemplateField
             ReferenceColumn = ReferenceColumn,
             HelpText = HelpText,
             IsYtdField = IsYtdField,
+            DataClassification = DataClassification,
             CreatedAt = DateTime.UtcNow
         };
     }

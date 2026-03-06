@@ -13,5 +13,8 @@ public enum SubmissionStatus
     PendingApproval,
 
     /// <summary>Rejected by checker — returned to maker for correction.</summary>
-    ApprovalRejected
+    ApprovalRejected,
+
+    /// <summary>Imported legacy data — read-only, not submittable, excluded from workflow transitions.</summary>
+    Historical
 }

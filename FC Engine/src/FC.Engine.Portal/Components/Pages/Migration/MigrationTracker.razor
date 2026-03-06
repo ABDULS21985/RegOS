@@ -1,0 +1,234 @@
+@page "/migration/tracker"
+@attribute [Authorize(Policy = "InstitutionAdmin")]
+@using System.Security.Claims
+@using FC.Engine.Domain.Abstractions
+@inject IHistoricalMigrationService MigrationService
+@inject ITenantContext TenantContext
+@inject NavigationManager Navigation
+
+<PageTitle>Migration Tracker — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-detail-hero">
+        <div class="portal-detail-hero-main">
+            <h1 class="portal-detail-hero-title">Migration Progress Tracker</h1>
+            <p class="portal-detail-hero-subtitle">Track module coverage, warning quality, and compliance sign-off for historical migration.</p>
+        </div>
+        <div class="portal-detail-hero-actions">
+            <a class="portal-btn portal-btn-outline portal-btn-sm" href="/migration">Back to Migration</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="portal-validation-banner portal-validation-banner-error">@errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="portal-validation-banner portal-validation-banner-success">@successMessage</div>
+    }
+
+    @if (tracker is null)
+    {
+        <div class="portal-card" style="padding:1rem 1.25rem;">
+            <p class="portal-text-muted">Loading tracker...</p>
+        </div>
+    }
+    else
+    {
+        <div class="portal-form-grid portal-form-grid-3" style="margin-bottom:1rem;">
+            <div class="portal-card" style="padding:1rem;">
+                <div class="portal-text-muted">Modules Migrated</div>
+                <div style="font-size:1.4rem; font-weight:700;">@tracker.ModulesMigrated / @tracker.TotalModules</div>
+            </div>
+            <div class="portal-card" style="padding:1rem;">
+                <div class="portal-text-muted">Modules Signed Off</div>
+                <div style="font-size:1.4rem; font-weight:700;">@tracker.Modules.Count(x => x.SignOff) / @tracker.TotalModules</div>
+            </div>
+            <div class="portal-card" style="padding:1rem;">
+                <div class="portal-text-muted">Total Warnings</div>
+                <div style="font-size:1.4rem; font-weight:700;">@tracker.Modules.Sum(x => x.WarningCount)</div>
+            </div>
+        </div>
+
+        <div class="portal-card" style="padding:1rem 1.25rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; gap:0.75rem; flex-wrap:wrap;">
+                <h3 class="portal-detail-section-title" style="margin:0;">Module Progress</h3>
+                <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="LoadTracker" disabled="@isBusy">Refresh</button>
+            </div>
+
+            <div class="portal-table-responsive" style="margin-top:0.75rem;">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Imported</th>
+                            <th>Warnings</th>
+                            <th>Errors</th>
+                            <th>Eligible</th>
+                            <th>Sign-Off</th>
+                            <th>Notes</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var module in tracker.Modules.OrderBy(x => x.ModuleCode))
+                        {
+                            <tr>
+                                <td>
+                                    <div>@module.ModuleCode</div>
+                                    <div class="portal-text-muted" style="font-size:0.78rem;">@module.ModuleName</div>
+                                </td>
+                                <td>@module.ImportedPeriods / @module.TotalPeriods</td>
+                                <td>@module.WarningCount</td>
+                                <td>@module.ErrorCount</td>
+                                <td>
+                                    <span class="portal-badge @(module.AutoSignOffEligible ? "portal-badge-success" : "portal-badge-warning")">
+                                        @(module.AutoSignOffEligible ? "Ready" : "Not Ready")
+                                    </span>
+                                </td>
+                                <td>
+                                    <input type="checkbox"
+                                           checked="@module.SignOff"
+                                           @onchange="e => module.SignOff = (bool)e.Value!"
+                                           disabled="@(!module.AutoSignOffEligible && !module.SignOff)" />
+                                    @if (module.SignedOffAt.HasValue)
+                                    {
+                                        <div class="portal-text-muted" style="font-size:0.72rem;">
+                                            @module.SignedOffAt.Value.ToString("dd MMM yyyy HH:mm")
+                                        </div>
+                                    }
+                                </td>
+                                <td>
+                                    <input class="portal-form-input portal-form-input-sm"
+                                           value="@GetSignOffNote(module.ModuleId, module.SignOffNotes)"
+                                           @onchange="e => SetSignOffNote(module.ModuleId, e.Value?.ToString())"
+                                           placeholder="Compliance notes..." />
+                                </td>
+                                <td>
+                                    <button class="portal-btn portal-btn-sm portal-btn-primary"
+                                            @onclick="() => SaveSignOff(module)"
+                                            disabled="@isBusy">
+                                        Save
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private MigrationTrackerDto? tracker;
+    private Dictionary<int, string> signOffNotes = new();
+    private bool isBusy;
+    private string? errorMessage;
+    private string? successMessage;
+    private int userId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUser();
+        await LoadTracker();
+    }
+
+    private async Task LoadUser()
+    {
+        if (AuthState is null)
+        {
+            return;
+        }
+
+        var state = await AuthState;
+        var raw = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? state.User.FindFirst("sub")?.Value;
+        _ = int.TryParse(raw, out userId);
+    }
+
+    private async Task LoadTracker()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            errorMessage = "Tenant context is missing.";
+            return;
+        }
+
+        isBusy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            tracker = await MigrationService.GetTracker(TenantContext.CurrentTenantId.Value);
+            signOffNotes = tracker.Modules.ToDictionary(
+                x => x.ModuleId,
+                x => x.SignOffNotes ?? string.Empty);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task SaveSignOff(MigrationModuleProgressDto module)
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        if (userId <= 0)
+        {
+            errorMessage = "User context missing.";
+            return;
+        }
+
+        isBusy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            await MigrationService.SetModuleSignOff(
+                TenantContext.CurrentTenantId.Value,
+                module.ModuleId,
+                module.SignOff,
+                userId,
+                GetSignOffNote(module.ModuleId, module.SignOffNotes));
+
+            successMessage = $"Saved sign-off for {module.ModuleCode}.";
+            await LoadTracker();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private string GetSignOffNote(int moduleId, string? fallback)
+    {
+        if (signOffNotes.TryGetValue(moduleId, out var note))
+        {
+            return note;
+        }
+
+        return fallback ?? string.Empty;
+    }
+
+    private void SetSignOffNote(int moduleId, string? value)
+    {
+        signOffNotes[moduleId] = value?.Trim() ?? string.Empty;
+    }
+}

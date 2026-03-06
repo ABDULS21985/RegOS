@@ -20,6 +20,7 @@ public class InstitutionUserConfiguration : IEntityTypeConfiguration<Institution
         builder.Property(e => e.Role).HasMaxLength(20).IsRequired()
             .HasConversion<string>();
         builder.Property(e => e.LastLoginIp).HasMaxLength(45);
+        builder.Property(e => e.DeletionReason).HasMaxLength(300);
         builder.Property(e => e.FailedLoginAttempts).HasDefaultValue(0);
 
         // Indexes

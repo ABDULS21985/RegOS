@@ -4,6 +4,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @using System.Globalization
+@using Microsoft.AspNetCore.SignalR.Client
 
 <PageTitle>Data Entry: @ReturnCode — FC Engine Portal</PageTitle>
 
@@ -468,6 +469,7 @@
     private string saveStatus = "Saved";
     private bool isDirty;
     private CancellationTokenSource? autoSaveCts;
+    private HubConnection? lockHubConnection;
     private CancellationTokenSource? lockHeartbeatCts;
 
     // ── Lifecycle ─────────────────────────────────────────────────
@@ -611,7 +613,7 @@
         {
             isReadOnlyLocked = false;
             lockStatusMessage = string.Empty;
-            StartLockHeartbeatLoop();
+            await StartLockHeartbeat();
         }
 
         await LoadExistingDraftData();
@@ -726,47 +728,124 @@
         }
     }
 
-    private void StartLockHeartbeatLoop()
+    private async Task StartLockHeartbeat()
     {
-        lockHeartbeatCts?.Cancel();
-        lockHeartbeatCts?.Dispose();
+        await StopLockHeartbeat();
+
         lockHeartbeatCts = new CancellationTokenSource();
         var token = lockHeartbeatCts.Token;
 
-        _ = Task.Run(async () =>
+        lockHubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/hubs/returnlock"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        lockHubConnection.On<object>("LockLost", async (payload) =>
+        {
+            isReadOnlyLocked = true;
+            lockStatusMessage = "The return is now locked by another user.";
+            saveStatus = "Read-only";
+            await InvokeAsync(StateHasChanged);
+        });
+
+        lockHubConnection.On<object>("LockReleased", async (_) =>
+        {
+            // Another user released the lock — we could attempt re-acquisition
+        });
+
+        try
+        {
+            await lockHubConnection.StartAsync(token);
+            await lockHubConnection.InvokeAsync("JoinSubmission", draftSubmissionId, token);
+
+            // Start periodic heartbeat over the SignalR connection
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!token.IsCancellationRequested)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(60), token);
+
+                        if (lockHubConnection?.State != HubConnectionState.Connected)
+                            continue;
+
+                        var response = await lockHubConnection.InvokeAsync<Infrastructure.Hubs.HeartbeatResponse>(
+                            "SendHeartbeat", draftSubmissionId, token);
+
+                        if (response is { Acquired: false })
+                        {
+                            isReadOnlyLocked = true;
+                            lockStatusMessage = response.Message ?? "The return is now locked by another user.";
+                            saveStatus = "Read-only";
+                            await InvokeAsync(StateHasChanged);
+                            break;
+                        }
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    // ignore
+                }
+            }, token);
+        }
+        catch (Exception)
+        {
+            // Fallback: if SignalR connection fails, use direct service heartbeat
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    while (!token.IsCancellationRequested)
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(60), token);
+
+                        if (!tenantId.HasValue || !userId.HasValue || draftSubmissionId <= 0)
+                            continue;
+
+                        var heartbeat = await ReturnLockService.Heartbeat(
+                            tenantId.Value, draftSubmissionId, userId.Value, token);
+
+                        if (!heartbeat.Acquired)
+                        {
+                            isReadOnlyLocked = true;
+                            lockStatusMessage = heartbeat.Message ?? "The return is now locked by another user.";
+                            saveStatus = "Read-only";
+                            await InvokeAsync(StateHasChanged);
+                            break;
+                        }
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    // ignore
+                }
+            }, token);
+        }
+    }
+
+    private async Task StopLockHeartbeat()
+    {
+        lockHeartbeatCts?.Cancel();
+        lockHeartbeatCts?.Dispose();
+        lockHeartbeatCts = null;
+
+        if (lockHubConnection is not null)
         {
             try
             {
-                while (!token.IsCancellationRequested)
+                if (lockHubConnection.State == HubConnectionState.Connected && draftSubmissionId > 0)
                 {
-                    await Task.Delay(TimeSpan.FromSeconds(60), token);
-
-                    if (!tenantId.HasValue || !userId.HasValue || draftSubmissionId <= 0)
-                    {
-                        continue;
-                    }
-
-                    var heartbeat = await ReturnLockService.Heartbeat(
-                        tenantId.Value,
-                        draftSubmissionId,
-                        userId.Value,
-                        token);
-
-                    if (!heartbeat.Acquired)
-                    {
-                        isReadOnlyLocked = true;
-                        lockStatusMessage = heartbeat.Message ?? "The return is now locked by another user.";
-                        saveStatus = "Read-only";
-                        await InvokeAsync(StateHasChanged);
-                        break;
-                    }
+                    await lockHubConnection.InvokeAsync("LeaveSubmission", draftSubmissionId);
                 }
+                await lockHubConnection.DisposeAsync();
             }
-            catch (TaskCanceledException)
+            catch
             {
-                // ignore
+                // ignore dispose errors
             }
-        }, token);
+            lockHubConnection = null;
+        }
     }
 
     private void ApplyCarryForwardValues(IReadOnlyDictionary<string, object?> values)
@@ -1255,9 +1334,7 @@
 
     private async Task ReleaseLock()
     {
-        lockHeartbeatCts?.Cancel();
-        lockHeartbeatCts?.Dispose();
-        lockHeartbeatCts = null;
+        await StopLockHeartbeat();
 
         if (tenantId.HasValue && userId.HasValue && draftSubmissionId > 0)
         {

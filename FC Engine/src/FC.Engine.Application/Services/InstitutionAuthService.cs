@@ -3,6 +3,7 @@ using System.Security.Claims;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Models;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 
 namespace FC.Engine.Application.Services;
@@ -18,6 +19,7 @@ public class InstitutionAuthService
     private readonly ITenantContext _tenantContext;
     private readonly IEntitlementService _entitlementService;
     private readonly IPermissionService _permissionService;
+    private readonly IConsentService? _consentService;
 
     // Lockout policy (matches AuthService)
     private const int MaxFailedAttempts = 5;
@@ -28,13 +30,15 @@ public class InstitutionAuthService
         IInstitutionRepository institutionRepo,
         ITenantContext tenantContext,
         IEntitlementService entitlementService,
-        IPermissionService permissionService)
+        IPermissionService permissionService,
+        IConsentService? consentService = null)
     {
         _userRepo = userRepo;
         _institutionRepo = institutionRepo;
         _tenantContext = tenantContext;
         _entitlementService = entitlementService;
         _permissionService = permissionService;
+        _consentService = consentService;
     }
 
     /// <summary>
@@ -144,6 +148,25 @@ public class InstitutionAuthService
         };
 
         await _userRepo.Create(user, ct);
+
+        if (_consentService is not null)
+        {
+            var capture = new ConsentCaptureRequest
+            {
+                TenantId = user.TenantId,
+                UserId = user.Id,
+                UserType = "InstitutionUser",
+                ConsentGiven = true,
+                ConsentMethod = "registration"
+            };
+
+            capture.ConsentType = ConsentType.Registration;
+            await _consentService.RecordConsent(capture, ct);
+
+            capture.ConsentType = ConsentType.DataProcessing;
+            await _consentService.RecordConsent(capture, ct);
+        }
+
         return user;
     }
 

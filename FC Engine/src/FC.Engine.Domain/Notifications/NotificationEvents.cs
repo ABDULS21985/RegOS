@@ -33,6 +33,8 @@ public static class NotificationEvents
     public const string SystemAnnouncement = "system.announcement";
     public const string ExportReady = "export.ready";
     public const string DataFlowCompleted = "data_flow.completed";
+    public const string BreachDetected = "breach.detected";
+    public const string BreachEscalation = "breach.escalation";
 
     public static readonly IReadOnlyList<string> All = new[]
     {
@@ -57,7 +59,9 @@ public static class NotificationEvents
         MfaCodeSms,
         SystemAnnouncement,
         ExportReady,
-        DataFlowCompleted
+        DataFlowCompleted,
+        BreachDetected,
+        BreachEscalation
     };
 }
 

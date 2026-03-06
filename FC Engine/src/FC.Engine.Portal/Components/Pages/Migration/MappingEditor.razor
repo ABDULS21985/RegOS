@@ -1,0 +1,406 @@
+@page "/migration/mapping/{ImportJobId:int}"
+@attribute [Authorize(Policy = "InstitutionAdmin")]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@inject IHistoricalMigrationService MigrationService
+@inject ITenantContext TenantContext
+@inject NavigationManager Navigation
+
+<PageTitle>Migration Mapping — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-breadcrumb">
+        <a href="/migration" class="portal-breadcrumb-link">Historical Migration</a>
+        <span class="portal-breadcrumb-sep">/</span>
+        <span class="portal-breadcrumb-current">Job #@ImportJobId</span>
+    </div>
+
+    <div class="portal-detail-hero">
+        <div class="portal-detail-hero-main">
+            <h1 class="portal-detail-hero-title">Column Mapping Review</h1>
+            <p class="portal-detail-hero-subtitle">Review mappings, run relaxed validation, stage records, then commit to historical submission.</p>
+        </div>
+        <div class="portal-detail-hero-actions">
+            @if (job is not null)
+            {
+                <span class="portal-badge @GetStatusBadge(job.Status)">@job.Status</span>
+            }
+            <a class="portal-btn portal-btn-ghost portal-btn-sm" href="/migration">Back</a>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="portal-validation-banner portal-validation-banner-error">@errorMessage</div>
+    }
+    @if (!string.IsNullOrWhiteSpace(successMessage))
+    {
+        <div class="portal-validation-banner portal-validation-banner-success">@successMessage</div>
+    }
+
+    @if (mappingEditor is null)
+    {
+        <div class="portal-card" style="padding:1rem 1.25rem;">
+            <p class="portal-text-muted">Loading mapping editor...</p>
+        </div>
+    }
+    else
+    {
+        <div class="portal-card" style="padding:1rem 1.25rem;">
+            <h3 class="portal-detail-section-title" style="margin-top:0;">Mapping Table</h3>
+
+            <div class="portal-table-responsive" style="margin-top:0.75rem;">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Source Column</th>
+                            <th>Sample Values</th>
+                            <th>Mapped Field</th>
+                            <th>Confidence</th>
+                            <th>Ignore</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var map in mappingEditor.Mappings)
+                        {
+                            <tr class="@GetConfidenceRowClass(map.Confidence)">
+                                <td>@map.SourceHeader</td>
+                                <td>@string.Join(", ", map.SampleValues.Take(3))</td>
+                                <td>
+                                    <select class="portal-form-select portal-form-select-sm"
+                                            value="@map.TargetFieldName"
+                                            @onchange="e => SetMappedField(map, e.Value?.ToString())">
+                                        <option value="">- Unmapped -</option>
+                                        @foreach (var field in mappingEditor.AvailableFields)
+                                        {
+                                            <option value="@field.FieldName">@field.FieldLabel (@field.FieldName)</option>
+                                        }
+                                    </select>
+                                </td>
+                                <td>@($"{map.Confidence:P0}")</td>
+                                <td>
+                                    <input type="checkbox"
+                                           checked="@map.Ignored"
+                                           @onchange="e => map.Ignored = (bool)e.Value!" />
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:1rem;">
+                <button class="portal-btn portal-btn-primary" @onclick="SaveMapping" disabled="@isBusy">Save Mapping</button>
+                <button class="portal-btn portal-btn-outline" @onclick="ValidateJob" disabled="@isBusy">Validate (Relaxed)</button>
+                <button class="portal-btn portal-btn-outline" @onclick="StageJob" disabled="@isBusy">Stage</button>
+                <button class="portal-btn portal-btn-outline" @onclick="LoadStagedPreview" disabled="@isBusy">Load Staged Preview</button>
+                <button class="portal-btn portal-btn-success" @onclick="CommitJob" disabled="@isBusy">Commit Historical</button>
+            </div>
+
+            @if (mappingEditor.UnmappedColumns.Count > 0 || mappingEditor.UnmappedFields.Count > 0)
+            {
+                <div style="margin-top:0.75rem;">
+                    @if (mappingEditor.UnmappedColumns.Count > 0)
+                    {
+                        <p class="portal-text-warning" style="margin:0.25rem 0;">
+                            Unmapped source columns: @string.Join(", ", mappingEditor.UnmappedColumns)
+                        </p>
+                    }
+                    @if (mappingEditor.UnmappedFields.Count > 0)
+                    {
+                        <p class="portal-text-warning" style="margin:0.25rem 0;">
+                            Unmapped template fields: @string.Join(", ", mappingEditor.UnmappedFields)
+                        </p>
+                    }
+                </div>
+            }
+        </div>
+
+        @if (stagedReview is not null)
+        {
+            <div class="portal-card" style="padding:1rem 1.25rem; margin-top:1rem;">
+                <h3 class="portal-detail-section-title" style="margin-top:0;">Staged Review</h3>
+                <p class="portal-text-muted">Showing @stagedReview.Records.Count of @stagedReview.TotalRecords record(s). Edit values before commit.</p>
+
+                <div class="portal-table-responsive">
+                    <table class="portal-table">
+                        <thead>
+                            <tr>
+                                <th>Row</th>
+                                @foreach (var column in stagedReview.Columns)
+                                {
+                                    <th>@column</th>
+                                }
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var record in stagedReview.Records)
+                            {
+                                <tr>
+                                    <td>@record.RowNumber</td>
+                                    @foreach (var column in stagedReview.Columns)
+                                    {
+                                        <td>
+                                            <input class="portal-form-input portal-form-input-sm"
+                                                   value="@GetRecordValue(record, column)"
+                                                   @onchange="e => SetRecordValue(record, column, e.Value?.ToString())" />
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-top:0.75rem;">
+                    <button class="portal-btn portal-btn-primary" @onclick="SaveStagedPreview" disabled="@isBusy">Save Staged Edits</button>
+                    <button class="portal-btn portal-btn-outline" @onclick="ValidateJob" disabled="@isBusy">Re-Validate</button>
+                    <button class="portal-btn portal-btn-success" @onclick="CommitJob" disabled="@isBusy">Commit Historical</button>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public int ImportJobId { get; set; }
+
+    private ImportJobDto? job;
+    private ImportMappingEditorDto? mappingEditor;
+    private ImportStagedReviewDto? stagedReview;
+    private bool isBusy;
+    private string? errorMessage;
+    private string? successMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAll();
+    }
+
+    private async Task LoadAll()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            errorMessage = "Tenant context is missing.";
+            return;
+        }
+
+        errorMessage = null;
+        successMessage = null;
+
+        var tenantId = TenantContext.CurrentTenantId.Value;
+        job = await MigrationService.GetJob(tenantId, ImportJobId);
+        mappingEditor = await MigrationService.GetMappingEditor(tenantId, ImportJobId);
+    }
+
+    private void SetMappedField(ImportColumnMapping map, string? value)
+    {
+        map.TargetFieldName = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        if (!string.IsNullOrWhiteSpace(map.TargetFieldName))
+        {
+            map.Ignored = false;
+        }
+    }
+
+    private async Task SaveMapping()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue || mappingEditor is null)
+        {
+            return;
+        }
+
+        isBusy = true;
+        errorMessage = null;
+        successMessage = null;
+
+        try
+        {
+            var updates = mappingEditor.Mappings
+                .Select(x => new ImportMappingUpdate
+                {
+                    SourceIndex = x.SourceIndex,
+                    SourceHeader = x.SourceHeader,
+                    TargetFieldName = string.IsNullOrWhiteSpace(x.TargetFieldName) ? null : x.TargetFieldName,
+                    Ignored = x.Ignored
+                })
+                .ToList();
+
+            await MigrationService.SaveMapping(
+                TenantContext.CurrentTenantId.Value,
+                ImportJobId,
+                updates,
+                null);
+
+            mappingEditor = await MigrationService.GetMappingEditor(TenantContext.CurrentTenantId.Value, ImportJobId);
+            job = await MigrationService.GetJob(TenantContext.CurrentTenantId.Value, ImportJobId);
+            successMessage = "Mapping saved.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ValidateJob()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        isBusy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            job = await MigrationService.ValidateJob(TenantContext.CurrentTenantId.Value, ImportJobId);
+            successMessage = $"Validation complete. Warnings: {job.WarningCount}, Errors: {job.ErrorCount}.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task StageJob()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        isBusy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            job = await MigrationService.StageJob(TenantContext.CurrentTenantId.Value, ImportJobId);
+            successMessage = "Job moved to Staged.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task LoadStagedPreview()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        isBusy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            stagedReview = await MigrationService.GetStagedReview(TenantContext.CurrentTenantId.Value, ImportJobId, 30);
+            successMessage = "Staged preview loaded.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task SaveStagedPreview()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue || stagedReview is null)
+        {
+            return;
+        }
+
+        isBusy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            await MigrationService.SaveStagedReview(
+                TenantContext.CurrentTenantId.Value,
+                ImportJobId,
+                stagedReview.Records);
+            successMessage = "Staged edits saved.";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task CommitJob()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        isBusy = true;
+        errorMessage = null;
+        successMessage = null;
+        try
+        {
+            job = await MigrationService.CommitJob(TenantContext.CurrentTenantId.Value, ImportJobId);
+            successMessage = "Historical submission committed successfully.";
+            await LoadStagedPreview();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private static string GetRecordValue(ImportStagedRecordDto record, string column)
+    {
+        return record.Values.TryGetValue(column, out var value) ? value ?? string.Empty : string.Empty;
+    }
+
+    private static void SetRecordValue(ImportStagedRecordDto record, string column, string? value)
+    {
+        record.Values[column] = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string GetStatusBadge(ImportJobStatus status)
+    {
+        return status switch
+        {
+            ImportJobStatus.Committed => "portal-badge-success",
+            ImportJobStatus.Failed => "portal-badge-danger",
+            ImportJobStatus.MappingReview => "portal-badge-warning",
+            ImportJobStatus.Validated => "portal-badge-info",
+            ImportJobStatus.Staged => "portal-badge-info",
+            _ => "portal-badge-neutral"
+        };
+    }
+
+    private static string GetConfidenceRowClass(double confidence)
+    {
+        if (confidence >= 0.8) return "portal-table-row-success";
+        if (confidence >= 0.6) return "portal-table-row-warning";
+        return string.Empty;
+    }
+}

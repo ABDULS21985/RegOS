@@ -1,0 +1,347 @@
+@page "/migration"
+@attribute [Authorize(Policy = "InstitutionAdmin")]
+@using System.Security.Claims
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Domain.Enums
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.EntityFrameworkCore
+@inject IHistoricalMigrationService MigrationService
+@inject ITenantContext TenantContext
+@inject ITemplateMetadataCache TemplateCache
+@inject FC.Engine.Portal.Services.TemplateBrowserService TemplateBrowserService
+@inject FC.Engine.Infrastructure.Metadata.MetadataDbContext Db
+@inject NavigationManager Navigation
+
+<PageTitle>Historical Migration — FC Engine Portal</PageTitle>
+
+<div class="portal-page">
+    <div class="portal-detail-hero">
+        <div class="portal-detail-hero-main">
+            <h1 class="portal-detail-hero-title">Historical Data Migration</h1>
+            <p class="portal-detail-hero-subtitle">
+                Upload legacy Excel, CSV, or PDF returns and migrate them as read-only historical submissions.
+            </p>
+        </div>
+        <div class="portal-detail-hero-actions">
+            <a class="portal-btn portal-btn-outline portal-btn-sm" href="/migration/tracker">Open Progress Tracker</a>
+        </div>
+    </div>
+
+    <div class="portal-card" style="padding:1rem 1.25rem;">
+        <h3 class="portal-detail-section-title" style="margin-top:0;">New Import Job</h3>
+        <div class="portal-form-grid portal-form-grid-3" style="margin-top:0.75rem;">
+            <div class="portal-form-group">
+                <label class="portal-form-label">Template</label>
+                <select class="portal-form-select" value="@selectedReturnCode" @onchange="OnTemplateChanged">
+                    <option value="">Select template...</option>
+                    @foreach (var template in templates)
+                    {
+                        <option value="@template.ReturnCode">@template.ReturnCode - @template.TemplateName</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-group">
+                <label class="portal-form-label">Reporting Period</label>
+                <select class="portal-form-select" @bind="selectedPeriodId" disabled="@(periods.Count == 0)">
+                    <option value="0">Select period...</option>
+                    @foreach (var period in periods)
+                    {
+                        <option value="@period.Id">@FormatPeriod(period)</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-group">
+                <label class="portal-form-label">Source File</label>
+                <InputFile OnChange="OnFileSelected" accept=".xlsx,.xls,.csv,.txt,.pdf" />
+                @if (selectedFile is not null)
+                {
+                    <span class="portal-form-hint">@selectedFile.Name (@FormatBytes(selectedFile.Size))</span>
+                }
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            <div class="portal-validation-banner portal-validation-banner-error" style="margin-top:0.8rem;">@errorMessage</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(successMessage))
+        {
+            <div class="portal-validation-banner portal-validation-banner-success" style="margin-top:0.8rem;">@successMessage</div>
+        }
+
+        <div style="margin-top:1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
+            <button class="portal-btn portal-btn-primary"
+                    @onclick="CreateImportJob"
+                    disabled="@isProcessing">
+                @(isProcessing ? "Processing..." : "Upload and Parse")
+            </button>
+            <button class="portal-btn portal-btn-outline" @onclick="LoadJobs" disabled="@isProcessing">Refresh Jobs</button>
+        </div>
+    </div>
+
+    <div class="portal-card" style="padding:1rem 1.25rem; margin-top:1rem;">
+        <h3 class="portal-detail-section-title" style="margin-top:0;">Import Jobs</h3>
+
+        @if (jobs.Count == 0)
+        {
+            <p class="portal-text-muted" style="margin-top:0.75rem;">No migration jobs yet.</p>
+        }
+        else
+        {
+            <div class="portal-table-responsive" style="margin-top:0.75rem;">
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Job</th>
+                            <th>Return</th>
+                            <th>File</th>
+                            <th>Status</th>
+                            <th>Rows</th>
+                            <th>Warnings</th>
+                            <th>Errors</th>
+                            <th>Updated</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var job in jobs)
+                        {
+                            <tr>
+                                <td>#@job.Id</td>
+                                <td>@job.ReturnCode</td>
+                                <td>@job.SourceFileName</td>
+                                <td><span class="portal-badge @GetStatusBadge(job.Status)">@job.Status</span></td>
+                                <td>@job.RecordCount</td>
+                                <td>@job.WarningCount</td>
+                                <td>@job.ErrorCount</td>
+                                <td>@job.UpdatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    <button class="portal-btn portal-btn-sm portal-btn-outline"
+                                            @onclick="() => OpenWorkflow(job.Id)">
+                                        Open Workflow
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<TemplateBrowseItem> templates = [];
+    private List<ReturnPeriod> periods = [];
+    private List<ImportJobDto> jobs = [];
+    private string selectedReturnCode = string.Empty;
+    private int selectedPeriodId;
+    private IBrowserFile? selectedFile;
+    private string? errorMessage;
+    private string? successMessage;
+    private bool isProcessing;
+    private int institutionId;
+    private int userId;
+    private Guid? tenantId;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserContext();
+        templates = await TemplateBrowserService.GetAllTemplates();
+        await LoadJobs();
+    }
+
+    private async Task LoadUserContext()
+    {
+        if (AuthState is null)
+        {
+            return;
+        }
+
+        var state = await AuthState;
+        var user = state.User;
+
+        var institutionIdRaw = user.FindFirst("InstitutionId")?.Value;
+        _ = int.TryParse(institutionIdRaw, out institutionId);
+
+        var userIdRaw = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? user.FindFirst("sub")?.Value;
+        _ = int.TryParse(userIdRaw, out userId);
+
+        tenantId = TenantContext.CurrentTenantId;
+    }
+
+    private async Task LoadJobs()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        if (!tenantId.HasValue)
+        {
+            jobs = [];
+            return;
+        }
+
+        jobs = (await MigrationService.GetJobs(tenantId.Value, institutionId))
+            .OrderByDescending(x => x.CreatedAt)
+            .ToList();
+    }
+
+    private async Task OnTemplateChanged(ChangeEventArgs args)
+    {
+        selectedReturnCode = args.Value?.ToString()?.Trim() ?? string.Empty;
+        selectedPeriodId = 0;
+        periods = [];
+
+        if (!tenantId.HasValue || string.IsNullOrWhiteSpace(selectedReturnCode))
+        {
+            return;
+        }
+
+        try
+        {
+            var template = await TemplateCache.GetPublishedTemplate(tenantId.Value, selectedReturnCode);
+            var moduleId = template.ModuleId;
+
+            IQueryable<ReturnPeriod> query = Db.ReturnPeriods
+                .Where(x => x.TenantId == tenantId.Value);
+
+            if (moduleId.HasValue)
+            {
+                query = query.Where(x => x.ModuleId == moduleId.Value);
+            }
+            else
+            {
+                query = query.Where(x => x.ModuleId == null);
+            }
+
+            periods = await query
+                .OrderByDescending(x => x.Year)
+                .ThenByDescending(x => x.Quarter)
+                .ThenByDescending(x => x.Month)
+                .Take(120)
+                .ToListAsync();
+
+            selectedPeriodId = periods.FirstOrDefault()?.Id ?? 0;
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs args)
+    {
+        selectedFile = args.FileCount > 0 ? args.File : null;
+    }
+
+    private async Task CreateImportJob()
+    {
+        errorMessage = null;
+        successMessage = null;
+
+        if (!tenantId.HasValue)
+        {
+            errorMessage = "Tenant context is missing.";
+            return;
+        }
+
+        if (institutionId <= 0 || userId <= 0)
+        {
+            errorMessage = "User context is missing.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedReturnCode))
+        {
+            errorMessage = "Select a template.";
+            return;
+        }
+
+        if (selectedPeriodId <= 0)
+        {
+            errorMessage = "Select a reporting period.";
+            return;
+        }
+
+        if (selectedFile is null)
+        {
+            errorMessage = "Select a source file.";
+            return;
+        }
+
+        isProcessing = true;
+        try
+        {
+            await using var stream = selectedFile.OpenReadStream(50 * 1024 * 1024);
+            var job = await MigrationService.UploadAndParse(
+                tenantId.Value,
+                institutionId,
+                selectedReturnCode,
+                selectedPeriodId,
+                selectedFile.Name,
+                stream,
+                userId);
+
+            successMessage = $"Import job #{job.Id} created with status {job.Status}.";
+            await LoadJobs();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private void OpenWorkflow(int importJobId)
+    {
+        Navigation.NavigateTo($"/migration/mapping/{importJobId}");
+    }
+
+    private static string FormatPeriod(ReturnPeriod period)
+    {
+        if (period.Frequency.Equals("Quarterly", StringComparison.OrdinalIgnoreCase) && period.Quarter.HasValue)
+        {
+            return $"Q{period.Quarter.Value} {period.Year}";
+        }
+
+        if (period.Frequency.Equals("Annual", StringComparison.OrdinalIgnoreCase))
+        {
+            return $"FY {period.Year}";
+        }
+
+        if (period.Frequency.Equals("SemiAnnual", StringComparison.OrdinalIgnoreCase))
+        {
+            var half = period.Month <= 6 ? 1 : 2;
+            return $"H{half} {period.Year}";
+        }
+
+        return new DateTime(period.Year, Math.Clamp(period.Month, 1, 12), 1).ToString("MMM yyyy");
+    }
+
+    private static string GetStatusBadge(ImportJobStatus status)
+    {
+        return status switch
+        {
+            ImportJobStatus.Committed => "portal-badge-success",
+            ImportJobStatus.Failed => "portal-badge-danger",
+            ImportJobStatus.MappingReview => "portal-badge-warning",
+            ImportJobStatus.Validated => "portal-badge-info",
+            ImportJobStatus.Staged => "portal-badge-info",
+            _ => "portal-badge-neutral"
+        };
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024d:F1} KB";
+        return $"{bytes / (1024d * 1024d):F1} MB";
+    }
+}

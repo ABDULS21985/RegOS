@@ -71,6 +71,59 @@ public class ValidationOrchestrator
         return report;
     }
 
+    public async Task<ValidationReport> ValidateRelaxed(
+        List<Dictionary<string, object?>> records,
+        CachedTemplate template,
+        Guid tenantId,
+        CancellationToken ct = default)
+    {
+        var report = ValidationReport.Create(0, tenantId);
+        var category = Enum.Parse<StructuralCategory>(template.StructuralCategory);
+        var record = new ReturnDataRecord(template.ReturnCode, template.CurrentVersion.Id, category);
+
+        if (records.Count == 0)
+        {
+            record.AddRow(new ReturnDataRow());
+        }
+        else
+        {
+            foreach (var rowData in records)
+            {
+                var row = new ReturnDataRow();
+                foreach (var pair in rowData)
+                {
+                    row.SetValue(pair.Key, pair.Value);
+                }
+
+                record.AddRow(row);
+            }
+        }
+
+        var typeErrors = ValidateTypeRange(record, template);
+        DowngradeToWarnings(typeErrors);
+        report.AddErrors(typeErrors);
+
+        var formulaErrors = await _formulaEvaluator.Evaluate(record, ct);
+        DowngradeToWarnings(formulaErrors);
+        report.AddErrors(formulaErrors);
+
+        var historicalSubmission = Submission.Create(0, 0, template.ReturnCode, tenantId);
+        var businessErrors = await _businessRuleEvaluator.Evaluate(record, historicalSubmission, ct);
+        DowngradeToWarnings(businessErrors);
+        report.AddErrors(businessErrors);
+
+        report.FinalizeAt(DateTime.UtcNow);
+        return report;
+    }
+
+    private static void DowngradeToWarnings(IEnumerable<ValidationError> errors)
+    {
+        foreach (var error in errors)
+        {
+            error.Severity = ValidationSeverity.Warning;
+        }
+    }
+
     private static List<ValidationError> ValidateTypeRange(ReturnDataRecord record, CachedTemplate template)
     {
         var errors = new List<ValidationError>();

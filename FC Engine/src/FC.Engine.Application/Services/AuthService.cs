@@ -3,6 +3,7 @@ using System.Security.Claims;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Models;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 
 namespace FC.Engine.Application.Services;
@@ -14,6 +15,7 @@ public class AuthService
     private readonly IPasswordResetTokenRepository _resetTokenRepo;
     private readonly IEntitlementService _entitlementService;
     private readonly IPermissionService _permissionService;
+    private readonly IConsentService? _consentService;
 
     // Lockout policy
     private const int MaxFailedAttempts = 5;
@@ -28,13 +30,15 @@ public class AuthService
         ILoginAttemptRepository loginAttemptRepo,
         IPasswordResetTokenRepository resetTokenRepo,
         IEntitlementService entitlementService,
-        IPermissionService permissionService)
+        IPermissionService permissionService,
+        IConsentService? consentService = null)
     {
         _userRepo = userRepo;
         _loginAttemptRepo = loginAttemptRepo;
         _resetTokenRepo = resetTokenRepo;
         _entitlementService = entitlementService;
         _permissionService = permissionService;
+        _consentService = consentService;
     }
 
     /// <summary>
@@ -42,28 +46,32 @@ public class AuthService
     /// Returns (User, ErrorCode) where ErrorCode is null on success.
     /// </summary>
     public async Task<(PortalUser? User, string? ErrorCode)> ValidateLogin(
-        string username, string password, string? ipAddress = null, CancellationToken ct = default)
+        string username,
+        string password,
+        string? ipAddress = null,
+        string? userAgent = null,
+        CancellationToken ct = default)
     {
         var user = await _userRepo.GetByUsername(username, ct);
 
         // User not found — record attempt but don't reveal user doesn't exist
         if (user is null)
         {
-            await RecordAttempt(username, ipAddress, false, "user_not_found", ct);
+            await RecordAttempt(username, ipAddress, userAgent, false, "user_not_found", null, null, ct);
             return (null, "invalid");
         }
 
         // Account inactive
         if (!user.IsActive)
         {
-            await RecordAttempt(username, ipAddress, false, "inactive", ct);
+            await RecordAttempt(username, ipAddress, userAgent, false, "inactive", user.Id, "PortalUser", ct);
             return (null, "denied");
         }
 
         // Check lockout
         if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
         {
-            await RecordAttempt(username, ipAddress, false, "locked", ct);
+            await RecordAttempt(username, ipAddress, userAgent, false, "locked", user.Id, "PortalUser", ct);
             return (null, "locked");
         }
 
@@ -78,7 +86,7 @@ public class AuthService
             }
 
             await _userRepo.Update(user, ct);
-            await RecordAttempt(username, ipAddress, false, "bad_password", ct);
+            await RecordAttempt(username, ipAddress, userAgent, false, "bad_password", user.Id, "PortalUser", ct);
 
             return user.FailedLoginAttempts >= MaxFailedAttempts
                 ? (null, "locked")
@@ -90,7 +98,7 @@ public class AuthService
         user.LockoutEnd = null;
         user.LastLoginAt = DateTime.UtcNow;
         await _userRepo.Update(user, ct);
-        await RecordAttempt(username, ipAddress, true, null, ct);
+        await RecordAttempt(username, ipAddress, userAgent, true, null, user.Id, "PortalUser", ct);
 
         return (user, null);
     }
@@ -178,7 +186,27 @@ public class AuthService
             CreatedAt = DateTime.UtcNow
         };
 
-        return await _userRepo.Create(user, ct);
+        var created = await _userRepo.Create(user, ct);
+
+        if (_consentService is not null && created.TenantId.HasValue)
+        {
+            var capture = new ConsentCaptureRequest
+            {
+                TenantId = created.TenantId.Value,
+                UserId = created.Id,
+                UserType = "PortalUser",
+                ConsentGiven = true,
+                ConsentMethod = "registration"
+            };
+
+            capture.ConsentType = ConsentType.Registration;
+            await _consentService.RecordConsent(capture, ct);
+
+            capture.ConsentType = ConsentType.DataProcessing;
+            await _consentService.RecordConsent(capture, ct);
+        }
+
+        return created;
     }
 
     public async Task ChangePassword(int userId, string newPassword, CancellationToken ct = default)
@@ -310,12 +338,23 @@ public class AuthService
         return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
     }
 
-    private async Task RecordAttempt(string username, string? ipAddress, bool succeeded, string? reason, CancellationToken ct)
+    private async Task RecordAttempt(
+        string username,
+        string? ipAddress,
+        string? userAgent,
+        bool succeeded,
+        string? reason,
+        int? userId,
+        string? userType,
+        CancellationToken ct)
     {
         await _loginAttemptRepo.Create(new LoginAttempt
         {
+            UserId = userId,
+            UserType = userType,
             Username = username,
             IpAddress = ipAddress,
+            UserAgent = userAgent,
             Succeeded = succeeded,
             FailureReason = reason,
             AttemptedAt = DateTime.UtcNow

@@ -46,7 +46,8 @@ public class CarryForwardService : ICarryForwardService
                         && x.ReturnCode == returnCode
                         && x.ReturnPeriodId < currentPeriodId
                         && (x.Status == SubmissionStatus.Accepted
-                            || x.Status == SubmissionStatus.AcceptedWithWarnings))
+                            || x.Status == SubmissionStatus.AcceptedWithWarnings
+                            || x.Status == SubmissionStatus.Historical))
             .OrderByDescending(x => x.ReturnPeriodId)
             .FirstOrDefaultAsync(ct);
 

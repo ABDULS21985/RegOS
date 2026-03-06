@@ -1,5 +1,7 @@
 using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Models;
 using FC.Engine.Infrastructure;
 using FC.Engine.Infrastructure.Auth;
 using FC.Engine.Infrastructure.Middleware;
@@ -83,6 +85,7 @@ app.UseTenantFavicon();
 app.UseStaticFiles();
 app.UseAuthentication();
 app.UseTenantContext();
+app.UseReConsent();
 app.UseAuthorization();
 app.UseAntiforgery();
 
@@ -150,8 +153,9 @@ app.MapPost("/account/login", async (
     var password = form["password"].ToString();
     var rememberMe = form["rememberMe"].ToString() == "true";
     var ipAddress = context.Connection.RemoteIpAddress?.ToString();
+    var userAgent = context.Request.Headers.UserAgent.ToString();
 
-    var (user, errorCode) = await authService.ValidateLogin(username, password, ipAddress);
+    var (user, errorCode) = await authService.ValidateLogin(username, password, ipAddress, userAgent);
     if (user is null)
     {
         context.Response.Redirect($"/login?error={errorCode ?? "invalid"}");
@@ -275,6 +279,65 @@ app.MapPost("/account/reset-password", async (HttpContext context, AuthService a
     }
 
     context.Response.Redirect("/login?reset=success");
+});
+
+app.MapPost("/account/reconsent", async (HttpContext context, IConsentService consentService) =>
+{
+    if (context.User?.Identity?.IsAuthenticated != true)
+    {
+        context.Response.Redirect("/login");
+        return;
+    }
+
+    var tenantClaim = context.User.FindFirst("TenantId")?.Value;
+    var userIdClaim = context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+    if (!Guid.TryParse(tenantClaim, out var tenantId) || !int.TryParse(userIdClaim, out var userId))
+    {
+        context.Response.Redirect("/login?error=denied");
+        return;
+    }
+
+    var form = await context.Request.ReadFormAsync();
+    var returnUrl = form["returnUrl"].ToString();
+    var allowCore = string.Equals(form["allowCore"], "on", StringComparison.OrdinalIgnoreCase);
+    var allowMarketing = string.Equals(form["allowMarketing"], "on", StringComparison.OrdinalIgnoreCase);
+    var allowAnalytics = string.Equals(form["allowAnalytics"], "on", StringComparison.OrdinalIgnoreCase);
+    var ipAddress = context.Connection.RemoteIpAddress?.ToString();
+    var userAgent = context.Request.Headers.UserAgent.ToString();
+
+    if (!allowCore)
+    {
+        var target = string.IsNullOrWhiteSpace(returnUrl) ? "/" : Uri.EscapeDataString(returnUrl);
+        context.Response.Redirect($"/privacy/reconsent?error=core-required&returnUrl={target}");
+        return;
+    }
+
+    var userType = context.User.HasClaim(c => c.Type == "InstitutionId") ? "InstitutionUser" : "PortalUser";
+    var baseRequest = new ConsentCaptureRequest
+    {
+        TenantId = tenantId,
+        UserId = userId,
+        UserType = userType,
+        ConsentGiven = true,
+        ConsentMethod = "button_click",
+        IpAddress = ipAddress,
+        UserAgent = userAgent
+    };
+
+    baseRequest.ConsentType = ConsentType.Registration;
+    await consentService.RecordConsent(baseRequest, context.RequestAborted);
+    baseRequest.ConsentType = ConsentType.DataProcessing;
+    await consentService.RecordConsent(baseRequest, context.RequestAborted);
+
+    baseRequest.ConsentType = ConsentType.Marketing;
+    baseRequest.ConsentGiven = allowMarketing;
+    await consentService.RecordConsent(baseRequest, context.RequestAborted);
+
+    baseRequest.ConsentType = ConsentType.Analytics;
+    baseRequest.ConsentGiven = allowAnalytics;
+    await consentService.RecordConsent(baseRequest, context.RequestAborted);
+
+    context.Response.Redirect(string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl);
 });
 
 // PlatformAdmin impersonation endpoint

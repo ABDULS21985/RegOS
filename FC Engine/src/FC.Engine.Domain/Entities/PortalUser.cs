@@ -17,6 +17,8 @@ public class PortalUser
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public DateTime? LastLoginAt { get; set; }
+    public DateTime? DeletedAt { get; set; }
+    public string? DeletionReason { get; set; }
 
     // Lockout fields
     public int FailedLoginAttempts { get; set; }

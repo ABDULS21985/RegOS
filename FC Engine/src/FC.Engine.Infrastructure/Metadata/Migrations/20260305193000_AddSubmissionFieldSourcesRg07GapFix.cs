@@ -42,7 +42,7 @@ public partial class AddSubmissionFieldSourcesRg07GapFix : Migration
                     INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
                     WHERE s.name = 'meta'
                       AND t.name = 'submission_field_sources'
-                      AND sp.type_desc = 'FILTER')
+                      AND sp.predicate_type_desc = 'FILTER')
                 BEGIN
                     EXEC(N'ALTER SECURITY POLICY dbo.TenantSecurityPolicy
                         ADD FILTER PREDICATE dbo.fn_TenantFilter(TenantId) ON meta.submission_field_sources');
@@ -55,7 +55,7 @@ public partial class AddSubmissionFieldSourcesRg07GapFix : Migration
                     INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
                     WHERE s.name = 'meta'
                       AND t.name = 'submission_field_sources'
-                      AND sp.type_desc = 'BLOCK')
+                      AND sp.predicate_type_desc = 'BLOCK')
                 BEGIN
                     EXEC(N'ALTER SECURITY POLICY dbo.TenantSecurityPolicy
                         ADD BLOCK PREDICATE dbo.fn_TenantFilter(TenantId) ON meta.submission_field_sources');
@@ -76,7 +76,7 @@ public partial class AddSubmissionFieldSourcesRg07GapFix : Migration
                     INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
                     WHERE s.name = 'meta'
                       AND t.name = 'submission_field_sources'
-                      AND sp.type_desc = 'FILTER')
+                      AND sp.predicate_type_desc = 'FILTER')
                 BEGIN
                     EXEC(N'ALTER SECURITY POLICY dbo.TenantSecurityPolicy
                         DROP FILTER PREDICATE ON meta.submission_field_sources');
@@ -89,7 +89,7 @@ public partial class AddSubmissionFieldSourcesRg07GapFix : Migration
                     INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
                     WHERE s.name = 'meta'
                       AND t.name = 'submission_field_sources'
-                      AND sp.type_desc = 'BLOCK')
+                      AND sp.predicate_type_desc = 'BLOCK')
                 BEGIN
                     EXEC(N'ALTER SECURITY POLICY dbo.TenantSecurityPolicy
                         DROP BLOCK PREDICATE ON meta.submission_field_sources');

@@ -39,6 +39,8 @@ public class InstitutionUser
     public DateTime? LastLoginAt { get; set; }
 
     public string? LastLoginIp { get; set; }
+    public DateTime? DeletedAt { get; set; }
+    public string? DeletionReason { get; set; }
 
     public int FailedLoginAttempts { get; set; }
 

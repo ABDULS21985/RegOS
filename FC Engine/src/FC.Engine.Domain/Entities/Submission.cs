@@ -19,6 +19,7 @@ public class Submission
     public string? ParsedDataJson { get; set; }
     public int? ProcessingDurationMs { get; set; }
     public DateTime CreatedAt { get; set; }
+    public bool IsRetentionAnonymised { get; set; }
 
     // ── FI Portal Extensions ──
 

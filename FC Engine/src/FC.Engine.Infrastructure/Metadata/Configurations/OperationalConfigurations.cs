@@ -22,6 +22,7 @@ public class SubmissionConfiguration : IEntityTypeConfiguration<Submission>
         // ── FI Portal Extensions ──
         builder.Property(s => s.SubmittedByUserId);
         builder.Property(s => s.ApprovalRequired).HasDefaultValue(false);
+        builder.Property(s => s.IsRetentionAnonymised).HasDefaultValue(false);
         // Navigation to Approval is configured in SubmissionApprovalConfiguration
 
         builder.HasIndex(s => s.TenantId);
