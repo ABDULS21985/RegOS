@@ -6,8 +6,11 @@ using FC.Engine.Infrastructure;
 using FC.Engine.Infrastructure.Auth;
 using FC.Engine.Infrastructure.Middleware;
 using FC.Engine.Infrastructure.MultiTenancy;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using System.Security.Claims;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -40,6 +43,8 @@ builder.Services.AddScoped<FC.Engine.Admin.Services.DialogService>();
 
 // Platform Admin services
 builder.Services.AddScoped<FC.Engine.Admin.Services.TenantManagementService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformAdminService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.JurisdictionManagementService>();
 
 // Authentication — cookie-based for Blazor Server
 builder.Services.AddAuthentication(AdminAuthScheme)
@@ -340,10 +345,44 @@ app.MapPost("/account/reconsent", async (HttpContext context, IConsentService co
     context.Response.Redirect(string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl);
 });
 
-// PlatformAdmin impersonation endpoint
-app.MapGet("/platform/impersonate", (HttpContext context) =>
+app.MapGet("/platform/tenants/export", async (
+    HttpContext context,
+    FC.Engine.Admin.Services.PlatformAdminService platformAdminService) =>
 {
-    // Only PlatformAdmin can impersonate
+    if (!context.User.IsInRole("PlatformAdmin") && !context.User.HasClaim("IsPlatformAdmin", "true"))
+    {
+        return Results.Forbid();
+    }
+
+    var query = new FC.Engine.Admin.Services.PlatformTenantListQuery
+    {
+        Search = context.Request.Query["search"].ToString(),
+        Status = context.Request.Query["status"].ToString(),
+        PlanCode = context.Request.Query["plan"].ToString(),
+        LicenceType = context.Request.Query["licence"].ToString(),
+        SortBy = string.IsNullOrWhiteSpace(context.Request.Query["sortBy"]) ? "name" : context.Request.Query["sortBy"].ToString(),
+        SortDescending = string.Equals(context.Request.Query["sortDesc"], "true", StringComparison.OrdinalIgnoreCase)
+    };
+
+    if (int.TryParse(context.Request.Query["minModules"], out var minModules))
+    {
+        query.MinModuleCount = minModules;
+    }
+
+    var bytes = await platformAdminService.ExportTenantListExcel(query, context.RequestAborted);
+    var fileName = $"platform-tenants-{DateTime.UtcNow:yyyyMMddHHmmss}.xlsx";
+    return Results.File(
+        bytes,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        fileName);
+});
+
+// PlatformAdmin impersonation endpoint
+app.MapGet("/platform/impersonate", async (
+    HttpContext context,
+    MetadataDbContext db,
+    IAuditLogger auditLogger) =>
+{
     if (!context.User.IsInRole("PlatformAdmin") && !context.User.HasClaim("IsPlatformAdmin", "true"))
     {
         context.Response.StatusCode = 403;
@@ -353,19 +392,66 @@ app.MapGet("/platform/impersonate", (HttpContext context) =>
     var tenantIdStr = context.Request.Query["tenantId"].ToString();
     if (Guid.TryParse(tenantIdStr, out var tenantId))
     {
+        var tenantExists = await db.Tenants.AnyAsync(t => t.TenantId == tenantId, context.RequestAborted);
+        if (!tenantExists)
+        {
+            context.Response.Redirect("/platform/tenants?error=tenant-not-found");
+            return;
+        }
+
         context.Response.Cookies.Append("ImpersonateTenantId", tenantId.ToString(), new CookieOptions
         {
             HttpOnly = true,
             SameSite = SameSiteMode.Strict,
             Expires = DateTimeOffset.UtcNow.AddHours(2)
         });
+
+        var performedBy = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                          ?? context.User.Identity?.Name
+                          ?? "platform-admin";
+
+        await auditLogger.Log(
+            "Tenant",
+            0,
+            "ImpersonationStarted",
+            null,
+            new
+            {
+                IsPlatformAdmin = true,
+                ImpersonatedTenantId = tenantId
+            },
+            performedBy,
+            context.RequestAborted);
     }
+
     context.Response.Redirect("/");
 });
 
 // Stop impersonation
-app.MapGet("/platform/stop-impersonation", (HttpContext context) =>
+app.MapGet("/platform/stop-impersonation", async (
+    HttpContext context,
+    IAuditLogger auditLogger) =>
 {
+    if (context.Request.Cookies.TryGetValue("ImpersonateTenantId", out var existingTenantId))
+    {
+        var performedBy = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                          ?? context.User.Identity?.Name
+                          ?? "platform-admin";
+
+        await auditLogger.Log(
+            "Tenant",
+            0,
+            "ImpersonationStopped",
+            null,
+            new
+            {
+                IsPlatformAdmin = true,
+                ImpersonatedTenantId = existingTenantId
+            },
+            performedBy,
+            context.RequestAborted);
+    }
+
     context.Response.Cookies.Delete("ImpersonateTenantId");
     context.Response.Redirect("/platform/tenants");
 });

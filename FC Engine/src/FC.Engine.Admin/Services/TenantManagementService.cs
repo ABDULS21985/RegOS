@@ -10,11 +10,19 @@ public class TenantManagementService
 {
     private readonly MetadataDbContext _db;
     private readonly ITenantOnboardingService _onboardingService;
+    private readonly IAuditLogger _auditLogger;
+    private readonly ITenantContext _tenantContext;
 
-    public TenantManagementService(MetadataDbContext db, ITenantOnboardingService onboardingService)
+    public TenantManagementService(
+        MetadataDbContext db,
+        ITenantOnboardingService onboardingService,
+        IAuditLogger auditLogger,
+        ITenantContext tenantContext)
     {
         _db = db;
         _onboardingService = onboardingService;
+        _auditLogger = auditLogger;
+        _tenantContext = tenantContext;
     }
 
     public async Task<List<Tenant>> GetAllTenantsAsync(CancellationToken ct = default)
@@ -52,6 +60,7 @@ public class TenantManagementService
             ?? throw new InvalidOperationException("Tenant not found");
         tenant.Activate();
         await _db.SaveChangesAsync(ct);
+        await LogPlatformAction("TenantActivated", tenantId, ct);
     }
 
     public async Task SuspendTenantAsync(Guid tenantId, CancellationToken ct = default)
@@ -60,6 +69,7 @@ public class TenantManagementService
             ?? throw new InvalidOperationException("Tenant not found");
         tenant.Suspend("Admin action");
         await _db.SaveChangesAsync(ct);
+        await LogPlatformAction("TenantSuspended", tenantId, ct);
     }
 
     public async Task ReactivateTenantAsync(Guid tenantId, CancellationToken ct = default)
@@ -68,6 +78,7 @@ public class TenantManagementService
             ?? throw new InvalidOperationException("Tenant not found");
         tenant.Reactivate();
         await _db.SaveChangesAsync(ct);
+        await LogPlatformAction("TenantReactivated", tenantId, ct);
     }
 
     public async Task DeactivateTenantAsync(Guid tenantId, CancellationToken ct = default)
@@ -76,6 +87,7 @@ public class TenantManagementService
             ?? throw new InvalidOperationException("Tenant not found");
         tenant.Deactivate();
         await _db.SaveChangesAsync(ct);
+        await LogPlatformAction("TenantDeactivated", tenantId, ct);
     }
 
     public async Task<List<TenantLicenceType>> GetTenantLicencesAsync(Guid tenantId, CancellationToken ct = default)
@@ -100,6 +112,32 @@ public class TenantManagementService
             .Where(m => m.IsActive)
             .OrderBy(m => m.DisplayOrder)
             .ToListAsync(ct);
+    }
+
+    public async Task<string?> GetTenantName(Guid tenantId, CancellationToken ct = default)
+    {
+        return await _db.Tenants
+            .AsNoTracking()
+            .Where(t => t.TenantId == tenantId)
+            .Select(t => t.TenantName)
+            .FirstOrDefaultAsync(ct);
+    }
+
+    private async Task LogPlatformAction(string action, Guid tenantId, CancellationToken ct)
+    {
+        await _auditLogger.Log(
+            "Tenant",
+            0,
+            action,
+            null,
+            new
+            {
+                IsPlatformAdmin = _tenantContext.IsPlatformAdmin,
+                ImpersonatedTenantId = _tenantContext.ImpersonatingTenantId,
+                TenantId = tenantId
+            },
+            "platform-admin",
+            ct);
     }
 }
 

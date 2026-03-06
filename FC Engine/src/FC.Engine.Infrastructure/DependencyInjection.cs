@@ -78,6 +78,7 @@ public static class DependencyInjection
         services.AddScoped<IFieldLocalisationService, FieldLocalisationService>();
         services.AddScoped<IUserLanguagePreferenceService, UserLanguagePreferenceService>();
         services.AddScoped<IJurisdictionConsolidationService, JurisdictionConsolidationService>();
+        services.AddScoped<IFeatureFlagService, FeatureFlagService>();
 
         // Dynamic SQL
         services.AddSingleton<DynamicSqlBuilder>();

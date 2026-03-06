@@ -1,132 +1,217 @@
 @page "/platform/tenants"
-@using Microsoft.AspNetCore.Authorization
-@attribute [Authorize(Roles = "PlatformAdmin")]
-@using FC.Engine.Domain.Entities
+@attribute [Authorize(Policy = "PlatformAdmin")]
 @using FC.Engine.Domain.Enums
-@using FC.Engine.Admin.Services
-@inject TenantManagementService TenantService
-@inject NavigationManager Nav
+@using Microsoft.AspNetCore.WebUtilities
+@inject PlatformAdminService PlatformService
+@inject TenantManagementService TenantManagementService
+@inject NavigationManager Navigation
 
-<header class="dash-header" role="banner">
-    <div class="dash-header-text">
-        <h1>Platform Administration</h1>
-        <p>Tenant Management — RegOS Multi-Tenancy</p>
-    </div>
-</header>
+<PageTitle>Platform Tenants</PageTitle>
 
-@if (_stats != null)
-{
-    <div class="stats-grid" style="display:grid; grid-template-columns:repeat(4, 1fr); gap:1rem; margin:1.5rem 0;">
-        <div class="stat-card" style="padding:1.25rem; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size:2rem; font-weight:700; color:#1e293b;">@_stats.TotalTenants</div>
-            <div style="font-size:0.875rem; color:#64748b;">Total Tenants</div>
+<section class="billing-shell">
+    <header class="billing-hero">
+        <div>
+            <p class="billing-kicker">Platform Console</p>
+            <h1>Global Tenant List</h1>
+            <p>Search, filter, sort, export, and perform quick tenant actions.</p>
         </div>
-        <div class="stat-card" style="padding:1.25rem; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size:2rem; font-weight:700; color:#16a34a;">@_stats.ActiveTenants</div>
-            <div style="font-size:0.875rem; color:#64748b;">Active</div>
+        <div class="billing-hero-note">
+            <button class="btn btn-outline btn-sm" @onclick="Export">Export Excel</button>
+            <span>@DateTime.UtcNow.ToString("dd MMM yyyy HH:mm") UTC</span>
         </div>
-        <div class="stat-card" style="padding:1.25rem; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size:2rem; font-weight:700; color:#f59e0b;">@_stats.PendingTenants</div>
-            <div style="font-size:0.875rem; color:#64748b;">Pending Activation</div>
-        </div>
-        <div class="stat-card" style="padding:1.25rem; background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-            <div style="font-size:2rem; font-weight:700; color:#ef4444;">@_stats.SuspendedTenants</div>
-            <div style="font-size:0.875rem; color:#64748b;">Suspended</div>
-        </div>
-    </div>
-}
+    </header>
 
-<div style="background:#fff; border-radius:8px; box-shadow:0 1px 3px rgba(0,0,0,0.1); overflow:hidden;">
-    <table style="width:100%; border-collapse:collapse;">
-        <thead>
-            <tr style="background:#f8fafc; border-bottom:2px solid #e2e8f0;">
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Tenant Name</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Slug</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Status</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Contact</th>
-                <th style="padding:0.75rem 1rem; text-align:left; font-weight:600; font-size:0.8125rem; color:#475569;">Created</th>
-                <th style="padding:0.75rem 1rem; text-align:right; font-weight:600; font-size:0.8125rem; color:#475569;">Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-            @if (_tenants != null)
-            {
-                @foreach (var tenant in _tenants)
+    <section class="card billing-surface">
+        <div class="billing-toolbar billing-toolbar-wrap">
+            <input class="form-control billing-search"
+                   type="search"
+                   placeholder="Search tenant name, slug, email"
+                   @bind="_query.Search"
+                   @bind:event="oninput"
+                   @oninput="async _ => await Load()" />
+
+            <select class="form-control billing-select" @bind="_query.Status" @onchange="async _ => await Load()">
+                <option value="">All statuses</option>
+                @foreach (var status in Enum.GetValues<TenantStatus>())
                 {
-                    <tr style="border-bottom:1px solid #e2e8f0;">
-                        <td style="padding:0.75rem 1rem; font-weight:500;">@tenant.TenantName</td>
-                        <td style="padding:0.75rem 1rem; font-family:monospace; font-size:0.8125rem; color:#64748b;">@tenant.TenantSlug</td>
-                        <td style="padding:0.75rem 1rem;">
-                            <span style="padding:0.25rem 0.75rem; border-radius:9999px; font-size:0.75rem; font-weight:500; @GetStatusStyle(tenant.Status)">
-                                @tenant.Status
-                            </span>
-                        </td>
-                        <td style="padding:0.75rem 1rem; font-size:0.8125rem; color:#64748b;">@(tenant.ContactEmail ?? "—")</td>
-                        <td style="padding:0.75rem 1rem; font-size:0.8125rem; color:#64748b;">@tenant.CreatedAt.ToString("yyyy-MM-dd")</td>
-                        <td style="padding:0.75rem 1rem; text-align:right;">
-                            <button @onclick="() => ImpersonateTenant(tenant.TenantId)"
-                                    style="padding:0.375rem 0.75rem; background:#3b82f6; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.8125rem; margin-right:0.25rem;"
-                                    title="Impersonate this tenant">
-                                Impersonate
-                            </button>
-                            @if (tenant.Status == TenantStatus.PendingActivation)
-                            {
-                                <button @onclick="() => ActivateTenant(tenant.TenantId)"
-                                        style="padding:0.375rem 0.75rem; background:#16a34a; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.8125rem;">
-                                    Activate
-                                </button>
-                            }
-                            @if (tenant.Status == TenantStatus.Active)
-                            {
-                                <button @onclick="() => SuspendTenant(tenant.TenantId)"
-                                        style="padding:0.375rem 0.75rem; background:#ef4444; color:white; border:none; border-radius:4px; cursor:pointer; font-size:0.8125rem;">
-                                    Suspend
-                                </button>
-                            }
-                        </td>
-                    </tr>
+                    <option value="@status.ToString()">@status</option>
                 }
-            }
-        </tbody>
-    </table>
-</div>
+            </select>
+
+            <select class="form-control billing-select" @bind="_query.PlanCode" @onchange="async _ => await Load()">
+                <option value="">All plans</option>
+                @foreach (var plan in _planOptions)
+                {
+                    <option value="@plan">@plan</option>
+                }
+            </select>
+
+            <select class="form-control billing-select" @bind="_query.LicenceType" @onchange="async _ => await Load()">
+                <option value="">All licence types</option>
+                @foreach (var licence in _licenceOptions)
+                {
+                    <option value="@licence">@licence</option>
+                }
+            </select>
+
+            <select class="form-control billing-select" @bind="_query.SortBy" @onchange="async _ => await Load()">
+                <option value="name">Sort: Name</option>
+                <option value="status">Sort: Status</option>
+                <option value="plan">Sort: Plan</option>
+                <option value="modules">Sort: Active modules</option>
+                <option value="users">Sort: Users</option>
+                <option value="entities">Sort: Entities</option>
+                <option value="mrr">Sort: MRR</option>
+                <option value="created">Sort: Created</option>
+            </select>
+
+            <label style="display:flex; align-items:center; gap:0.45rem;">
+                <input type="checkbox" @bind="_query.SortDescending" @onchange="async _ => await Load()" />
+                Desc
+            </label>
+        </div>
+    </section>
+
+    @if (_loading)
+    {
+        <section class="card billing-surface">
+            <p>Loading tenants...</p>
+        </section>
+    }
+    else
+    {
+        <section class="card billing-surface">
+            <div class="billing-table-wrap">
+                <table class="data-table billing-table">
+                    <thead>
+                        <tr>
+                            <th>Tenant Name</th>
+                            <th>Slug</th>
+                            <th>Status</th>
+                            <th>Plan</th>
+                            <th>Active Modules</th>
+                            <th>Users</th>
+                            <th>Entities</th>
+                            <th>MRR</th>
+                            <th>Created</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (_tenants.Count == 0)
+                        {
+                            <tr>
+                                <td colspan="10" class="billing-empty-cell">No tenants match current filters.</td>
+                            </tr>
+                        }
+                        else
+                        {
+                            @foreach (var tenant in _tenants)
+                            {
+                                <tr>
+                                    <td>
+                                        <div class="billing-plan-name">@tenant.TenantName</div>
+                                        <div class="billing-plan-code">@tenant.LicenceType</div>
+                                    </td>
+                                    <td><code>@tenant.TenantSlug</code></td>
+                                    <td><span class="badge @GetBadge(tenant.Status)">@tenant.Status</span></td>
+                                    <td>@tenant.PlanName</td>
+                                    <td>@tenant.ActiveModules</td>
+                                    <td>@tenant.Users</td>
+                                    <td>@tenant.Entities</td>
+                                    <td>@tenant.Mrr.ToString("N2")</td>
+                                    <td>@tenant.CreatedAt.ToString("yyyy-MM-dd")</td>
+                                    <td>
+                                        <div class="billing-actions-grid">
+                                            <button class="btn btn-outline btn-sm" @onclick="() => OpenTenant(tenant.TenantId)">View</button>
+                                            <button class="btn btn-primary btn-sm" @onclick="() => Impersonate(tenant.TenantId)">Impersonate</button>
+                                            @if (tenant.Status == TenantStatus.Active)
+                                            {
+                                                <button class="btn btn-danger btn-sm" @onclick="() => Suspend(tenant.TenantId)">Suspend</button>
+                                            }
+                                            @if (tenant.Status == TenantStatus.PendingActivation || tenant.Status == TenantStatus.Suspended)
+                                            {
+                                                <button class="btn btn-success btn-sm" @onclick="() => Activate(tenant.TenantId)">Activate</button>
+                                            }
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    }
+</section>
 
 @code {
-    private List<Tenant>? _tenants;
-    private TenantDashboardStats? _stats;
+    private readonly PlatformTenantListQuery _query = new();
+    private List<PlatformTenantListItem> _tenants = new();
+    private List<string> _planOptions = new();
+    private List<string> _licenceOptions = new();
+    private bool _loading = true;
 
     protected override async Task OnInitializedAsync()
     {
-        _tenants = await TenantService.GetAllTenantsAsync();
-        _stats = await TenantService.GetDashboardStatsAsync();
+        await Load();
     }
 
-    private void ImpersonateTenant(Guid tenantId)
+    private async Task Load()
     {
-        // Set impersonation cookie and redirect to dashboard
-        Nav.NavigateTo($"/platform/impersonate?tenantId={tenantId}", forceLoad: true);
+        _loading = true;
+        var result = await PlatformService.GetTenantList(_query);
+        _tenants = result.Tenants;
+        _planOptions = result.PlanOptions;
+        _licenceOptions = result.LicenceOptions;
+        _loading = false;
     }
 
-    private async Task ActivateTenant(Guid tenantId)
+    private void OpenTenant(Guid tenantId)
     {
-        await TenantService.ActivateTenantAsync(tenantId);
-        _tenants = await TenantService.GetAllTenantsAsync();
-        _stats = await TenantService.GetDashboardStatsAsync();
+        Navigation.NavigateTo($"/platform/tenants/{tenantId}");
     }
 
-    private async Task SuspendTenant(Guid tenantId)
+    private void Impersonate(Guid tenantId)
     {
-        await TenantService.SuspendTenantAsync(tenantId);
-        _tenants = await TenantService.GetAllTenantsAsync();
-        _stats = await TenantService.GetDashboardStatsAsync();
+        Navigation.NavigateTo($"/platform/impersonate?tenantId={tenantId}", forceLoad: true);
     }
 
-    private static string GetStatusStyle(TenantStatus status) => status switch
+    private async Task Activate(Guid tenantId)
     {
-        TenantStatus.Active => "background:#dcfce7; color:#166534;",
-        TenantStatus.PendingActivation => "background:#fef3c7; color:#92400e;",
-        TenantStatus.Suspended => "background:#fee2e2; color:#991b1b;",
-        TenantStatus.Deactivated => "background:#e2e8f0; color:#475569;",
-        _ => "background:#f1f5f9; color:#475569;"
+        await TenantManagementService.ActivateTenantAsync(tenantId);
+        await Load();
+    }
+
+    private async Task Suspend(Guid tenantId)
+    {
+        await TenantManagementService.SuspendTenantAsync(tenantId);
+        await Load();
+    }
+
+    private void Export()
+    {
+        var query = new Dictionary<string, string?>
+        {
+            ["search"] = _query.Search,
+            ["status"] = _query.Status,
+            ["plan"] = _query.PlanCode,
+            ["licence"] = _query.LicenceType,
+            ["sortBy"] = _query.SortBy,
+            ["sortDesc"] = _query.SortDescending.ToString().ToLowerInvariant()
+        };
+
+        var url = QueryHelpers.AddQueryString("/platform/tenants/export", query!);
+        Navigation.NavigateTo(url, forceLoad: true);
+    }
+
+    private static string GetBadge(TenantStatus status) => status switch
+    {
+        TenantStatus.Active => "badge-published",
+        TenantStatus.PendingActivation => "badge-review",
+        TenantStatus.Suspended => "badge-deprecated",
+        TenantStatus.Deactivated => "badge-deprecated",
+        TenantStatus.Archived => "badge-draft",
+        _ => "badge-review"
     };
 }
