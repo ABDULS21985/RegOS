@@ -514,6 +514,12 @@ public class NotificationOrchestrator : INotificationOrchestrator
             return NotificationType.SystemAnnouncement;
         }
 
+        if (eventType.StartsWith("breach.", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(eventType, NotificationEvents.UserProvisioned, StringComparison.OrdinalIgnoreCase))
+        {
+            return NotificationType.AuditEvent;
+        }
+
         return NotificationType.SubmissionResult;
     }
 

@@ -84,5 +84,8 @@ public enum NotificationType
     SystemAnnouncement,
 
     /// <summary>A team member was added, deactivated, or role-changed (Admin only).</summary>
-    TeamUpdate
+    TeamUpdate,
+
+    /// <summary>Audit trail events — login, data changes, export activity.</summary>
+    AuditEvent
 }
