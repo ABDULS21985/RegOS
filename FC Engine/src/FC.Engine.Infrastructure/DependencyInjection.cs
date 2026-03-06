@@ -206,9 +206,7 @@ public static class DependencyInjection
         // ── Dashboard & Analytics (RG-17) ──
         services.AddScoped<IDashboardService, DashboardService>();
         services.AddScoped<IBenchmarkingService, BenchmarkingService>();
-        // ChartJsInterop requires IJSRuntime (Blazor only); skip in API/worker hosts
-        if (services.Any(s => s.ServiceType == typeof(Microsoft.JSInterop.IJSRuntime)))
-            services.AddScoped<ChartJsInterop>();
+        services.AddScoped<ChartJsInterop>();
         services.AddScoped<IRegulatorInboxService, RegulatorInboxService>();
         services.AddScoped<ISectorAnalyticsService, SectorAnalyticsService>();
         services.AddScoped<IEntityBenchmarkingService, EntityBenchmarkingService>();
