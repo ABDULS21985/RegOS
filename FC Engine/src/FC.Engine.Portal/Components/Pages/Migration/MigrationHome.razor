@@ -24,12 +24,52 @@
             </p>
         </div>
         <div class="portal-detail-hero-actions">
-            <a class="portal-btn portal-btn-outline portal-btn-sm" href="/migration/tracker">Open Progress Tracker</a>
+            <a class="portal-btn portal-btn-outline portal-btn-sm" href="/migration/tracker">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="margin-right:0.25rem;"><path d="M2 8h12M2 4h8M2 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                Progress Tracker
+            </a>
         </div>
     </div>
 
+    <!-- Step Journey Cards -->
+    <div class="portal-mig-journey">
+        @for (int si = 0; si < _steps.Length; si++)
+        {
+            var stepIdx = si;
+            var step = _steps[si];
+            var stepClass = GetStepClass(stepIdx);
+            <div class="portal-mig-step @stepClass">
+                <div class="portal-mig-step-icon">
+                    @if (stepClass.Contains("completed"))
+                    {
+                        <svg class="portal-mig-step-check" viewBox="0 0 16 16" fill="none">
+                            <path d="M3 8l3.5 3.5L13 4.5" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    }
+                    else
+                    {
+                        <span>@(stepIdx + 1)</span>
+                    }
+                </div>
+                <div class="portal-mig-step-body">
+                    <div class="portal-mig-step-num">Step @(stepIdx + 1)</div>
+                    <div class="portal-mig-step-title">@step.Title</div>
+                    <div class="portal-mig-step-desc">@step.Desc</div>
+                    @if (stepClass.Contains("active"))
+                    {
+                        <div class="portal-mig-step-active-badge">
+                            <span class="portal-mig-step-active-dot"></span>
+                            In Progress
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
+    <!-- New Import Job -->
     <div class="portal-card" style="padding:1rem 1.25rem;">
-        <h3 class="portal-detail-section-title" style="margin-top:0;">New Import Job</h3>
+        <h3 class="portal-detail-section-title" style="margin-top:0;">Start New Import Job</h3>
         <div class="portal-form-grid portal-form-grid-3" style="margin-top:0.75rem;">
             <div class="portal-form-group">
                 <label class="portal-form-label">Template</label>
@@ -37,7 +77,7 @@
                     <option value="">Select template...</option>
                     @foreach (var template in templates)
                     {
-                        <option value="@template.ReturnCode">@template.ReturnCode - @template.TemplateName</option>
+                        <option value="@template.ReturnCode">@template.ReturnCode — @template.TemplateName</option>
                     }
                 </select>
             </div>
@@ -70,56 +110,83 @@
             <div class="portal-validation-banner portal-validation-banner-success" style="margin-top:0.8rem;">@successMessage</div>
         }
 
-        <div style="margin-top:1rem; display:flex; gap:0.5rem; flex-wrap:wrap;">
-            <button class="portal-btn portal-btn-primary"
-                    @onclick="CreateImportJob"
-                    disabled="@isProcessing">
-                @(isProcessing ? "Processing..." : "Upload and Parse")
+        <div style="margin-top:1rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+            <button class="portal-btn portal-btn-primary" @onclick="CreateImportJob" disabled="@isProcessing">
+                @if (isProcessing)
+                {
+                    <span class="portal-spinner portal-spinner-sm" style="margin-right:0.375rem;"></span>
+                    <span>Processing…</span>
+                }
+                else
+                {
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="margin-right:0.375rem;"><path d="M8 2v9M4 7l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 13h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                    <span>Upload and Parse</span>
+                }
             </button>
-            <button class="portal-btn portal-btn-outline" @onclick="LoadJobs" disabled="@isProcessing">Refresh Jobs</button>
+            <button class="portal-btn portal-btn-outline" @onclick="LoadJobs" disabled="@isProcessing">Refresh</button>
         </div>
     </div>
 
+    <!-- Import Jobs Table -->
     <div class="portal-card" style="padding:1rem 1.25rem; margin-top:1rem;">
-        <h3 class="portal-detail-section-title" style="margin-top:0;">Import Jobs</h3>
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:0.5rem; margin-bottom:0.75rem;">
+            <h3 class="portal-detail-section-title" style="margin:0;">Import Jobs</h3>
+            @if (jobs.Count > 0)
+            {
+                <span class="portal-text-muted" style="font-size:0.78rem;">@jobs.Count job@(jobs.Count == 1 ? "" : "s") total</span>
+            }
+        </div>
 
         @if (jobs.Count == 0)
         {
-            <p class="portal-text-muted" style="margin-top:0.75rem;">No migration jobs yet.</p>
+            <div style="padding:2rem; text-align:center; color:var(--cbn-text-muted);">
+                <svg width="40" height="40" viewBox="0 0 40 40" fill="none" style="margin-bottom:0.75rem;opacity:0.3;"><rect x="5" y="8" width="30" height="26" rx="3" stroke="currentColor" stroke-width="2"/><path d="M13 16h14M13 22h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M20 2v6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <p style="margin:0; font-size:0.875rem;">No migration jobs yet. Upload a file above to begin.</p>
+            </div>
         }
         else
         {
-            <div class="portal-table-responsive" style="margin-top:0.75rem;">
+            <div class="portal-table-responsive">
                 <table class="portal-table">
                     <thead>
                         <tr>
-                            <th>Job</th>
+                            <th>#</th>
                             <th>Return</th>
                             <th>File</th>
+                            <th>Step</th>
                             <th>Status</th>
-                            <th>Rows</th>
-                            <th>Warnings</th>
-                            <th>Errors</th>
+                            <th style="text-align:right;">Rows</th>
+                            <th style="text-align:right;">Warn</th>
+                            <th style="text-align:right;">Err</th>
                             <th>Updated</th>
-                            <th>Action</th>
+                            <th></th>
                         </tr>
                     </thead>
                     <tbody>
                         @foreach (var job in jobs)
                         {
+                            var jobStep = GetJobStep(job.Status);
                             <tr>
-                                <td>#@job.Id</td>
-                                <td>@job.ReturnCode</td>
-                                <td>@job.SourceFileName</td>
-                                <td><span class="portal-badge @GetStatusBadge(job.Status)">@job.Status</span></td>
-                                <td>@job.RecordCount</td>
-                                <td>@job.WarningCount</td>
-                                <td>@job.ErrorCount</td>
-                                <td>@job.UpdatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td style="font-variant-numeric:tabular-nums; color:var(--cbn-text-muted); font-size:0.78rem;">#@job.Id</td>
+                                <td style="font-weight:600; font-size:0.8125rem;">@job.ReturnCode</td>
+                                <td style="font-size:0.78rem; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@job.SourceFileName">@job.SourceFileName</td>
                                 <td>
-                                    <button class="portal-btn portal-btn-sm portal-btn-outline"
-                                            @onclick="() => OpenWorkflow(job.Id)">
-                                        Open Workflow
+                                    <span class="portal-mig-job-step portal-mig-job-step--@(job.Status == ImportJobStatus.Failed ? "err" : jobStep.ToString())">
+                                        @if (job.Status == ImportJobStatus.Committed)
+                                        {
+                                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                        }
+                                        @GetJobStepLabel(job.Status)
+                                    </span>
+                                </td>
+                                <td><span class="portal-badge @GetStatusBadge(job.Status)">@job.Status</span></td>
+                                <td style="text-align:right; font-variant-numeric:tabular-nums;">@job.RecordCount</td>
+                                <td style="text-align:right; font-variant-numeric:tabular-nums; @(job.WarningCount > 0 ? "color:#d97706;font-weight:600;" : "")">@job.WarningCount</td>
+                                <td style="text-align:right; font-variant-numeric:tabular-nums; @(job.ErrorCount > 0 ? "color:#dc2626;font-weight:600;" : "")">@job.ErrorCount</td>
+                                <td style="font-size:0.75rem; color:var(--cbn-text-muted);">@job.UpdatedAt.ToString("dd MMM HH:mm")</td>
+                                <td>
+                                    <button class="portal-btn portal-btn-sm portal-btn-outline" @onclick="() => OpenWorkflow(job.Id)">
+                                        @(job.Status is ImportJobStatus.Committed or ImportJobStatus.Failed ? "View" : "Open →")
                                     </button>
                                 </td>
                             </tr>
@@ -134,6 +201,17 @@
 @code {
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
+
+    private record MigStepDef(string Title, string Desc);
+
+    private static readonly MigStepDef[] _steps =
+    [
+        new("Upload Legacy Data", "Upload your Excel, CSV, or PDF file from the legacy system"),
+        new("Map Fields", "Connect source columns to FC Engine schema fields"),
+        new("Validate Mapping", "Run relaxed validation to check data integrity"),
+        new("Preview Import", "Review a 10-row sample before final commit"),
+        new("Confirm & Import", "Commit as read-only historical submissions")
+    ];
 
     private List<TemplateBrowseItem> templates = [];
     private List<ReturnPeriod> periods = [];
@@ -157,20 +235,13 @@
 
     private async Task LoadUserContext()
     {
-        if (AuthState is null)
-        {
-            return;
-        }
-
+        if (AuthState is null) return;
         var state = await AuthState;
         var user = state.User;
-
         var institutionIdRaw = user.FindFirst("InstitutionId")?.Value;
         _ = int.TryParse(institutionIdRaw, out institutionId);
-
         var userIdRaw = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? user.FindFirst("sub")?.Value;
         _ = int.TryParse(userIdRaw, out userId);
-
         tenantId = TenantContext.CurrentTenantId;
     }
 
@@ -178,15 +249,9 @@
     {
         errorMessage = null;
         successMessage = null;
-
-        if (!tenantId.HasValue)
-        {
-            jobs = [];
-            return;
-        }
-
+        if (!tenantId.HasValue) { jobs = []; return; }
         jobs = (await MigrationService.GetJobs(tenantId.Value, institutionId))
-            .OrderByDescending(x => x.CreatedAt)
+            .OrderByDescending(x => x.UpdatedAt)
             .ToList();
     }
 
@@ -195,42 +260,17 @@
         selectedReturnCode = args.Value?.ToString()?.Trim() ?? string.Empty;
         selectedPeriodId = 0;
         periods = [];
-
-        if (!tenantId.HasValue || string.IsNullOrWhiteSpace(selectedReturnCode))
-        {
-            return;
-        }
-
+        if (!tenantId.HasValue || string.IsNullOrWhiteSpace(selectedReturnCode)) return;
         try
         {
             var template = await TemplateCache.GetPublishedTemplate(tenantId.Value, selectedReturnCode);
             var moduleId = template.ModuleId;
-
-            IQueryable<ReturnPeriod> query = Db.ReturnPeriods
-                .Where(x => x.TenantId == tenantId.Value);
-
-            if (moduleId.HasValue)
-            {
-                query = query.Where(x => x.ModuleId == moduleId.Value);
-            }
-            else
-            {
-                query = query.Where(x => x.ModuleId == null);
-            }
-
-            periods = await query
-                .OrderByDescending(x => x.Year)
-                .ThenByDescending(x => x.Quarter)
-                .ThenByDescending(x => x.Month)
-                .Take(120)
-                .ToListAsync();
-
+            IQueryable<ReturnPeriod> query = Db.ReturnPeriods.Where(x => x.TenantId == tenantId.Value);
+            query = moduleId.HasValue ? query.Where(x => x.ModuleId == moduleId.Value) : query.Where(x => x.ModuleId == null);
+            periods = await query.OrderByDescending(x => x.Year).ThenByDescending(x => x.Quarter).ThenByDescending(x => x.Month).Take(120).ToListAsync();
             selectedPeriodId = periods.FirstOrDefault()?.Id ?? 0;
         }
-        catch (Exception ex)
-        {
-            errorMessage = ex.Message;
-        }
+        catch (Exception ex) { errorMessage = ex.Message; }
     }
 
     private void OnFileSelected(InputFileChangeEventArgs args)
@@ -242,100 +282,100 @@
     {
         errorMessage = null;
         successMessage = null;
-
-        if (!tenantId.HasValue)
-        {
-            errorMessage = "Tenant context is missing.";
-            return;
-        }
-
-        if (institutionId <= 0 || userId <= 0)
-        {
-            errorMessage = "User context is missing.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(selectedReturnCode))
-        {
-            errorMessage = "Select a template.";
-            return;
-        }
-
-        if (selectedPeriodId <= 0)
-        {
-            errorMessage = "Select a reporting period.";
-            return;
-        }
-
-        if (selectedFile is null)
-        {
-            errorMessage = "Select a source file.";
-            return;
-        }
+        if (!tenantId.HasValue) { errorMessage = "Tenant context is missing."; return; }
+        if (institutionId <= 0 || userId <= 0) { errorMessage = "User context is missing."; return; }
+        if (string.IsNullOrWhiteSpace(selectedReturnCode)) { errorMessage = "Select a template."; return; }
+        if (selectedPeriodId <= 0) { errorMessage = "Select a reporting period."; return; }
+        if (selectedFile is null) { errorMessage = "Select a source file."; return; }
 
         isProcessing = true;
         try
         {
             await using var stream = selectedFile.OpenReadStream(50 * 1024 * 1024);
             var job = await MigrationService.UploadAndParse(
-                tenantId.Value,
-                institutionId,
-                selectedReturnCode,
-                selectedPeriodId,
-                selectedFile.Name,
-                stream,
-                userId);
-
-            successMessage = $"Import job #{job.Id} created with status {job.Status}.";
+                tenantId.Value, institutionId, selectedReturnCode, selectedPeriodId,
+                selectedFile.Name, stream, userId);
+            successMessage = $"Import job #{job.Id} created — file parsed, ready for field mapping.";
             await LoadJobs();
         }
-        catch (Exception ex)
-        {
-            errorMessage = ex.Message;
-        }
-        finally
-        {
-            isProcessing = false;
-        }
+        catch (Exception ex) { errorMessage = ex.Message; }
+        finally { isProcessing = false; }
     }
 
-    private void OpenWorkflow(int importJobId)
+    private void OpenWorkflow(int importJobId) => Navigation.NavigateTo($"/migration/mapping/{importJobId}");
+
+    private int GetCurrentStep()
     {
-        Navigation.NavigateTo($"/migration/mapping/{importJobId}");
+        var latest = jobs.FirstOrDefault();
+        return latest?.Status switch
+        {
+            ImportJobStatus.Uploaded => 0,
+            ImportJobStatus.Parsed => 0,
+            ImportJobStatus.MappingReview => 1,
+            ImportJobStatus.Validated => 2,
+            ImportJobStatus.Staged => 3,
+            ImportJobStatus.Committed => 4,
+            _ => 0
+        };
     }
+
+    private bool AreAllCommitted() => jobs.Count > 0 && jobs.All(j => j.Status == ImportJobStatus.Committed);
+
+    private bool IsStepCompleted(int stepIdx)
+    {
+        if (!jobs.Any()) return false;
+        if (AreAllCommitted()) return true;
+        return stepIdx < GetCurrentStep();
+    }
+
+    private string GetStepClass(int stepIdx)
+    {
+        if (IsStepCompleted(stepIdx)) return "portal-mig-step--completed";
+        var current = GetCurrentStep();
+        if (stepIdx == current && jobs.Any() && !AreAllCommitted()) return "portal-mig-step--active";
+        return "portal-mig-step--upcoming";
+    }
+
+    private static int GetJobStep(ImportJobStatus status) => status switch
+    {
+        ImportJobStatus.Uploaded or ImportJobStatus.Parsed => 0,
+        ImportJobStatus.MappingReview => 1,
+        ImportJobStatus.Validated => 2,
+        ImportJobStatus.Staged => 3,
+        ImportJobStatus.Committed => 4,
+        _ => 0
+    };
+
+    private static string GetJobStepLabel(ImportJobStatus status) => status switch
+    {
+        ImportJobStatus.Uploaded or ImportJobStatus.Parsed => "Upload",
+        ImportJobStatus.MappingReview => "Map Fields",
+        ImportJobStatus.Validated => "Validate",
+        ImportJobStatus.Staged => "Preview",
+        ImportJobStatus.Committed => "Committed",
+        ImportJobStatus.Failed => "Failed",
+        _ => "Unknown"
+    };
+
+    private static string GetStatusBadge(ImportJobStatus status) => status switch
+    {
+        ImportJobStatus.Committed => "portal-badge-success",
+        ImportJobStatus.Failed => "portal-badge-danger",
+        ImportJobStatus.MappingReview => "portal-badge-warning",
+        ImportJobStatus.Validated => "portal-badge-info",
+        ImportJobStatus.Staged => "portal-badge-info",
+        _ => "portal-badge-neutral"
+    };
 
     private static string FormatPeriod(ReturnPeriod period)
     {
         if (period.Frequency.Equals("Quarterly", StringComparison.OrdinalIgnoreCase) && period.Quarter.HasValue)
-        {
             return $"Q{period.Quarter.Value} {period.Year}";
-        }
-
         if (period.Frequency.Equals("Annual", StringComparison.OrdinalIgnoreCase))
-        {
             return $"FY {period.Year}";
-        }
-
         if (period.Frequency.Equals("SemiAnnual", StringComparison.OrdinalIgnoreCase))
-        {
-            var half = period.Month <= 6 ? 1 : 2;
-            return $"H{half} {period.Year}";
-        }
-
+            return $"H{(period.Month <= 6 ? 1 : 2)} {period.Year}";
         return new DateTime(period.Year, Math.Clamp(period.Month, 1, 12), 1).ToString("MMM yyyy");
-    }
-
-    private static string GetStatusBadge(ImportJobStatus status)
-    {
-        return status switch
-        {
-            ImportJobStatus.Committed => "portal-badge-success",
-            ImportJobStatus.Failed => "portal-badge-danger",
-            ImportJobStatus.MappingReview => "portal-badge-warning",
-            ImportJobStatus.Validated => "portal-badge-info",
-            ImportJobStatus.Staged => "portal-badge-info",
-            _ => "portal-badge-neutral"
-        };
     }
 
     private static string FormatBytes(long bytes)

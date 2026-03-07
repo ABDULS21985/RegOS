@@ -20,9 +20,9 @@
         <button class="portal-btn portal-btn--primary portal-cal-ical-btn"
                 @onclick="ExportIcal"
                 disabled="@(_data is null || _loading)"
-                title="Export all deadlines to Google Calendar / Outlook">
+                title="Export your institution's deadlines to Google Calendar / Outlook">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Add to Calendar
+            Export my deadlines
         </button>
     </PrimaryAction>
     <SecondaryActions>
@@ -62,16 +62,44 @@
         <button class="portal-cal-nav-today" @onclick="GoToToday">Today</button>
     </div>
 
-    @* Compliance ring *@
-    <div class="portal-cal-ring-wrap" title="Compliance rate for displayed period">
-        <svg class="portal-cal-ring-svg" viewBox="0 0 80 80" aria-label="Compliance @_compliancePct%">
-            <circle class="portal-cal-ring-track" cx="40" cy="40" r="32"/>
-            <circle class="portal-cal-ring-fill @RingColorClass" cx="40" cy="40" r="32"
-                    style="stroke-dashoffset: @RingOffset.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)"/>
-        </svg>
-        <div class="portal-cal-ring-text">
-            <span class="portal-cal-ring-pct">@_compliancePct%</span>
-            <span class="portal-cal-ring-sub">Compliance</span>
+    @* FY config + Compliance ring *@
+    <div class="portal-cal-controls-right">
+        @* Fiscal Year config *@
+        <div class="portal-cal-fy-wrap">
+            <button class="portal-cal-fy-btn" @onclick="ToggleFyConfig"
+                    title="Configure fiscal year start month">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 1.36 13.57M4.93 19.07A10 10 0 0 1 3.57 5.5"/><path d="M14.83 9.17a4 4 0 0 1 0 5.66M9.17 14.83a4 4 0 0 1 0-5.66"/></svg>
+                FY: @MonthName(_fiscalYearStart)
+            </button>
+            @if (_fyConfigOpen)
+            {
+                <div class="portal-cal-fy-popover" role="dialog" aria-label="Fiscal year start month">
+                    <div class="portal-cal-fy-popover-label">Fiscal year start</div>
+                    <div class="portal-cal-fy-months">
+                        @for (int m = 1; m <= 12; m++)
+                        {
+                            int captured = m;
+                            <button class="portal-cal-fy-month-btn @(_fiscalYearStart == captured ? "portal-cal-fy-month-btn--active" : "")"
+                                    @onclick="() => SetFiscalYearStart(captured)">
+                                @MonthName(captured)
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* Compliance ring *@
+        <div class="portal-cal-ring-wrap" title="Compliance rate for displayed period">
+            <svg class="portal-cal-ring-svg" viewBox="0 0 80 80" aria-label="Compliance @_compliancePct%">
+                <circle class="portal-cal-ring-track" cx="40" cy="40" r="32"/>
+                <circle class="portal-cal-ring-fill @RingColorClass" cx="40" cy="40" r="32"
+                        style="stroke-dashoffset: @RingOffset.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)"/>
+            </svg>
+            <div class="portal-cal-ring-text">
+                <span class="portal-cal-ring-pct">@_compliancePct%</span>
+                <span class="portal-cal-ring-sub">Compliance</span>
+            </div>
         </div>
     </div>
 </div>
@@ -97,6 +125,18 @@
             <span class="portal-cal-stat-lbl">Overdue</span>
         </div>
     </div>
+
+    @* Band legend *@
+    @if (_view == "month")
+    {
+        <div class="portal-cal-band-legend" aria-label="Regulatory cycle legend">
+            <span class="portal-cal-band-legend-label">Regulatory cycles:</span>
+            <span class="portal-cal-band portal-cal-band--weekly">CBN Weekly</span>
+            <span class="portal-cal-band portal-cal-band--monthly">Monthly</span>
+            <span class="portal-cal-band portal-cal-band--quarterly">Quarterly</span>
+            <span class="portal-cal-band portal-cal-band--annual">Annual / Semi-Annual</span>
+        </div>
+    }
 }
 
 @* ── Loading / Error ── *@
@@ -117,80 +157,109 @@ else if (_data is not null)
     @if (_view == "month")
     {
         <div class="portal-cal-month-grid">
-            @* Day-of-week headers *@
-            @foreach (var dow in new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" })
+            @* Day-of-week header row *@
+            <div class="portal-cal-dow-row" role="row">
+                @foreach (var dow in new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" })
+                {
+                    <div class="portal-cal-dow" role="columnheader">@dow</div>
+                }
+            </div>
+
+            @* Week rows with regulatory bands *@
+            @foreach (var week in _weekRows)
             {
-                <div class="portal-cal-dow">@dow</div>
-            }
+                <div class="portal-cal-week-row">
+                    @* Regulatory cycle bands *@
+                    <div class="portal-cal-bands" aria-label="Regulatory cycles this week">
+                        @foreach (var band in week.Bands)
+                        {
+                            <span class="portal-cal-band portal-cal-band--@band.BandType">@band.Label</span>
+                        }
+                    </div>
 
-            @* Day cells *@
-            @foreach (var day in _calendarDays)
-            {
-                var dayClass = "portal-cal-day"
-                    + (day.IsCurrentMonth ? "" : " portal-cal-day--other")
-                    + (day.IsToday ? " portal-cal-day--today" : "")
-                    + (day.Entries.Any(e => e.Status == CalendarEntryStatus.Overdue) ? " portal-cal-day--has-overdue" : "");
+                    @* 7 day cells *@
+                    <div class="portal-cal-week-days" role="row">
+                        @foreach (var day in week.Days)
+                        {
+                            var heatClass = ProximityHeatClass(day.Entries);
+                            var fyClass = IsFyStart(day.Date) ? " portal-cal-day--fy-start"
+                                        : IsFyEnd(day.Date)   ? " portal-cal-day--fy-end"
+                                        : "";
+                            var dayClass = "portal-cal-day"
+                                + (day.IsCurrentMonth ? "" : " portal-cal-day--other")
+                                + (day.IsToday ? " portal-cal-day--today" : "")
+                                + (day.Entries.Any(e => e.Status == CalendarEntryStatus.Overdue) ? " portal-cal-day--has-overdue" : "")
+                                + (heatClass.Length > 0 ? " " + heatClass : "")
+                                + fyClass;
 
-                <div class="@dayClass"
-                     @onmouseenter="() => _hoveredDate = day.Date"
-                     @onmouseleave="() => _hoveredDate = null"
-                     @onfocus="() => _hoveredDate = day.Date"
-                     @onblur="() => _hoveredDate = null"
-                     tabindex="@(day.Entries.Any() ? "0" : "-1")"
-                     aria-label="@day.Date.ToString("d MMMM yyyy")@(day.Entries.Any() ? $": {day.Entries.Count} deadline(s)" : "")">
+                            <div class="@dayClass"
+                                 @onmouseenter="() => _hoveredDate = day.Date"
+                                 @onmouseleave="() => { _hoveredDate = null; }"
+                                 @onfocus="() => _hoveredDate = day.Date"
+                                 @onblur="() => { _hoveredDate = null; }"
+                                 tabindex="@(day.Entries.Any() ? "0" : "-1")"
+                                 role="gridcell"
+                                 aria-label="@day.Date.ToString("d MMMM yyyy")@(day.Entries.Any() ? $": {day.Entries.Count} deadline(s)" : "")">
 
-                    <span class="portal-cal-day-num">@day.Date.Day</span>
+                                <span class="portal-cal-day-num">@day.Date.Day</span>
 
-                    @* Colored status dots *@
-                    @if (day.Entries.Any())
-                    {
-                        <div class="portal-cal-dots" aria-hidden="true">
-                            @foreach (var entry in day.Entries.Take(4))
-                            {
-                                <span class="portal-cal-dot portal-cal-dot--@DotClass(entry)"
-                                      title="@entry.ReturnCode — @StatusLabel(entry.Status)"></span>
-                            }
-                            @if (day.Entries.Count > 4)
-                            {
-                                <span class="portal-cal-dot-more">+@(day.Entries.Count - 4)</span>
-                            }
-                        </div>
-                    }
-
-                    @* Hover card popover *@
-                    @if (_hoveredDate == day.Date && day.Entries.Any())
-                    {
-                        <div class="portal-cal-hovercard @HoverCardSide(day.Date)" role="tooltip" aria-live="polite">
-                            <div class="portal-cal-hc-date">@day.Date.ToString("dddd, d MMMM")</div>
-                            <ul class="portal-cal-hc-list">
-                                @foreach (var entry in day.Entries)
+                                @* Colored status dots (up to 3) + ×N overflow badge *@
+                                @if (day.Entries.Any())
                                 {
-                                    <li class="portal-cal-hc-item">
-                                        <div class="portal-cal-hc-row">
-                                            <span class="portal-cal-dot portal-cal-dot--@DotClass(entry) portal-cal-dot--lg" aria-hidden="true"></span>
-                                            <div class="portal-cal-hc-info">
-                                                <span class="portal-cal-hc-name">@entry.TemplateName</span>
-                                                <span class="portal-cal-hc-period">@entry.ReturnCode · @entry.PeriodLabel</span>
-                                            </div>
-                                            <span class="portal-cal-hc-badge portal-cal-hc-badge--@DotClass(entry)">@StatusLabel(entry.Status)</span>
-                                        </div>
-                                        @if (entry.Status != CalendarEntryStatus.Submitted)
+                                    <div class="portal-cal-dots" aria-hidden="true">
+                                        @foreach (var entry in day.Entries.Take(3))
                                         {
-                                            <a href="@SubmitUrl(entry)" class="portal-cal-hc-action">
-                                                Submit now →
-                                            </a>
+                                            <span class="portal-cal-dot portal-cal-dot--@DotClass(entry)"
+                                                  title="@entry.ReturnCode — @StatusLabel(entry.Status)"></span>
                                         }
-                                        else if (entry.SubmissionId.HasValue)
+                                        @if (day.Entries.Count > 3)
                                         {
-                                            <a href="/submissions/@entry.SubmissionId" class="portal-cal-hc-action portal-cal-hc-action--view">
-                                                View submission →
-                                            </a>
+                                            <span class="portal-cal-overflow-badge">×@(day.Entries.Count - 3)</span>
                                         }
-                                    </li>
+                                    </div>
                                 }
-                            </ul>
-                        </div>
-                    }
+
+                                @* Hover card popover *@
+                                @if (_hoveredDate == day.Date && day.Entries.Any())
+                                {
+                                    <div class="portal-cal-hovercard @HoverCardSide(day.Date)" role="tooltip" aria-live="polite">
+                                        <div class="portal-cal-hc-date">@day.Date.ToString("dddd, d MMMM")</div>
+                                        <ul class="portal-cal-hc-list">
+                                            @foreach (var entry in day.Entries)
+                                            {
+                                                <li class="portal-cal-hc-item">
+                                                    <div class="portal-cal-hc-row">
+                                                        <span class="portal-cal-dot portal-cal-dot--@DotClass(entry) portal-cal-dot--lg" aria-hidden="true"></span>
+                                                        <div class="portal-cal-hc-info">
+                                                            <span class="portal-cal-hc-name">@entry.TemplateName</span>
+                                                            <span class="portal-cal-hc-period">@entry.ReturnCode · @entry.PeriodLabel</span>
+                                                            @if (!string.IsNullOrEmpty(entry.DeadlineDescription))
+                                                            {
+                                                                <span class="portal-cal-hc-ddesc">@entry.DeadlineDescription</span>
+                                                            }
+                                                        </div>
+                                                        <span class="portal-cal-hc-badge portal-cal-hc-badge--@DotClass(entry)">@StatusLabel(entry.Status)</span>
+                                                    </div>
+                                                    @if (entry.Status != CalendarEntryStatus.Submitted)
+                                                    {
+                                                        <a href="@SubmitUrl(entry)" class="portal-cal-hc-action">
+                                                            Submit now →
+                                                        </a>
+                                                    }
+                                                    else if (entry.SubmissionId.HasValue)
+                                                    {
+                                                        <a href="/submissions/@entry.SubmissionId" class="portal-cal-hc-action portal-cal-hc-action--view">
+                                                            View submission →
+                                                        </a>
+                                                    }
+                                                </li>
+                                            }
+                                        </ul>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
                 </div>
             }
         </div>
@@ -209,6 +278,14 @@ else if (_data is not null)
                     <div class="portal-cal-week-hdr">
                         <span class="portal-cal-week-dow">@day.Date.ToString("ddd")</span>
                         <span class="portal-cal-week-num @(day.IsToday ? "portal-cal-week-num--today" : "")">@day.Date.Day</span>
+                        @if (IsFyStart(day.Date))
+                        {
+                            <span class="portal-cal-week-fy-badge portal-cal-week-fy-badge--start">FY Start</span>
+                        }
+                        else if (IsFyEnd(day.Date))
+                        {
+                            <span class="portal-cal-week-fy-badge portal-cal-week-fy-badge--end">FY End</span>
+                        }
                     </div>
                     <div class="portal-cal-week-entries">
                         @if (!day.Entries.Any())
@@ -220,7 +297,12 @@ else if (_data is not null)
                             <div class="portal-cal-week-block portal-cal-week-block--@DotClass(entry)">
                                 <div class="portal-cal-week-block-title" title="@entry.TemplateName">@entry.ReturnCode</div>
                                 <div class="portal-cal-week-block-period">@entry.PeriodLabel</div>
-                                <div class="portal-cal-week-block-freq">@entry.Frequency</div>
+                                <div class="portal-cal-week-block-freq">@entry.Frequency
+                                    @if (!string.IsNullOrEmpty(entry.DeadlineDescription))
+                                    {
+                                        <span class="portal-cal-week-block-ddesc">· @entry.DeadlineDescription</span>
+                                    }
+                                </div>
                                 @if (entry.Status != CalendarEntryStatus.Submitted)
                                 {
                                     <a href="@SubmitUrl(entry)" class="portal-cal-week-block-link">Submit →</a>
@@ -264,19 +346,33 @@ else if (_data is not null)
                         {
                             <span class="portal-cal-list-today-chip">Today</span>
                         }
+                        @if (IsFyStart(group.Key))
+                        {
+                            <span class="portal-cal-list-fy-chip portal-cal-list-fy-chip--start">FY Start</span>
+                        }
+                        else if (IsFyEnd(group.Key))
+                        {
+                            <span class="portal-cal-list-fy-chip portal-cal-list-fy-chip--end">FY End</span>
+                        }
                     </div>
 
                     <div class="portal-cal-list-rows">
                         @foreach (var entry in group.OrderBy(e => e.Status))
                         {
-                            @{ var (chipLabel, chipClass) = UrgencyChip(entry); }
+                            var (chipLabel, chipClass) = UrgencyChip(entry);
                             <div class="portal-cal-list-row portal-cal-list-row--@DotClass(entry)">
                                 @* Left: status indicator + info *@
                                 <div class="portal-cal-list-left">
                                     <span class="portal-cal-dot portal-cal-dot--@DotClass(entry) portal-cal-dot--lg" aria-hidden="true"></span>
                                     <div class="portal-cal-list-info">
                                         <span class="portal-cal-list-name">@entry.TemplateName</span>
-                                        <span class="portal-cal-list-meta">@entry.ReturnCode · @entry.PeriodLabel · @entry.Frequency</span>
+                                        <span class="portal-cal-list-meta">
+                                            @entry.ReturnCode · @entry.PeriodLabel · @entry.Frequency
+                                            @if (!string.IsNullOrEmpty(entry.DeadlineDescription))
+                                            {
+                                                <span class="portal-cal-list-ddesc">(@entry.DeadlineDescription)</span>
+                                            }
+                                        </span>
                                     </div>
                                 </div>
 
@@ -341,7 +437,6 @@ else if (_data is not null)
             </button>
         </div>
         <div class="portal-cal-modal-body">
-            @* Entry info *@
             <div class="portal-cal-modal-info">
                 <span class="portal-cal-dot portal-cal-dot--red portal-cal-dot--lg" aria-hidden="true"></span>
                 <div>
@@ -350,7 +445,6 @@ else if (_data is not null)
                 </div>
             </div>
 
-            @* Reason *@
             <div class="portal-cal-modal-field">
                 <label for="ext-reason" class="portal-cal-modal-label">Reason for extension request <span class="portal-cal-modal-req">*</span></label>
                 <textarea id="ext-reason"
@@ -362,7 +456,6 @@ else if (_data is not null)
                 <span class="portal-cal-modal-char">@_extReason.Length / 1000</span>
             </div>
 
-            @* File upload *@
             <div class="portal-cal-modal-field">
                 <label class="portal-cal-modal-label">Supporting document (optional)</label>
                 <label class="portal-cal-modal-file-drop" for="ext-file">
@@ -379,7 +472,6 @@ else if (_data is not null)
                 </label>
             </div>
 
-            @* Error *@
             @if (_extError is not null)
             {
                 <div class="portal-cal-modal-error" role="alert">@_extError</div>
@@ -413,19 +505,23 @@ else if (_data is not null)
     private int    _year;
     private int    _month;
 
+    // ── Fiscal year config ────────────────────────────────────────
+    private int  _fiscalYearStart = 1;  // 1 = January (default)
+    private bool _fyConfigOpen    = false;
+
     // ── Calendar data ────────────────────────────────────────────
-    private CalendarData?        _data;
-    private bool                 _loading;
-    private Exception?           _error;
-    private List<CalendarDay>    _calendarDays = new();
-    private List<CalendarDay>    _weekDays     = new();
-    private int                  _compliancePct;
+    private CalendarData?         _data;
+    private bool                  _loading;
+    private Exception?            _error;
+    private List<CalendarWeekRow> _weekRows = new();
+    private List<CalendarDay>     _weekDays = new();
+    private int                   _compliancePct;
 
     // ── Hover state ───────────────────────────────────────────────
     private DateTime? _hoveredDate;
 
     // ── Extension modal ──────────────────────────────────────────
-    private bool          _showExtModal;
+    private bool           _showExtModal;
     private CalendarEntry? _extEntry;
     private string         _extReason    = "";
     private string?        _extFileName;
@@ -435,7 +531,7 @@ else if (_data is not null)
     // ── Derived ──────────────────────────────────────────────────
     private string _navLabel      => _view == "week" ? WeekLabel() : $"{new DateTime(_year, _month, 1):MMMM yyyy}";
     private string _subtitle      => _data is null ? "" : $"{_data.Summary.TotalDueThisMonth} obligations · {_data.Summary.SubmittedThisMonth} submitted";
-    private double _ringCirc      => 2 * Math.PI * 32;  // r=32
+    private double _ringCirc      => 2 * Math.PI * 32;
     private double RingOffset     => _ringCirc * (1 - _compliancePct / 100.0);
     private string RingColorClass => _compliancePct >= 80 ? "portal-cal-ring-fill--green"
                                    : _compliancePct >= 50 ? "portal-cal-ring-fill--amber"
@@ -455,6 +551,24 @@ else if (_data is not null)
         await LoadAsync();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            // Restore FY start from localStorage
+            try
+            {
+                var stored = await JS.InvokeAsync<string?>("localStorage.getItem", "fc_cal_fy_start");
+                if (int.TryParse(stored, out var month) && month >= 1 && month <= 12)
+                {
+                    _fiscalYearStart = month;
+                    StateHasChanged();
+                }
+            }
+            catch { /* localStorage unavailable during prerender */ }
+        }
+    }
+
     private async Task LoadAsync()
     {
         _loading = true;
@@ -465,7 +579,6 @@ else if (_data is not null)
             var rangeStart = new DateTime(_year, _month, 1).AddMonths(-1);
             var rangeEnd   = new DateTime(_year, _month, 1).AddMonths(2).AddDays(-1);
 
-            // For week view load more context
             if (_view == "week")
             {
                 var weekStart = GetWeekStart();
@@ -497,7 +610,7 @@ else if (_data is not null)
 
     private void BuildCalendarDays()
     {
-        _calendarDays = new List<CalendarDay>();
+        _weekRows = new List<CalendarWeekRow>();
         if (_data is null) return;
 
         var firstOfMonth = new DateTime(_year, _month, 1);
@@ -506,18 +619,46 @@ else if (_data is not null)
             .GroupBy(e => e.DueDate.Date)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        for (int i = 0; i < 42; i++)
+        // Build 6 week rows of 7 days each
+        for (int w = 0; w < 6; w++)
         {
-            var date = startOfGrid.AddDays(i);
-            entryByDate.TryGetValue(date, out var entries);
-            _calendarDays.Add(new CalendarDay
+            var days = new List<CalendarDay>();
+            for (int d = 0; d < 7; d++)
             {
-                Date           = date,
-                IsCurrentMonth = date.Month == _month,
-                IsToday        = date.Date  == DateTime.Today,
-                Entries        = entries ?? new List<CalendarEntry>()
+                var date = startOfGrid.AddDays(w * 7 + d);
+                entryByDate.TryGetValue(date, out var entries);
+                days.Add(new CalendarDay
+                {
+                    Date           = date,
+                    IsCurrentMonth = date.Month == _month,
+                    IsToday        = date.Date  == DateTime.Today,
+                    Entries        = entries ?? new List<CalendarEntry>()
+                });
+            }
+            _weekRows.Add(new CalendarWeekRow
+            {
+                Days  = days,
+                Bands = GetBandsForWeek(days)
             });
         }
+    }
+
+    private List<RegulatoryBand> GetBandsForWeek(List<CalendarDay> week)
+    {
+        var bands   = new List<RegulatoryBand>();
+        var entries = week.SelectMany(d => d.Entries).ToList();
+
+        // CBN Weekly — always present as a baseline regulatory expectation
+        bands.Add(new RegulatoryBand("weekly", "CBN Weekly"));
+
+        if (entries.Any(e => e.Frequency == "Monthly"))
+            bands.Add(new RegulatoryBand("monthly", "Monthly"));
+        if (entries.Any(e => e.Frequency == "Quarterly"))
+            bands.Add(new RegulatoryBand("quarterly", "Quarterly"));
+        if (entries.Any(e => e.Frequency is "SemiAnnual" or "Annual"))
+            bands.Add(new RegulatoryBand("annual", "Annual"));
+
+        return bands;
     }
 
     private void BuildWeekDays()
@@ -547,11 +688,8 @@ else if (_data is not null)
     private DateTime GetWeekStart()
     {
         var today = DateTime.Today;
-        // If the displayed month/year matches today, anchor to this week; else use first of month
         if (_year == today.Year && _month == today.Month)
-        {
             return today.AddDays(-(int)today.DayOfWeek);
-        }
         var firstOfMonth = new DateTime(_year, _month, 1);
         return firstOfMonth.AddDays(-(int)firstOfMonth.DayOfWeek);
     }
@@ -566,9 +704,49 @@ else if (_data is not null)
             : $"{start:d MMM} – {end:d MMM yyyy}";
     }
 
+    // ── FY Helpers ────────────────────────────────────────────────
+
+    private bool IsFyStart(DateTime d) => d.Month == _fiscalYearStart && d.Day == 1;
+
+    private bool IsFyEnd(DateTime d)
+    {
+        var endMonth = _fiscalYearStart == 1 ? 12 : ((_fiscalYearStart - 2 + 12) % 12) + 1;
+        return d.Month == endMonth && d.Day == DateTime.DaysInMonth(d.Year, d.Month);
+    }
+
+    private static string MonthName(int m) => new DateTime(2000, m, 1).ToString("MMM");
+
+    private void ToggleFyConfig() => _fyConfigOpen = !_fyConfigOpen;
+
+    private async Task SetFiscalYearStart(int month)
+    {
+        _fiscalYearStart = month;
+        _fyConfigOpen    = false;
+        try { await JS.InvokeVoidAsync("localStorage.setItem", "fc_cal_fy_start", month.ToString()); }
+        catch { }
+    }
+
+    // ── Proximity Heat ────────────────────────────────────────────
+
+    private static string ProximityHeatClass(List<CalendarEntry> entries)
+    {
+        if (!entries.Any(e => e.Status != CalendarEntryStatus.Submitted)) return "";
+        var pending = entries.Where(e => e.Status != CalendarEntryStatus.Submitted).ToList();
+        if (!pending.Any()) return "";
+        var minDays = pending.Min(e => e.DaysUntilDue);
+        return minDays switch
+        {
+            < 0  => "portal-cal-day--heat-overdue",
+            0    => "portal-cal-day--heat-today",
+            <= 3 => "portal-cal-day--heat-3",
+            <= 7 => "portal-cal-day--heat-7",
+            <= 30 => "portal-cal-day--heat-30",
+            _    => ""
+        };
+    }
+
     // ── CSS / Label Helpers ────────────────────────────────────────
 
-    // DotClass uses the full entry to correctly reflect urgency (DaysUntilDue ≤ 7 → amber)
     private static string DotClass(CalendarEntry entry) => entry.Status switch
     {
         CalendarEntryStatus.Overdue   => "red",
@@ -611,8 +789,7 @@ else if (_data is not null)
 
     private string HoverCardSide(DateTime date)
     {
-        // Right half of the week → flip card left; also flip up for bottom rows
-        var col = (int)date.DayOfWeek; // 0=Sun … 6=Sat
+        var col = (int)date.DayOfWeek;
         return col >= 4 ? "portal-cal-hovercard--left" : "";
     }
 
@@ -622,7 +799,6 @@ else if (_data is not null)
     {
         if (_view == "week")
         {
-            // Advance by weeks: adjust _year/_month to keep in sync
             var newStart = GetWeekStart().AddDays(delta * 7);
             _year  = newStart.Year;
             _month = newStart.Month;
@@ -653,7 +829,6 @@ else if (_data is not null)
         PushUrl();
         BuildCalendarDays();
         BuildWeekDays();
-        // Week view may need different range
         if (view == "week") await LoadAsync();
     }
 
@@ -680,7 +855,6 @@ else if (_data is not null)
 
     private static string SubmitUrl(CalendarEntry entry)
     {
-        // Navigate to DataEntryForm with returnCode and period pre-selected
         var qs = System.Web.HttpUtility.ParseQueryString("");
         qs["returnCode"] = entry.ReturnCode;
         qs["period"]     = entry.PeriodValue;
@@ -723,12 +897,10 @@ else if (_data is not null)
         StateHasChanged();
 
         // TODO: wire to extension request service/API
-        await Task.Delay(800); // simulated async
+        await Task.Delay(800);
 
         _extSubmitting = false;
         _showExtModal  = false;
-        // Show success toast
-        // Toast.Success("Extension request submitted successfully.");
     }
 
     // ── iCal Export ───────────────────────────────────────────────
@@ -738,7 +910,7 @@ else if (_data is not null)
         if (_data is null) return;
 
         var ics = BuildIcalString(_data.Entries);
-        var fileName = $"reporting-calendar-{_year}-{_month:D2}.ics";
+        var fileName = $"my-deadlines-{_year}-{_month:D2}.ics";
         await JS.InvokeVoidAsync("portalDownloadText", fileName, ics, "text/calendar");
     }
 
@@ -750,14 +922,15 @@ else if (_data is not null)
         sb.AppendLine("PRODID:-//FC Engine//Reporting Calendar//EN");
         sb.AppendLine("CALSCALE:GREGORIAN");
         sb.AppendLine("METHOD:PUBLISH");
-        sb.AppendLine("X-WR-CALNAME:FC Engine Reporting Deadlines");
+        sb.AppendLine("X-WR-CALNAME:FC Engine — My Reporting Deadlines");
 
         foreach (var entry in entries)
         {
-            var uid    = $"{entry.ReturnCode}-{entry.PeriodValue}@fcengine";
-            var dtDate = entry.DueDate.ToString("yyyyMMdd");
+            var uid     = $"{entry.ReturnCode}-{entry.PeriodValue}@fcengine";
+            var dtDate  = entry.DueDate.ToString("yyyyMMdd");
             var summary = $"{entry.ReturnCode} — {entry.TemplateName} ({entry.PeriodLabel})";
-            var desc   = $"Reporting obligation: {entry.ReturnCode}\\nPeriod: {entry.PeriodLabel}\\nFrequency: {entry.Frequency}\\nStatus: {entry.Status}\\nDue: {entry.DueDate:d MMM yyyy}";
+            var ddesc   = string.IsNullOrEmpty(entry.DeadlineDescription) ? "" : $"\\nDeadline: {entry.DeadlineDescription}";
+            var desc    = $"Reporting obligation: {entry.ReturnCode}\\nPeriod: {entry.PeriodLabel}\\nFrequency: {entry.Frequency}{ddesc}\\nStatus: {entry.Status}\\nDue: {entry.DueDate:d MMM yyyy}";
 
             sb.AppendLine("BEGIN:VEVENT");
             sb.AppendLine($"UID:{uid}");
@@ -766,6 +939,7 @@ else if (_data is not null)
             sb.AppendLine($"DTEND;VALUE=DATE:{entry.DueDate.AddDays(1):yyyyMMdd}");
             sb.AppendLine($"SUMMARY:{EscapeIcal(summary)}");
             sb.AppendLine($"DESCRIPTION:{EscapeIcal(desc)}");
+            sb.AppendLine($"CATEGORIES:{EscapeIcal(entry.Frequency)}");
             sb.AppendLine("BEGIN:VALARM");
             sb.AppendLine("TRIGGER:-P7D");
             sb.AppendLine("ACTION:DISPLAY");

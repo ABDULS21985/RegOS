@@ -5,11 +5,25 @@
 @using FC.Engine.Domain.Enums
 @inject ITenantContext TenantContext
 @inject FC.Engine.Portal.Services.PartnerPortalService PartnerService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>Contact Support — Help Center — FC Engine Portal</PageTitle>
 
 <HelpLayout>
     <div class="help-article">
+        <!-- Article meta -->
+        <div class="fc-ha-meta">
+            <span class="fc-ha-meta-item">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                1 min read
+            </span>
+            <span class="fc-ha-meta-item">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Updated March 2026
+            </span>
+        </div>
+
         <h2 class="help-article-title">Contact Support</h2>
         <p class="help-article-intro">
             Need help? Reach out to the CBN Financial Returns support team through any of the channels below.
@@ -59,9 +73,7 @@
         <!-- Support Ticket Form -->
         <section class="help-ticket-section">
             <h3 class="help-section-heading">Submit a Support Request</h3>
-            <p>
-                Use the form below to submit a detailed support request. Our team will respond via email.
-            </p>
+            <p>Use the form below to submit a detailed support request. Our team will respond via email.</p>
 
             @if (isSubmitted)
             {
@@ -122,15 +134,35 @@
                                   required></textarea>
                     </div>
 
-                    <div class="help-form-group">
-                        <label for="ticket-attachment">Attachment (optional)</label>
-                        <div class="help-form-file-note">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
-                            </svg>
-                            File upload will be available in a future update. For now, please attach files by emailing
-                            <a href="mailto:fc-support@cbn.gov.ng">fc-support&#64;cbn.gov.ng</a> and referencing your support request.
-                        </div>
+                    <!-- Diagnostic context toggle -->
+                    <div class="fc-diag-toggle">
+                        <label class="fc-diag-label">
+                            <input type="checkbox" @bind="_includeDiagnostics" class="fc-diag-checkbox" />
+                            <span class="fc-diag-label-text">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                                    <line x1="8" y1="21" x2="16" y2="21"/>
+                                    <line x1="12" y1="17" x2="12" y2="21"/>
+                                </svg>
+                                Include diagnostic information (recommended)
+                            </span>
+                        </label>
+                        @if (_includeDiagnostics && _diagnostics is not null)
+                        {
+                            <div class="fc-diag-preview" role="region" aria-label="Diagnostic info preview">
+                                <p class="fc-diag-preview-label">The following will be attached to your request:</p>
+                                <div class="fc-diag-grid">
+                                    <span>Page</span><span>@_diagnostics.CurrentUrl</span>
+                                    <span>Browser</span><span>@_diagnostics.BrowserSummary</span>
+                                    <span>Screen</span><span>@_diagnostics.ScreenSize</span>
+                                    <span>Theme</span><span>@_diagnostics.Theme</span>
+                                    @if (!string.IsNullOrEmpty(_diagnostics.LastError))
+                                    {
+                                        <span>Last error</span><span class="fc-diag-error-val">@_diagnostics.LastError</span>
+                                    }
+                                </div>
+                            </div>
+                        }
                     </div>
 
                     <div class="help-form-actions">
@@ -168,6 +200,8 @@
     private string ticketDescription = "";
     private bool isSubmitting;
     private bool isSubmitted;
+    private bool _includeDiagnostics = true;
+    private DiagnosticsInfo? _diagnostics;
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
@@ -180,6 +214,27 @@
             ticketEmail = state.User.FindFirst(ClaimTypes.Email)?.Value ?? "";
         }
         catch { }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var raw = await JS.InvokeAsync<System.Text.Json.JsonElement>("fcHelp.collectDiagnostics");
+                _diagnostics = new DiagnosticsInfo
+                {
+                    CurrentUrl = raw.TryGetProperty("currentUrl", out var u) ? u.GetString() ?? "" : Navigation.Uri,
+                    BrowserSummary = raw.TryGetProperty("userAgent", out var ua) ? SummarizeBrowser(ua.GetString() ?? "") : "Unknown",
+                    ScreenSize = raw.TryGetProperty("screenSize", out var ss) ? ss.GetString() ?? "" : "",
+                    Theme = raw.TryGetProperty("theme", out var th) ? th.GetString() ?? "light" : "light",
+                    LastError = raw.TryGetProperty("lastError", out var le) ? le.GetString() ?? "" : ""
+                };
+                StateHasChanged();
+            }
+            catch { }
+        }
     }
 
     private async Task HandleSubmit()
@@ -197,9 +252,7 @@
             var userIdClaim = state?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
 
             if (!TenantContext.CurrentTenantId.HasValue || !int.TryParse(userIdClaim, out var userId))
-            {
                 throw new InvalidOperationException("Unable to resolve current tenant/user.");
-            }
 
             var priority = ticketCategory is "technical" or "submission" or "validation"
                 ? PartnerSupportTicketPriority.High
@@ -209,24 +262,37 @@
                 ? $"Support Request: {ticketCategory}"
                 : ticketSubject;
 
-            var description = $"Category: {ticketCategory}{Environment.NewLine}{Environment.NewLine}{ticketDescription}";
+            var description = BuildDescription();
 
             await PartnerService.CreateSupportTicket(
-                TenantContext.CurrentTenantId.Value,
-                userId,
-                ticketName,
-                title,
-                description,
-                priority);
+                TenantContext.CurrentTenantId.Value, userId, ticketName, title, description, priority);
         }
-        catch
-        {
-            // Fallback path: keep user flow successful even if ticket integration is unavailable.
-        }
+        catch { /* Fallback: keep user flow successful */ }
 
         isSubmitting = false;
         isSubmitted = true;
         StateHasChanged();
+    }
+
+    private string BuildDescription()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"Category: {ticketCategory}");
+        sb.AppendLine();
+        sb.AppendLine(ticketDescription);
+
+        if (_includeDiagnostics && _diagnostics is not null)
+        {
+            sb.AppendLine();
+            sb.AppendLine("--- Diagnostic Information ---");
+            sb.AppendLine($"Page: {_diagnostics.CurrentUrl}");
+            sb.AppendLine($"Browser: {_diagnostics.BrowserSummary}");
+            sb.AppendLine($"Screen: {_diagnostics.ScreenSize}");
+            sb.AppendLine($"Theme: {_diagnostics.Theme}");
+            if (!string.IsNullOrEmpty(_diagnostics.LastError))
+                sb.AppendLine($"Last error: {_diagnostics.LastError}");
+        }
+        return sb.ToString();
     }
 
     private void ResetForm()
@@ -235,5 +301,23 @@
         ticketSubject = "";
         ticketDescription = "";
         isSubmitted = false;
+    }
+
+    private static string SummarizeBrowser(string ua)
+    {
+        if (ua.Contains("Edg/")) return "Microsoft Edge";
+        if (ua.Contains("Chrome/")) return "Google Chrome";
+        if (ua.Contains("Firefox/")) return "Mozilla Firefox";
+        if (ua.Contains("Safari/") && !ua.Contains("Chrome")) return "Apple Safari";
+        return ua.Length > 60 ? ua[..60] + "..." : ua;
+    }
+
+    private record DiagnosticsInfo
+    {
+        public string CurrentUrl { get; init; } = "";
+        public string BrowserSummary { get; init; } = "";
+        public string ScreenSize { get; init; } = "";
+        public string Theme { get; init; } = "";
+        public string LastError { get; init; } = "";
     }
 }

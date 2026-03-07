@@ -1,0 +1,238 @@
+@inject IPresenceService PresenceService
+@inject ToastService Toast
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (_viewers.Count > 0)
+{
+    <div class="portal-presence" role="status" aria-label="Currently viewing this page">
+        <span class="portal-presence-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+            Viewing:
+        </span>
+        <div class="portal-presence-avatars">
+            @{
+                var visible = _viewers.Take(MaxVisible).ToList();
+                var overflow = _viewers.Count - MaxVisible;
+            }
+            @foreach (var viewer in visible)
+            {
+                <div class="portal-presence-avatar @(viewer.IsOnline ? "" : "portal-presence-avatar--offline")"
+                     title="@viewer.DisplayName (@viewer.Role) — @(viewer.IsOnline ? $"active {RelativeSince(viewer.LastSeen)}" : "offline")"
+                     aria-label="@viewer.DisplayName, @viewer.Role, @(viewer.IsOnline ? "online" : "offline")"
+                     role="img">
+                    @viewer.Initials
+                    <span class="portal-presence-status-dot portal-presence-status-dot--@viewer.Status" aria-hidden="true"></span>
+                </div>
+            }
+            @if (overflow > 0)
+            {
+                <div class="portal-presence-avatar portal-presence-avatar--overflow"
+                     title="@overflow more @(overflow == 1 ? "person" : "people") viewing"
+                     aria-label="@overflow more viewers">
+                    +@overflow
+                </div>
+            }
+        </div>
+
+        @* Editing chip: show who has an active field lock *@
+        @{
+            var editing = _viewers.Where(v => v.ActiveFieldId != null && v.IsOnline).ToList();
+        }
+        @if (editing.Count > 0)
+        {
+            <div class="portal-presence-editing-chips" aria-live="polite">
+                @foreach (var editor in editing.Take(2))
+                {
+                    <span class="portal-presence-editing-chip">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                        @editor.DisplayName editing…
+                    </span>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Unique key for this resource: "sub:{id}", "form:{code}:{periodId}", or "approvals:{instId}".</summary>
+    [Parameter] public string ResourceKey { get; set; } = "";
+
+    [Parameter] public int CurrentUserId { get; set; }
+    [Parameter] public string CurrentUserName { get; set; } = "";
+    [Parameter] public string CurrentUserRole { get; set; } = "";
+    [Parameter] public string CurrentUserInitials { get; set; } = "";
+
+    /// <summary>When true, initialises JS field-focus tracking (INPUT listeners) on the given form selector.</summary>
+    [Parameter] public bool TrackFieldFocus { get; set; }
+    [Parameter] public string FieldFormSelector { get; set; } = ".portal-form-main";
+
+    /// <summary>When true, renders JS field-lock badges on fields being edited by other users.</summary>
+    [Parameter] public bool ShowFieldLocks { get; set; }
+
+    private const int MaxVisible = 4;
+    private const int PollIntervalSec = 15;
+
+    private IReadOnlyList<PresenceUser> _viewers = [];
+    private IReadOnlyDictionary<string, PresenceUser> _fieldLocks = new Dictionary<string, PresenceUser>();
+    private PeriodicTimer? _pollTimer;
+    private CancellationTokenSource _cts = new();
+    private DotNetObjectReference<PresenceAvatars>? _dotNetRef;
+    private HashSet<int> _knownUserIds = [];
+    private bool _trackingInitialised;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (string.IsNullOrWhiteSpace(ResourceKey) || CurrentUserId == 0) return;
+        RegisterSelf();
+        await RefreshAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+
+        // Start poll loop
+        _pollTimer = new PeriodicTimer(TimeSpan.FromSeconds(PollIntervalSec));
+        _ = PollLoopAsync();
+
+        // Initialise field tracking
+        if (TrackFieldFocus)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("portalPresence.initFieldTracking", _dotNetRef, FieldFormSelector);
+                _trackingInitialised = true;
+            }
+            catch { /* non-critical */ }
+        }
+    }
+
+    private async Task PollLoopAsync()
+    {
+        try
+        {
+            while (await _pollTimer!.WaitForNextTickAsync(_cts.Token))
+            {
+                RegisterSelf();
+                await RefreshAsync();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch { /* component disposed */ }
+    }
+
+    private void RegisterSelf()
+    {
+        if (string.IsNullOrWhiteSpace(ResourceKey) || CurrentUserId == 0) return;
+        PresenceService.Heartbeat(ResourceKey, new PresenceUser
+        {
+            UserId = CurrentUserId,
+            DisplayName = CurrentUserName,
+            Role = CurrentUserRole,
+            Initials = string.IsNullOrEmpty(CurrentUserInitials) ? GetInitials(CurrentUserName) : CurrentUserInitials
+        });
+    }
+
+    private async Task RefreshAsync()
+    {
+        var prev = _knownUserIds.ToHashSet();
+        var viewers = PresenceService.GetViewers(ResourceKey, excludeUserId: CurrentUserId);
+        var locks = PresenceService.GetFieldLocks(ResourceKey, excludeUserId: CurrentUserId);
+
+        // Detect newcomers → toast notification
+        foreach (var v in viewers.Where(v => !prev.Contains(v.UserId) && v.IsOnline))
+        {
+            var name = v.DisplayName;
+            _ = InvokeAsync(() => Toast.Info($"{name} just started viewing this page"));
+        }
+
+        _knownUserIds = viewers.Select(v => v.UserId).ToHashSet();
+        _viewers = viewers;
+        _fieldLocks = locks;
+
+        await InvokeAsync(StateHasChanged);
+
+        // Push field lock overlays to JS (independent of whether we are tracking our own focus)
+        if ((ShowFieldLocks || TrackFieldFocus) && viewers.Any(v => v.ActiveFieldId != null))
+        {
+            try
+            {
+                var lockData = viewers
+                    .Where(v => v.ActiveFieldId != null && v.IsOnline)
+                    .Select(v => new
+                    {
+                        activeFieldId = v.ActiveFieldId,
+                        displayName = v.DisplayName,
+                        initials = v.Initials,
+                        role = v.Role
+                    })
+                    .ToArray();
+
+                await JS.InvokeVoidAsync("portalPresence.renderFieldLocks", (object)lockData);
+            }
+            catch { /* non-critical */ }
+        }
+    }
+
+    /// <summary>Called from JS when the user focuses a field input.</summary>
+    [JSInvokable]
+    public void OnFieldFocused(string fieldId)
+    {
+        if (string.IsNullOrWhiteSpace(ResourceKey) || CurrentUserId == 0) return;
+        PresenceService.SetActiveField(ResourceKey, CurrentUserId, fieldId);
+    }
+
+    /// <summary>Called from JS when the user blurs a field input.</summary>
+    [JSInvokable]
+    public void OnFieldBlurred(string fieldId)
+    {
+        if (string.IsNullOrWhiteSpace(ResourceKey) || CurrentUserId == 0) return;
+        PresenceService.SetActiveField(ResourceKey, CurrentUserId, null);
+    }
+
+    /// <summary>Check if a specific field is locked by another user. Used by the page to show inline indicators.</summary>
+    public PresenceUser? GetFieldLock(string fieldId) =>
+        _fieldLocks.TryGetValue(fieldId, out var user) ? user : null;
+
+    private static string GetInitials(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1
+            ? parts[0][..Math.Min(2, parts[0].Length)].ToUpper()
+            : string.Concat(parts[0][0], parts[^1][0]).ToUpper();
+    }
+
+    private static string RelativeSince(DateTime utc)
+    {
+        var diff = DateTime.UtcNow - utc;
+        if (diff.TotalSeconds < 30) return "just now";
+        if (diff.TotalMinutes < 2) return "30s ago";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        return $"{(int)diff.TotalHours}h ago";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        _pollTimer?.Dispose();
+
+        if (_trackingInitialised)
+        {
+            try { await JS.InvokeVoidAsync("portalPresence.dispose"); } catch { }
+        }
+
+        _dotNetRef?.Dispose();
+
+        if (!string.IsNullOrWhiteSpace(ResourceKey) && CurrentUserId > 0)
+            PresenceService.Leave(ResourceKey, CurrentUserId);
+    }
+}

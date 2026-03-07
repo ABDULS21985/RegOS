@@ -80,6 +80,15 @@
                         </span>
                     }
                 </div>
+                @if (currentUserId.HasValue)
+                {
+                    <div class="portal-detail-hero-presence">
+                        <PresenceAvatars ResourceKey="@($"sub:{SubmissionId}")"
+                                         CurrentUserId="@currentUserId.Value"
+                                         CurrentUserName="@_presUserName"
+                                         CurrentUserRole="@_userRole" />
+                    </div>
+                }
             </div>
             <div class="portal-detail-hero-actions">
                 <div class="portal-download-wrap" @onkeydown="HandleDownloadKeyDown">
@@ -623,6 +632,7 @@
     private bool _downloadMenuOpen;
     private bool _showCommentForm;
     private bool _examinerExpanded = true;
+    private string _presUserName = "";
 
     private record StepInfo(string Label, string State, string? PerformerName, string? PerformerInitials, DateTime? StepTime);
 
@@ -639,6 +649,7 @@
         _userRole = state.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Maker";
         _isAdminRole = _userRole == "Admin";
         isChecker = _userRole == "Checker" || _userRole == "Admin";
+        _presUserName = state.User.FindFirst(System.Security.Claims.ClaimTypes.Name)?.Value ?? _userRole;
 
         await LoadSubmission();
     }

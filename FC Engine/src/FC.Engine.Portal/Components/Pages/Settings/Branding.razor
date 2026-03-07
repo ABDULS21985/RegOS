@@ -1,276 +1,1050 @@
 @page "/settings/branding"
-@using FC.Engine.Domain.Abstractions
-@using FC.Engine.Domain.ValueObjects
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize(Roles = "Admin")]
 @inject ITenantBrandingService BrandingService
 @inject ITenantContext TenantContext
 @inject ISubscriptionService SubscriptionService
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
-<PageTitle>Branding Configuration</PageTitle>
+<PageTitle>Branding & Identity</PageTitle>
 
-<div class="portal-page">
-    <div class="portal-page-header">
-        <div class="portal-page-header-main">
-            <h1 class="portal-page-title">Branding Configuration</h1>
-            <p class="portal-page-subtitle">Configure logo, palette, fonts, and customer-facing identity.</p>
+@if (_loading)
+{
+    <div class="portal-be-skeleton">
+        <div class="fc-skel" style="height:56px; border-radius:12px; margin-bottom:1rem;"></div>
+        <div style="display:grid; grid-template-columns:1.1fr 0.9fr; gap:1rem;">
+            <div class="fc-skel" style="height:560px; border-radius:12px;"></div>
+            <div class="fc-skel" style="height:560px; border-radius:12px;"></div>
         </div>
     </div>
-
-    @if (_isLoading)
+}
+else if (_initError != null)
+{
+    <div class="portal-alert portal-alert-error" role="alert">@_initError</div>
+}
+else
+{
+    @if (!_hasFeature)
     {
-        <div class="portal-card portal-branding-loading">Loading branding configuration...</div>
-    }
-    else if (!string.IsNullOrWhiteSpace(_errorMessage))
-    {
-        <div class="portal-alert portal-alert-error" role="alert">@_errorMessage</div>
-    }
-    else
-    {
-        @if (!_hasFeature)
-        {
-            <div class="portal-branding-upgrade">
-                <h3>Premium branding requires Enterprise or White Label plan features.</h3>
-                <p>Upgrade to unlock custom identity, domains, and partner-facing white label controls.</p>
-                <a href="/subscription/my-plan" class="portal-btn portal-btn-primary">View Plan</a>
+        <div class="portal-be-upgrade-banner">
+            <div class="portal-be-upgrade-icon">🎨</div>
+            <div class="portal-be-upgrade-body">
+                <strong>Custom Branding requires an Enterprise or White Label subscription.</strong>
+                <p>Preview the controls below. Upgrade to save your brand identity to the portal.</p>
             </div>
-        }
-
-        @if (!string.IsNullOrWhiteSpace(_successMessage))
-        {
-            <div class="portal-alert portal-alert-success" role="alert">@_successMessage</div>
-        }
-
-        <div class="portal-branding-grid">
-            <section class="portal-card portal-branding-form">
-                <h2 class="portal-form-section-title">Visual Identity</h2>
-
-                <div class="portal-form-group">
-                    <label class="portal-form-label">Logo (PNG/SVG/JPG, max 2MB)</label>
-                    <InputFile OnChange="HandleLogoUpload" accept=".png,.svg,.jpg,.jpeg" disabled="@(!_hasFeature || _isSaving)" />
-                    @if (!string.IsNullOrWhiteSpace(_config.LogoUrl))
-                    {
-                        <img src="@_config.LogoUrl" alt="Current logo" class="portal-branding-logo-preview" />
-                    }
-                </div>
-
-                <div class="portal-form-group">
-                    <label class="portal-form-label">Favicon (PNG/SVG/ICO, max 2MB)</label>
-                    <InputFile OnChange="HandleFaviconUpload" accept=".png,.svg,.ico" disabled="@(!_hasFeature || _isSaving)" />
-                </div>
-
-                <div class="portal-branding-color-grid">
-                    <div class="portal-form-group">
-                        <label class="portal-form-label">Primary</label>
-                        <input type="color" class="portal-branding-color" @bind="_config.PrimaryColor" disabled="@(!_hasFeature || _isSaving)" />
-                        <input type="text" class="portal-form-input" @bind="_config.PrimaryColor" placeholder="#006B3F" disabled="@(!_hasFeature || _isSaving)" />
-                    </div>
-                    <div class="portal-form-group">
-                        <label class="portal-form-label">Secondary</label>
-                        <input type="color" class="portal-branding-color" @bind="_config.SecondaryColor" disabled="@(!_hasFeature || _isSaving)" />
-                        <input type="text" class="portal-form-input" @bind="_config.SecondaryColor" placeholder="#C8A415" disabled="@(!_hasFeature || _isSaving)" />
-                    </div>
-                    <div class="portal-form-group">
-                        <label class="portal-form-label">Accent</label>
-                        <input type="color" class="portal-branding-color" @bind="_config.AccentColor" disabled="@(!_hasFeature || _isSaving)" />
-                        <input type="text" class="portal-form-input" @bind="_config.AccentColor" placeholder="#1A73E8" disabled="@(!_hasFeature || _isSaving)" />
-                    </div>
-                    <div class="portal-form-group">
-                        <label class="portal-form-label">Sidebar</label>
-                        <input type="color" class="portal-branding-color" @bind="_config.SidebarColor" disabled="@(!_hasFeature || _isSaving)" />
-                        <input type="text" class="portal-form-input" @bind="_config.SidebarColor" placeholder="#1A1F2B" disabled="@(!_hasFeature || _isSaving)" />
-                    </div>
-                </div>
-
-                <div class="portal-form-group">
-                    <label class="portal-form-label">Heading Font</label>
-                    <select class="portal-form-select" @bind="_config.FontHeading" disabled="@(!_hasFeature || _isSaving)">
-                        <option>Plus Jakarta Sans</option>
-                        <option>Inter</option>
-                        <option>Montserrat</option>
-                        <option>Poppins</option>
-                        <option>Open Sans</option>
-                        <option>Lato</option>
-                    </select>
-                </div>
-
-                <div class="portal-form-group">
-                    <label class="portal-form-label">Body Font</label>
-                    <select class="portal-form-select" @bind="_config.FontBody" disabled="@(!_hasFeature || _isSaving)">
-                        <option>Inter</option>
-                        <option>Plus Jakarta Sans</option>
-                        <option>Open Sans</option>
-                        <option>Lato</option>
-                        <option>Montserrat</option>
-                    </select>
-                </div>
-
-                <div class="portal-form-group">
-                    <label class="portal-form-label">Company Name</label>
-                    <input class="portal-form-input" @bind="_config.CompanyName" disabled="@(!_hasFeature || _isSaving)" />
-                </div>
-
-                <div class="portal-form-group">
-                    <label class="portal-form-label">Support Email</label>
-                    <input class="portal-form-input" @bind="_config.SupportEmail" disabled="@(!_hasFeature || _isSaving)" />
-                </div>
-
-                <div class="portal-form-group">
-                    <label class="portal-form-label">Support Phone</label>
-                    <input class="portal-form-input" @bind="_config.SupportPhone" disabled="@(!_hasFeature || _isSaving)" />
-                </div>
-
-                <div class="portal-form-group">
-                    <label class="portal-form-label">Copyright Text</label>
-                    <input class="portal-form-input" @bind="_config.CopyrightText" disabled="@(!_hasFeature || _isSaving)" />
-                </div>
-
-                <div class="portal-branding-actions">
-                    <button class="portal-btn portal-btn-primary" @onclick="SaveBranding" disabled="@(!_hasFeature || _isSaving)">
-                        @(_isSaving ? "Saving..." : "Save Changes")
-                    </button>
-                    <button class="portal-btn portal-btn-secondary" @onclick="ResetToDefaults" disabled="@(!_hasFeature || _isSaving)">
-                        Reset to Defaults
-                    </button>
-                </div>
-            </section>
-
-            <section class="portal-card portal-branding-preview" style="--preview-primary:@_config.PrimaryColor; --preview-secondary:@_config.SecondaryColor; --preview-accent:@_config.AccentColor; --preview-sidebar:@_config.SidebarColor; --preview-heading:'@_config.FontHeading'; --preview-body:'@_config.FontBody';">
-                <h2 class="portal-form-section-title">Live Preview</h2>
-                <div class="portal-branding-preview-frame">
-                    <aside class="portal-branding-preview-sidebar">
-                        @if (!string.IsNullOrWhiteSpace(_config.LogoUrl))
-                        {
-                            <img src="@_config.LogoUrl" alt="Preview logo" class="portal-branding-preview-logo" />
-                        }
-                        <div class="portal-branding-preview-nav portal-branding-preview-nav-active">Dashboard</div>
-                        <div class="portal-branding-preview-nav">Returns</div>
-                        <div class="portal-branding-preview-nav">Reports</div>
-                    </aside>
-                    <div class="portal-branding-preview-main">
-                        <header class="portal-branding-preview-header">
-                            <span>@(_config.CompanyName ?? "Your Company")</span>
-                        </header>
-                        <div class="portal-branding-preview-body">
-                            <button class="portal-branding-preview-btn-primary">Primary</button>
-                            <button class="portal-branding-preview-btn-secondary">Secondary</button>
-                        </div>
-                    </div>
-                </div>
-            </section>
+            <a href="/subscription/my-plan" class="portal-btn portal-btn-primary portal-btn-sm">View Plans</a>
         </div>
     }
-</div>
+
+    @if (_saved)
+    {
+        <div class="portal-alert portal-alert-success" role="status">✓ Branding saved and applied successfully.</div>
+    }
+    @if (_saveError != null)
+    {
+        <div class="portal-alert portal-alert-error" role="alert">@_saveError</div>
+    }
+
+    <div class="portal-be-layout">
+
+        <!-- ══════════════════════════════════════════════════════════
+             LEFT: Editor Panel
+             ══════════════════════════════════════════════════════════ -->
+        <div class="portal-be-editor">
+
+            <!-- Tab Navigation -->
+            <nav class="portal-be-tabs" role="tablist" aria-label="Branding editor sections">
+                @foreach (var tab in _tabs)
+                {
+                    <button class="portal-be-tab @(_tab == tab.Key ? "portal-be-tab--active" : "")"
+                            role="tab" aria-selected="@(_tab == tab.Key)"
+                            @onclick="() => _tab = tab.Key">
+                        <span class="portal-be-tab-icon" aria-hidden="true">@tab.Icon</span>
+                        <span class="portal-be-tab-label">@tab.Label</span>
+                    </button>
+                }
+            </nav>
+
+            <div class="portal-be-tab-panel" role="tabpanel">
+
+                <!-- ── COLORS ───────────────────────────────────────── -->
+                @if (_tab == "colors")
+                {
+                    <p class="portal-be-section-title">Brand Colors</p>
+
+                    <div class="portal-be-color-row">
+                        <span class="portal-be-color-row-label">Primary</span>
+                        <input type="color" class="portal-be-color-swatch" @bind="_config.PrimaryColor" @bind:event="oninput" disabled="@(!_hasFeature)" />
+                        <input type="text" class="portal-be-color-hex portal-form-input" @bind="_config.PrimaryColor" @bind:event="oninput" placeholder="#006B3F" maxlength="7" disabled="@(!_hasFeature)" />
+                        @{ var cr1 = ComputeContrast(_config.PrimaryColor, "#FFFFFF"); }
+                        <span class="portal-be-contrast-badge @(cr1 >= 4.5 ? "portal-be-contrast--pass" : cr1 >= 3.0 ? "portal-be-contrast--warn" : "portal-be-contrast--fail")" title="Primary on white background">@($"{cr1:F1}:1 {ContrastGrade(cr1)}")</span>
+                    </div>
+
+                    <div class="portal-be-color-row">
+                        <span class="portal-be-color-row-label">Secondary</span>
+                        <input type="color" class="portal-be-color-swatch" @bind="_config.SecondaryColor" @bind:event="oninput" disabled="@(!_hasFeature)" />
+                        <input type="text" class="portal-be-color-hex portal-form-input" @bind="_config.SecondaryColor" @bind:event="oninput" placeholder="#C8A415" maxlength="7" disabled="@(!_hasFeature)" />
+                        @{ var cr2 = ComputeContrast(_config.SecondaryColor, "#FFFFFF"); }
+                        <span class="portal-be-contrast-badge @(cr2 >= 4.5 ? "portal-be-contrast--pass" : cr2 >= 3.0 ? "portal-be-contrast--warn" : "portal-be-contrast--fail")" title="Secondary on white background">@($"{cr2:F1}:1 {ContrastGrade(cr2)}")</span>
+                    </div>
+
+                    <div class="portal-be-color-row">
+                        <span class="portal-be-color-row-label">Danger</span>
+                        <input type="color" class="portal-be-color-swatch" @bind="_config.DangerColor" @bind:event="oninput" disabled="@(!_hasFeature)" />
+                        <input type="text" class="portal-be-color-hex portal-form-input" @bind="_config.DangerColor" @bind:event="oninput" placeholder="#DC3545" maxlength="7" disabled="@(!_hasFeature)" />
+                        @{ var cr3 = ComputeContrast(_config.DangerColor, "#FFFFFF"); }
+                        <span class="portal-be-contrast-badge @(cr3 >= 4.5 ? "portal-be-contrast--pass" : cr3 >= 3.0 ? "portal-be-contrast--warn" : "portal-be-contrast--fail")" title="Danger on white background">@($"{cr3:F1}:1 {ContrastGrade(cr3)}")</span>
+                    </div>
+
+                    <p class="portal-be-section-title portal-be-section-title--mt">Layout Colors</p>
+
+                    <div class="portal-be-color-row">
+                        <span class="portal-be-color-row-label">Background</span>
+                        <input type="color" class="portal-be-color-swatch" @bind="_config.BackgroundColor" @bind:event="oninput" disabled="@(!_hasFeature)" />
+                        <input type="text" class="portal-be-color-hex portal-form-input" @bind="_config.BackgroundColor" @bind:event="oninput" placeholder="#F8F9FA" maxlength="7" disabled="@(!_hasFeature)" />
+                        @{ var cr4 = ComputeContrast("#1F2937", _config.BackgroundColor); }
+                        <span class="portal-be-contrast-badge @(cr4 >= 4.5 ? "portal-be-contrast--pass" : cr4 >= 3.0 ? "portal-be-contrast--warn" : "portal-be-contrast--fail")" title="Dark text on background">@($"{cr4:F1}:1 {ContrastGrade(cr4)}")</span>
+                    </div>
+
+                    <div class="portal-be-color-row">
+                        <span class="portal-be-color-row-label">Sidebar</span>
+                        <input type="color" class="portal-be-color-swatch" @bind="_config.SidebarColor" @bind:event="oninput" disabled="@(!_hasFeature)" />
+                        <input type="text" class="portal-be-color-hex portal-form-input" @bind="_config.SidebarColor" @bind:event="oninput" placeholder="#1A1F2B" maxlength="7" disabled="@(!_hasFeature)" />
+                        @{ var cr5 = ComputeContrast("#FFFFFF", _config.SidebarColor); }
+                        <span class="portal-be-contrast-badge @(cr5 >= 4.5 ? "portal-be-contrast--pass" : cr5 >= 3.0 ? "portal-be-contrast--warn" : "portal-be-contrast--fail")" title="White text on sidebar">@($"{cr5:F1}:1 {ContrastGrade(cr5)}")</span>
+                    </div>
+
+                    <div class="portal-be-contrast-summary">
+                        <div class="portal-be-contrast-summary-title">WCAG 2.1 Accessibility Summary</div>
+                        <div class="portal-be-contrast-grid">
+                            @{ var s1 = ComputeContrast(_config.PrimaryColor, "#FFFFFF"); }
+                            <div class="portal-be-contrast-card @(s1 >= 4.5 ? "portal-be-contrast-card--pass" : "portal-be-contrast-card--fail")">
+                                <span class="portal-be-contrast-card-label">Primary on White</span>
+                                <span class="portal-be-contrast-card-ratio">@($"{s1:F1}:1")</span>
+                                <span class="portal-be-contrast-card-grade">@ContrastGrade(s1)</span>
+                            </div>
+                            @{ var s2 = ComputeContrast("#FFFFFF", _config.PrimaryColor); }
+                            <div class="portal-be-contrast-card @(s2 >= 4.5 ? "portal-be-contrast-card--pass" : "portal-be-contrast-card--fail")">
+                                <span class="portal-be-contrast-card-label">White on Primary</span>
+                                <span class="portal-be-contrast-card-ratio">@($"{s2:F1}:1")</span>
+                                <span class="portal-be-contrast-card-grade">@ContrastGrade(s2)</span>
+                            </div>
+                            @{ var s3 = ComputeContrast(_config.SecondaryColor, "#FFFFFF"); }
+                            <div class="portal-be-contrast-card @(s3 >= 4.5 ? "portal-be-contrast-card--pass" : "portal-be-contrast-card--fail")">
+                                <span class="portal-be-contrast-card-label">Secondary on White</span>
+                                <span class="portal-be-contrast-card-ratio">@($"{s3:F1}:1")</span>
+                                <span class="portal-be-contrast-card-grade">@ContrastGrade(s3)</span>
+                            </div>
+                            @{ var s4 = ComputeContrast("#FFFFFF", _config.SidebarColor); }
+                            <div class="portal-be-contrast-card @(s4 >= 4.5 ? "portal-be-contrast-card--pass" : "portal-be-contrast-card--fail")">
+                                <span class="portal-be-contrast-card-label">White on Sidebar</span>
+                                <span class="portal-be-contrast-card-ratio">@($"{s4:F1}:1")</span>
+                                <span class="portal-be-contrast-card-grade">@ContrastGrade(s4)</span>
+                            </div>
+                        </div>
+                    </div>
+                }
+
+                <!-- ── LOGOS ─────────────────────────────────────────── -->
+                else if (_tab == "logos")
+                {
+                    <p class="portal-be-section-title">Logo & Favicon</p>
+
+                    <div class="portal-be-logo-grid">
+
+                        <!-- Primary Logo -->
+                        <div class="portal-be-logo-item">
+                            <div class="portal-be-logo-item-label">Primary Logo</div>
+                            <div class="portal-be-logo-item-hint">Full-width logo for login page and expanded sidebar. SVG or PNG, ~300×80px.</div>
+                            <label class="portal-be-logo-zone" for="be-logo-primary">
+                                <InputFile OnChange="HandleLogoUpload" accept=".png,.svg,.jpg,.jpeg"
+                                           id="be-logo-primary" class="portal-be-file-input" disabled="@(!_hasFeature)" />
+                                <div class="portal-be-logo-zone-body">
+                                    @if (!string.IsNullOrWhiteSpace(_config.LogoUrl))
+                                    {
+                                        <img src="@_config.LogoUrl" alt="Logo" class="portal-be-logo-thumb portal-be-logo-thumb--wide" />
+                                        <span class="portal-be-logo-replace-hint">Click or drag to replace</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-be-logo-zone-icon" aria-hidden="true">🖼</span>
+                                        <span class="portal-be-logo-zone-text">Drop logo here or click to browse</span>
+                                        <span class="portal-be-logo-zone-hint">PNG, SVG, JPG · max 2 MB</span>
+                                    }
+                                </div>
+                            </label>
+                            <div class="portal-be-logo-context-label">In sidebar:</div>
+                            <div class="portal-be-logo-ctx-sidebar" style="background: @(_config.SidebarColor ?? "#1A1F2B");">
+                                @if (!string.IsNullOrWhiteSpace(_config.LogoUrl))
+                                {
+                                    <img src="@_config.LogoUrl" alt="Logo" class="portal-be-logo-ctx-sidebar-img" />
+                                }
+                                else
+                                {
+                                    <span class="portal-be-logo-ctx-sidebar-initials">@Initials</span>
+                                }
+                                <span class="portal-be-logo-ctx-sidebar-name">@(_config.CompanyName ?? "Institution")</span>
+                            </div>
+                        </div>
+
+                        <!-- Compact Logo -->
+                        <div class="portal-be-logo-item">
+                            <div class="portal-be-logo-item-label">Compact Logo</div>
+                            <div class="portal-be-logo-item-hint">Square icon for collapsed sidebar. 48×48px recommended.</div>
+                            <label class="portal-be-logo-zone portal-be-logo-zone--square" for="be-logo-compact">
+                                <InputFile OnChange="HandleCompactLogoUpload" accept=".png,.svg,.jpg,.jpeg"
+                                           id="be-logo-compact" class="portal-be-file-input" disabled="@(!_hasFeature)" />
+                                <div class="portal-be-logo-zone-body">
+                                    @if (!string.IsNullOrWhiteSpace(_config.LogoSmallUrl))
+                                    {
+                                        <img src="@_config.LogoSmallUrl" alt="Compact logo" class="portal-be-logo-thumb portal-be-logo-thumb--square" />
+                                        <span class="portal-be-logo-replace-hint">Click to replace</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-be-logo-zone-icon" aria-hidden="true">📐</span>
+                                        <span class="portal-be-logo-zone-text">Drop square logo</span>
+                                        <span class="portal-be-logo-zone-hint">Square PNG/SVG · max 2 MB</span>
+                                    }
+                                </div>
+                            </label>
+                            <div class="portal-be-logo-context-label">Collapsed sidebar:</div>
+                            <div class="portal-be-logo-ctx-collapsed" style="background: @(_config.SidebarColor ?? "#1A1F2B");">
+                                @if (!string.IsNullOrWhiteSpace(_config.LogoSmallUrl))
+                                {
+                                    <img src="@_config.LogoSmallUrl" alt="Icon" class="portal-be-logo-ctx-collapsed-img" />
+                                }
+                                else
+                                {
+                                    <div class="portal-be-logo-ctx-collapsed-placeholder">@(Initials.Length > 0 ? Initials[0].ToString() : "?")</div>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Favicon -->
+                        <div class="portal-be-logo-item">
+                            <div class="portal-be-logo-item-label">Favicon</div>
+                            <div class="portal-be-logo-item-hint">Browser tab icon. ICO, PNG, or SVG · 32×32px.</div>
+                            <label class="portal-be-logo-zone portal-be-logo-zone--square" for="be-logo-favicon">
+                                <InputFile OnChange="HandleFaviconUpload" accept=".png,.svg,.ico"
+                                           id="be-logo-favicon" class="portal-be-file-input" disabled="@(!_hasFeature)" />
+                                <div class="portal-be-logo-zone-body">
+                                    @if (!string.IsNullOrWhiteSpace(_config.FaviconUrl))
+                                    {
+                                        <img src="@_config.FaviconUrl" alt="Favicon" class="portal-be-logo-thumb portal-be-logo-thumb--favicon" />
+                                        <span class="portal-be-logo-replace-hint">Click to replace</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-be-logo-zone-icon" aria-hidden="true">🌐</span>
+                                        <span class="portal-be-logo-zone-text">Drop favicon</span>
+                                        <span class="portal-be-logo-zone-hint">ICO, PNG, SVG · 32×32px</span>
+                                    }
+                                </div>
+                            </label>
+                            <div class="portal-be-logo-context-label">Browser tab:</div>
+                            <div class="portal-be-logo-ctx-tab">
+                                <div class="portal-be-logo-ctx-tab-chrome">
+                                    @if (!string.IsNullOrWhiteSpace(_config.FaviconUrl))
+                                    {
+                                        <img src="@_config.FaviconUrl" alt="fav" class="portal-be-logo-ctx-tab-fav" />
+                                    }
+                                    else
+                                    {
+                                        <div class="portal-be-logo-ctx-tab-fav-placeholder">?</div>
+                                    }
+                                    <span class="portal-be-logo-ctx-tab-title">@(_config.CompanyName ?? "Portal") — Returns</span>
+                                    <span class="portal-be-logo-ctx-tab-close" aria-hidden="true">✕</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                }
+
+                <!-- ── FONTS ─────────────────────────────────────────── -->
+                else if (_tab == "fonts")
+                {
+                    <p class="portal-be-section-title">Typography</p>
+
+                    <div class="portal-be-font-pair">
+
+                        <div class="portal-be-font-group">
+                            <label class="portal-be-font-label" for="be-font-heading">Heading Font</label>
+                            <select id="be-font-heading" class="portal-form-select"
+                                    value="@_config.FontHeading"
+                                    @onchange="e => OnHeadingFontChange(e.Value?.ToString())">
+                                @foreach (var f in ApprovedFonts)
+                                {
+                                    <option value="@f" selected="@(f == _config.FontHeading)">@f</option>
+                                }
+                            </select>
+                            <div class="portal-be-font-preview-wrap">
+                                <p class="portal-be-font-preview portal-be-font-preview--h1"
+                                   style="font-family: '@(_config.FontHeading ?? "Plus Jakarta Sans")', sans-serif;">
+                                    Financial Returns System
+                                </p>
+                                <p class="portal-be-font-preview portal-be-font-preview--h3"
+                                   style="font-family: '@(_config.FontHeading ?? "Plus Jakarta Sans")', sans-serif;">
+                                    Quarterly Compliance Report
+                                </p>
+                                <p class="portal-be-font-preview portal-be-font-preview--abc"
+                                   style="font-family: '@(_config.FontHeading ?? "Plus Jakarta Sans")', sans-serif;">
+                                    Aa Bb Cc Dd Ee 0123456789
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="portal-be-font-group">
+                            <label class="portal-be-font-label" for="be-font-body">Body Font</label>
+                            <select id="be-font-body" class="portal-form-select"
+                                    value="@_config.FontBody"
+                                    @onchange="e => OnBodyFontChange(e.Value?.ToString())">
+                                @foreach (var f in ApprovedFonts)
+                                {
+                                    <option value="@f" selected="@(f == _config.FontBody)">@f</option>
+                                }
+                            </select>
+                            <div class="portal-be-font-preview-wrap">
+                                <p class="portal-be-font-preview portal-be-font-preview--body"
+                                   style="font-family: '@(_config.FontBody ?? "Inter")', sans-serif;">
+                                    Submit your quarterly regulatory return by the specified deadline. Review all figures carefully before final submission to ensure compliance.
+                                </p>
+                                <p class="portal-be-font-preview portal-be-font-preview--body-sm"
+                                   style="font-family: '@(_config.FontBody ?? "Inter")', sans-serif;">
+                                    Reference no. 2025-Q1-00142 · Status: Pending Review
+                                </p>
+                                <p class="portal-be-font-preview portal-be-font-preview--abc"
+                                   style="font-family: '@(_config.FontBody ?? "Inter")', sans-serif;">
+                                    Aa Bb Cc Dd Ee 0123456789
+                                </p>
+                            </div>
+                        </div>
+
+                    </div>
+                }
+
+                <!-- ── LOGIN PAGE ─────────────────────────────────────── -->
+                else if (_tab == "login")
+                {
+                    <p class="portal-be-section-title">Login Page Content</p>
+
+                    <div class="portal-form-group">
+                        <label class="portal-form-label" for="be-tagline">Tagline</label>
+                        <input id="be-tagline" class="portal-form-input"
+                               placeholder="Financial Returns Collection & Analysis System"
+                               @bind="_config.LoginTagline" @bind:event="oninput"
+                               disabled="@(!_hasFeature)" />
+                        <span class="portal-form-hint">Shown below the company name on the login brand panel.</span>
+                    </div>
+
+                    <div class="portal-form-group">
+                        <label class="portal-form-label" for="be-login-bg">Login Background Image URL</label>
+                        <input id="be-login-bg" class="portal-form-input"
+                               placeholder="https://…/background.jpg"
+                               @bind="_config.LoginBackgroundUrl" @bind:event="oninput"
+                               disabled="@(!_hasFeature)" />
+                        <span class="portal-form-hint">Leave blank for the default gradient. Must be a publicly accessible image URL.</span>
+                    </div>
+
+                    <p class="portal-be-section-title portal-be-section-title--sm">Trust Badges</p>
+                    <p class="portal-be-section-hint">Three short phrases displayed as security/trust indicators on the login panel.</p>
+
+                    <div class="portal-be-trust-row">
+                        <div class="portal-form-group">
+                            <label class="portal-form-label">Badge 1</label>
+                            <input class="portal-form-input" placeholder="Role-Based Access"
+                                   @bind="_config.TrustBadge1" @bind:event="oninput" disabled="@(!_hasFeature)" />
+                        </div>
+                        <div class="portal-form-group">
+                            <label class="portal-form-label">Badge 2</label>
+                            <input class="portal-form-input" placeholder="Audit Logging"
+                                   @bind="_config.TrustBadge2" @bind:event="oninput" disabled="@(!_hasFeature)" />
+                        </div>
+                        <div class="portal-form-group">
+                            <label class="portal-form-label">Badge 3</label>
+                            <input class="portal-form-input" placeholder="Encrypted Sessions"
+                                   @bind="_config.TrustBadge3" @bind:event="oninput" disabled="@(!_hasFeature)" />
+                        </div>
+                    </div>
+
+                    <div class="portal-be-login-tip">
+                        <span aria-hidden="true">👉</span> Switch the preview panel to <strong>Login</strong> to see how your users will see the login page.
+                    </div>
+                }
+
+                <!-- ── PRESETS ─────────────────────────────────────────── -->
+                else if (_tab == "presets")
+                {
+                    <p class="portal-be-section-title">Preset Themes</p>
+                    <p class="portal-be-section-hint">Click a preset to preview it instantly in the right panel. Use "Apply" to adopt it — you can still fine-tune colors and fonts afterward.</p>
+
+                    <div class="portal-be-preset-grid">
+                        @foreach (var preset in Presets)
+                        {
+                            var isActive = _config.ThemePresetName == preset.Name && _previewingPreset == null;
+                            var isPreviewing = _previewingPreset == preset.Name;
+                            <div class="portal-be-preset-card @(isActive ? "portal-be-preset-card--active" : "") @(isPreviewing ? "portal-be-preset-card--previewing" : "")"
+                                 @onclick="() => PreviewPreset(preset)"
+                                 role="button" tabindex="0"
+                                 aria-pressed="@(isActive || isPreviewing)">
+                                <div class="portal-be-preset-swatches">
+                                    <div class="portal-be-preset-swatch" style="background:@preset.Primary;" title="Primary"></div>
+                                    <div class="portal-be-preset-swatch" style="background:@preset.Secondary;" title="Secondary"></div>
+                                    <div class="portal-be-preset-swatch" style="background:@preset.Sidebar;" title="Sidebar"></div>
+                                    <div class="portal-be-preset-swatch portal-be-preset-swatch--bg" style="background:@preset.Background; border:1px solid rgba(0,0,0,.12);" title="Background"></div>
+                                </div>
+                                <div class="portal-be-preset-name">@preset.Name</div>
+                                <div class="portal-be-preset-desc">@preset.Description</div>
+                                <div class="portal-be-preset-footer">
+                                    @if (isActive)
+                                    {
+                                        <span class="portal-be-preset-active-badge">✓ Currently Applied</span>
+                                    }
+                                    else if (isPreviewing)
+                                    {
+                                        <button class="portal-btn portal-btn-primary portal-btn-sm"
+                                                @onclick:stopPropagation @onclick="() => ApplyPreset(preset)">Apply Theme</button>
+                                        <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                                                @onclick:stopPropagation @onclick="CancelPresetPreview">Cancel</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-be-preset-tap-hint">Click to preview →</span>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+
+                <!-- ── ADVANCED ──────────────────────────────────────── -->
+                else if (_tab == "advanced")
+                {
+                    <p class="portal-be-section-title">Company Information</p>
+
+                    <div class="portal-be-two-col">
+                        <div class="portal-form-group">
+                            <label class="portal-form-label" for="be-company">Company Name</label>
+                            <input id="be-company" class="portal-form-input"
+                                   @bind="_config.CompanyName" @bind:event="oninput"
+                                   disabled="@(!_hasFeature)" />
+                        </div>
+                        <div class="portal-form-group">
+                            <label class="portal-form-label" for="be-copyright">Copyright Text</label>
+                            <input id="be-copyright" class="portal-form-input"
+                                   placeholder="© 2025 Your Company. All rights reserved."
+                                   @bind="_config.CopyrightText"
+                                   disabled="@(!_hasFeature)" />
+                        </div>
+                        <div class="portal-form-group">
+                            <label class="portal-form-label" for="be-email">Support Email</label>
+                            <input id="be-email" class="portal-form-input" type="email"
+                                   @bind="_config.SupportEmail"
+                                   disabled="@(!_hasFeature)" />
+                        </div>
+                        <div class="portal-form-group">
+                            <label class="portal-form-label" for="be-phone">Support Phone</label>
+                            <input id="be-phone" class="portal-form-input" type="tel"
+                                   @bind="_config.SupportPhone"
+                                   disabled="@(!_hasFeature)" />
+                        </div>
+                        <div class="portal-form-group">
+                            <label class="portal-form-label" for="be-watermark">Watermark Text</label>
+                            <input id="be-watermark" class="portal-form-input"
+                                   placeholder="CONFIDENTIAL"
+                                   @bind="_config.WatermarkText"
+                                   disabled="@(!_hasFeature)" />
+                        </div>
+                    </div>
+
+                    <div class="portal-form-group portal-be-mt">
+                        <label class="portal-form-label" for="be-custom-css">Custom CSS Overrides</label>
+                        <textarea id="be-custom-css" class="portal-form-input portal-be-custom-css" rows="10"
+                                  placeholder="/* Override any design token or component style *&#10;.portal-card { border-radius: 0; }&#10;--cbn-border: #d0d7de;"
+                                  @bind="_config.CustomCss"
+                                  disabled="@(!_hasFeature)"></textarea>
+                        <span class="portal-form-hint">Injected as a final style block after all system styles. Changes apply on next save and page load.</span>
+                    </div>
+
+                    <div class="portal-be-css-ref">
+                        <div class="portal-be-css-ref-title">Available CSS custom properties:</div>
+                        <div class="portal-be-css-ref-chips">
+                            @foreach (var v in CssVarRef)
+                            {
+                                <code class="portal-be-css-chip">@v</code>
+                            }
+                        </div>
+                    </div>
+                }
+
+            </div><!-- /tab-panel -->
+
+            <!-- Footer Actions -->
+            <div class="portal-be-footer">
+                <div class="portal-be-footer-left">
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm portal-be-reset-btn"
+                            @onclick="() => _showResetConfirm = true"
+                            disabled="@(!_hasFeature)"
+                            title="Reset all branding to CBN default green/gold palette">
+                        ↺ Reset to CBN Default
+                    </button>
+                </div>
+                <div class="portal-be-footer-right">
+                    <button class="portal-btn portal-btn-outline portal-btn-sm"
+                            @onclick="ExportCss"
+                            disabled="@(!_hasFeature)"
+                            title="Download a CSS file with all custom properties for use in other systems">
+                        ↓ Download theme.css
+                    </button>
+                    <button class="portal-btn portal-btn-primary"
+                            @onclick="SaveBranding"
+                            disabled="@(!_hasFeature || _saving)">
+                        @if (_saving)
+                        {
+                            <span class="portal-spinner portal-spinner-sm" aria-hidden="true"></span>
+                        }
+                        @(_saving ? "Saving…" : "Save Changes")
+                    </button>
+                </div>
+            </div>
+
+        </div><!-- /editor -->
+
+        <!-- ══════════════════════════════════════════════════════════
+             RIGHT: Live Preview Panel (sticky)
+             ══════════════════════════════════════════════════════════ -->
+        <div class="portal-be-preview">
+            <div class="portal-be-preview-topbar">
+                <div class="portal-be-preview-tabs">
+                    <button class="portal-be-preview-tab @(_previewMode == "portal" ? "portal-be-preview-tab--active" : "")"
+                            @onclick='() => _previewMode = "portal"'>App Preview</button>
+                    <button class="portal-be-preview-tab @(_previewMode == "login" ? "portal-be-preview-tab--active" : "")"
+                            @onclick='() => _previewMode = "login"'>Login Page</button>
+                </div>
+                <span class="portal-be-preview-live-badge">⚡ Live</span>
+            </div>
+
+            @if (_previewMode == "portal")
+            {
+                <!-- App mock frame -->
+                <div class="portal-be-mock-frame"
+                     style="--pv-primary:@(_config.PrimaryColor ?? "#006B3F");
+                            --pv-secondary:@(_config.SecondaryColor ?? "#C8A415");
+                            --pv-danger:@(_config.DangerColor ?? "#DC3545");
+                            --pv-sidebar:@(_config.SidebarColor ?? "#1A1F2B");
+                            --pv-bg:@(_config.BackgroundColor ?? "#F8F9FA");
+                            --pv-heading:'@(_config.FontHeading ?? "Plus Jakarta Sans")';
+                            --pv-body:'@(_config.FontBody ?? "Inter")';">
+
+                    <!-- Mock Sidebar -->
+                    <aside class="portal-be-mock-sidebar">
+                        <div class="portal-be-mock-brand">
+                            @if (!string.IsNullOrWhiteSpace(_config.LogoSmallUrl))
+                            {
+                                <img src="@_config.LogoSmallUrl" alt="logo" class="portal-be-mock-logo" />
+                            }
+                            else
+                            {
+                                <div class="portal-be-mock-logo-initials">@(Initials.Length > 0 ? Initials[0].ToString() : "R")</div>
+                            }
+                        </div>
+                        <nav class="portal-be-mock-nav">
+                            <div class="portal-be-mock-nav-item portal-be-mock-nav-item--active">
+                                <span class="portal-be-mock-nav-dot" aria-hidden="true"></span> Dashboard
+                            </div>
+                            <div class="portal-be-mock-nav-item">
+                                <span class="portal-be-mock-nav-dot" aria-hidden="true"></span> Returns
+                            </div>
+                            <div class="portal-be-mock-nav-item">
+                                <span class="portal-be-mock-nav-dot" aria-hidden="true"></span> Reports
+                            </div>
+                            <div class="portal-be-mock-nav-item">
+                                <span class="portal-be-mock-nav-dot" aria-hidden="true"></span> Settings
+                            </div>
+                        </nav>
+                    </aside>
+
+                    <!-- Mock Main -->
+                    <div class="portal-be-mock-main">
+                        <header class="portal-be-mock-topbar">
+                            <span class="portal-be-mock-company" style="font-family: var(--pv-heading), sans-serif;">
+                                @(_config.CompanyName ?? "Institution Name")
+                            </span>
+                            <div class="portal-be-mock-topbar-actions">
+                                <div class="portal-be-mock-icon-btn" aria-hidden="true">🔔</div>
+                                <div class="portal-be-mock-avatar" aria-hidden="true">AU</div>
+                            </div>
+                        </header>
+                        <div class="portal-be-mock-content">
+                            <div class="portal-be-mock-page-title" style="font-family: var(--pv-heading), sans-serif;">Dashboard</div>
+                            <div class="portal-be-mock-stat-row">
+                                <div class="portal-be-mock-stat-card">
+                                    <div class="portal-be-mock-stat-num" style="color: var(--pv-primary);">24</div>
+                                    <div class="portal-be-mock-stat-label" style="font-family: var(--pv-body), sans-serif;">Pending</div>
+                                </div>
+                                <div class="portal-be-mock-stat-card">
+                                    <div class="portal-be-mock-stat-num" style="color: var(--pv-primary);">96%</div>
+                                    <div class="portal-be-mock-stat-label" style="font-family: var(--pv-body), sans-serif;">Compliance</div>
+                                </div>
+                                <div class="portal-be-mock-stat-card">
+                                    <div class="portal-be-mock-stat-num" style="color: var(--pv-danger);">3</div>
+                                    <div class="portal-be-mock-stat-label" style="font-family: var(--pv-body), sans-serif;">Overdue</div>
+                                </div>
+                            </div>
+                            <div class="portal-be-mock-btn-row">
+                                <button class="portal-be-mock-btn portal-be-mock-btn--primary" style="background: var(--pv-primary); font-family: var(--pv-body), sans-serif;">Submit Return</button>
+                                <button class="portal-be-mock-btn portal-be-mock-btn--secondary" style="background: var(--pv-secondary); font-family: var(--pv-body), sans-serif;">Export</button>
+                            </div>
+                            <div class="portal-be-mock-table">
+                                <div class="portal-be-mock-tr portal-be-mock-tr--head" style="border-bottom: 2px solid var(--pv-primary);">
+                                    <span>Return ID</span><span>Period</span><span>Status</span>
+                                </div>
+                                <div class="portal-be-mock-tr">
+                                    <span>RET-2025-001</span><span>Q1 2025</span>
+                                    <span class="portal-be-mock-badge" style="background: color-mix(in srgb, var(--pv-primary) 12%, transparent); color: var(--pv-primary);">Submitted</span>
+                                </div>
+                                <div class="portal-be-mock-tr">
+                                    <span>RET-2025-002</span><span>Q4 2024</span>
+                                    <span class="portal-be-mock-badge" style="background: color-mix(in srgb, var(--pv-danger) 12%, transparent); color: var(--pv-danger);">Overdue</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            }
+            else
+            {
+                <!-- Login page mock frame -->
+                <div class="portal-be-login-mock"
+                     style="--pv-primary:@(_config.PrimaryColor ?? "#006B3F");
+                            --pv-secondary:@(_config.SecondaryColor ?? "#C8A415");
+                            --pv-sidebar:@(_config.SidebarColor ?? "#1A1F2B");
+                            --pv-heading:'@(_config.FontHeading ?? "Plus Jakarta Sans")';
+                            --pv-body:'@(_config.FontBody ?? "Inter")';">
+
+                    @if (!string.IsNullOrWhiteSpace(_config.LoginBackgroundUrl))
+                    {
+                        <div class="portal-be-login-mock-bg" style="background-image: linear-gradient(135deg, rgba(0,0,0,.5), rgba(0,0,0,.15)), url('@_config.LoginBackgroundUrl'); background-size: cover; background-position: center;"></div>
+                    }
+
+                    <!-- Brand Left Panel -->
+                    <div class="portal-be-login-mock-left" style="background: linear-gradient(145deg, var(--pv-primary), color-mix(in srgb, var(--pv-primary) 70%, #000));">
+                        <div class="portal-be-login-mock-logo-ring">
+                            @if (!string.IsNullOrWhiteSpace(_config.LogoUrl))
+                            {
+                                <img src="@_config.LogoUrl" alt="Logo" class="portal-be-login-mock-logo-img" />
+                            }
+                            else
+                            {
+                                <span class="portal-be-login-mock-logo-initials" style="font-family: var(--pv-heading), sans-serif;">@Initials</span>
+                            }
+                        </div>
+                        <div class="portal-be-login-mock-company" style="font-family: var(--pv-heading), sans-serif;">
+                            @(_config.CompanyName ?? "Your Institution")
+                        </div>
+                        <div class="portal-be-login-mock-tagline" style="font-family: var(--pv-body), sans-serif;">
+                            @(!string.IsNullOrWhiteSpace(_config.LoginTagline) ? _config.LoginTagline : "Financial Returns Collection & Analysis System")
+                        </div>
+                        <div class="portal-be-login-mock-badges">
+                            <div class="portal-be-login-mock-badge"><span>✓</span> @(!string.IsNullOrWhiteSpace(_config.TrustBadge1) ? _config.TrustBadge1 : "Role-Based Access")</div>
+                            <div class="portal-be-login-mock-badge"><span>✓</span> @(!string.IsNullOrWhiteSpace(_config.TrustBadge2) ? _config.TrustBadge2 : "Audit Logging")</div>
+                            <div class="portal-be-login-mock-badge"><span>✓</span> @(!string.IsNullOrWhiteSpace(_config.TrustBadge3) ? _config.TrustBadge3 : "Encrypted Sessions")</div>
+                        </div>
+                    </div>
+
+                    <!-- Login Form Right Panel -->
+                    <div class="portal-be-login-mock-right" style="font-family: var(--pv-body), sans-serif;">
+                        <div class="portal-be-login-mock-form">
+                            <div class="portal-be-login-mock-form-title" style="font-family: var(--pv-heading), sans-serif; color: var(--pv-primary);">Sign In</div>
+                            <div class="portal-be-login-mock-form-sub">Enter your credentials to access the portal</div>
+                            <div class="portal-be-login-mock-field"></div>
+                            <div class="portal-be-login-mock-field"></div>
+                            <button class="portal-be-login-mock-submit" style="background: var(--pv-primary);">Login to Portal</button>
+                            <div class="portal-be-login-mock-forgot">Forgot password?</div>
+                        </div>
+                    </div>
+
+                </div>
+            }
+
+            <div class="portal-be-preview-footer">
+                <span>⚡ Updates as you type — no save required to preview</span>
+            </div>
+        </div><!-- /preview -->
+
+    </div><!-- /layout -->
+
+    <!-- ── Reset Confirm Modal ── -->
+    @if (_showResetConfirm)
+    {
+        <div class="portal-modal-overlay" @onclick="() => _showResetConfirm = false" role="dialog" aria-modal="true" aria-labelledby="reset-modal-title">
+            <div class="portal-modal portal-modal-sm" @onclick:stopPropagation>
+                <div class="portal-modal-header">
+                    <h3 class="portal-modal-title" id="reset-modal-title">Reset to CBN Default Branding?</h3>
+                </div>
+                <div class="portal-modal-body">
+                    <p>This restores the default green and gold palette, system fonts, and clears custom logo URLs. Your uploaded logo files are not deleted — re-upload them anytime.</p>
+                    <p>This action cannot be undone from this page once you save.</p>
+                </div>
+                <div class="portal-modal-footer">
+                    <button class="portal-btn portal-btn-ghost" @onclick="() => _showResetConfirm = false">Cancel</button>
+                    <button class="portal-btn portal-btn-danger" @onclick="ConfirmReset">Yes, Reset to Defaults</button>
+                </div>
+            </div>
+        </div>
+    }
+}
 
 @code {
-    private BrandingConfig _config = BrandingConfig.WithDefaults();
-    private bool _hasFeature;
-    private bool _isLoading = true;
-    private bool _isSaving;
-    private string? _errorMessage;
-    private string? _successMessage;
+    // ── Tabs ──────────────────────────────────────────────────────────
+    private static readonly (string Key, string Label, string Icon)[] _tabs =
+    [
+        ("colors",  "Colors",  "🎨"),
+        ("logos",   "Logos",   "🖼"),
+        ("fonts",   "Fonts",   "Aa"),
+        ("login",   "Login",   "🔐"),
+        ("presets", "Presets", "✨"),
+        ("advanced","Advanced","⚙"),
+    ];
 
+    private static readonly string[] ApprovedFonts =
+    [
+        "Inter", "Plus Jakarta Sans", "Source Sans 3", "Nunito",
+        "Roboto", "Poppins", "Lato", "Open Sans",
+    ];
+
+    private static readonly string[] CssVarRef =
+    [
+        "--cbn-primary", "--cbn-accent", "--cbn-danger", "--cbn-success", "--cbn-warning",
+        "--cbn-surface", "--cbn-sidebar", "--cbn-text", "--cbn-text-secondary", "--cbn-border",
+        "--font-sans", "--font-heading",
+        "--space-1", "--space-2", "--space-3", "--space-4", "--space-5",
+        "--radius-sm", "--radius-md", "--radius-lg",
+        "--motion-fast", "--motion-normal", "--motion-slow",
+    ];
+
+    private record BrandingPreset(string Name, string Description,
+        string Primary, string Secondary, string Sidebar, string Background,
+        string FontHeading, string FontBody);
+
+    private static readonly BrandingPreset[] Presets =
+    [
+        new("Financial Green",  "CBN default — authoritative and trustworthy",         "#006B3F", "#C8A415", "#1A1F2B", "#F8F9FA", "Plus Jakarta Sans", "Inter"),
+        new("Corporate Blue",   "Professional blue — familiar banking aesthetic",       "#0052CC", "#00B8D9", "#0747A6", "#F4F5F7", "Roboto",            "Source Sans 3"),
+        new("Conservative Gray","Understated and neutral — maximum readability",        "#374151", "#6B7280", "#1F2937", "#F9FAFB", "Open Sans",         "Lato"),
+        new("Bold Gold",        "Premium feel — leading with strong brand identity",    "#B8860B", "#006B3F", "#2D2106", "#FFFDF5", "Poppins",           "Nunito"),
+    ];
+
+    // ── State ─────────────────────────────────────────────────────────
+    private BrandingConfig _config = BrandingConfig.WithDefaults();
+    private BrandingConfig? _presetSnapshot;
+    private bool _hasFeature;
+    private bool _loading = true;
+    private bool _saving;
+    private string? _initError;
+    private string? _saveError;
+    private bool _saved;
+    private string _tab = "colors";
+    private string _previewMode = "portal";
+    private bool _showResetConfirm;
+    private string? _previewingPreset;
+    private Guid _tenantId;
+
+    // ── Derived ───────────────────────────────────────────────────────
+    private string Initials
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_config.CompanyName)) return "?";
+            var words = _config.CompanyName.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            return string.Concat(words.Take(2).Select(w => char.ToUpperInvariant(w[0])));
+        }
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────
     protected override async Task OnInitializedAsync()
     {
         if (!TenantContext.CurrentTenantId.HasValue)
         {
-            _errorMessage = "Tenant context is not available for this request.";
-            _isLoading = false;
+            _initError = "Tenant context is not available.";
+            _loading = false;
             return;
         }
 
-        var tenantId = TenantContext.CurrentTenantId.Value;
-        _config = await BrandingService.GetBrandingConfig(tenantId);
+        _tenantId = TenantContext.CurrentTenantId.Value;
 
-        var hasCustomDomain = await SubscriptionService.HasFeature(tenantId, "custom_domain");
-        var hasWhiteLabel = await SubscriptionService.HasFeature(tenantId, "white_label");
-        var hasCustomBranding = await SubscriptionService.HasFeature(tenantId, "custom_branding");
-        _hasFeature = hasCustomDomain || hasWhiteLabel || hasCustomBranding;
-
-        _isLoading = false;
-    }
-
-    private async Task SaveBranding()
-    {
-        _successMessage = null;
-        _errorMessage = null;
-
-        if (!TenantContext.CurrentTenantId.HasValue)
-        {
-            _errorMessage = "Tenant context is not available for this request.";
-            return;
-        }
-
-        _isSaving = true;
         try
         {
-            await BrandingService.UpdateBrandingConfig(TenantContext.CurrentTenantId.Value, _config);
-            _successMessage = "Branding updated successfully.";
+            _config = await BrandingService.GetBrandingConfig(_tenantId);
+
+            var hasCustomBranding = await SubscriptionService.HasFeature(_tenantId, "custom_branding");
+            var hasWhiteLabel     = await SubscriptionService.HasFeature(_tenantId, "white_label");
+            var hasCustomDomain   = await SubscriptionService.HasFeature(_tenantId, "custom_domain");
+            _hasFeature = hasCustomBranding || hasWhiteLabel || hasCustomDomain;
         }
         catch (Exception ex)
         {
-            _errorMessage = ex.Message;
+            _initError = ex.Message;
         }
         finally
         {
-            _isSaving = false;
+            _loading = false;
         }
     }
 
-    private async Task HandleLogoUpload(InputFileChangeEventArgs args)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!TenantContext.CurrentTenantId.HasValue || args.File is null)
+        if (firstRender && !_loading && _initError == null)
         {
-            return;
+            // Pre-load currently selected fonts so preview renders correctly
+            await JS.InvokeVoidAsync("portalBranding.loadGoogleFont", _config.FontHeading);
+            await JS.InvokeVoidAsync("portalBranding.loadGoogleFont", _config.FontBody);
         }
+    }
 
-        _errorMessage = null;
-        _successMessage = null;
-
+    // ── Save ──────────────────────────────────────────────────────────
+    private async Task SaveBranding()
+    {
+        _saveError = null;
+        _saved = false;
+        _saving = true;
         try
         {
-            await using var stream = args.File.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
-            _config.LogoUrl = await BrandingService.UploadLogo(
-                TenantContext.CurrentTenantId.Value,
-                stream,
-                args.File.Name,
-                args.File.ContentType);
-            _successMessage = "Logo uploaded successfully.";
+            await BrandingService.UpdateBrandingConfig(_tenantId, _config);
+            await BrandingService.InvalidateCache(_tenantId);
+            _saved = true;
+            _previewingPreset = null;
+            _presetSnapshot = null;
         }
         catch (Exception ex)
         {
-            _errorMessage = ex.Message;
+            _saveError = ex.Message;
         }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    // ── Font Change ───────────────────────────────────────────────────
+    private async Task OnHeadingFontChange(string? fontName)
+    {
+        _config.FontHeading = fontName;
+        if (!string.IsNullOrWhiteSpace(fontName))
+            await JS.InvokeVoidAsync("portalBranding.loadGoogleFont", fontName);
+    }
+
+    private async Task OnBodyFontChange(string? fontName)
+    {
+        _config.FontBody = fontName;
+        if (!string.IsNullOrWhiteSpace(fontName))
+            await JS.InvokeVoidAsync("portalBranding.loadGoogleFont", fontName);
+    }
+
+    // ── Logo Upload ───────────────────────────────────────────────────
+    private async Task HandleLogoUpload(InputFileChangeEventArgs args)
+    {
+        if (args.File is null) return;
+        _saveError = null;
+        try
+        {
+            await using var stream = args.File.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+            _config.LogoUrl = await BrandingService.UploadLogo(_tenantId, stream, args.File.Name, args.File.ContentType);
+        }
+        catch (Exception ex) { _saveError = "Logo upload failed: " + ex.Message; }
+    }
+
+    private async Task HandleCompactLogoUpload(InputFileChangeEventArgs args)
+    {
+        if (args.File is null) return;
+        _saveError = null;
+        try
+        {
+            await using var stream = args.File.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+            _config.LogoSmallUrl = await BrandingService.UploadCompactLogo(_tenantId, stream, args.File.Name, args.File.ContentType);
+        }
+        catch (Exception ex) { _saveError = "Logo upload failed: " + ex.Message; }
     }
 
     private async Task HandleFaviconUpload(InputFileChangeEventArgs args)
     {
-        if (!TenantContext.CurrentTenantId.HasValue || args.File is null)
-        {
-            return;
-        }
-
-        _errorMessage = null;
-        _successMessage = null;
-
+        if (args.File is null) return;
+        _saveError = null;
         try
         {
             await using var stream = args.File.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
-            _config.FaviconUrl = await BrandingService.UploadFavicon(
-                TenantContext.CurrentTenantId.Value,
-                stream,
-                args.File.Name,
-                args.File.ContentType);
-            _successMessage = "Favicon uploaded successfully.";
+            _config.FaviconUrl = await BrandingService.UploadFavicon(_tenantId, stream, args.File.Name, args.File.ContentType);
         }
-        catch (Exception ex)
-        {
-            _errorMessage = ex.Message;
-        }
+        catch (Exception ex) { _saveError = "Favicon upload failed: " + ex.Message; }
     }
 
-    private void ResetToDefaults()
+    // ── Presets ───────────────────────────────────────────────────────
+    private void PreviewPreset(BrandingPreset preset)
+    {
+        if (_previewingPreset != preset.Name)
+        {
+            // Save snapshot so Cancel can restore
+            _presetSnapshot = CloneConfig(_config);
+        }
+        _previewingPreset = preset.Name;
+        _config.PrimaryColor    = preset.Primary;
+        _config.SecondaryColor  = preset.Secondary;
+        _config.SidebarColor    = preset.Sidebar;
+        _config.BackgroundColor = preset.Background;
+        _config.FontHeading     = preset.FontHeading;
+        _config.FontBody        = preset.FontBody;
+    }
+
+    private void ApplyPreset(BrandingPreset preset)
+    {
+        _config.ThemePresetName = preset.Name;
+        _previewingPreset = null;
+        _presetSnapshot = null;
+    }
+
+    private void CancelPresetPreview()
+    {
+        if (_presetSnapshot != null)
+        {
+            _config = _presetSnapshot;
+            _presetSnapshot = null;
+        }
+        _previewingPreset = null;
+    }
+
+    // ── Reset ─────────────────────────────────────────────────────────
+    private void ConfirmReset()
     {
         _config = BrandingConfig.WithDefaults();
+        _showResetConfirm = false;
+        _previewingPreset = null;
+        _presetSnapshot = null;
+        _saved = false;
+        _saveError = null;
+    }
+
+    // ── CSS Export ────────────────────────────────────────────────────
+    private async Task ExportCss()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"/* {_config.CompanyName ?? "Institution"} — Theme Export */");
+        sb.AppendLine($"/* Generated: {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC */");
+        sb.AppendLine($"/* Preset: {_config.ThemePresetName ?? "Custom"} */");
+        sb.AppendLine();
+        sb.AppendLine(":root {");
+        sb.AppendLine($"  /* Brand Colors */");
+        sb.AppendLine($"  --color-primary:    {_config.PrimaryColor};");
+        sb.AppendLine($"  --color-secondary:  {_config.SecondaryColor};");
+        sb.AppendLine($"  --color-accent:     {_config.AccentColor};");
+        sb.AppendLine($"  --color-danger:     {_config.DangerColor};");
+        sb.AppendLine($"  --color-success:    {_config.SuccessColor};");
+        sb.AppendLine($"  --color-warning:    {_config.WarningColor};");
+        sb.AppendLine($"  /* Layout Colors */");
+        sb.AppendLine($"  --color-background: {_config.BackgroundColor};");
+        sb.AppendLine($"  --color-sidebar:    {_config.SidebarColor};");
+        sb.AppendLine($"  /* Typography */");
+        sb.AppendLine($"  --font-heading: '{_config.FontHeading}';");
+        sb.AppendLine($"  --font-body:    '{_config.FontBody}';");
+        sb.AppendLine($"  /* CBN Token Bridge */");
+        sb.AppendLine($"  --cbn-primary:       var(--color-primary);");
+        sb.AppendLine($"  --cbn-accent:        var(--color-secondary);");
+        sb.AppendLine($"  --cbn-danger:        var(--color-danger);");
+        sb.AppendLine($"  --cbn-success:       var(--color-success);");
+        sb.AppendLine($"  --cbn-warning:       var(--color-warning);");
+        sb.AppendLine($"  --cbn-surface:       var(--color-background);");
+        sb.AppendLine($"  --cbn-sidebar:       var(--color-sidebar);");
+        sb.AppendLine($"  --font-sans:         var(--font-body), -apple-system, sans-serif;");
+        sb.AppendLine("}");
+
+        if (!string.IsNullOrWhiteSpace(_config.CustomCss))
+        {
+            sb.AppendLine();
+            sb.AppendLine("/* Custom Overrides */");
+            sb.AppendLine(_config.CustomCss);
+        }
+
+        await JS.InvokeVoidAsync("portalBranding.exportCss", sb.ToString(), "theme.css");
+    }
+
+    // ── WCAG Contrast ─────────────────────────────────────────────────
+    private static double ComputeContrast(string? hex1, string? hex2)
+    {
+        var l1 = GetLuminance(hex1 ?? "#FFFFFF");
+        var l2 = GetLuminance(hex2 ?? "#000000");
+        var lighter = Math.Max(l1, l2);
+        var darker  = Math.Min(l1, l2);
+        return Math.Round((lighter + 0.05) / (darker + 0.05), 2);
+    }
+
+    private static double GetLuminance(string hex)
+    {
+        var (r, g, b) = ParseHex(hex);
+        static double Lin(int c)
+        {
+            var s = c / 255.0;
+            return s <= 0.04045 ? s / 12.92 : Math.Pow((s + 0.055) / 1.055, 2.4);
+        }
+        return 0.2126 * Lin(r) + 0.7152 * Lin(g) + 0.0722 * Lin(b);
+    }
+
+    private static string ContrastGrade(double ratio) => ratio switch
+    {
+        >= 7.0 => "AAA",
+        >= 4.5 => "AA",
+        >= 3.0 => "AA Large",
+        _      => "Fail",
+    };
+
+    private static (int r, int g, int b) ParseHex(string hex)
+    {
+        var v = (hex ?? string.Empty).TrimStart('#');
+        if (v.Length != 6) v = "006B3F";
+        try
+        {
+            return (Convert.ToInt32(v[..2], 16),
+                    Convert.ToInt32(v.Substring(2, 2), 16),
+                    Convert.ToInt32(v.Substring(4, 2), 16));
+        }
+        catch { return (0, 107, 63); }
+    }
+
+    // ── Clone config for preset preview/cancel ────────────────────────
+    private static BrandingConfig CloneConfig(BrandingConfig src) => new()
+    {
+        LogoUrl             = src.LogoUrl,
+        LogoSmallUrl        = src.LogoSmallUrl,
+        FaviconUrl          = src.FaviconUrl,
+        PrimaryColor        = src.PrimaryColor,
+        SecondaryColor      = src.SecondaryColor,
+        AccentColor         = src.AccentColor,
+        DangerColor         = src.DangerColor,
+        SuccessColor        = src.SuccessColor,
+        WarningColor        = src.WarningColor,
+        BackgroundColor     = src.BackgroundColor,
+        SidebarColor        = src.SidebarColor,
+        FontHeading         = src.FontHeading,
+        FontBody            = src.FontBody,
+        CompanyName         = src.CompanyName,
+        SupportEmail        = src.SupportEmail,
+        SupportPhone        = src.SupportPhone,
+        CopyrightText       = src.CopyrightText,
+        WatermarkText       = src.WatermarkText,
+        LoginBackgroundUrl  = src.LoginBackgroundUrl,
+        LoginTagline        = src.LoginTagline,
+        TrustBadge1         = src.TrustBadge1,
+        TrustBadge2         = src.TrustBadge2,
+        TrustBadge3         = src.TrustBadge3,
+        EmailHeaderColor    = src.EmailHeaderColor,
+        EmailBodyBackground = src.EmailBodyBackground,
+        CustomCss           = src.CustomCss,
+        ThemePresetName     = src.ThemePresetName,
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        await ValueTask.CompletedTask;
     }
 }

@@ -47,6 +47,12 @@ public interface IHistoricalMigrationService
         int signedOffByUserId,
         string? notes,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Rolls back a committed import job by removing the staged data snapshot.
+    /// Only available within 24 hours of commitment.
+    /// </summary>
+    Task<ImportJobDto> RollbackJob(Guid tenantId, int importJobId, int rolledBackByUserId, CancellationToken ct = default);
 }
 
 public class ImportJobDto

@@ -179,6 +179,16 @@
                         </button>
                     }
                 </div>
+                @if (userId.HasValue && selectedPeriodId > 0)
+                {
+                    <div class="portal-detail-hero-presence">
+                        <PresenceAvatars ResourceKey="@($"form:{ReturnCode}:{selectedPeriodId}")"
+                                         CurrentUserId="@userId.Value"
+                                         CurrentUserName="@userDisplayName"
+                                         CurrentUserRole="Maker"
+                                         ShowFieldLocks="true" />
+                    </div>
+                }
             </div>
             <div class="portal-detail-hero-actions">
                 @if (carryForwardKeys.Any())
@@ -1202,6 +1212,7 @@
     [Inject] private IDraftDataService DraftDataService { get; set; } = default!;
     [Inject] private IGenericDataRepository DataRepo { get; set; } = default!;
     [Inject] private IFormDataService FormDataSvc { get; set; } = default!;
+    [Inject] private IPresenceService PresenceService { get; set; } = default!;
 
     // ── State ─────────────────────────────────────────────────────
     private bool isLoadingTemplate = true;
@@ -1305,6 +1316,7 @@
     private HashSet<string> _expandedSections = new();
     private List<string> _sectionNames = new();
     private int _animatingSectionIndex = -1;
+    private string PresenceKey => $"form:{ReturnCode}:{selectedPeriodId}";
     private int _errorCount => fieldErrors.Count + serverErrors.Count(e => e.Severity == "Error");
     private enum SectionStatus { Untouched, Error, Warning, Complete }
 
@@ -2230,6 +2242,8 @@
     {
         if (isReadOnlyLocked) return;
         _lastEditedRowIndex = rowIdx;
+        if (userId.HasValue && selectedPeriodId > 0)
+            PresenceService.SetActiveField(PresenceKey, userId.Value, $"{fieldName}-{rowIdx}");
 
         if (rowIdx >= 0 && rowIdx < formRows.Count)
         {
@@ -2287,6 +2301,8 @@
     private async Task OnFieldBlurAsync(int rowIdx, string fieldName)
     {
         if (isReadOnlyLocked) return;
+        if (userId.HasValue && selectedPeriodId > 0)
+            PresenceService.SetActiveField(PresenceKey, userId.Value, null);
 
         var field = allFields.FirstOrDefault(f => f.FieldName == fieldName);
         if (field is null) return;

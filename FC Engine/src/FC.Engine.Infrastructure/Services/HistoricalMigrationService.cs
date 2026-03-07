@@ -813,6 +813,47 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         };
     }
 
+    public async Task<ImportJobDto> RollbackJob(Guid tenantId, int importJobId, int rolledBackByUserId, CancellationToken ct = default)
+    {
+        var job = await _db.ImportJobs
+            .FirstOrDefaultAsync(j => j.Id == importJobId && j.TenantId == tenantId, ct)
+            ?? throw new InvalidOperationException($"Import job #{importJobId} not found.");
+
+        if (job.Status != ImportJobStatus.Committed)
+            throw new InvalidOperationException("Only committed import jobs can be rolled back.");
+
+        if ((DateTime.UtcNow - job.UpdatedAt).TotalHours >= 24)
+            throw new InvalidOperationException("The 24-hour rollback window has expired for this import job.");
+
+        job.Status = ImportJobStatus.Staged;
+        job.StagedData = null;
+        job.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        _logger.LogInformation("Import job {JobId} rolled back by user {UserId}", importJobId, rolledBackByUserId);
+
+        return MapToDto(job);
+    }
+
+    private static ImportJobDto MapToDto(ImportJob job) => new()
+    {
+        Id = job.Id,
+        TenantId = job.TenantId,
+        TemplateId = job.TemplateId,
+        ReturnCode = job.Template?.ReturnCode ?? string.Empty,
+        InstitutionId = job.InstitutionId,
+        ReturnPeriodId = job.ReturnPeriodId,
+        SourceFileName = job.SourceFileName,
+        SourceFormat = job.SourceFormat,
+        Status = job.Status,
+        RecordCount = job.RecordCount ?? 0,
+        ErrorCount = job.ErrorCount ?? 0,
+        WarningCount = job.WarningCount ?? 0,
+        ImportedBy = job.ImportedBy,
+        CreatedAt = job.CreatedAt,
+        UpdatedAt = job.UpdatedAt
+    };
+
     private sealed class ImportStagedPayload
     {
         public List<Dictionary<string, string?>> Records { get; set; } = [];

@@ -1,5 +1,7 @@
-@* Shared layout wrapper for all help pages — provides sidebar navigation *@
+@* Shared layout wrapper for all help pages — universal search + sidebar navigation *@
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <div class="portal-page">
     <div class="portal-page-header">
@@ -7,6 +9,79 @@
             <h1 class="portal-page-title">Help Center</h1>
             <p class="portal-page-subtitle">Documentation, guides, and support for the FI Portal</p>
         </div>
+    </div>
+
+    <!-- Universal Search Bar -->
+    <div class="fc-hs-wrapper">
+        <div class="fc-hs-box">
+            <svg class="fc-hs-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input type="text" class="fc-hs-input" placeholder="Search help articles, guides, and FAQs..."
+                   @bind="_query" @bind:event="oninput" @oninput="OnSearchInput"
+                   @onfocus="OnSearchFocus" @onblur="OnSearchBlur"
+                   autocomplete="off" spellcheck="false"
+                   role="combobox" aria-autocomplete="list"
+                   aria-expanded="@(_showSuggestions && _suggestions.Count > 0)"
+                   aria-label="Search help content" />
+            @if (!string.IsNullOrEmpty(_query))
+            {
+                <button class="fc-hs-clear" @onclick="ClearSearch" aria-label="Clear search" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            }
+            <kbd class="fc-hs-kbd">F1</kbd>
+        </div>
+
+        @if (_showSuggestions && _suggestions.Count > 0)
+        {
+            <div class="fc-hs-dropdown" role="listbox">
+                <p class="fc-hs-dropdown-label">Top results for "<strong>@_query</strong>"</p>
+                @foreach (var s in _suggestions)
+                {
+                    <a href="@s.Url" class="fc-hs-suggestion" role="option" @onclick="ClearSearch">
+                        <span class="fc-hs-sug-icon fc-hs-sug-icon--@s.CategoryClass" aria-hidden="true">
+                            @((MarkupString)s.CategoryIcon)
+                        </span>
+                        <span class="fc-hs-sug-body">
+                            <span class="fc-hs-sug-title">@((MarkupString)HighlightMatch(s.Title))</span>
+                            <span class="fc-hs-sug-desc">@s.Description</span>
+                        </span>
+                        <span class="fc-hs-sug-meta">
+                            <span class="fc-hs-sug-cat">@s.Category</span>
+                            <span class="fc-hs-sug-time">@s.ReadTime</span>
+                        </span>
+                    </a>
+                }
+                @if (_query.Length >= 2)
+                {
+                    <a href="/help/knowledge-base" class="fc-hs-see-all">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                        </svg>
+                        Search Knowledge Base for "@_query"
+                    </a>
+                }
+            </div>
+        }
+        @if (_showSuggestions && _query.Length >= 2 && _suggestions.Count == 0)
+        {
+            <div class="fc-hs-dropdown fc-hs-dropdown--empty">
+                <p class="fc-hs-no-results">No results for "<strong>@_query</strong>" — try a different term.</p>
+                <a href="/help/support" class="fc-hs-suggestion" @onclick="ClearSearch">
+                    <span class="fc-hs-sug-icon fc-hs-sug-icon--support" aria-hidden="true">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+                    </span>
+                    <span class="fc-hs-sug-body">
+                        <span class="fc-hs-sug-title">Contact Support</span>
+                        <span class="fc-hs-sug-desc">Can't find what you need? Our team can help.</span>
+                    </span>
+                </a>
+            </div>
+        }
     </div>
 
     <div class="help-layout">
@@ -89,15 +164,122 @@
 @code {
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
+    private string _query = "";
+    private bool _showSuggestions = false;
+    private List<HelpSearchItem> _suggestions = new();
+    private System.Threading.Timer? _debounce;
+
+    private static readonly List<HelpSearchItem> SearchIndex = new()
+    {
+        new("Getting Started", "First-time setup, user roles, account creation", "/help/getting-started", "Guide", "2 min read", "getting started account setup first login password"),
+        new("Submission Guide", "How to prepare and submit XML regulatory returns", "/help/submission-guide", "Guide", "5 min read", "submit return xml upload file prepare"),
+        new("XML Format Requirements", "Namespace format, numeric formatting, encoding rules", "/help/submission-guide#xml-format", "Reference", "3 min read", "xml namespace format encoding numeric decimal"),
+        new("Structural Categories", "FixedRow, MultiRow, ItemCoded template structures", "/help/submission-guide#structural-categories", "Reference", "3 min read", "fixedrow multirow itemcoded structure template"),
+        new("Common XML Errors", "Missing namespace, invalid numbers, duplicate serial numbers", "/help/submission-guide#common-errors", "Reference", "2 min read", "xml error missing namespace invalid numeric duplicate serial"),
+        new("Re-submission Process", "How to correct and re-submit rejected returns", "/help/submission-guide#resubmission", "Guide", "2 min read", "resubmit rejected correction"),
+        new("Validation Error Guide", "Full catalog of all validation error types", "/help/validation-errors", "Reference", "8 min read", "validation errors catalog types explanations"),
+        new("Schema Validation Errors", "Invalid XML structure, namespace mismatch, missing required fields", "/help/validation-errors#schema", "Reference", "2 min read", "schema xml structure namespace missing element"),
+        new("Type & Range Errors", "Invalid data type, value out of range, invalid item code", "/help/validation-errors#typerange", "Reference", "2 min read", "type range data type out of range item code E-1045"),
+        new("Formula Validation Errors", "Sum mismatch, ratio checks, threshold breach", "/help/validation-errors#intrasheet", "Reference", "2 min read", "formula sum mismatch ratio threshold"),
+        new("Cross-Sheet Validation", "Cross-template mismatch, missing related submission", "/help/validation-errors#crosssheet", "Reference", "2 min read", "cross-sheet mismatch related submission"),
+        new("Business Rule Errors", "Completeness, date checks, regulatory thresholds", "/help/validation-errors#business", "Reference", "2 min read", "business rules completeness date regulatory"),
+        new("Error vs Warning", "Difference between errors and warnings in validation", "/help/validation-errors#severity", "Reference", "1 min read", "error warning severity rejected accepted"),
+        new("FAQ — Account & Access", "Password reset, user roles, adding users to institution", "/help/faq#account", "FAQ", "2 min read", "password reset account access roles users add team"),
+        new("FAQ — Submissions", "How to submit, file formats, submission status, file size", "/help/faq#submission", "FAQ", "2 min read", "submit format status file size duplicate period"),
+        new("FAQ — Validation", "What to do with errors, error vs warning, formula failures", "/help/faq#validation", "FAQ", "2 min read", "validation errors warnings formula sum tolerance"),
+        new("FAQ — Maker-Checker", "Approvals workflow, who can approve, rejection process", "/help/faq#approvals", "FAQ", "2 min read", "maker checker approval approve reject workflow"),
+        new("FAQ — Technical", "Supported browsers, XML from spreadsheet, API access", "/help/faq#technical", "FAQ", "1 min read", "browser technical api xml spreadsheet excel"),
+        new("FAQ — Deadlines", "Submission deadlines, missing deadlines, retention policy", "/help/faq#compliance", "FAQ", "1 min read", "deadline compliance late submission retention"),
+        new("Contact Support", "Submit a support ticket, email, phone, office address", "/help/support", "Support", "1 min read", "contact support ticket email phone help request"),
+        new("Knowledge Base", "Searchable module guides, onboarding, troubleshooting articles", "/help/knowledge-base", "Articles", "varies", "knowledge base articles modules guides troubleshooting"),
+        new("Carry Forward Fields", "Setting up and validating carry-forward period values", "/help/submission-guide", "Guide", "3 min read", "carry forward previous period"),
+        new("Using the Online Form", "Entering data directly without XML upload", "/help/submission-guide#online-form", "Guide", "2 min read", "online form data entry without xml"),
+    };
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        _query = e.Value?.ToString() ?? "";
+        _debounce?.Dispose();
+        _debounce = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(() => { ApplySearch(); StateHasChanged(); });
+        }, null, 180, Timeout.Infinite);
+    }
+
+    private void ApplySearch()
+    {
+        if (_query.Length < 2) { _suggestions = new(); return; }
+        var q = _query.ToLowerInvariant();
+        _suggestions = SearchIndex
+            .Select(item =>
+            {
+                var text = (item.Title + " " + item.Description + " " + item.Keywords).ToLowerInvariant();
+                int score = 0;
+                if (item.Title.Contains(_query, StringComparison.OrdinalIgnoreCase)) score += 30;
+                foreach (var word in q.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                    if (text.Contains(word)) score += 5;
+                return (score, item);
+            })
+            .Where(x => x.score > 0)
+            .OrderByDescending(x => x.score)
+            .Take(6)
+            .Select(x => x.item)
+            .ToList();
+    }
+
+    private void OnSearchFocus() => _showSuggestions = true;
+
+    private void OnSearchBlur()
+    {
+        _debounce?.Dispose();
+        _debounce = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(() => { _showSuggestions = false; StateHasChanged(); });
+        }, null, 200, Timeout.Infinite);
+    }
+
+    private void ClearSearch() { _query = ""; _suggestions = new(); _showSuggestions = false; }
+
+    private MarkupString HighlightMatch(string text)
+    {
+        if (string.IsNullOrEmpty(_query) || string.IsNullOrEmpty(text)) return new MarkupString(System.Web.HttpUtility.HtmlEncode(text));
+        var idx = text.IndexOf(_query, StringComparison.OrdinalIgnoreCase);
+        if (idx < 0) return new MarkupString(System.Web.HttpUtility.HtmlEncode(text));
+        var before = System.Web.HttpUtility.HtmlEncode(text[..idx]);
+        var match = System.Web.HttpUtility.HtmlEncode(text[idx..(idx + _query.Length)]);
+        var after = System.Web.HttpUtility.HtmlEncode(text[(idx + _query.Length)..]);
+        return new MarkupString($"{before}<mark>{match}</mark>{after}");
+    }
+
     private string IsActive(string href)
     {
         var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
         var path = uri.AbsolutePath.TrimEnd('/');
         var target = href.TrimEnd('/');
-
-        if (target == "/help")
-            return path == "/help" || path == "" ? "active" : "";
-
+        if (target == "/help") return path == "/help" || path == "" ? "active" : "";
         return path.Equals(target, StringComparison.OrdinalIgnoreCase) ? "active" : "";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _debounce?.Dispose();
+        await Task.CompletedTask;
+    }
+
+    private record HelpSearchItem(string Title, string Description, string Url, string Category, string ReadTime, string Keywords = "")
+    {
+        public string CategoryClass => Category.ToLowerInvariant() switch
+        {
+            "guide" => "guide", "reference" => "ref", "faq" => "faq",
+            "support" => "support", "articles" => "kb", _ => "default"
+        };
+        public string CategoryIcon => Category switch
+        {
+            "Guide" => "<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><circle cx='12' cy='12' r='10'/><polygon points='10 8 16 12 10 16 10 8'/></svg>",
+            "Reference" => "<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z'/><polyline points='14 2 14 8 20 8'/></svg>",
+            "FAQ" => "<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><circle cx='12' cy='12' r='10'/><path d='M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3'/><line x1='12' y1='17' x2='12.01' y2='17'/></svg>",
+            "Support" => "<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z'/></svg>",
+            _ => "<svg width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'><path d='M4 19.5A2.5 2.5 0 016.5 17H20'/><path d='M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z'/></svg>"
+        };
     }
 }

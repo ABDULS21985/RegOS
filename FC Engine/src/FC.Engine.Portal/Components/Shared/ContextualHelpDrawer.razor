@@ -1,0 +1,259 @@
+@* Floating contextual help drawer — shows relevant articles for the current page *@
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+<!-- Floating help button -->
+<button class="fc-hd-fab" id="fc-help-fab" @onclick="Toggle"
+        aria-label="@(_open ? "Close help" : "Open contextual help")"
+        aria-expanded="@_open" title="Contextual Help (F1)"
+        type="button">
+    @if (_open)
+    {
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+    }
+    else
+    {
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+    }
+</button>
+
+<!-- Drawer overlay -->
+@if (_open)
+{
+    <div class="fc-hd-overlay" @onclick="Close" aria-hidden="true"></div>
+}
+
+<!-- Drawer panel -->
+<aside id="fc-help-drawer" class="fc-hd-panel @(_open ? "fc-hd--open" : "")"
+       aria-label="Contextual help" aria-hidden="@(!_open)" role="complementary">
+
+    <div class="fc-hd-header">
+        <div class="fc-hd-header-left">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span>Help &amp; Guidance</span>
+        </div>
+        <button class="fc-hd-close" @onclick="Close" aria-label="Close help" type="button">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+        </button>
+    </div>
+
+    <!-- Drawer search -->
+    <div class="fc-hd-search">
+        <svg class="fc-hd-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" class="fc-hd-search-input" placeholder="Search help..."
+               @bind="_drawerSearch" @bind:event="oninput" @oninput="OnDrawerSearch"
+               aria-label="Search help articles" />
+    </div>
+
+    <div class="fc-hd-body">
+        @if (_drawerSearch.Length >= 2)
+        {
+            <!-- Drawer search results -->
+            <p class="fc-hd-section-label">Search results</p>
+            @if (_drawerResults.Count == 0)
+            {
+                <p class="fc-hd-empty">No results for "@_drawerSearch"</p>
+            }
+            else
+            {
+                @foreach (var r in _drawerResults)
+                {
+                    <a href="@r.Url" class="fc-hd-article" @onclick="Close">
+                        <span class="fc-hd-article-title">@r.Title</span>
+                        <span class="fc-hd-article-meta">
+                            <span class="fc-hd-article-cat fc-hd-cat--@r.CategoryClass">@r.Category</span>
+                            <span class="fc-hd-article-time">@r.ReadTime</span>
+                        </span>
+                    </a>
+                }
+            }
+        }
+        else
+        {
+            <!-- Contextual articles for current page -->
+            @if (_contextArticles.Count > 0)
+            {
+                <p class="fc-hd-section-label">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>
+                    </svg>
+                    Relevant to this page
+                </p>
+                @foreach (var a in _contextArticles)
+                {
+                    <a href="@a.Url" class="fc-hd-article fc-hd-article--context" @onclick="Close">
+                        <span class="fc-hd-article-title">@a.Title</span>
+                        <span class="fc-hd-article-meta">
+                            <span class="fc-hd-article-cat fc-hd-cat--@a.CategoryClass">@a.Category</span>
+                            <span class="fc-hd-article-time">@a.ReadTime</span>
+                        </span>
+                        <span class="fc-hd-article-desc">@a.Description</span>
+                    </a>
+                }
+            }
+
+            <!-- Popular articles -->
+            <p class="fc-hd-section-label" style="margin-top: @(_contextArticles.Count > 0 ? "1.25rem" : "0")">Popular articles</p>
+            @foreach (var a in _popularArticles)
+            {
+                <a href="@a.Url" class="fc-hd-article" @onclick="Close">
+                    <span class="fc-hd-article-title">@a.Title</span>
+                    <span class="fc-hd-article-meta">
+                        <span class="fc-hd-article-cat fc-hd-cat--@a.CategoryClass">@a.Category</span>
+                        <span class="fc-hd-article-time">@a.ReadTime</span>
+                    </span>
+                </a>
+            }
+        }
+    </div>
+
+    <div class="fc-hd-footer">
+        <a href="/help" class="fc-hd-footer-link" @onclick="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+            </svg>
+            Browse all help articles
+        </a>
+        <a href="/help/support" class="fc-hd-footer-link" @onclick="Close">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+            </svg>
+            Contact support
+        </a>
+    </div>
+</aside>
+
+@code {
+    private bool _open = false;
+    private string _drawerSearch = "";
+    private List<HelpItem> _contextArticles = new();
+    private List<HelpItem> _drawerResults = new();
+    private System.Threading.Timer? _debounce;
+
+    private static readonly List<HelpItem> AllArticles = new()
+    {
+        new("Getting Started", "First-time setup, user roles, account creation", "/help/getting-started", "Guide", "2 min read"),
+        new("Submission Guide", "How to prepare and submit XML regulatory returns", "/help/submission-guide", "Guide", "5 min read"),
+        new("XML Format Requirements", "Namespace, numeric formatting, encoding", "/help/submission-guide#xml-format", "Reference", "3 min read"),
+        new("Common XML Errors", "Missing namespace, invalid numbers, duplicate serials", "/help/submission-guide#common-errors", "Reference", "2 min read"),
+        new("Validation Error Guide", "Full catalog of all validation error types", "/help/validation-errors", "Reference", "8 min read"),
+        new("Schema Validation Errors", "Invalid XML, namespace mismatch, missing elements", "/help/validation-errors#schema", "Reference", "2 min read"),
+        new("Formula Validation Errors", "Sum mismatch, ratio checks, threshold breach", "/help/validation-errors#intrasheet", "Reference", "2 min read"),
+        new("FAQ — Submissions", "File formats, status tracking, re-submission", "/help/faq#submission", "FAQ", "2 min read"),
+        new("FAQ — Maker-Checker", "Approval workflow, who can approve, rejections", "/help/faq#approvals", "FAQ", "2 min read"),
+        new("FAQ — Validation", "What to do with errors, warnings, formula failures", "/help/faq#validation", "FAQ", "2 min read"),
+        new("Contact Support", "Submit a ticket, email, phone contact details", "/help/support", "Support", "1 min read"),
+        new("Re-submission Process", "How to correct and re-submit rejected returns", "/help/submission-guide#resubmission", "Guide", "2 min read"),
+    };
+
+    private static readonly List<HelpItem> PopularArticles = new()
+    {
+        new("Getting Started", "First-time setup, user roles, account creation", "/help/getting-started", "Guide", "2 min read"),
+        new("Submission Guide", "How to prepare and submit XML regulatory returns", "/help/submission-guide", "Guide", "5 min read"),
+        new("Validation Error Guide", "Full catalog of all validation error types", "/help/validation-errors", "Reference", "8 min read"),
+        new("FAQ — Maker-Checker", "Approval workflow, who can approve, rejections", "/help/faq#approvals", "FAQ", "2 min read"),
+    };
+
+    // Context map: path prefix → article indices from AllArticles
+    private static readonly Dictionary<string, int[]> ContextMap = new()
+    {
+        { "/submit", new[] { 1, 2, 3, 4 } },          // Submit Return → Submission Guide, XML Format, XML Errors, Validation
+        { "/data-entry", new[] { 1, 3, 5, 6 } },       // Data Entry → Submission, XML Errors, Schema, Formula
+        { "/submissions", new[] { 7, 1, 11 } },         // Submissions list → FAQ Submissions, Guide, Resubmission
+        { "/approvals", new[] { 8, 7, 0 } },            // Approvals → Maker-Checker, Submissions, Getting Started
+        { "/templates", new[] { 1, 2 } },               // Templates → Guide, XML Format
+        { "/schemas", new[] { 2, 0 } },                 // Schemas → XML Format, Getting Started
+        { "/calendar", new[] { 7, 0 } },                // Calendar → FAQ Submissions, Getting Started
+        { "/institution/team", new[] { 0 } },           // Team → Getting Started
+        { "/institution", new[] { 8, 0 } },             // Institution → Maker-Checker, Getting Started
+        { "/account", new[] { 0 } },                    // Account → Getting Started
+    };
+
+    private List<HelpItem> _popularArticles = PopularArticles;
+
+    protected override void OnInitialized()
+    {
+        Navigation.LocationChanged += OnLocationChanged;
+        LoadContextArticles();
+    }
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e)
+    {
+        _open = false;
+        LoadContextArticles();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void LoadContextArticles()
+    {
+        var path = Navigation.ToAbsoluteUri(Navigation.Uri).AbsolutePath.ToLowerInvariant();
+
+        // Don't show contextual articles on help pages themselves
+        if (path.StartsWith("/help")) { _contextArticles = new(); return; }
+
+        int[]? indices = null;
+        foreach (var kv in ContextMap)
+        {
+            if (path.StartsWith(kv.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                indices = kv.Value;
+                break;
+            }
+        }
+
+        _contextArticles = indices is null ? new() :
+            indices.Where(i => i < AllArticles.Count).Select(i => AllArticles[i]).Take(4).ToList();
+    }
+
+    private void Toggle() { _open = !_open; if (_open) _drawerSearch = ""; }
+    private void Close() { _open = false; _drawerSearch = ""; _drawerResults = new(); }
+
+    private void OnDrawerSearch(ChangeEventArgs e)
+    {
+        _drawerSearch = e.Value?.ToString() ?? "";
+        _debounce?.Dispose();
+        _debounce = new System.Threading.Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                if (_drawerSearch.Length < 2) { _drawerResults = new(); StateHasChanged(); return; }
+                var q = _drawerSearch.ToLowerInvariant();
+                _drawerResults = AllArticles
+                    .Select(a => (score: (a.Title + " " + a.Description).ToLowerInvariant().Contains(q) ? 1 : 0, a))
+                    .Where(x => x.score > 0).Take(5).Select(x => x.a).ToList();
+                StateHasChanged();
+            });
+        }, null, 200, Timeout.Infinite);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        _debounce?.Dispose();
+        await Task.CompletedTask;
+    }
+
+    private record HelpItem(string Title, string Description, string Url, string Category, string ReadTime)
+    {
+        public string CategoryClass => Category.ToLowerInvariant() switch
+        {
+            "guide" => "guide", "reference" => "ref", "faq" => "faq",
+            "support" => "support", _ => "default"
+        };
+    }
+}

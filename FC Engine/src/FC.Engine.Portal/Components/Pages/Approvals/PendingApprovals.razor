@@ -2,7 +2,8 @@
 @attribute [Authorize(Policy = "InstitutionUser")]
 @inject NavigationManager Navigation
 @inject ToastService Toast
-@implements IDisposable
+@inject IPresenceService PresenceService
+@implements IAsyncDisposable
 
 <PageTitle>Pending Approvals — FC Engine Portal</PageTitle>
 
@@ -114,6 +115,19 @@
                                 <span class="portal-badge portal-badge-danger portal-badge-sm">@c.Item.ErrorCount error@(c.Item.ErrorCount == 1 ? "" : "s")</span>
                             }
                         </div>
+                        <!-- Reviewer presence chip -->
+                        @if (_reviewers.TryGetValue(c.Item.SubmissionId, out var reviewer) && reviewer != null)
+                        {
+                            <div style="margin-top:0.25rem;">
+                                <span class="pa-reviewer-chip" title="@reviewer.DisplayName is currently reviewing this submission">
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                        <circle cx="12" cy="12" r="3"/>
+                                    </svg>
+                                    @reviewer.DisplayName is reviewing
+                                </span>
+                            </div>
+                        }
                         <!-- Bottom row: submitter, date, notes -->
                         <div class="pa-card-info">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -302,6 +316,11 @@
     private readonly Dictionary<int, CancellationTokenSource> _pendingActions = new();
     private readonly Dictionary<int, PendingApprovalItem>     _undoSnapshots  = new();
 
+    // Presence: first reviewer (other than current user) currently viewing each submission's detail page
+    private Dictionary<int, PresenceUser?> _reviewers = new();
+    private PeriodicTimer? _presenceTimer;
+    private CancellationTokenSource _presenceCts = new();
+
     private int _selectedCount => _cards.Count(c => c.IsChecked);
 
     // ── Services ──────────────────────────────────────────────────
@@ -329,6 +348,7 @@
             {
                 var items = await ApprovalSvc.GetPendingApprovals(_institutionId);
                 _cards = items.Select(i => new ApprovalCard { Item = i }).ToList();
+                RefreshReviewerPresence();
             }
         }
         catch
@@ -339,6 +359,36 @@
         {
             _isLoading = false;
         }
+
+        // Start 15-second polling loop for reviewer presence
+        if (_isCheckerOrAdmin)
+            _ = PresencePollLoopAsync();
+    }
+
+    private async Task PresencePollLoopAsync()
+    {
+        _presenceTimer = new PeriodicTimer(TimeSpan.FromSeconds(15));
+        try
+        {
+            while (await _presenceTimer.WaitForNextTickAsync(_presenceCts.Token))
+            {
+                RefreshReviewerPresence();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch { /* component disposed */ }
+    }
+
+    private void RefreshReviewerPresence()
+    {
+        var updated = new Dictionary<int, PresenceUser?>();
+        foreach (var card in _cards)
+        {
+            var viewers = PresenceService.GetViewers($"sub:{card.Item.SubmissionId}", excludeUserId: _currentUserId);
+            updated[card.Item.SubmissionId] = viewers.FirstOrDefault(v => v.IsOnline);
+        }
+        _reviewers = updated;
     }
 
     // ── Navigation ────────────────────────────────────────────────
@@ -634,12 +684,16 @@
         }
     }
 
-    // ── IDisposable ───────────────────────────────────────────────
-    public void Dispose()
+    // ── IAsyncDisposable ──────────────────────────────────────────
+    public ValueTask DisposeAsync()
     {
         foreach (var cts in _pendingActions.Values)
         {
             try { cts.Cancel(); cts.Dispose(); } catch { /* ignore */ }
         }
+        _presenceCts.Cancel();
+        _presenceTimer?.Dispose();
+        _presenceCts.Dispose();
+        return ValueTask.CompletedTask;
     }
 }

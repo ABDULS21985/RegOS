@@ -79,7 +79,8 @@ public class CalendarService
                     PeriodValue = dueDate.ToString("yyyy-MM"),
                     Status = status,
                     SubmissionId = existingSub?.Id,
-                    DaysUntilDue = (dueDate.Date - DateTime.UtcNow.Date).Days
+                    DaysUntilDue = (dueDate.Date - DateTime.UtcNow.Date).Days,
+                    DeadlineDescription = FormatDeadlineDescription(dueDate, template.Frequency)
                 });
             }
         }
@@ -231,4 +232,16 @@ public class CalendarService
         // Monthly or Computed
         return dueDate.ToString("MMMM yyyy");
     }
+
+    /// <summary>
+    /// Produces a human-readable deadline description for display in the calendar hover card,
+    /// e.g. "Month-end", "Quarter-end", "5th BD".
+    /// </summary>
+    private static string FormatDeadlineDescription(DateTime dueDate, ReturnFrequency frequency)
+        => frequency switch
+        {
+            ReturnFrequency.Quarterly  => "Quarter-end",
+            ReturnFrequency.SemiAnnual => "Semi-annual end",
+            _                          => BusinessDayHelper.DescribeDeadline(dueDate)
+        };
 }

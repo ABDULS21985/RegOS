@@ -1,0 +1,294 @@
+@page "/platform/regulatory-calendar"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using FC.Engine.Admin.Services
+@inject RegulatoryCalendarImportService ImportSvc
+@inject ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>Regulatory Calendar Import — FC Engine Admin</PageTitle>
+
+@{
+    var _bcItems = new List<BreadcrumbItem>
+    {
+        new() { Label = "Platform", Url = "/platform" },
+        new() { Label = "Regulatory Calendar", IsCurrent = true }
+    };
+}
+
+<PageHeader Title="Regulatory Calendar Import"
+            Subtitle="Import CBN regulatory calendar CSV to auto-populate deadlines for all tenants"
+            Breadcrumb="_bcItems">
+    <PrimaryAction>
+        @if (_rows.Any(r => r.IsValid) && !_importing && _importResult is null)
+        {
+            <button class="fc-btn fc-btn--gold" @onclick="RunImport" disabled="@_importing">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+                Import @_rows.Count(r => r.IsValid) valid records
+            </button>
+        }
+    </PrimaryAction>
+    <SecondaryActions>
+        <button class="fc-btn fc-btn--outline" @onclick="DownloadTemplate" title="Download sample CSV template">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            Download template
+        </button>
+    </SecondaryActions>
+</PageHeader>
+
+@* ── Step 1: Upload ── *@
+@if (_importResult is null)
+{
+    <div class="rci-section">
+        <div class="rci-section-hdr">
+            <span class="rci-step-badge">1</span>
+            <h3 class="rci-section-title">Upload CSV file</h3>
+        </div>
+        <div class="rci-section-body">
+            <p class="rci-hint">
+                Expected columns: <code>ReturnCode</code>, <code>Period</code> (yyyy-MM), <code>Deadline</code> (yyyy-MM-dd)
+                <br />Example: <code>BSL001,2025-03,2025-04-07</code>
+            </p>
+
+            @if (!_rows.Any())
+            {
+                <label class="rci-drop-zone @(_dragging ? "rci-drop-zone--drag" : "")"
+                       for="rci-file-input"
+                       @ondragenter="() => _dragging = true"
+                       @ondragleave="() => _dragging = false"
+                       @ondrop="() => _dragging = false">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+                    <div class="rci-drop-label">
+                        <span class="rci-drop-primary">Click to upload or drag &amp; drop</span>
+                        <span class="rci-drop-secondary">.csv files only</span>
+                    </div>
+                    <InputFile id="rci-file-input" OnChange="OnFileSelected" accept=".csv" class="rci-file-input" />
+                </label>
+            }
+            else
+            {
+                <div class="rci-file-info">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span class="rci-file-name">@_fileName</span>
+                    <button class="rci-file-clear" @onclick="ClearFile" aria-label="Remove file">×</button>
+                </div>
+            }
+
+            @if (_parseError is not null)
+            {
+                <div class="rci-parse-error" role="alert">@_parseError</div>
+            }
+            @if (_parsing)
+            {
+                <div class="rci-parsing">
+                    <span class="fc-spinner" aria-hidden="true"></span>
+                    Parsing CSV…
+                </div>
+            }
+        </div>
+    </div>
+
+    @* ── Step 2: Preview ── *@
+    @if (_rows.Any())
+    {
+        <div class="rci-section">
+            <div class="rci-section-hdr">
+                <span class="rci-step-badge">2</span>
+                <h3 class="rci-section-title">Preview &amp; validate</h3>
+                <div class="rci-preview-stats">
+                    <span class="rci-stat rci-stat--green">@_rows.Count(r => r.IsValid) valid</span>
+                    @if (_rows.Any(r => !r.IsValid))
+                    {
+                        <span class="rci-stat rci-stat--red">@_rows.Count(r => !r.IsValid) errors</span>
+                    }
+                </div>
+            </div>
+
+            <div class="rci-table-wrap">
+                <table class="rci-table" role="grid">
+                    <thead>
+                        <tr>
+                            <th class="rci-th rci-th--row">#</th>
+                            <th class="rci-th">Return Code</th>
+                            <th class="rci-th">Period</th>
+                            <th class="rci-th">Deadline</th>
+                            <th class="rci-th">Action</th>
+                            <th class="rci-th">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _rows.Take(200))
+                        {
+                            <tr class="rci-tr @(row.IsValid ? "" : "rci-tr--error")">
+                                <td class="rci-td rci-td--row">@row.RowNumber</td>
+                                <td class="rci-td"><code>@row.ReturnCode</code></td>
+                                <td class="rci-td">@row.Period</td>
+                                <td class="rci-td">@(row.IsValid ? row.Deadline.ToString("d MMM yyyy") : "—")</td>
+                                <td class="rci-td">
+                                    @if (row.IsValid)
+                                    {
+                                        <span class="rci-action-badge rci-action-badge--@row.Action.ToLower()">@row.Action</span>
+                                    }
+                                </td>
+                                <td class="rci-td">
+                                    @if (row.IsValid)
+                                    {
+                                        <span class="rci-valid-tick" aria-label="Valid">✓</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="rci-error-msg" title="@row.Error">⚠ @row.Error</span>
+                                    }
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                @if (_rows.Count > 200)
+                {
+                    <div class="rci-table-overflow">Showing first 200 of @_rows.Count rows.</div>
+                }
+            </div>
+        </div>
+
+        @* Import button at bottom too for long tables *@
+        @if (_rows.Any(r => r.IsValid))
+        {
+            <div class="rci-import-footer">
+                <button class="fc-btn fc-btn--gold" @onclick="RunImport" disabled="@_importing">
+                    @if (_importing)
+                    {
+                        <span class="fc-spinner fc-spinner--sm" aria-hidden="true"></span>
+                        <span>Importing…</span>
+                    }
+                    else
+                    {
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+                        <span>Import @_rows.Count(r => r.IsValid) records</span>
+                    }
+                </button>
+                <span class="rci-import-note">
+                    This will set deadline overrides on all matching tenant return periods.
+                </span>
+            </div>
+        }
+    }
+}
+
+@* ── Step 3: Result ── *@
+@if (_importResult is not null)
+{
+    <div class="rci-result @(_importResult.HasErrors ? "rci-result--warn" : "rci-result--success")">
+        <div class="rci-result-icon" aria-hidden="true">
+            @if (_importResult.HasErrors)
+            {
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            }
+            else
+            {
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            }
+        </div>
+        <div class="rci-result-body">
+            <div class="rci-result-title">Import @(_importResult.HasErrors ? "completed with warnings" : "successful")</div>
+            <div class="rci-result-stats">
+                <span class="rci-stat rci-stat--green">@_importResult.Created created</span>
+                <span class="rci-stat rci-stat--blue">@_importResult.Updated updated</span>
+                <span class="rci-stat rci-stat--muted">@_importResult.Skipped skipped</span>
+            </div>
+            @if (_importResult.Errors.Any())
+            {
+                <ul class="rci-result-errors">
+                    @foreach (var err in _importResult.Errors)
+                    {
+                        <li>@err</li>
+                    }
+                </ul>
+            }
+        </div>
+    </div>
+
+    <div class="rci-result-actions">
+        <button class="fc-btn fc-btn--outline" @onclick="Reset">Import another file</button>
+    </div>
+}
+
+@code {
+    private List<RegulatoryCalendarRow> _rows      = new();
+    private string?                     _fileName;
+    private bool                        _dragging;
+    private bool                        _parsing;
+    private bool                        _importing;
+    private string?                     _parseError;
+    private ImportResult?               _importResult;
+
+    private async Task OnFileSelected(InputFileChangeEventArgs e)
+    {
+        _parseError = null;
+        _rows       = new();
+        _fileName   = e.File.Name;
+        _parsing    = true;
+        StateHasChanged();
+
+        try
+        {
+            await using var stream = e.File.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024); // 5 MB
+            _rows = await ImportSvc.ParseCsvAsync(stream);
+
+            if (!_rows.Any())
+                _parseError = "No data rows found in the CSV file.";
+        }
+        catch (Exception ex)
+        {
+            _parseError = $"Failed to parse CSV: {ex.Message}";
+        }
+        finally
+        {
+            _parsing = false;
+        }
+    }
+
+    private void ClearFile()
+    {
+        _rows       = new();
+        _fileName   = null;
+        _parseError = null;
+    }
+
+    private async Task RunImport()
+    {
+        _importing = true;
+        StateHasChanged();
+        try
+        {
+            // TODO: inject actual user ID from auth context
+            _importResult = await ImportSvc.ImportAsync(_rows, importedByUserId: "platform-admin");
+
+            if (_importResult.HasErrors)
+                Toast.Warning($"Import completed with {_importResult.Errors.Count} error(s). See summary below.");
+            else
+                Toast.Success($"Imported {_importResult.Created + _importResult.Updated} deadline records successfully.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Import failed: {ex.Message}");
+        }
+        finally
+        {
+            _importing = false;
+        }
+    }
+
+    private void Reset()
+    {
+        _rows         = new();
+        _fileName     = null;
+        _parseError   = null;
+        _importResult = null;
+    }
+
+    private async Task DownloadTemplate()
+    {
+        var csv = "ReturnCode,Period,Deadline\nBSL001,2025-03,2025-04-07\nBSL002,2025-03,2025-04-15\n";
+        await JS.InvokeVoidAsync("downloadFile", "regulatory-calendar-template.csv", csv, "text/csv");
+    }
+}
