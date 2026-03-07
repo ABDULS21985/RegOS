@@ -1,0 +1,302 @@
+@* ============================================================
+   AutoSaveManager — Core auto-save controller for long forms.
+
+   Features:
+   • Tracks _isDirty state via MarkDirty() calls from form inputs
+   • Debounced auto-save (default 3 s of inactivity)
+   • State machine: Idle → Dirty → Saving → Saved/Failed
+   • "Saved" chip auto-clears to Idle after 2 s
+   • Navigation guard via RegisterLocationChangingHandler
+   • Unsaved-changes dialog: Save & Leave / Leave without saving / Stay
+
+   Usage:
+     <AutoSaveManager @ref="_autoSave" SaveAsync="SaveFormAsync" ItemName="the new field" />
+
+   Then on each form input:
+     @bind:after="() => _autoSave.MarkDirty()"
+     — or —
+     @oninput="_ => _autoSave?.MarkDirty()"
+
+   In PrimaryAction of PageHeader, place AutoSaveIndicator:
+     <AutoSaveIndicator Manager="_autoSave" />
+
+   In the Save button:
+     class="... @(_autoSave?.IsDirty == true ? "fc-btn--primary" : "fc-btn--outline")"
+   ============================================================ *@
+
+@implements IDisposable
+@inject NavigationManager Nav
+
+@* ── Unsaved-changes confirmation dialog ──────────────────────────────────── *@
+@if (_showDialog)
+{
+    <div class="fc-as-overlay" role="presentation" @onclick="Stay">
+        <div class="fc-as-dialog"
+             role="alertdialog"
+             aria-modal="true"
+             aria-labelledby="fc-asd-title"
+             aria-describedby="fc-asd-body"
+             @onclick:stopPropagation="true">
+
+            <div class="fc-as-dialog__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" width="28" height="28">
+                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                    <line x1="12" y1="9" x2="12" y2="13"/>
+                    <line x1="12" y1="17" x2="12.01" y2="17"/>
+                </svg>
+            </div>
+
+            <h2 class="fc-as-dialog__title" id="fc-asd-title">Unsaved changes</h2>
+            <p class="fc-as-dialog__body" id="fc-asd-body">
+                You have unsaved changes in <strong>@ItemName</strong>. What would you like to do?
+            </p>
+
+            @if (_dialogError != null)
+            {
+                <p class="fc-as-dialog__error" role="alert">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    Save failed: @_dialogError
+                </p>
+            }
+
+            <div class="fc-as-dialog__actions">
+                <button class="fc-btn fc-btn--primary fc-btn--sm"
+                        @onclick="SaveAndLeaveAsync"
+                        disabled="@_dialogBusy"
+                        aria-busy="@_dialogBusy.ToString().ToLowerInvariant()">
+                    @if (_dialogBusy)
+                    {
+                        <span class="fc-spinner fc-spinner--xs" aria-hidden="true"></span>
+                    }
+                    Save &amp; Leave
+                </button>
+                <button class="fc-btn fc-btn--outline fc-btn--sm fc-btn--danger-text"
+                        @onclick="LeaveWithoutSaving"
+                        disabled="@_dialogBusy">
+                    Leave without saving
+                </button>
+                <button class="fc-btn fc-btn--outline fc-btn--sm"
+                        @onclick="Stay"
+                        disabled="@_dialogBusy">
+                    Stay here
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // ── Parameters ───────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Async delegate that performs the actual save. Should throw on error.
+    /// If null, auto-save is disabled but dirty/nav-guard still work.
+    /// </summary>
+    [Parameter] public Func<Task>? SaveAsync { get; set; }
+
+    /// <summary>Friendly label shown in the dialog, e.g. "the new field".</summary>
+    [Parameter] public string ItemName { get; set; } = "this form";
+
+    /// <summary>
+    /// Milliseconds of inactivity before auto-save fires (default 3000).
+    /// Set to 0 to disable debounced auto-save (manual ForceSaveAsync only).
+    /// </summary>
+    [Parameter] public int AutoSaveDelayMs { get; set; } = 3000;
+
+    // ── Public state ─────────────────────────────────────────────────────────
+
+    public AutoSaveState State { get; private set; } = AutoSaveState.Idle;
+
+    /// <summary>True when there are unsaved changes (Dirty or Failed).</summary>
+    public bool IsDirty => State is AutoSaveState.Dirty or AutoSaveState.Failed;
+
+    /// <summary>Error message from the most recent failed save attempt.</summary>
+    public string? LastError { get; private set; }
+
+    /// <summary>
+    /// Fired on every state transition. AutoSaveIndicator subscribes to this
+    /// to re-render without requiring parent page involvement.
+    /// </summary>
+    public event Action? StateChanged;
+
+    // ── Private ──────────────────────────────────────────────────────────────
+
+    private CancellationTokenSource? _debounce;
+    private IDisposable? _navGuard;
+    private bool _showDialog;
+    private bool _dialogBusy;
+    private string? _dialogError;
+    private string? _pendingNavTarget;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override void OnInitialized()
+    {
+        _navGuard = Nav.RegisterLocationChangingHandler(OnLocationChanging);
+    }
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Call on any form input change to mark the form dirty and start the
+    /// debounce countdown to auto-save.
+    /// </summary>
+    public void MarkDirty()
+    {
+        if (State == AutoSaveState.Saving) return;
+
+        if (State is not (AutoSaveState.Dirty or AutoSaveState.Failed))
+            Transition(AutoSaveState.Dirty);
+
+        if (AutoSaveDelayMs > 0)
+            StartDebounce();
+    }
+
+    /// <summary>Cancel the debounce and trigger an immediate save.</summary>
+    public async Task ForceSaveAsync()
+    {
+        _debounce?.Cancel();
+        await PerformSaveAsync();
+    }
+
+    /// <summary>
+    /// Reset back to Idle (e.g. after the host component reloads data
+    /// or closes the form panel). Cancels any pending debounce.
+    /// </summary>
+    public void Reset()
+    {
+        _debounce?.Cancel();
+        _debounce = null;
+        _showDialog = false;
+        _pendingNavTarget = null;
+        LastError = null;
+        Transition(AutoSaveState.Idle);
+    }
+
+    // ── Internals ─────────────────────────────────────────────────────────────
+
+    private void Transition(AutoSaveState next)
+    {
+        State = next;
+        StateChanged?.Invoke();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void StartDebounce()
+    {
+        _debounce?.Cancel();
+        _debounce = new CancellationTokenSource();
+        var token = _debounce.Token;
+        var delay = AutoSaveDelayMs;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(delay, token);
+                if (!token.IsCancellationRequested && SaveAsync != null)
+                    await InvokeAsync(PerformSaveAsync);
+            }
+            catch (TaskCanceledException) { }
+        }, CancellationToken.None);
+    }
+
+    private async Task PerformSaveAsync()
+    {
+        if (SaveAsync == null || State == AutoSaveState.Saving) return;
+
+        Transition(AutoSaveState.Saving);
+        LastError = null;
+
+        try
+        {
+            await SaveAsync();
+            Transition(AutoSaveState.Saved);
+
+            // Auto-clear the "Saved" chip to Idle after 2 seconds
+            _ = Task.Delay(2000).ContinueWith(_ => InvokeAsync(() =>
+            {
+                if (State == AutoSaveState.Saved)
+                    Transition(AutoSaveState.Idle);
+            }));
+        }
+        catch (Exception ex)
+        {
+            LastError = ex.Message;
+            Transition(AutoSaveState.Failed);
+        }
+    }
+
+    // ── Navigation guard ──────────────────────────────────────────────────────
+
+    private ValueTask OnLocationChanging(LocationChangingContext context)
+    {
+        if (!IsDirty) return ValueTask.CompletedTask;
+
+        // Capture target and block the navigation
+        _pendingNavTarget = context.TargetLocation;
+        context.PreventNavigation();
+
+        _showDialog = true;
+        _dialogError = null;
+        _dialogBusy = false;
+        InvokeAsync(StateHasChanged);
+        return ValueTask.CompletedTask;
+    }
+
+    private async Task SaveAndLeaveAsync()
+    {
+        _dialogBusy = true;
+        _dialogError = null;
+        StateHasChanged();
+
+        var target = _pendingNavTarget;
+        try
+        {
+            await PerformSaveAsync();
+            _showDialog = false;
+            _pendingNavTarget = null;
+            if (target != null)
+                Nav.NavigateTo(target);
+        }
+        catch (Exception ex)
+        {
+            _dialogError = ex.Message;
+        }
+        finally
+        {
+            _dialogBusy = false;
+            StateHasChanged();
+        }
+    }
+
+    private void LeaveWithoutSaving()
+    {
+        var target = _pendingNavTarget;
+        _debounce?.Cancel();
+        _pendingNavTarget = null;
+        _showDialog = false;
+        Transition(AutoSaveState.Idle);
+        if (target != null)
+            Nav.NavigateTo(target);
+    }
+
+    private void Stay()
+    {
+        _showDialog = false;
+        _pendingNavTarget = null;
+        StateHasChanged();
+    }
+
+    public void Dispose()
+    {
+        _debounce?.Cancel();
+        _navGuard?.Dispose();
+    }
+}

@@ -1,0 +1,50 @@
+@inject IJSRuntime JS
+
+@if (Errors is not null && Errors.Count > 0)
+{
+    <div class="fc-fes" role="alert" aria-live="assertive" aria-atomic="true" aria-labelledby="@_titleId">
+        <div class="fc-fes__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+        </div>
+        <div class="fc-fes__body">
+            <p id="@_titleId" class="fc-fes__title">
+                @(Errors.Count == 1
+                    ? "1 error prevents submission"
+                    : $"{Errors.Count} errors prevent submission")
+            </p>
+            <ul class="fc-fes__list" role="list">
+                @foreach (var (inputId, message) in Errors)
+                {
+                    <li>
+                        @if (!string.IsNullOrEmpty(inputId))
+                        {
+                            <button class="fc-fes__link" type="button"
+                                    @onclick="() => FocusFieldAsync(inputId)">@message</button>
+                        }
+                        else
+                        {
+                            <span>@message</span>
+                        }
+                    </li>
+                }
+            </ul>
+        </div>
+    </div>
+}
+
+@code {
+    private readonly string _titleId = $"fc-fes-{Guid.NewGuid():N}";
+
+    [Parameter] public IReadOnlyDictionary<string, string>? Errors { get; set; }
+
+    private async Task FocusFieldAsync(string inputId)
+    {
+        try { await JS.InvokeVoidAsync("FCForms.focusElement", inputId); }
+        catch (JSDisconnectedException) { }
+    }
+}

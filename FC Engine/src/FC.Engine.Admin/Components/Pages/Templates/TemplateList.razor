@@ -29,6 +29,25 @@
 
 <div class="fc-list-page">
 
+    @{
+        var chips = GetActiveFilterChips().ToList();
+    }
+    @if (chips.Count > 0)
+    {
+        <div class="fc-active-filters">
+            <span class="fc-active-filters-label">Filters active:</span>
+            @foreach (var chip in chips)
+            {
+                var c = chip;
+                <span class="fc-filter-chip">
+                    @c.Label
+                    <button class="fc-filter-chip__remove" type="button" @onclick="@c.Clear" title="Remove filter">x</button>
+                </span>
+            }
+            <button class="fc-filter-clear-all" type="button" @onclick="ResetFilters">Clear all x</button>
+        </div>
+    }
+
     @if (_showCreateForm)
     {
         <div class="fc-list-inline-form">
@@ -93,14 +112,14 @@
                            value="@_searchTerm" @oninput="OnSearchInput" />
                     @if (_searchTyping) { <span class="fc-search-typing" aria-hidden="true" title="Filtering…"></span> }
                 </div>
-                <select class="fc-list-filter-select" @bind="_frequencyFilter">
+                <select class="fc-list-filter-select" value="@_frequencyFilter" @onchange="OnFrequencyChange">
                     <option value="">All Frequencies</option>
                     <option value="Monthly">Monthly</option>
                     <option value="Quarterly">Quarterly</option>
                     <option value="Semi-Annual">Semi-Annual</option>
                     <option value="Computed">Computed</option>
                 </select>
-                <select class="fc-list-filter-select" @bind="_categoryFilter">
+                <select class="fc-list-filter-select" value="@_categoryFilter" @onchange="OnCategoryChange">
                     <option value="">All Categories</option>
                     <option value="FixedRow">FixedRow</option>
                     <option value="MultiRow">MultiRow</option>
@@ -161,6 +180,11 @@
 </div>
 
 @code {
+    // URL query parameters
+    [Parameter, SupplyParameterFromQuery(Name = "search")]    public string? QSearch    { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "frequency")] public string? QFrequency { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "category")]  public string? QCategory  { get; set; }
+
     private bool _loading = true;
     private IReadOnlyList<CachedTemplate> _templates = Array.Empty<CachedTemplate>();
     private string _searchTerm = "";
@@ -183,6 +207,18 @@
         .Where(t => string.IsNullOrEmpty(_categoryFilter) || t.StructuralCategory == _categoryFilter)
         .Where(t => string.IsNullOrEmpty(_frequencyFilter) || GetFrequency(t.ReturnCode) == _frequencyFilter)
         .OrderBy(t => t.ReturnCode);
+
+    // Restore filter state from URL on browser back/forward
+    protected override Task OnParametersSetAsync()
+    {
+        var s = QSearch    ?? "";
+        var f = QFrequency ?? "";
+        var c = QCategory  ?? "";
+        if (s != _searchTerm) { _searchTerm = s; _filterTerm = s; }
+        if (f != _frequencyFilter) _frequencyFilter = f;
+        if (c != _categoryFilter)  _categoryFilter  = c;
+        return Task.CompletedTask;
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -215,9 +251,52 @@
             await Task.Delay(200, _searchCts.Token);
             _filterTerm = _searchTerm;
             _searchTyping = false;
+            PushUrl();   // encode into URL after debounce
             StateHasChanged();
         }
         catch (TaskCanceledException) { }
+    }
+
+    private void OnFrequencyChange(ChangeEventArgs e)
+    {
+        _frequencyFilter = e.Value?.ToString() ?? "";
+        PushUrl();
+    }
+
+    private void OnCategoryChange(ChangeEventArgs e)
+    {
+        _categoryFilter = e.Value?.ToString() ?? "";
+        PushUrl();
+    }
+
+    private void PushUrl() => Nav.NavigateTo(BuildUrl(), replace: true);
+
+    private string BuildUrl()
+    {
+        var q = new List<string>();
+        if (!string.IsNullOrEmpty(_filterTerm))      q.Add($"search={Uri.EscapeDataString(_filterTerm)}");
+        if (!string.IsNullOrEmpty(_frequencyFilter)) q.Add($"frequency={Uri.EscapeDataString(_frequencyFilter)}");
+        if (!string.IsNullOrEmpty(_categoryFilter))  q.Add($"category={Uri.EscapeDataString(_categoryFilter)}");
+        return "/templates" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
+    }
+
+    private void ResetFilters()
+    {
+        _searchTerm = ""; _filterTerm = "";
+        _frequencyFilter = ""; _categoryFilter = "";
+        Nav.NavigateTo("/templates");
+    }
+
+    private sealed record FilterChip(string Label, Action Clear);
+
+    private IEnumerable<FilterChip> GetActiveFilterChips()
+    {
+        if (!string.IsNullOrEmpty(_filterTerm))
+            yield return new FilterChip($"search: {_filterTerm}",         () => { _searchTerm = ""; _filterTerm = ""; PushUrl(); });
+        if (!string.IsNullOrEmpty(_frequencyFilter))
+            yield return new FilterChip($"frequency: {_frequencyFilter}", () => { _frequencyFilter = ""; PushUrl(); });
+        if (!string.IsNullOrEmpty(_categoryFilter))
+            yield return new FilterChip($"category: {_categoryFilter}",   () => { _categoryFilter  = ""; PushUrl(); });
     }
 
     public void Dispose() => _searchCts?.Dispose();

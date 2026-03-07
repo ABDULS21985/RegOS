@@ -43,8 +43,12 @@ builder.Services.AddScoped<FC.Engine.Admin.Services.DialogService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.CommandPaletteService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.SidebarStateService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.DataTableExportService>();
+builder.Services.AddSingleton<FC.Engine.Admin.Services.ITablePresetService, FC.Engine.Admin.Services.InMemoryTablePresetService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.HelpService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.DataCacheService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.GlobalErrorService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.SessionService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.KeyboardShortcutService>();
 
 // Platform Admin services
 builder.Services.AddScoped<FC.Engine.Admin.Services.TenantManagementService>();
@@ -466,6 +470,13 @@ app.MapGet("/platform/stop-impersonation", async (
     context.Response.Cookies.Delete("ImpersonateTenantId");
     context.Response.Redirect("/platform/tenants");
 });
+
+// Session ping — extends the sliding auth cookie; called by FCSession.ping() JS
+app.MapPost("/api/session/ping", (HttpContext ctx) =>
+    ctx.User.Identity?.IsAuthenticated == true
+        ? Results.Ok(new { extended = true, utc = DateTimeOffset.UtcNow })
+        : Results.Unauthorized())
+    .RequireAuthorization();
 
 app.MapRazorComponents<FC.Engine.Admin.Components.App>()
     .AddInteractiveServerRenderMode();

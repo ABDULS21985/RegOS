@@ -19,7 +19,6 @@ window.FCAccessibility = (function () {
     function getFocusableElements(container) {
         return Array.from(container.querySelectorAll(FOCUSABLE_SELECTORS))
             .filter(function (el) {
-                // Exclude elements inside hidden parents
                 return el.offsetParent !== null || el.tagName === 'BODY';
             });
     }
@@ -31,10 +30,7 @@ window.FCAccessibility = (function () {
         var el = document.getElementById(elementId);
         if (!el) return;
 
-        // Store element that had focus before trap
         var trigger = document.activeElement;
-
-        // Focus first focusable element inside, or the container itself
         var focusable = getFocusableElements(el);
         requestAnimationFrame(function () {
             if (focusable.length > 0) {
@@ -58,13 +54,11 @@ window.FCAccessibility = (function () {
             var active = document.activeElement;
 
             if (e.shiftKey) {
-                // Shift+Tab: wrap from first to last
                 if (active === first || !el.contains(active)) {
                     e.preventDefault();
                     last.focus();
                 }
             } else {
-                // Tab: wrap from last to first
                 if (active === last || !el.contains(active)) {
                     e.preventDefault();
                     first.focus();
@@ -83,10 +77,9 @@ window.FCAccessibility = (function () {
                 frame.el.removeEventListener('keydown', frame.tabHandler);
                 var prev = frame.trigger;
                 _trapStack.splice(i, 1);
-                // Return focus to element that opened the dialog
                 if (prev && typeof prev.focus === 'function' && document.contains(prev)) {
                     requestAnimationFrame(function () {
-                        try { prev.focus(); } catch (_) { /* ignore */ }
+                        try { prev.focus(); } catch (_) { }
                     });
                 }
                 break;
@@ -104,7 +97,6 @@ window.FCAccessibility = (function () {
     function announceRoute(pageName) {
         if (!_announcer) _announcer = document.getElementById('fc-route-announcer');
         if (!_announcer) return;
-        // Clear first, then set on next frame — ensures re-announcement of same text
         _announcer.textContent = '';
         requestAnimationFrame(function () {
             requestAnimationFrame(function () {
@@ -117,7 +109,7 @@ window.FCAccessibility = (function () {
     var _shortcutsRef = null;
     var _shortcutsHandler = null;
     var _chordState = { key: null, timer: null };
-    var CHORD_TIMEOUT_MS = 1200;
+    var CHORD_TIMEOUT_MS = 500;
 
     // Navigation chord map: g+<key> → path
     var NAV_CHORDS = {
@@ -129,9 +121,11 @@ window.FCAccessibility = (function () {
         'u': '/users',
         'p': '/dashboard/platform',
         'j': '/jurisdictions',
+        'm': '/modules',
         'r': '/business-rules'
     };
 
+    // Returns true when focus is inside a text-entry element
     function isInTextField() {
         var el = document.activeElement;
         if (!el) return false;
@@ -142,32 +136,143 @@ window.FCAccessibility = (function () {
             el.getAttribute('role') === 'searchbox';
     }
 
+    // Returns true when focus is on an element that natively handles arrow keys / Enter
+    function isInteractiveElement() {
+        var el = document.activeElement;
+        if (!el || el === document.body) return false;
+        var tag = el.tagName.toLowerCase();
+        if (tag === 'button' || tag === 'a' || tag === 'select') return true;
+        var role = el.getAttribute('role') || '';
+        return role === 'button' || role === 'link' || role === 'option' ||
+               role === 'menuitem' || role === 'tab' || role === 'radio' ||
+               role === 'checkbox';
+    }
+
+    // Safely invoke a JSInvokable method on the Blazor dotnet reference
+    function invoke(method, arg) {
+        if (!_shortcutsRef) return;
+        try {
+            if (arg !== undefined) {
+                _shortcutsRef.invokeMethodAsync(method, arg);
+            } else {
+                _shortcutsRef.invokeMethodAsync(method);
+            }
+        } catch (_) { /* Blazor circuit may be disconnected */ }
+    }
+
     function initShortcuts(dotNetRef) {
         _shortcutsRef = dotNetRef;
 
         _shortcutsHandler = function (e) {
-            // Never intercept when modifier keys active (except Escape/?)
-            var hasModifier = e.ctrlKey || e.metaKey || e.altKey;
 
-            // Escape — close overlay (no modifier check)
+            // ── Escape: always fire — lets dialogs / panels close ──────────
             if (e.key === 'Escape') {
-                if (_shortcutsRef) _shortcutsRef.invokeMethodAsync('CloseOverlay');
+                invoke('CloseOverlay');
                 _chordState.key = null;
                 return; // let other handlers also process Escape
             }
 
-            if (hasModifier) return;
-            if (isInTextField()) { _chordState.key = null; return; }
-
-            // ? — toggle shortcuts overlay
-            if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+            // ── Ctrl/Cmd+K: open command palette ───────────────────────────
+            if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey &&
+                e.key.toLowerCase() === 'k') {
                 e.preventDefault();
-                if (_shortcutsRef) _shortcutsRef.invokeMethodAsync('ToggleOverlay');
+                invoke('OpenCommandPalette');
+                return;
+            }
+
+            // ── Ctrl/Cmd+/: focus sidebar search ───────────────────────────
+            if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey &&
+                e.key === '/') {
+                e.preventDefault();
+                invoke('FocusSidebarSearch');
+                return;
+            }
+
+            // ── Ctrl/Cmd+Shift+N: new item (global) ────────────────────────
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey &&
+                e.key.toLowerCase() === 'n') {
+                e.preventDefault();
+                invoke('NewItemGlobal');
+                return;
+            }
+
+            // ── ⌘⌫ (Mac) or Delete key: delete current item ───────────────
+            if (!isInTextField()) {
+                var isMacDelete = e.metaKey && !e.ctrlKey && !e.altKey && e.key === 'Backspace';
+                var isDeleteKey = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && e.key === 'Delete';
+                if (isMacDelete || isDeleteKey) {
+                    e.preventDefault();
+                    invoke('DeleteItem');
+                    return;
+                }
+            }
+
+            // All remaining shortcuts require no modifier keys
+            if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+            // Clear chord state and bail if focus is inside a text field
+            if (isInTextField()) {
                 _chordState.key = null;
                 return;
             }
 
-            // g chord: press g, then a navigation key
+            // ── ? key: toggle overlay ──────────────────────────────────────
+            if (e.key === '?') {
+                e.preventDefault();
+                invoke('ToggleOverlay');
+                _chordState.key = null;
+                return;
+            }
+
+            // ── Single-key context shortcuts (no chord in progress) ─────────
+            if (!_chordState.key) {
+                switch (e.key) {
+                    case 'n':
+                        e.preventDefault();
+                        invoke('NewItem');
+                        return;
+
+                    case 'f':
+                        e.preventDefault();
+                        invoke('FocusSearch');
+                        return;
+
+                    case 'e':
+                        e.preventDefault();
+                        // Both events fire; only pages that subscribed react.
+                        // List pages handle OnExport; detail pages handle OnEditMode.
+                        invoke('ExportOrEdit');
+                        return;
+
+                    case 's':
+                        e.preventDefault();
+                        invoke('Save');
+                        return;
+
+                    case 'ArrowUp':
+                        if (!isInteractiveElement()) {
+                            e.preventDefault();
+                            invoke('NavigateRows', -1);
+                        }
+                        return;
+
+                    case 'ArrowDown':
+                        if (!isInteractiveElement()) {
+                            e.preventDefault();
+                            invoke('NavigateRows', 1);
+                        }
+                        return;
+
+                    case 'Enter':
+                        if (!isInteractiveElement() && !isInTextField()) {
+                            e.preventDefault();
+                            invoke('OpenRow');
+                        }
+                        return;
+                }
+            }
+
+            // ── g chord: press g, then a navigation key ────────────────────
             if (e.key === 'g' && !_chordState.key) {
                 e.preventDefault();
                 _chordState.key = 'g';
@@ -184,9 +289,9 @@ window.FCAccessibility = (function () {
                 _chordState.key = null;
                 _chordState.timer = null;
                 var dest = NAV_CHORDS[e.key];
-                if (dest && _shortcutsRef) {
+                if (dest) {
                     e.preventDefault();
-                    _shortcutsRef.invokeMethodAsync('NavigateTo', dest);
+                    invoke('NavigateTo', dest);
                 }
                 return;
             }
@@ -207,6 +312,12 @@ window.FCAccessibility = (function () {
         _shortcutsRef = null;
     }
 
+    // Focus the topbar search / command palette trigger
+    function focusSidebarSearch() {
+        var el = document.getElementById('fc-topbar-search');
+        if (el) el.focus();
+    }
+
     // ── Windows High Contrast Detection ───────────────────────────────────────
     var _hcQuery = null;
 
@@ -219,7 +330,6 @@ window.FCAccessibility = (function () {
         _hcQuery.addEventListener('change', function (e) { applyHC(e.matches); });
     }
 
-    // Initialise high-contrast detection immediately on script load
     initHighContrast();
 
     // ── Public API ────────────────────────────────────────────────────────────
@@ -229,6 +339,7 @@ window.FCAccessibility = (function () {
         initRouteAnnouncer: initRouteAnnouncer,
         announceRoute: announceRoute,
         initShortcuts: initShortcuts,
-        disposeShortcuts: disposeShortcuts
+        disposeShortcuts: disposeShortcuts,
+        focusSidebarSearch: focusSidebarSearch
     };
 })();

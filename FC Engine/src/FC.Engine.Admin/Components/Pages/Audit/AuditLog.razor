@@ -105,7 +105,7 @@
             <span class="fc-audit-stream-stat">@FilteredCount event@(FilteredCount == 1 ? "" : "s")</span>
             @if (_flaggedIds.Count > 0)
             {
-                <span class="fc-badge fc-badge--warning" style="font-size:0.72rem;">&#128681; @_flaggedIds.Count flagged</span>
+                <span class="fc-badge fc-badge--warning fc-text-xxs">&#128681; @_flaggedIds.Count flagged</span>
             }
         </div>
     </div>
@@ -117,16 +117,16 @@
             @for (var i = 0; i < 6; i++)
             {
                 <div class="fc-audit-event fc-audit-event--skeleton">
-                    <div class="fc-skel fc-skel-circle" style="width:36px;height:36px;flex-shrink:0;border-radius:var(--radius-full);"></div>
-                    <div class="fc-audit-event-card" style="flex:1;pointer-events:none;">
-                        <div style="display:flex;align-items:center;gap:var(--space-3);margin-bottom:var(--space-2);">
-                            <div class="fc-skel" style="width:72px;height:13px;border-radius:var(--radius-sm);"></div>
-                            <div class="fc-skel" style="width:110px;height:11px;border-radius:var(--radius-sm);"></div>
-                            <div class="fc-skel" style="width:55px;height:10px;border-radius:var(--radius-sm);margin-left:auto;"></div>
+                    <div class="fc-skel fc-skel-circle fc-flex-shrink-0" style="--skel-w:36px;--skel-h:36px"></div>
+                    <div class="fc-audit-event-card fc-skel-body-flex">
+                        <div class="fc-skel-header">
+                            <div class="fc-skel" style="--skel-w:72px;--skel-h:13px"></div>
+                            <div class="fc-skel" style="--skel-w:110px;--skel-h:11px"></div>
+                            <div class="fc-skel fc-ml-auto" style="--skel-w:55px;--skel-h:10px"></div>
                         </div>
-                        <div style="display:flex;gap:var(--space-3);">
-                            <div class="fc-skel" style="width:90px;height:10px;border-radius:var(--radius-sm);"></div>
-                            <div class="fc-skel" style="width:70px;height:10px;border-radius:var(--radius-sm);"></div>
+                        <div class="fc-flex-row--gap3">
+                            <div class="fc-skel" style="--skel-w:90px;--skel-h:10px"></div>
+                            <div class="fc-skel" style="--skel-w:70px;--skel-h:10px"></div>
                         </div>
                     </div>
                 </div>
@@ -145,7 +145,7 @@
             {
                 <h3 class="fc-empty-title">No matching events</h3>
                 <p class="fc-empty-text">Try adjusting the date range, filters, or search query.</p>
-                <button class="fc-btn fc-btn--outline" @onclick="ClearFilters" type="button" style="margin-top:var(--space-3);">Clear Filters</button>
+                <button class="fc-btn fc-btn--outline fc-mt-3" @onclick="ClearFilters" type="button">Clear Filters</button>
             }
             else
             {
@@ -168,18 +168,18 @@
                     var isOpen = _expandedGroups.Contains(gKey);
                     <div class="fc-audit-group @(isOpen ? "fc-audit-group--open" : "")">
                         <button class="fc-audit-group-hdr" @onclick="() => ToggleGroup(gKey)" type="button" aria-expanded="@isOpen.ToString().ToLower()">
-                            <div class="fc-audit-avatar" style="background:@GetAvatarColor(group.PerformedBy);" aria-hidden="true">@GetInitials(group.PerformedBy)</div>
+                            <div class="fc-audit-avatar fc-avatar" style="--avatar-bg:@GetAvatarColor(group.PerformedBy);" aria-hidden="true">@GetInitials(group.PerformedBy)</div>
                             <div class="fc-audit-group-summary">
                                 <span class="fc-audit-group-user">@group.PerformedBy</span>
                                 <span class="fc-audit-group-desc">made <strong>@group.Entries.Count</strong> change@(group.Entries.Count == 1 ? "" : "s")</span>
                                 <div class="fc-audit-group-tags">
                                     @foreach (var act in group.Entries.Select(e => e.Action).Distinct().Take(4))
                                     {
-                                        <span class="fc-badge fc-badge--neutral" style="font-size:0.68rem;padding:1px 6px;">@act</span>
+                                        <span class="fc-badge fc-badge--neutral fc-badge--xxs">@act</span>
                                     }
                                     @if (group.Entries.Select(e => e.Action).Distinct().Count() > 4)
                                     {
-                                        <span class="fc-badge fc-badge--muted" style="font-size:0.68rem;padding:1px 6px;">+more</span>
+                                        <span class="fc-badge fc-badge--muted fc-badge--xxs">+more</span>
                                     }
                                 </div>
                             </div>
@@ -192,7 +192,7 @@
                                 @foreach (var entry in group.Entries)
                                 {
                                     <div class="fc-audit-event fc-audit-event--compact @(entry.IsFlagged ? "fc-audit-event--flagged" : "")">
-                                        <div class="fc-audit-event-icon @GetIconClass(entry.Action)" style="flex-shrink:0;" aria-hidden="true">
+                                        <div class="fc-audit-event-icon @GetIconClass(entry.Action) fc-flex-shrink-0" aria-hidden="true">
                                             @GetActionIcon(entry.Action)
                                         </div>
                                         <div class="fc-audit-event-card">
@@ -256,7 +256,7 @@
             <div class="fc-audit-feed" role="feed" aria-label="Audit trail timeline">
                 <Virtualize Items="@PagedEntries.ToList()" Context="entry" ItemSize="88" OverscanCount="5">
                     <div class="fc-audit-event @(entry.IsNew ? "fc-audit-event--new" : "") @(entry.IsFlagged ? "fc-audit-event--flagged" : "")">
-                        <div class="fc-audit-avatar" style="background:@GetAvatarColor(entry.PerformedBy);" aria-hidden="true" title="@entry.PerformedBy">@GetInitials(entry.PerformedBy)</div>
+                        <div class="fc-audit-avatar fc-avatar" style="--avatar-bg:@GetAvatarColor(entry.PerformedBy);" aria-hidden="true" title="@entry.PerformedBy">@GetInitials(entry.PerformedBy)</div>
                         <div class="fc-audit-event-spine" aria-hidden="true"></div>
                         <div class="fc-audit-event-card">
                             <div class="fc-audit-event-header">
@@ -332,8 +332,8 @@
                             {
                                 <div class="fc-audit-note-input">
                                     <input class="fc-form-input" @bind="_noteText" placeholder="Add a note about this event..." @bind:event="oninput" />
-                                    <button class="fc-btn fc-btn--primary" style="padding:0.25rem 0.75rem;font-size:0.8rem;" @onclick="() => SaveNote(entry.Id)" type="button">Save</button>
-                                    <button class="fc-btn fc-btn--outline" style="padding:0.25rem 0.75rem;font-size:0.8rem;" @onclick="CancelNote" type="button">Cancel</button>
+                                    <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="() => SaveNote(entry.Id)" type="button">Save</button>
+                                    <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="CancelNote" type="button">Cancel</button>
                                 </div>
                             }
 
@@ -352,7 +352,7 @@
                                 }
                                 @if (entry.IsNew)
                                 {
-                                    <span class="fc-badge fc-badge--info" style="font-size:0.65rem;padding:1px 6px;">NEW</span>
+                                    <span class="fc-badge fc-badge--info fc-badge--xs">NEW</span>
                                 }
                             </div>
                         </div>
@@ -364,7 +364,7 @@
                     <div class="fc-audit-load-more">
                         <button class="fc-btn fc-btn--outline" @onclick="LoadMore" type="button">
                             Load @(Math.Min(PageSize, FilteredCount - _currentPage * PageSize)) more
-                            <span style="color:var(--cbn-text-muted);font-weight:400;margin-left:4px;">· @(FilteredCount - _currentPage * PageSize) remaining</span>
+                            <span class="fc-remaining-hint">· @(FilteredCount - _currentPage * PageSize) remaining</span>
                         </button>
                     </div>
                 }

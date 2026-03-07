@@ -56,8 +56,11 @@
                 </div>
             </div>
             <div class="fc-list-form-actions">
-                <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="AddRule">Create</button>
-                <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="CancelAdd">Cancel</button>
+                <button class="fc-btn fc-btn--primary fc-btn--sm @(_isSaving ? "fc-btn--loading" : "")" @onclick="AddRule" disabled="@_isSaving" aria-busy="@(_isSaving ? "true" : null)">
+                    @if (_isSaving) { <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span> }
+                    Create
+                </button>
+                <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="CancelAdd" disabled="@_isSaving">Cancel</button>
             </div>
         </div>
     }
@@ -169,6 +172,7 @@
 
 @code {
     private bool _loading = true;
+    private bool _isSaving;
     private IReadOnlyList<BusinessRule> _rules = Array.Empty<BusinessRule>();
     private string _search = "", _typeFilter = "", _severityFilter = "";
 
@@ -209,6 +213,7 @@
 
     private async Task AddRule()
     {
+        _isSaving = true;
         try
         {
             await FormulaService.AddBusinessRule(
@@ -224,6 +229,10 @@
         catch (Exception ex)
         {
             Toast.Error(ex.Message, "Create Failed");
+        }
+        finally
+        {
+            _isSaving = false;
         }
     }
 }

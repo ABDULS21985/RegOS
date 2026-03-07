@@ -39,12 +39,12 @@
             </svg>
             Export
         </button>
-        <label class="fc-btn fc-btn--outline" style="cursor:pointer;display:inline-flex;align-items:center;gap:0.375rem;">
+        <label class="fc-btn fc-btn--outline fc-te__import-label">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
             </svg>
             Import
-            <InputFile OnChange="ImportThemeAsync" accept=".json" style="display:none" />
+            <InputFile OnChange="ImportThemeAsync" accept=".json" class="fc-hidden" />
         </label>
     </SecondaryActions>
 </PageHeader>
@@ -52,9 +52,9 @@
 <div class="fc-page">
     @if (_loading)
     {
-        <div style="display:grid;grid-template-columns:1fr 380px;gap:1.5rem;margin-bottom:1rem">
-            <div class="fc-card"><div class="fc-card__body"><div class="fc-skel" style="height:480px;border-radius:8px;"></div></div></div>
-            <div class="fc-card"><div class="fc-card__body"><div class="fc-skel" style="height:480px;border-radius:8px;"></div></div></div>
+        <div class="fc-te__layout">
+            <div class="fc-card"><div class="fc-card__body"><div class="fc-skel" style="--skel-h:480px"></div></div></div>
+            <div class="fc-card"><div class="fc-card__body"><div class="fc-skel" style="--skel-h:480px"></div></div></div>
         </div>
     }
     else if (_draft is not null)
@@ -71,9 +71,9 @@
                             <button class="fc-te__preset @(_draft.ThemePresetName == p.Name ? "fc-te__preset--active" : "")"
                                     @onclick="() => ApplyPreset(p)" type="button" title="Apply @p.Name theme">
                                 <div class="fc-te__preset-palette">
-                                    <span style="background:@p.SidebarColor;"></span>
-                                    <span style="background:@p.PrimaryColor;"></span>
-                                    <span style="background:@p.SecondaryColor;"></span>
+                                    <span class="fc-te__preset-dot" style="--dot-bg:@p.SidebarColor"></span>
+                                    <span class="fc-te__preset-dot" style="--dot-bg:@p.PrimaryColor"></span>
+                                    <span class="fc-te__preset-dot" style="--dot-bg:@p.SecondaryColor"></span>
                                 </div>
                                 <span class="fc-te__preset-name">@p.Name</span>
                             </button>
@@ -87,7 +87,7 @@
 
                 @* ── Left: tabbed editor ─────────────────────────────────── *@
                 <div class="fc-te__editor-col">
-                    <div class="fc-card" style="height:100%">
+                    <div class="fc-card fc-card--full-h">
 
                         <div class="fc-te__tab-bar">
                             @foreach (var (id, label) in new (string, string)[]
@@ -120,26 +120,26 @@
                                     @RenderColorRow("Accent Color", "Info highlights, focus rings", _draft.AccentColor, v => _draft.AccentColor = v, "#FFFFFF", "White on Accent")
                                 </div>
 
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">State Colors</div>
+                                <div class="fc-te__section-heading fc-mt-6">State Colors</div>
                                 <div class="fc-te__color-grid">
                                     @RenderColorRow("Danger", "Errors, destructive actions", _draft.DangerColor, v => _draft.DangerColor = v, "#FFFFFF", "White on Danger")
                                     @RenderColorRow("Success", "Confirmations, approvals", _draft.SuccessColor, v => _draft.SuccessColor = v, "#FFFFFF", "White on Success")
                                     @RenderColorRow("Warning", "Cautions, pending states", _draft.WarningColor, v => _draft.WarningColor = v, "#1F2937", "Dark on Warning")
                                 </div>
 
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">Layout Colors</div>
+                                <div class="fc-te__section-heading fc-mt-6">Layout Colors</div>
                                 <div class="fc-te__color-grid">
                                     @RenderColorRow("Background", "Page & card surfaces", _draft.BackgroundColor, v => _draft.BackgroundColor = v, "#1F2937", "Dark text on Background")
                                     @RenderColorRow("Sidebar", "Navigation sidebar", _draft.SidebarColor, v => _draft.SidebarColor = v, "#FFFFFF", "White on Sidebar")
                                 </div>
 
                                 @* Contrast summary grid *@
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">WCAG Contrast Summary</div>
+                                <div class="fc-te__section-heading fc-mt-6">WCAG Contrast Summary</div>
                                 <div class="fc-te__contrast-grid">
                                     @foreach (var ck in GetContrastChecks())
                                     {
                                         <div class="fc-te__contrast-item fc-te__contrast-item--@ck.CssClass">
-                                            <div class="fc-te__contrast-swatch" style="background:@ck.Bg;color:@ck.Fg;">Aa</div>
+                                            <div class="fc-te__contrast-swatch" style="--ck-bg:@ck.Bg;--ck-fg:@ck.Fg">Aa</div>
                                             <div class="fc-te__contrast-detail">
                                                 <span class="fc-te__contrast-ratio">@ck.Ratio.ToString("F1"):1</span>
                                                 <span class="fc-te__contrast-lbl">@ck.Label</span>
@@ -164,12 +164,12 @@
                                             <option value="@f.Value" selected="@(f.Value == _draft.FontHeading)">@f.Label</option>
                                         }
                                     </select>
-                                    <div class="fc-te__font-preview-lg" style="font-family:'@_draft.FontHeading',sans-serif;">
+                                    <div class="fc-te__font-preview-lg" style="--preview-font:'@_draft.FontHeading'">
                                         AaBbCc 123
                                     </div>
                                 </div>
 
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">Body Font</div>
+                                <div class="fc-te__section-heading fc-mt-6">Body Font</div>
                                 <div class="fc-te__font-row">
                                     <select class="fc-te__font-select"
                                             @onchange="e => { _draft.FontBody = e.Value?.ToString(); _ = LoadFontAsync(_draft.FontBody); }">
@@ -178,7 +178,7 @@
                                             <option value="@f.Value" selected="@(f.Value == _draft.FontBody)">@f.Label</option>
                                         }
                                     </select>
-                                    <div class="fc-te__font-preview-sm" style="font-family:'@_draft.FontBody',sans-serif;">
+                                    <div class="fc-te__font-preview-sm" style="--preview-font:'@_draft.FontBody'">
                                         The quick brown fox jumps over the lazy dog.
                                     </div>
                                 </div>
@@ -212,8 +212,8 @@
                                         </div>
                                     }
                                     <div class="fc-te__logo-actions">
-                                        <InputFile OnChange="e => UploadLogoAsync(e, LogoType.Primary)" accept=".png,.svg,.jpg,.jpeg" style="display:none" id="upload-primary" />
-                                        <label for="upload-primary" class="fc-btn fc-btn--outline" style="cursor:pointer">
+                                        <InputFile OnChange="e => UploadLogoAsync(e, LogoType.Primary)" accept=".png,.svg,.jpg,.jpeg" class="fc-hidden" id="upload-primary" />
+                                        <label for="upload-primary" class="fc-btn fc-btn--outline fc-cursor-pointer">
                                             @(_uploadingLogo == LogoType.Primary ? "Uploading…" : "Upload Logo")
                                         </label>
                                         <input type="text" class="fc-te__url-input" value="@_draft.LogoUrl"
@@ -222,7 +222,7 @@
                                     </div>
                                 </div>
 
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">Compact Logo</div>
+                                <div class="fc-te__section-heading fc-mt-6">Compact Logo</div>
                                 <p class="fc-te__section-hint">Used in the collapsed sidebar. Square format recommended (48 &times; 48 px).</p>
                                 <div class="fc-te__logo-zone">
                                     @if (!string.IsNullOrEmpty(_draft.LogoSmallUrl))
@@ -238,8 +238,8 @@
                                         </div>
                                     }
                                     <div class="fc-te__logo-actions">
-                                        <InputFile OnChange="e => UploadLogoAsync(e, LogoType.Compact)" accept=".png,.svg,.jpg,.jpeg" style="display:none" id="upload-compact" />
-                                        <label for="upload-compact" class="fc-btn fc-btn--outline" style="cursor:pointer">
+                                        <InputFile OnChange="e => UploadLogoAsync(e, LogoType.Compact)" accept=".png,.svg,.jpg,.jpeg" class="fc-hidden" id="upload-compact" />
+                                        <label for="upload-compact" class="fc-btn fc-btn--outline fc-cursor-pointer">
                                             @(_uploadingLogo == LogoType.Compact ? "Uploading…" : "Upload Compact Logo")
                                         </label>
                                         <input type="text" class="fc-te__url-input" value="@_draft.LogoSmallUrl"
@@ -248,7 +248,7 @@
                                     </div>
                                 </div>
 
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">Favicon</div>
+                                <div class="fc-te__section-heading fc-mt-6">Favicon</div>
                                 <p class="fc-te__section-hint">Browser tab icon. ICO, PNG, or SVG. Square, max 256 &times; 256 px.</p>
                                 <div class="fc-te__logo-zone">
                                     @if (!string.IsNullOrEmpty(_draft.FaviconUrl))
@@ -264,8 +264,8 @@
                                         </div>
                                     }
                                     <div class="fc-te__logo-actions">
-                                        <InputFile OnChange="e => UploadLogoAsync(e, LogoType.Favicon)" accept=".ico,.png,.svg" style="display:none" id="upload-favicon" />
-                                        <label for="upload-favicon" class="fc-btn fc-btn--outline" style="cursor:pointer">
+                                        <InputFile OnChange="e => UploadLogoAsync(e, LogoType.Favicon)" accept=".ico,.png,.svg" class="fc-hidden" id="upload-favicon" />
+                                        <label for="upload-favicon" class="fc-btn fc-btn--outline fc-cursor-pointer">
                                             @(_uploadingLogo == LogoType.Favicon ? "Uploading…" : "Upload Favicon")
                                         </label>
                                         <input type="text" class="fc-te__url-input" value="@_draft.FaviconUrl"
@@ -327,11 +327,11 @@
                                 </div>
 
                                 @* Login page mini-preview *@
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">Login Panel Preview</div>
+                                <div class="fc-te__section-heading fc-mt-6">Login Panel Preview</div>
                                 <div class="fc-te__login-prev" style="@LoginPanelStyle">
                                     @if (!string.IsNullOrEmpty(_draft.LoginBackgroundUrl))
                                     {
-                                        <div class="fc-te__login-prev-bg" style="background-image:linear-gradient(135deg,rgba(0,0,0,0.5),rgba(0,0,0,0.15)),url('@_draft.LoginBackgroundUrl')"></div>
+                                        <div class="fc-te__login-prev-bg" style="--login-bg-url:url('@_draft.LoginBackgroundUrl')"></div>
                                     }
                                     <div class="fc-te__login-prev-content">
                                         @if (!string.IsNullOrEmpty(_draft.LogoUrl))
@@ -359,34 +359,34 @@
                                 <p class="fc-te__section-hint">Header bar background in transactional emails.</p>
                                 @RenderColorRow("Header Background", "Email header bar", _draft.EmailHeaderColor, v => _draft.EmailHeaderColor = v, "#FFFFFF", "White on Email Header")
 
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">Email Body Background</div>
+                                <div class="fc-te__section-heading fc-mt-6">Email Body Background</div>
                                 @RenderColorRow("Body Background", "Email content area", _draft.EmailBodyBackground, v => _draft.EmailBodyBackground = v, "#1F2937", "Body text on Email Background")
 
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">Email Preview</div>
+                                <div class="fc-te__section-heading fc-mt-6">Email Preview</div>
                                 <div class="fc-te__email-prev">
-                                    <div class="fc-te__email-header" style="background:@_draft.EmailHeaderColor">
+                                    <div class="fc-te__email-header" style="--email-hdr-bg:@_draft.EmailHeaderColor">
                                         @if (!string.IsNullOrEmpty(_draft.LogoUrl))
                                         {
                                             <img src="@_draft.LogoUrl" alt="@_draft.CompanyName" class="fc-te__email-logo" />
                                         }
                                         else
                                         {
-                                            <span style="color:#fff;font-weight:600;font-size:1rem;">@_draft.CompanyName</span>
+                                            <span class="fc-te__email-company-name">@_draft.CompanyName</span>
                                         }
                                     </div>
-                                    <div class="fc-te__email-body" style="background:@_draft.EmailBodyBackground">
-                                        <h3 style="font-family:'@_draft.FontHeading',sans-serif;color:@_draft.PrimaryColor;margin:0 0 0.5rem">
+                                    <div class="fc-te__email-body" style="--email-body-bg:@_draft.EmailBodyBackground">
+                                        <h3 class="fc-te__email-body-heading" style="--email-hdr-font:'@_draft.FontHeading';--te-primary:@_draft.PrimaryColor">
                                             Your filing is due in 3 days
                                         </h3>
-                                        <p style="font-family:'@_draft.FontBody',sans-serif;color:#374151;font-size:0.875rem;margin:0 0 1rem">
+                                        <p class="fc-te__email-body-p">
                                             This is a reminder that your <strong>FRS-102 Annual Report</strong> filing is due on
                                             <strong>10 March 2026</strong>. Please log in to review and submit.
                                         </p>
-                                        <a class="fc-te__email-cta" style="background:@_draft.PrimaryColor">View Filing</a>
+                                        <a class="fc-te__email-cta" style="--te-primary:@_draft.PrimaryColor">View Filing</a>
                                         @if (!string.IsNullOrEmpty(_draft.SupportEmail))
                                         {
-                                            <p style="font-family:'@_draft.FontBody',sans-serif;color:#9CA3AF;font-size:0.75rem;margin-top:1rem">
-                                                Questions? Contact <a href="mailto:@_draft.SupportEmail" style="color:@_draft.PrimaryColor">@_draft.SupportEmail</a>
+                                            <p class="fc-te__email-footer-p">
+                                                Questions? Contact <a href="mailto:@_draft.SupportEmail" class="fc-te__email-support-link" style="--te-primary:@_draft.PrimaryColor">@_draft.SupportEmail</a>
                                             </p>
                                         }
                                     </div>
@@ -424,7 +424,7 @@
                                     </div>
                                 </div>
 
-                                <div class="fc-te__section-heading" style="margin-top:1.5rem">Brand Text</div>
+                                <div class="fc-te__section-heading fc-mt-6">Brand Text</div>
                                 <div class="fc-te__field-grid">
                                     <div class="fc-te__field-group">
                                         <label class="fc-te__field-label">Watermark Text</label>
@@ -453,9 +453,9 @@
 
                 @* ── Right: component preview ─────────────────────────────── *@
                 <div class="fc-te__preview-col">
-                    <div class="fc-card" style="height:100%;position:sticky;top:5rem">
-                        <div class="fc-card__header" style="border-bottom:1px solid var(--cbn-border);padding:0.75rem 1rem">
-                            <h3 class="fc-card__title" style="font-size:0.8125rem;font-weight:600;margin:0">Component Preview</h3>
+                    <div class="fc-card fc-te__preview-card">
+                        <div class="fc-card__header fc-te__preview-header">
+                            <h3 class="fc-card__title fc-te__preview-title">Component Preview</h3>
                         </div>
                         <div class="fc-card__body fc-te__prev-body" style="@PreviewVars">
 
@@ -510,7 +510,7 @@
                                             <div class="fc-te__prev-card-header">Q4 2025 &mdash; FRS-102</div>
                                             <div class="fc-te__prev-card-meta">Due 15 Mar 2026</div>
                                             <div class="fc-te__prev-progress">
-                                                <div class="fc-te__prev-progress-bar" style="width:65%"></div>
+                                                <div class="fc-te__prev-progress-bar fc-fill" style="--fill:65%"></div>
                                             </div>
                                             <div class="fc-te__prev-card-foot">65% complete</div>
                                         </div>
@@ -531,10 +531,10 @@
 
                             @* Typography sample *@
                             <div class="fc-te__prev-type">
-                                <div class="fc-te__prev-type-heading" style="font-family:'@_draft.FontHeading',sans-serif">
+                                <div class="fc-te__prev-type-heading" style="--preview-font:'@_draft.FontHeading'">
                                     @(_draft.CompanyName ?? "Portal Name")
                                 </div>
-                                <div class="fc-te__prev-type-body" style="font-family:'@_draft.FontBody',sans-serif">
+                                <div class="fc-te__prev-type-body" style="--preview-font:'@_draft.FontBody'">
                                     @_draft.FontHeading &middot; @_draft.FontBody
                                 </div>
                             </div>
@@ -544,7 +544,7 @@
                                 @foreach (var ck in GetContrastChecks().Take(3))
                                 {
                                     <div class="fc-te__prev-contrast-row">
-                                        <div class="fc-te__prev-contrast-swatch" style="background:@ck.Bg;color:@ck.Fg">Aa</div>
+                                        <div class="fc-te__prev-contrast-swatch" style="--ck-bg:@ck.Bg;--ck-fg:@ck.Fg">Aa</div>
                                         <div class="fc-te__prev-contrast-info">
                                             <span>@ck.Ratio.ToString("F1"):1</span>
                                             <span class="fc-te__prev-grade-chip fc-te__prev-grade-chip--@ck.CssClass">@ck.Grade</span>

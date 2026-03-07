@@ -71,6 +71,9 @@ public class TenantFaviconMiddlewareTests
         public Task<string> UploadFavicon(Guid tenantId, Stream fileStream, string fileName, string contentType, CancellationToken ct = default)
             => Task.FromResult(string.Empty);
 
+        public Task<string> UploadCompactLogo(Guid tenantId, Stream fileStream, string fileName, string contentType, CancellationToken ct = default)
+            => Task.FromResult(string.Empty);
+
         public Task InvalidateCache(Guid tenantId, CancellationToken ct = default)
             => Task.CompletedTask;
     }

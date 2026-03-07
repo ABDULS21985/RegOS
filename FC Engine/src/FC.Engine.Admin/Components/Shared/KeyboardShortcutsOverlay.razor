@@ -1,9 +1,11 @@
 @* Keyboard shortcuts reference overlay.
    Shown by pressing ? when not in an input field.
-   Keyboard shortcut manager also handles g+d, g+t, etc. navigation chords. *@
+   Handles all global + context keyboard shortcuts via FCAccessibility.initShortcuts. *@
 
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@inject CommandPaletteService PaletteService
+@inject KeyboardShortcutService ShortcutService
 @implements IAsyncDisposable
 
 @if (_visible)
@@ -43,53 +45,6 @@
         <div class="fc-ks-body">
             <div class="fc-ks-grid">
 
-                <!-- Navigation -->
-                <section class="fc-ks-section" aria-labelledby="fc-ks-nav-heading">
-                    <h3 id="fc-ks-nav-heading" class="fc-ks-section-title">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-                            <circle cx="12" cy="12" r="10"/>
-                            <polyline points="12 8 16 12 12 16"/>
-                            <line x1="8" y1="12" x2="16" y2="12"/>
-                        </svg>
-                        Navigation
-                    </h3>
-                    <ul class="fc-ks-list" role="list">
-                        <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>g</kbd> then <kbd>d</kbd></span>
-                            <span class="fc-ks-action">Dashboard</span>
-                        </li>
-                        <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>g</kbd> then <kbd>t</kbd></span>
-                            <span class="fc-ks-action">Templates</span>
-                        </li>
-                        <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>g</kbd> then <kbd>s</kbd></span>
-                            <span class="fc-ks-action">Submissions</span>
-                        </li>
-                        <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>g</kbd> then <kbd>f</kbd></span>
-                            <span class="fc-ks-action">Formulas</span>
-                        </li>
-                        <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>g</kbd> then <kbd>a</kbd></span>
-                            <span class="fc-ks-action">Audit Log</span>
-                        </li>
-                        <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>g</kbd> then <kbd>u</kbd></span>
-                            <span class="fc-ks-action">User Management</span>
-                        </li>
-                        <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>g</kbd> then <kbd>p</kbd></span>
-                            <span class="fc-ks-action">Platform Dashboard</span>
-                        </li>
-                        <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>g</kbd> then <kbd>r</kbd></span>
-                            <span class="fc-ks-action">Business Rules</span>
-                        </li>
-                    </ul>
-                </section>
-
                 <!-- General -->
                 <section class="fc-ks-section" aria-labelledby="fc-ks-general-heading">
                     <h3 id="fc-ks-general-heading" class="fc-ks-section-title">
@@ -101,7 +56,11 @@
                     </h3>
                     <ul class="fc-ks-list" role="list">
                         <li class="fc-ks-row">
-                            <span class="fc-ks-keys"><kbd>⌘</kbd><kbd>K</kbd></span>
+                            <span class="fc-ks-keys">
+                                <kbd>⌘</kbd><kbd>K</kbd>
+                                <span class="fc-ks-key-sep">/</span>
+                                <kbd>Ctrl</kbd><kbd>K</kbd>
+                            </span>
                             <span class="fc-ks-action">Open command palette</span>
                         </li>
                         <li class="fc-ks-row">
@@ -109,8 +68,150 @@
                             <span class="fc-ks-action">Show this overlay</span>
                         </li>
                         <li class="fc-ks-row">
+                            <span class="fc-ks-keys">
+                                <kbd>⌘</kbd><kbd>/</kbd>
+                                <span class="fc-ks-key-sep">/</span>
+                                <kbd>Ctrl</kbd><kbd>/</kbd>
+                            </span>
+                            <span class="fc-ks-action">Focus search</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys">
+                                <kbd>⌘</kbd><kbd>⇧</kbd><kbd>N</kbd>
+                                <span class="fc-ks-key-sep">/</span>
+                                <kbd>Ctrl</kbd><kbd>⇧</kbd><kbd>N</kbd>
+                            </span>
+                            <span class="fc-ks-action">New item (global)</span>
+                        </li>
+                        <li class="fc-ks-row">
                             <span class="fc-ks-keys"><kbd>Esc</kbd></span>
                             <span class="fc-ks-action">Close dialog / overlay</span>
+                        </li>
+                    </ul>
+                </section>
+
+                <!-- Navigation (g chords) -->
+                <section class="fc-ks-section" aria-labelledby="fc-ks-nav-heading">
+                    <h3 id="fc-ks-nav-heading" class="fc-ks-section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 8 16 12 12 16"/>
+                            <line x1="8" y1="12" x2="16" y2="12"/>
+                        </svg>
+                        Navigation
+                        <span class="fc-ks-section-hint">(500 ms window)</span>
+                    </h3>
+                    <ul class="fc-ks-list" role="list">
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>d</kbd></span>
+                            <span class="fc-ks-action">Dashboard</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>t</kbd></span>
+                            <span class="fc-ks-action">Templates</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>s</kbd></span>
+                            <span class="fc-ks-action">Submissions</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>j</kbd></span>
+                            <span class="fc-ks-action">Jurisdictions</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>m</kbd></span>
+                            <span class="fc-ks-action">Modules</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>f</kbd></span>
+                            <span class="fc-ks-action">Formulas</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>a</kbd></span>
+                            <span class="fc-ks-action">Audit Log</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>u</kbd></span>
+                            <span class="fc-ks-action">User Management</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>p</kbd></span>
+                            <span class="fc-ks-action">Platform Dashboard</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>g</kbd> <kbd>r</kbd></span>
+                            <span class="fc-ks-action">Business Rules</span>
+                        </li>
+                    </ul>
+                </section>
+
+                <!-- List Pages -->
+                <section class="fc-ks-section" aria-labelledby="fc-ks-list-heading">
+                    <h3 id="fc-ks-list-heading" class="fc-ks-section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                            <line x1="8" y1="6" x2="21" y2="6"/>
+                            <line x1="8" y1="12" x2="21" y2="12"/>
+                            <line x1="8" y1="18" x2="21" y2="18"/>
+                            <line x1="3" y1="6" x2="3.01" y2="6"/>
+                            <line x1="3" y1="12" x2="3.01" y2="12"/>
+                            <line x1="3" y1="18" x2="3.01" y2="18"/>
+                        </svg>
+                        List Pages
+                        <span class="fc-ks-section-hint">(not in input)</span>
+                    </h3>
+                    <ul class="fc-ks-list" role="list">
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>N</kbd></span>
+                            <span class="fc-ks-action">New item</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>F</kbd></span>
+                            <span class="fc-ks-action">Focus search / filter</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>E</kbd></span>
+                            <span class="fc-ks-action">Export</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>↑</kbd><kbd>↓</kbd></span>
+                            <span class="fc-ks-action">Navigate rows</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>Enter</kbd></span>
+                            <span class="fc-ks-action">Open selected row</span>
+                        </li>
+                    </ul>
+                </section>
+
+                <!-- Detail Pages -->
+                <section class="fc-ks-section" aria-labelledby="fc-ks-detail-heading">
+                    <h3 id="fc-ks-detail-heading" class="fc-ks-section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                        Detail Pages
+                        <span class="fc-ks-section-hint">(not in input)</span>
+                    </h3>
+                    <ul class="fc-ks-list" role="list">
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>E</kbd></span>
+                            <span class="fc-ks-action">Enter edit mode</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys"><kbd>S</kbd></span>
+                            <span class="fc-ks-action">Save changes</span>
+                        </li>
+                        <li class="fc-ks-row">
+                            <span class="fc-ks-keys">
+                                <kbd>⌘</kbd><kbd>⌫</kbd>
+                                <span class="fc-ks-key-sep">/</span>
+                                <kbd>Del</kbd>
+                            </span>
+                            <span class="fc-ks-action">Delete with confirm</span>
                         </li>
                     </ul>
                 </section>
@@ -155,7 +256,7 @@
                             <line x1="2" y1="12" x2="22" y2="12"/>
                             <line x1="12" y1="2" x2="12" y2="22"/>
                         </svg>
-                        Drag & Drop Lists
+                        Drag &amp; Drop Lists
                     </h3>
                     <ul class="fc-ks-list" role="list">
                         <li class="fc-ks-row">
@@ -178,6 +279,8 @@
 
         <div class="fc-ks-footer">
             <span>Press</span>
+            <kbd class="fc-ks-footer-kbd">?</kbd>
+            <span>to toggle&ensp;&middot;&ensp;Press</span>
             <kbd class="fc-ks-footer-kbd">Esc</kbd>
             <span>or click outside to close</span>
         </div>
@@ -202,9 +305,11 @@
                 _jsInit = true;
             }
             catch (JSDisconnectedException) { }
-            catch (JSException) { /* script not yet loaded — shortcuts unavailable */ }
+            catch (JSException) { /* script not yet loaded */ }
         }
     }
+
+    // ── Overlay control ──────────────────────────────────────────────────────
 
     [JSInvokable]
     public async Task ToggleOverlay()
@@ -221,6 +326,60 @@
 
     [JSInvokable]
     public void NavigateTo(string url) => Navigation.NavigateTo(url);
+
+    // ── Global shortcuts ─────────────────────────────────────────────────────
+
+    [JSInvokable]
+    public void OpenCommandPalette()
+    {
+        PaletteService.Open();
+        ShortcutService.TrackPaletteOpen();
+    }
+
+    [JSInvokable]
+    public async Task FocusSidebarSearch()
+    {
+        try { await JS.InvokeVoidAsync("FCAccessibility.focusSidebarSearch"); }
+        catch (JSDisconnectedException) { }
+    }
+
+    [JSInvokable]
+    public void NewItemGlobal() => ShortcutService.TriggerNewItem();
+
+    // ── List-page context shortcuts ──────────────────────────────────────────
+
+    [JSInvokable]
+    public void NewItem() => ShortcutService.TriggerNewItem();
+
+    [JSInvokable]
+    public void FocusSearch() => ShortcutService.TriggerFocusSearch();
+
+    /// <summary>
+    /// Fires both Export (list pages) and EditMode (detail pages).
+    /// Only the page that has subscribed to the matching event will react.
+    /// </summary>
+    [JSInvokable]
+    public void ExportOrEdit()
+    {
+        ShortcutService.TriggerExport();
+        ShortcutService.TriggerEditMode();
+    }
+
+    [JSInvokable]
+    public void Save() => ShortcutService.TriggerSave();
+
+    // ── Detail-page context shortcuts ────────────────────────────────────────
+
+    [JSInvokable]
+    public void DeleteItem() => ShortcutService.TriggerDeleteItem();
+
+    [JSInvokable]
+    public void NavigateRows(int direction) => ShortcutService.TriggerNavigateRows(direction);
+
+    [JSInvokable]
+    public void OpenRow() => ShortcutService.TriggerOpenRow();
+
+    // ── Overlay animation helpers ────────────────────────────────────────────
 
     private async Task Open()
     {

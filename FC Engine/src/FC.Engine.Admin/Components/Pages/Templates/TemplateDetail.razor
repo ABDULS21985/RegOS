@@ -57,24 +57,24 @@
     {
         <div class="fc-skel-detail" role="status" aria-label="Loading template">
             <div class="fc-skel-detail-hero">
-                <div class="fc-skel fc-skel-text-xl" style="width:200px;"></div>
-                <div class="fc-skel fc-skel-text" style="width:300px;"></div>
-                <div style="display:flex;gap:var(--space-3);margin-top:var(--space-2);">
-                    <div class="fc-skel" style="width:80px;height:24px;border-radius:var(--radius-pill);"></div>
-                    <div class="fc-skel" style="width:70px;height:24px;border-radius:var(--radius-pill);"></div>
-                    <div class="fc-skel" style="width:90px;height:24px;border-radius:var(--radius-pill);"></div>
+                <div class="fc-skel fc-skel-text-xl" style="--skel-w:200px"></div>
+                <div class="fc-skel fc-skel-text" style="--skel-w:300px"></div>
+                <div class="fc-flex-row--gap3 fc-mt-2">
+                    <div class="fc-skel" style="--skel-w:80px;--skel-h:24px"></div>
+                    <div class="fc-skel" style="--skel-w:70px;--skel-h:24px"></div>
+                    <div class="fc-skel" style="--skel-w:90px;--skel-h:24px"></div>
                 </div>
             </div>
             <div class="fc-skel-detail-tabs">
                 @for (var i = 0; i < 5; i++)
                 {
-                    <div class="fc-skel fc-skel-detail-tab" style="width:@(60 + i * 10)px;"></div>
+                    <div class="fc-skel fc-skel-detail-tab" style="--skel-w:@(60 + i * 10)px"></div>
                 }
             </div>
             <div class="fc-skel-detail-section">
                 @for (var i = 0; i < 4; i++)
                 {
-                    <div class="fc-skel fc-skel-text" style="width:@(40 + i * 20)%;"></div>
+                    <div class="fc-skel fc-skel-text" style="--skel-w:@(40 + i * 20)%"></div>
                 }
             </div>
         </div>
@@ -191,7 +191,7 @@
                         </div>
                         @if (_detail.Description != null)
                         {
-                            <div class="fc-detail-info-item" style="grid-column: span 2;">
+                            <div class="fc-detail-info-item fc-grid-span-2">
                                 <span class="fc-detail-info-label">Description</span>
                                 <span class="fc-detail-info-value">@_detail.Description</span>
                             </div>
@@ -247,7 +247,7 @@
                             }
                             @if (_activeVersion.ChangeSummary != null)
                             {
-                                <div class="fc-detail-info-item" style="grid-column: span 2;">
+                                <div class="fc-detail-info-item fc-grid-span-2">
                                     <span class="fc-detail-info-label">Change Summary</span>
                                     <span class="fc-detail-info-value">@_activeVersion.ChangeSummary</span>
                                 </div>
@@ -333,11 +333,11 @@
 
                 @if (_activeVersion?.Fields.Any() == true)
                 {
-                    <div style="overflow-x:auto;">
+                    <div class="fc-overflow-x">
                         <table class="fc-detail-field-table">
                             <thead>
                                 <tr>
-                                    <th style="width:36px;" aria-label="Reorder"></th>
+                                    <th class="fc-th-reorder" aria-label="Reorder"></th>
                                     <th>#</th>
                                     <th>Field Name</th>
                                     <th>Display Name</th>
@@ -368,7 +368,7 @@
                                             }
                                         </td>
                                         <td>
-                                            <div style="display:flex;gap:4px;">
+                                            <div class="fc-flex-row--gap1">
                                                 @if (f.IsKeyField) { <span class="fc-badge fc-badge--success">Key</span> }
                                                 @if (f.IsComputed) { <span class="fc-badge fc-badge--review">Computed</span> }
                                             </div>
@@ -406,7 +406,7 @@
                 <div class="fc-section-body">
                     @if (_formulas.Any())
                     {
-                        <div style="overflow-x:auto;">
+                        <div class="fc-overflow-x">
                             <table class="fc-detail-field-table">
                                 <thead>
                                     <tr>
@@ -468,7 +468,7 @@
                         </h3>
                     </div>
                     <div class="fc-section-body">
-                        <div style="overflow-x:auto;">
+                        <div class="fc-overflow-x">
                             <table class="fc-detail-field-table">
                                 <thead>
                                     <tr>
@@ -516,7 +516,7 @@
                             Item Codes (@_activeVersion.ItemCodes.Count)
                         </h3>
                     </div>
-                    <div style="overflow-x:auto;">
+                    <div class="fc-overflow-x">
                         <table class="fc-detail-field-table">
                             <thead>
                                 <tr>
@@ -556,13 +556,13 @@
                     </h3>
                 </div>
                 <div class="fc-section-body">
-                    <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
+                    <div class="fc-flex-row--wrap">
                         @foreach (var v in _detail.Versions.OrderByDescending(v => v.VersionNumber))
                         {
                             <button class="fc-btn @(v.Id == _activeVersion?.Id ? "fc-btn--primary" : "fc-btn--outline") fc-btn--sm"
                                     @onclick="() => SelectVersion(v)">
                                 v@(v.VersionNumber)
-                                <span class="fc-detail-status fc-detail-status-@v.Status.ToLowerInvariant()" style="font-size:0.65rem;padding:1px 8px;">
+                                <span class="fc-detail-status fc-detail-status-@v.Status.ToLowerInvariant() fc-badge--xxs">
                                     @v.Status
                                 </span>
                             </button>
@@ -605,7 +605,7 @@
                                 <div class="fc-detail-timeline-content">
                                     <div class="fc-detail-timeline-header">
                                         <span class="fc-detail-timeline-version">Version @v.VersionNumber</span>
-                                        <span class="fc-detail-status fc-detail-status-@v.Status.ToLowerInvariant()" style="font-size:0.65rem;padding:1px 8px;">
+                                        <span class="fc-detail-status fc-detail-status-@v.Status.ToLowerInvariant() fc-badge--xxs">
                                             <span class="fc-detail-status-dot" aria-hidden="true"></span>
                                             @v.Status
                                         </span>
@@ -669,7 +669,7 @@
 
                     @if (_showXsd && !string.IsNullOrEmpty(_xsdContent))
                     {
-                        <div style="margin-top:var(--space-4);">
+                        <div class="fc-mt-4">
                             <pre class="fc-detail-code-block">@_xsdContent</pre>
                         </div>
                     }

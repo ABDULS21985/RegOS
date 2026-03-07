@@ -18,7 +18,7 @@
 <div class="fc-page">
 
     <!-- Upload & Editor -->
-    <div class="fc-card" style="margin-bottom:1rem;">
+    <div class="fc-card fc-card--mb">
         <div class="fc-card__body">
             <div class="fc-form-grid">
                 <div class="fc-form-group">
@@ -27,12 +27,12 @@
                 </div>
             </div>
 
-            <div class="fc-form-group" style="margin-top:var(--space-4);">
+            <div class="fc-form-group fc-mt-4">
                 <label class="fc-form-label">Definition Content</label>
-                <textarea class="fc-form-input" rows="14" @bind="_jsonDefinition" placeholder="Paste module definition JSON here" style="resize:vertical;font-family:var(--font-code);font-size:0.8125rem;"></textarea>
+                <textarea class="fc-form-input fc-textarea--code" rows="14" @bind="_jsonDefinition" placeholder="Paste module definition JSON here"></textarea>
             </div>
 
-            <div style="display:flex;gap:0.5rem;margin-top:var(--space-4);flex-wrap:wrap;">
+            <div class="fc-filter-bar">
                 <button class="fc-btn fc-btn--outline" disabled="@_busy" @onclick="Validate" type="button">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                     Validate
@@ -40,7 +40,7 @@
                 <button class="fc-btn fc-btn--primary" disabled="@(_busy || !_canImport)" @onclick="Import" type="button">
                     @if (_busy && _canImport)
                     {
-                        <span class="spinner" style="width:16px;height:16px;"></span>
+                        <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
                     }
                     Import
                 </button>
@@ -54,10 +54,10 @@
     <!-- Validation Result -->
     @if (_validationResult != null)
     {
-        <div class="fc-card" style="margin-bottom:1rem;">
+        <div class="fc-card fc-card--mb">
             <div class="fc-card__header"><h2 class="fc-card__title">Validation Summary</h2></div>
             <div class="fc-card__body">
-                <div class="fc-chip-group" style="margin-bottom:1rem;">
+                <div class="fc-chip-group fc-import-success-p">
                     <span class="fc-chip"><span class="fc-chip__count">@_validationResult.TemplateCount</span> Templates</span>
                     <span class="fc-chip"><span class="fc-chip__count">@_validationResult.FieldCount</span> Fields</span>
                     <span class="fc-chip"><span class="fc-chip__count">@_validationResult.FormulaCount</span> Formulas</span>
@@ -67,7 +67,7 @@
                 @if (_validationResult.Errors.Count > 0)
                 {
                     <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@($"{_validationResult.Errors.Count} error(s) found")" />
-                    <ul style="margin:0.5rem 0 0 1rem;color:#b91c1c;font-size:0.875rem;">
+                    <ul class="fc-error-list">
                         @foreach (var error in _validationResult.Errors)
                         {
                             <li>@error</li>
@@ -77,9 +77,9 @@
 
                 @if (_validationResult.Warnings.Count > 0)
                 {
-                    <div style="margin-top:0.75rem;">
+                    <div class="fc-mt-3">
                         <AppAlert Variant="AppAlert.AlertVariant.Warning" Message="@($"{_validationResult.Warnings.Count} warning(s)")" />
-                        <ul style="margin:0.5rem 0 0 1rem;color:#92400e;font-size:0.875rem;">
+                        <ul class="fc-warn-list">
                             @foreach (var warning in _validationResult.Warnings)
                             {
                                 <li>@warning</li>
@@ -94,12 +94,12 @@
     <!-- Import Result -->
     @if (_importResult != null)
     {
-        <div class="fc-card" style="margin-bottom:1rem;">
+        <div class="fc-card fc-card--mb">
             <div class="fc-card__header"><h2 class="fc-card__title">Import Result</h2></div>
             <div class="fc-card__body">
                 @if (_importResult.Success)
                 {
-                    <p style="margin-bottom:0.75rem;">Imported module <code>@_importResult.ModuleCode</code> successfully.</p>
+                    <p class="fc-import-success-p">Imported module <code>@_importResult.ModuleCode</code> successfully.</p>
                     <div class="fc-chip-group">
                         <span class="fc-chip"><span class="fc-chip__count">@_importResult.TemplatesCreated</span> Templates</span>
                         <span class="fc-chip"><span class="fc-chip__count">@_importResult.FieldsCreated</span> Fields</span>
@@ -110,7 +110,7 @@
                 else
                 {
                     <AppAlert Variant="AppAlert.AlertVariant.Error" Message="Import failed" />
-                    <ul style="margin:0.5rem 0 0 1rem;color:#b91c1c;font-size:0.875rem;">
+                    <ul class="fc-error-list">
                         @foreach (var error in _importResult.Errors)
                         {
                             <li>@error</li>
@@ -132,11 +132,11 @@
                     <p>Published module <code>@_publishResult.ModuleCode</code>. Tables created: <strong>@_publishResult.TablesCreated</strong>.</p>
                     @if (_publishResult.DdlStatements.Count > 0)
                     {
-                        <details style="margin-top:0.75rem;">
-                            <summary style="cursor:pointer;font-weight:500;color:#475569;">DDL Statements (@_publishResult.DdlStatements.Count)</summary>
+                        <details class="fc-mt-3">
+                            <summary class="fc-summary-toggle">DDL Statements (@_publishResult.DdlStatements.Count)</summary>
                             @foreach (var ddl in _publishResult.DdlStatements)
                             {
-                                <pre style="white-space:pre-wrap;background:#f8fafc;padding:0.75rem;border-radius:var(--radius-md);margin-top:0.5rem;font-size:0.8125rem;font-family:var(--font-code);border:1px solid var(--border);">@ddl</pre>
+                                <pre class="fc-code-pre">@ddl</pre>
                             }
                         </details>
                     }
@@ -144,7 +144,7 @@
                 else
                 {
                     <AppAlert Variant="AppAlert.AlertVariant.Error" Message="Publish failed" />
-                    <ul style="margin:0.5rem 0 0 1rem;color:#b91c1c;font-size:0.875rem;">
+                    <ul class="fc-error-list">
                         @foreach (var error in _publishResult.Errors)
                         {
                             <li>@error</li>

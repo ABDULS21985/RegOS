@@ -303,6 +303,20 @@ window.FCForms = (() => {
        8. FORM FIELD — Validation animation
        ================================================================ */
 
+    /**
+     * Focus the first [aria-invalid="true"] input inside a container.
+     * Falls back to document.body when containerId is null/empty.
+     */
+    function focusFirstError(containerId) {
+        const container = containerId
+            ? (document.getElementById(containerId) || document.body)
+            : document.body;
+        const el = container.querySelector('[aria-invalid="true"]');
+        if (!el) return;
+        el.focus({ preventScroll: false });
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
     function slideInError(elementId) {
         const el = document.getElementById(elementId);
         if (!el || prefersReducedMotion()) return;
@@ -384,6 +398,7 @@ window.FCForms = (() => {
         focusElement,
         scrollIntoView,
         // Form field
+        focusFirstError,
         slideInError,
         slideOutError,
         // Cleanup

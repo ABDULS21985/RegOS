@@ -28,7 +28,7 @@
 }
 else
 {
-    <div class="fc-grid fc-grid-2" style="margin-bottom:1rem;">
+    <div class="fc-grid fc-grid-2 fc-mb-4">
         <section class="fc-card">
             <div class="fc-card__header"><h2 class="fc-card__title">Create / Update Flag</h2></div>
             <div class="fc-card__body">
@@ -37,12 +37,15 @@ else
                 <div class="fc-form-row"><label>Rollout Percent (0-100)</label><input class="fc-input" type="number" min="0" max="100" @bind="_edit.RolloutPercent" /></div>
                 <div class="fc-form-row"><label>Allowed Tenants (CSV or JSON array)</label><textarea class="fc-input" rows="3" @bind="_edit.AllowedTenants"></textarea></div>
                 <div class="fc-form-row"><label>Allowed Plans (CSV or JSON array)</label><textarea class="fc-input" rows="3" @bind="_edit.AllowedPlans"></textarea></div>
-                <div class="fc-form-row" style="display:flex; gap:0.5rem; align-items:center;">
-                    <input type="checkbox" @bind="_edit.IsEnabled" /> <label style="margin:0;">Globally Enabled</label>
+                <div class="fc-form-row fc-flex-row--gap2">
+                    <input type="checkbox" @bind="_edit.IsEnabled" /> <label class="fc-m-0">Globally Enabled</label>
                 </div>
-                <div style="display:flex; gap:0.5rem; margin-top:1rem;">
-                    <button class="fc-btn fc-btn--primary" @onclick="Save">Save</button>
-                    <button class="fc-btn fc-btn--outline" @onclick="ResetForm">Reset</button>
+                <div class="fc-flex-row--gap2 fc-mt-4">
+                    <button class="fc-btn fc-btn--primary @(_isSaving ? "fc-btn--loading" : "")" @onclick="Save" disabled="@_isSaving" aria-busy="@(_isSaving ? "true" : null)">
+                        @if (_isSaving) { <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span> }
+                        Save
+                    </button>
+                    <button class="fc-btn fc-btn--outline" @onclick="ResetForm" disabled="@_isSaving">Reset</button>
                 </div>
             </div>
         </section>
@@ -52,10 +55,13 @@ else
             <div class="fc-card__body">
                 <div class="fc-form-row"><label>Flag Code</label><input class="fc-input" @bind="_evalFlagCode" /></div>
                 <div class="fc-form-row"><label>Tenant Id (optional)</label><input class="fc-input" @bind="_evalTenantId" placeholder="GUID" /></div>
-                <button class="fc-btn fc-btn--outline" @onclick="Evaluate">Evaluate</button>
+                <button class="fc-btn fc-btn--outline @(_isEvaluating ? "fc-btn--loading" : "")" @onclick="Evaluate" disabled="@_isEvaluating" aria-busy="@(_isEvaluating ? "true" : null)">
+                    @if (_isEvaluating) { <span class="fc-spinner fc-spinner--sm fc-spinner--muted" aria-hidden="true"></span> }
+                    Evaluate
+                </button>
                 @if (_evalResult.HasValue)
                 {
-                    <div style="margin-top:0.75rem; font-weight:600; color:@(_evalResult.Value ? "#166534" : "#991b1b");">
+                    <div class="fc-eval-result" style="--eval-color:@(_evalResult.Value ? "#166534" : "#991b1b")">
                         Result: @(_evalResult.Value ? "Enabled" : "Disabled")
                     </div>
                 }
@@ -65,7 +71,7 @@ else
 
     <div class="fc-card">
         <div class="fc-card__header"><h2 class="fc-card__title">Existing Flags</h2></div>
-        <div class="fc-card__body" style="padding:0; overflow:auto;">
+        <div class="fc-card__body fc-card-body--flush">
             <table class="fc-table">
                 <thead>
                     <tr>
@@ -91,15 +97,25 @@ else
                                 </span>
                             </td>
                             <td>@flag.RolloutPercent</td>
-                            <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;">@(flag.AllowedTenants ?? "-")</td>
-                            <td style="max-width:200px; overflow:hidden; text-overflow:ellipsis;">@(flag.AllowedPlans ?? "-")</td>
+                            <td class="fc-td-truncate">@(flag.AllowedTenants ?? "-")</td>
+                            <td class="fc-td-truncate">@(flag.AllowedPlans ?? "-")</td>
                             <td>@flag.UpdatedAt.ToString("dd MMM yyyy HH:mm")</td>
                             <td>
-                                <div style="display:flex; gap:0.35rem; flex-wrap:wrap;">
-                                    <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => Edit(flag)">Edit</button>
-                                    <button class="fc-btn fc-btn--primary fc-btn--xs" @onclick="() => Toggle(flag)">
-                                        @(flag.IsEnabled ? "Disable" : "Enable")
-                                    </button>
+                                <div class="fc-tag-group">
+                                    <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => Edit(flag)" disabled="@(_togglingFlagCode == flag.FlagCode)">Edit</button>
+                                    @if (_togglingFlagCode == flag.FlagCode)
+                                    {
+                                        <button class="fc-btn fc-btn--primary fc-btn--xs fc-btn--loading" disabled aria-busy="true">
+                                            <span class="fc-spinner fc-spinner--xs fc-spinner--white" aria-hidden="true"></span>
+                                            @(flag.IsEnabled ? "Disable" : "Enable")
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="fc-btn fc-btn--primary fc-btn--xs" @onclick="() => Toggle(flag)">
+                                            @(flag.IsEnabled ? "Disable" : "Enable")
+                                        </button>
+                                    }
                                 </div>
                             </td>
                         </tr>
@@ -116,6 +132,9 @@ else
     private List<FeatureFlag> _flags = new();
     private UpdateFeatureFlagRequest _edit = new();
     private bool _loading = true;
+    private bool _isSaving;
+    private bool _isEvaluating;
+    private string? _togglingFlagCode;
     private string? _error;
     private string? _message;
     private string _evalFlagCode = string.Empty;
@@ -171,6 +190,7 @@ else
             return;
         }
 
+        _isSaving = true;
         try
         {
             var actor = await GetActor();
@@ -182,12 +202,17 @@ else
         {
             _error = ex.Message;
         }
+        finally
+        {
+            _isSaving = false;
+        }
     }
 
     private async Task Toggle(FeatureFlag flag)
     {
         _error = null;
         _message = null;
+        _togglingFlagCode = flag.FlagCode;
         try
         {
             var actor = await GetActor();
@@ -208,6 +233,10 @@ else
         {
             _error = ex.Message;
         }
+        finally
+        {
+            _togglingFlagCode = null;
+        }
     }
 
     private void ResetForm()
@@ -220,7 +249,7 @@ else
     {
         _error = null;
         _evalResult = null;
-
+        _isEvaluating = true;
         try
         {
             Guid? tenantId = null;
@@ -234,6 +263,10 @@ else
         catch (Exception ex)
         {
             _error = ex.Message;
+        }
+        finally
+        {
+            _isEvaluating = false;
         }
     }
 

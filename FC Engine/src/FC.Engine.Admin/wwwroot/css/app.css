@@ -4680,6 +4680,7 @@ select.fc-detail-float-input {
     width: 100%;
     transform-origin: left;
     animation: fcToastProgress linear forwards;
+    animation-duration: var(--toast-dur, 4000ms);
     border-radius: 0 0 var(--radius-md) var(--radius-md);
 }
 
@@ -4699,10 +4700,15 @@ select.fc-detail-float-input {
    ================================================================== */
 
 @media (max-width: 768px) {
+    /* Toast: bottom-center on mobile */
     .fc-toast-container {
-        right: var(--space-3);
-        left: var(--space-3);
-        max-width: none;
+        top: auto;
+        bottom: var(--space-5);
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+        width: calc(100vw - var(--space-6));
+        max-width: 400px;
     }
 
     .fc-modal {
@@ -4725,9 +4731,8 @@ select.fc-detail-float-input {
 
 @media (max-width: 480px) {
     .fc-toast-container {
-        top: var(--space-3);
-        right: var(--space-2);
-        left: var(--space-2);
+        bottom: var(--space-3);
+        width: calc(100vw - var(--space-4));
     }
 
     .fc-toast {
@@ -4756,8 +4761,130 @@ select.fc-detail-float-input {
     .fc-toast-progress {
         animation-duration: 0.01ms !important;
     }
+
+    .fc-toast-spinner {
+        animation: none;
+    }
+
+    .fc-toast-exiting {
+        animation: none !important;
+        opacity: 0;
+    }
 }
 
+/* ==================================================================
+   28b. TOAST -- Extended: Loading, Dedup, Actions, Exit, Queue
+   ================================================================== */
+
+/* Loading variant */
+.fc-toast-loading { border-left: 3px solid var(--cbn-border-strong); }
+.fc-toast-loading .fc-toast-icon { color: var(--cbn-text-secondary); }
+
+/* Loading spinner */
+.fc-toast-spinner {
+    animation: fcToastSpin 0.85s linear infinite;
+    transform-origin: center;
+}
+
+@keyframes fcToastSpin {
+    to { transform: rotate(360deg); }
+}
+
+/* Exit animation -- slides right and collapses */
+.fc-toast-exiting {
+    animation: fcToastOut 300ms ease forwards !important;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+@keyframes fcToastOut {
+    0%   { opacity: 1; transform: translateX(0);    max-height: 200px; }
+    45%  { opacity: 0; transform: translateX(52px); max-height: 200px; }
+    100% { opacity: 0; transform: translateX(52px); max-height: 0; padding-top: 0; padding-bottom: 0; }
+}
+
+/* Duplicate count badge */
+.fc-toast-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 6px;
+    padding: 1px 7px;
+    background: var(--cbn-gray-200);
+    color: var(--cbn-text-secondary);
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: var(--font-weight-semibold);
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+}
+
+.fc-toast-error .fc-toast-count {
+    background: color-mix(in srgb, var(--cbn-danger) 15%, transparent);
+    color: var(--cbn-danger);
+}
+
+/* Inline action button */
+.fc-toast-action {
+    display: inline-flex;
+    align-items: center;
+    margin-top: var(--space-2);
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--text-body-sm);
+    font-weight: var(--font-weight-medium);
+    color: var(--cbn-primary);
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background var(--transition-fast) var(--ease-standard),
+                color var(--transition-fast) var(--ease-standard);
+    align-self: flex-start;
+    white-space: nowrap;
+}
+
+.fc-toast-action:hover {
+    background: var(--cbn-primary);
+    color: #fff;
+}
+
+.fc-toast-action:focus-visible {
+    outline: 2px solid var(--cbn-primary);
+    outline-offset: 2px;
+}
+
+.fc-toast-error .fc-toast-action { color: var(--cbn-danger); }
+
+/* Pause progress bar while hovering the toast */
+.fc-toast:hover .fc-toast-progress {
+    animation-play-state: paused;
+}
+
+/* Overflow queue indicator */
+.fc-toast-queue-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1-5);
+    padding: var(--space-1-5) var(--space-3);
+    font-size: var(--text-body-sm);
+    color: var(--cbn-text-muted);
+    background: var(--cbn-surface-elevated);
+    border: 1px solid var(--cbn-border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    pointer-events: none;
+}
+
+.fc-toast-queue-badge::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cbn-text-muted);
+    flex-shrink: 0;
+}
 
 /* ==================================================================
    29. ADMIN EXPERIENCE — User Management & Audit Log
@@ -14743,6 +14870,10 @@ img[loading="lazy"] {
 
 .fc-tour-spotlight {
     position: fixed;
+    top: var(--tour-top, 0);
+    left: var(--tour-left, 0);
+    width: var(--tour-w, 0);
+    height: var(--tour-h, 0);
     z-index: 9101;
     border-radius: var(--radius-lg);
     box-shadow: 0 0 0 9999px rgba(0,0,0,0.65);
@@ -15331,6 +15462,8 @@ img[loading="lazy"] {
     font-weight: 700;
     flex-shrink: 0;
     border: 1px solid rgba(0,0,0,0.08);
+    background: var(--ck-bg, #fff);
+    color: var(--ck-fg, #000);
 }
 
 .fc-te__contrast-detail {
@@ -15375,12 +15508,14 @@ img[loading="lazy"] {
     font-weight: 600;
     color: var(--cbn-text);
     line-height: 1;
+    font-family: var(--preview-font), sans-serif;
 }
 
 .fc-te__font-preview-sm {
     font-size: var(--text-body-sm);
     color: var(--cbn-text-secondary);
     line-height: 1.5;
+    font-family: var(--preview-font), sans-serif;
 }
 
 .fc-te__font-sample {
@@ -15555,6 +15690,7 @@ img[loading="lazy"] {
 .fc-te__login-prev-bg {
     position: absolute;
     inset: 0;
+    background-image: linear-gradient(135deg,rgba(0,0,0,0.5),rgba(0,0,0,0.15)), var(--login-bg-url);
     background-size: cover;
     background-position: center;
 }
@@ -15615,6 +15751,7 @@ img[loading="lazy"] {
     display: flex;
     align-items: center;
     min-height: 56px;
+    background: var(--email-hdr-bg, var(--cbn-primary));
 }
 
 .fc-te__email-logo {
@@ -15625,6 +15762,7 @@ img[loading="lazy"] {
 
 .fc-te__email-body {
     padding: var(--space-6) var(--space-6);
+    background: var(--email-body-bg, #fff);
 }
 
 .fc-te__email-cta {
@@ -15636,6 +15774,7 @@ img[loading="lazy"] {
     font-size: var(--text-body-sm);
     text-decoration: none;
     margin-top: var(--space-1);
+    background: var(--te-primary, var(--cbn-primary));
 }
 
 .fc-te__email-footer {
@@ -15909,8 +16048,8 @@ img[loading="lazy"] {
     border-bottom: 1px solid var(--cbn-border);
 }
 
-.fc-te__prev-type-heading { font-size: 0.875rem; font-weight: 700; color: #111827; line-height: 1.2; }
-.fc-te__prev-type-body    { font-size: 10px; color: #6B7280; margin-top: 2px; }
+.fc-te__prev-type-heading { font-size: 0.875rem; font-weight: 700; color: #111827; line-height: 1.2; font-family: var(--preview-font), sans-serif; }
+.fc-te__prev-type-body    { font-size: 10px; color: #6B7280; margin-top: 2px; font-family: var(--preview-font), sans-serif; }
 
 /* ── Preview compact contrast checks ────────────────────────────── */
 .fc-te__prev-contrasts {
@@ -15937,6 +16076,8 @@ img[loading="lazy"] {
     font-weight: 700;
     flex-shrink: 0;
     border: 1px solid rgba(0,0,0,0.08);
+    background: var(--ck-bg, #fff);
+    color: var(--ck-fg, #000);
 }
 
 .fc-te__prev-contrast-info {
@@ -16620,4 +16761,1304 @@ img.fc-img-lazyload {
 }
 img.fc-img-lazyload.fc-img-loaded {
     filter: none;
+}
+
+
+/* ==================================================================
+   50. UTILITY CLASSES — Semantic replacements for inline styles
+   Replaces all style="" attributes across .razor files with
+   intentional, design-token-backed classes.
+   ================================================================== */
+
+/* ── Card utilities ─────────────────────────────────────────────── */
+
+/* Add bottom margin to a card (spacing between stacked cards) */
+.fc-card--mb { margin-bottom: 1rem; }
+
+/* Card body variants */
+.fc-card-body--flush     { padding: 0; overflow: auto; }
+.fc-card-body--flush-420 { padding: 0; overflow: auto; max-height: 420px; }
+.fc-card-body--flush-560 { padding: 0; overflow: auto; max-height: 560px; }
+.fc-card-body--chart     { height: 320px; }
+
+/* ── Layout utilities ───────────────────────────────────────────── */
+
+/* Horizontal scroll wrapper */
+.fc-overflow-x { overflow-x: auto; }
+
+/* Flex row patterns */
+.fc-flex-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+.fc-flex-row--wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+}
+.fc-flex-between {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.fc-flex-col {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+/* Action button group (right-aligned, small gap) */
+.fc-actions {
+    display: flex;
+    gap: var(--space-1-5, 0.375rem);
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: center;
+}
+.fc-actions--start {
+    display: flex;
+    gap: var(--space-1-5, 0.375rem);
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Toolbar layout (user-facing filter bars) */
+.fc-toolbar {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+}
+.fc-toolbar__filters {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    flex-wrap: wrap;
+    flex: 1;
+}
+.fc-toolbar__actions {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+    margin-left: auto;
+}
+
+/* ── Typography utilities ───────────────────────────────────────── */
+
+.fc-fw-600 { font-weight: 600; }
+.fc-fw-500 { font-weight: 500; }
+.fc-text-right  { text-align: right; }
+.fc-text-center { text-align: center; }
+.fc-font-mono   { font-family: var(--font-code, monospace); }
+
+/* Muted secondary text (replaces color:#64748b) */
+.fc-text-muted-sm {
+    color: var(--cbn-text-muted, #64748b);
+    font-size: var(--text-body-sm, 0.875rem);
+}
+.fc-text-subtle {
+    color: var(--cbn-text-secondary, #94a3b8);
+}
+.fc-text-subtle-sm {
+    color: var(--cbn-text-secondary, #94a3b8);
+    font-size: var(--text-body-sm, 0.875rem);
+}
+
+/* Date/time meta display */
+.fc-date-meta {
+    font-size: var(--text-caption);
+    color: var(--cbn-text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Cell primary/secondary stacking */
+.fc-cell-primary { font-weight: 600; }
+.fc-cell-sub { color: var(--cbn-text-muted, #64748b); }
+
+/* Table align helpers */
+.fc-th-right { text-align: right; }
+
+/* Ellipsis-overflow cell (for long text in fixed-width columns) */
+.fc-cell-ellipsis {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* ── Spinner sizing ─────────────────────────────────────────────── */
+.spinner--sm { width: 16px; height: 16px; }
+
+/* ── Form utilities ─────────────────────────────────────────────── */
+
+/* Inline checkbox + label row */
+.fc-form-check {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+}
+.fc-form-check label { margin: 0; }
+
+/* Form input monospace (currency codes, date formats, expressions) */
+.fc-form-input--mono { font-family: var(--font-code, monospace); }
+
+/* Form input compact select */
+.fc-form-select--compact {
+    width: auto;
+    min-width: 100px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+
+/* Flex form group (label + control inline) */
+.fc-form-group--inline {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+.fc-form-group--inline .fc-form-label { margin: 0; }
+
+/* Top-margin spacing for stacked form sections */
+.fc-form-section-mt { margin-top: var(--space-4); }
+.fc-mt-2            { margin-top: var(--space-2); }
+.fc-mt-3            { margin-top: var(--space-3); }
+.fc-mt-4            { margin-top: var(--space-4); }
+.fc-mt-6            { margin-top: var(--space-6); }
+.fc-mb-2            { margin-bottom: var(--space-2); }
+.fc-mb-3            { margin-bottom: var(--space-3); }
+.fc-mb-4            { margin-bottom: var(--space-4); }
+.fc-ml-1            { margin-left: var(--space-1); }
+
+/* Text transform */
+.fc-capitalize { text-transform: capitalize; }
+
+/* h4 heading inside inline forms (cross-sheet rule builder, etc.) */
+.fc-inline-form-heading {
+    margin-top: var(--space-4);
+    font-size: var(--text-h4);
+    font-weight: var(--font-weight-semibold);
+    color: var(--cbn-text);
+}
+/* Operand alias entry row inside list cells */
+.fc-operand-entry {
+    font-size: var(--text-body-sm);
+    margin-bottom: 2px;
+}
+/* Caption text (table limits, sub-labels) */
+.fc-text-caption     { font-size: var(--text-caption); }
+.fc-text-caption-muted {
+    font-size: var(--text-caption);
+    color: var(--cbn-text-muted);
+}
+/* Flex-1 stretch (color picker text input) */
+.fc-flex-1 { flex: 1; }
+
+/* Filter action bar (checkbox + buttons + count) */
+.fc-filter-bar {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+    flex-wrap: wrap;
+    align-items: center;
+}
+/* Auto-pushed count label at end of filter bar */
+.fc-count-label {
+    margin-left: auto;
+    color: var(--cbn-text-muted, #64748b);
+    font-size: var(--text-body-sm, 0.875rem);
+}
+/* Neutral (saving/loading) button state */
+.fc-btn--neutral {
+    background: var(--cbn-gray-100, #f1f5f9);
+    color: var(--cbn-text-secondary, #64748b);
+}
+
+/* ── Skeleton CSS custom-property slots ────────────────────────── */
+/* Pages inject --skel-w / --skel-h as CSS custom properties on
+   skeleton elements instead of width/height inline styles.         */
+.fc-skel { width: var(--skel-w); height: var(--skel-h); margin-bottom: var(--skel-mb, 0); }
+
+/* ── Progress/chart fill — CSS custom property slot ────────────── */
+/* Dynamic width is injected as --fill to avoid style=width:@x%    */
+.fc-fill { width: var(--fill, 0%); }
+
+/* ── Stagger animation delays — CSS custom property slot ───────── */
+/* Elements use style="--delay:Xms" consumed by their animation.   */
+.fc-stagger { animation-delay: var(--delay, 0ms); }
+
+/* ── Session-expired modal body ─────────────────────────────────── */
+.fc-modal-body--centered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: var(--space-5);
+    padding: var(--space-10) var(--space-8);
+}
+.fc-modal-subtitle--spaced { margin-top: var(--space-2); }
+
+/* ── Skeleton loader card/list layouts (SkeletonLoader.razor) ───── */
+.fc-skel-card-body {
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+.fc-skel-list-row {
+    display: flex;
+    gap: var(--space-4);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--cbn-border-subtle);
+}
+
+/* ── Audit log badge sizing ─────────────────────────────────────── */
+.fc-badge--xs { font-size: 0.65rem; padding: 1px 6px; }
+.fc-badge--xxs { font-size: 0.68rem; padding: 1px 6px; }
+
+/* ── Module import code block ───────────────────────────────────── */
+.fc-code-pre {
+    white-space: pre-wrap;
+    background: var(--cbn-surface-base, #f8fafc);
+    padding: var(--space-3);
+    border-radius: var(--radius-md);
+    margin-top: var(--space-2);
+    font-size: 0.8125rem;
+    font-family: var(--font-code, monospace);
+    border: 1px solid var(--cbn-border);
+}
+.fc-summary-toggle {
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--cbn-text-secondary, #475569);
+}
+
+/* ── Error list ─────────────────────────────────────────────────── */
+.fc-error-list {
+    margin: var(--space-2) 0 0 var(--space-4);
+    color: var(--clr-danger, #b91c1c);
+    font-size: 0.875rem;
+}
+.fc-warn-list {
+    margin: var(--space-2) 0 0 var(--space-4);
+    color: var(--clr-warning-dark, #92400e);
+    font-size: 0.875rem;
+}
+
+/* ── Empty state in table cells ─────────────────────────────────── */
+.fc-table-empty-cell {
+    padding: 2rem;
+    text-align: center;
+    color: var(--cbn-text-secondary, #94a3b8);
+}
+
+/* ── Health dashboard spacing ───────────────────────────────────── */
+.fc-refresh-row {
+    margin-top: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+.fc-refresh-label {
+    color: var(--cbn-text-muted, #64748b);
+    font-size: 0.85rem;
+}
+
+/* ── Feature flags evaluation result ────────────────────────────── */
+.fc-flag-result { margin-top: 0.75rem; font-weight: 600; }
+.fc-flag-result--pass { color: var(--clr-success-dark, #166534); }
+.fc-flag-result--fail { color: var(--clr-danger-dark, #991b1b); }
+
+/* ── Inline link (no underline, inherit color + weight) ─────────── */
+.fc-link-plain { text-decoration: none; color: inherit; font-weight: inherit; }
+
+/* ── Remaining-count hint text ──────────────────────────────────── */
+.fc-remaining-hint {
+    color: var(--cbn-text-muted);
+    font-weight: 400;
+    margin-left: 4px;
+}
+
+/* ── Audit log margin-top button ────────────────────────────────── */
+.fc-btn--mt { margin-top: var(--space-3); }
+
+/* ── Cross-sheet rule grid span ─────────────────────────────────── */
+.fc-grid-span-full { grid-column: 1 / -1; }
+
+/* ── Detail info span-2 ─────────────────────────────────────────── */
+.fc-span-2 { grid-column: span 2; }
+
+/* ── Operand row ────────────────────────────────────────────────── */
+.fc-operand-row {
+    margin-bottom: var(--space-2);
+    padding: var(--space-3);
+    background: var(--cbn-surface-elevated);
+    border: 1px solid var(--cbn-border);
+    border-radius: var(--radius-sm);
+}
+.fc-operand-row--2col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+
+/* ── Chip group top margin ──────────────────────────────────────── */
+.fc-chip-group--mt { margin-bottom: 1rem; }
+.fc-chip-group--mb { margin-bottom: 1rem; }
+
+/* ── Compact card body - billing ────────────────────────────────── */
+.fc-card-body--filter {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+.fc-form-group--flex { flex: 1; min-width: 240px; margin: 0; }
+
+/* ── BillingOps stat sub-line ───────────────────────────────────── */
+.fc-stat-sub {
+    color: var(--cbn-text-muted, #64748b);
+    font-size: 0.85rem;
+}
+
+/* ── Import success message ─────────────────────────────────────── */
+.fc-import-success-p { margin-bottom: 0.75rem; }
+
+/* ── Import textarea ────────────────────────────────────────────── */
+.fc-textarea--code {
+    resize: vertical;
+    font-family: var(--font-code, monospace);
+    font-size: 0.8125rem;
+}
+
+/* ── Color picker inline row (TenantSetupWizard) ────────────────── */
+.fc-color-picker-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+}
+.fc-color-picker-row input[type="color"] {
+    width: 40px;
+    height: 40px;
+    border: none;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+}
+.fc-color-picker-row .fc-form-input { flex: 1; }
+
+/* ── Wizard review module chips row ─────────────────────────────── */
+.fc-wizard-modules-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+/* ── ModuleDetail code cell ─────────────────────────────────────── */
+.fc-code-sm { font-size: 0.75rem; }
+
+/* ── Theme editor layout (ThemeEditor.razor) ────────────────────── */
+.fc-te__layout-2col {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+/* ── Table head with right-aligned actions column ───────────────── */
+.fc-th-actions { text-align: right; }
+
+/* ── §50b Additional utilities (§50 overflow) ──────────────────────────────── */
+
+/* Spacing */
+.fc-mt-8 { margin-top: var(--space-8, 2rem); }
+
+/* Monospace + uppercase (jurisdiction/licence codes) */
+.fc-mono-upper {
+    font-family: var(--font-code, monospace);
+    text-transform: uppercase;
+}
+
+/* Textarea resize-only variant */
+.fc-textarea--resize-v { resize: vertical; }
+
+/* Code preview scroll container */
+.fc-code-preview {
+    overflow: auto;
+    border: 1px solid var(--cbn-border, #e2e8f0);
+    border-radius: var(--radius-md);
+}
+
+/* Fixed-height chart container */
+.fc-chart-height { height: 320px; }
+
+/* Flex with gap-3 */
+.fc-flex-row--gap3 {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
+/* Flex utilities */
+.fc-flex-shrink-0 { flex-shrink: 0; }
+.fc-ml-auto { margin-left: auto; }
+
+/* Skeleton timeline header row */
+.fc-skel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+/* Skeleton body that fills remaining width */
+.fc-skel-body-flex { flex: 1; pointer-events: none; }
+
+/* Avatar with dynamic background injected via --avatar-bg */
+.fc-avatar { background: var(--avatar-bg, var(--cbn-primary-100, #dcfce7)); }
+
+/* Extra-small text (audit log, compact labels) */
+.fc-text-xxs { font-size: 0.72rem; }
+
+/* ── §50c Platform inline-style replacements ───────────────────── */
+
+/* Filter bar aligned to baseline (BillingOps, FeatureFlags filter rows) */
+.fc-filter-bar--end {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+}
+
+/* Minimum-width form row inside filter bars */
+.fc-form-row--min { min-width: 220px; margin: 0; }
+
+/* Inline tag / button group with tight wrapping gap */
+.fc-tag-group { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+
+/* Truncating table cell (max-width + ellipsis) */
+.fc-td-truncate {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Flex row with 0.5rem gap, centre-aligned (checkbox rows, action rows) */
+.fc-flex-row--gap2 { display: flex; gap: var(--space-2); align-items: center; }
+
+/* Zero-out margin utilities */
+.fc-m-0  { margin: 0; }
+.fc-mt-0 { margin-top: 0; }
+
+/* Dynamic-color evaluation result (color injected via --eval-color) */
+.fc-eval-result {
+    margin-top: var(--space-3);
+    font-weight: 600;
+    color: var(--eval-color);
+}
+
+/* Dark-danger button (destructive ops: deprecate, hard-delete) */
+.fc-btn--danger-dark { background: #7f1d1d; color: #fff; }
+
+/* ── §51 Session Lifecycle ─────────────────────────────────────────────────── */
+
+/* ── Inactivity Warning Modal ─────────────────────────────────── */
+
+/* Backdrop sits above existing modals (z-index 1200 → 1400) */
+.fc-sw-backdrop { z-index: 1400; }
+
+/* Full-screen centring shell */
+.fc-sw-modal {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1401;
+    padding: var(--space-4);
+}
+
+/* White card */
+.fc-sw-modal__card {
+    background: var(--cbn-surface, #fff);
+    border: 1px solid var(--cbn-border, #e2e8f0);
+    border-radius: var(--radius-xl, 16px);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25);
+    max-width: 420px;
+    width: 100%;
+    position: relative;
+    overflow: hidden;
+    animation: fc-sw-card-in var(--motion-normal, 250ms) var(--ease-spring, cubic-bezier(.34,1.56,.64,1)) both;
+}
+
+@keyframes fc-sw-card-in {
+    from { opacity: 0; transform: translateY(20px) scale(0.96); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* Gold accent bar */
+.fc-sw-modal__accent {
+    height: 4px;
+    background: var(--cbn-gold, #C8A415);
+}
+
+/* Body layout */
+.fc-sw-modal__body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: var(--space-5, 20px);
+    padding: var(--space-8, 32px) var(--space-7, 28px) var(--space-7, 28px);
+}
+
+.fc-sw-modal__icon {
+    color: var(--cbn-primary, #006B3F);
+    opacity: 0.85;
+}
+
+.fc-sw-modal__text { display: flex; flex-direction: column; gap: var(--space-1); }
+
+.fc-sw-modal__title {
+    font-size: var(--text-xl, 1.25rem);
+    font-weight: 700;
+    color: var(--cbn-text, #1e293b);
+    margin: 0;
+    line-height: 1.3;
+}
+
+.fc-sw-modal__subtitle {
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--cbn-text-muted, #64748b);
+    margin: 0;
+    line-height: 1.6;
+}
+
+/* ── Countdown clock display ──────────────────────────────────── */
+
+.fc-sw-countdown {
+    font-size: 3.5rem;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    font-family: var(--font-mono, ui-monospace, 'Courier New', monospace);
+    color: var(--cbn-primary, #006B3F);
+    padding: var(--space-4, 16px) var(--space-7, 28px);
+    background: color-mix(in srgb, var(--cbn-primary, #006B3F) 6%, transparent);
+    border: 2px solid color-mix(in srgb, var(--cbn-primary, #006B3F) 15%, transparent);
+    border-radius: var(--radius-lg, 12px);
+    width: 100%;
+    transition:
+        color        var(--motion-fast, 150ms) var(--ease-out),
+        background   var(--motion-fast, 150ms) var(--ease-out),
+        border-color var(--motion-fast, 150ms) var(--ease-out);
+}
+
+/* Urgent: < 60 s remaining — red + pulse */
+.fc-sw-countdown--urgent {
+    color: var(--cbn-danger, #dc2626);
+    background: #fef2f2;
+    border-color: #fecaca;
+    animation: fc-sw-pulse 1s ease-in-out infinite;
+}
+
+@keyframes fc-sw-pulse {
+    0%, 100% { transform: scale(1); }
+    50%       { transform: scale(1.025); }
+}
+
+/* ── Action buttons ───────────────────────────────────────────── */
+
+.fc-sw-modal__actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2-5, 10px);
+    width: 100%;
+}
+
+.fc-sw-modal__actions .fc-btn {
+    width: 100%;
+    justify-content: center;
+    gap: var(--space-2);
+}
+
+/* ── Admin topbar session indicator chip ──────────────────────── */
+
+.fc-session-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1-5, 6px);
+    font-size: var(--text-xs, 0.75rem);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    color: var(--cbn-text-muted, #64748b);
+    padding: var(--space-1, 4px) var(--space-2-5, 10px);
+    border: 1px solid var(--cbn-border, #e2e8f0);
+    border-radius: var(--radius-full, 9999px);
+    background: var(--cbn-gray-50, #f8fafc);
+    white-space: nowrap;
+    user-select: none;
+    cursor: default;
+    transition:
+        color        var(--motion-fast) var(--ease-out),
+        background   var(--motion-fast) var(--ease-out),
+        border-color var(--motion-fast) var(--ease-out);
+}
+
+.fc-session-indicator__dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cbn-success, #16a34a);
+    flex-shrink: 0;
+    transition: background var(--motion-fast) var(--ease-out);
+}
+
+/* Amber warning state */
+.fc-session-indicator--warning {
+    color: var(--cbn-warning, #d97706);
+    border-color: #fde68a;
+    background: #fffbeb;
+}
+
+.fc-session-indicator--warning .fc-session-indicator__dot {
+    background: var(--cbn-warning, #d97706);
+    animation: fc-sw-pulse 1s ease-in-out infinite;
+}
+
+/* ── Circuit disconnect full-screen overlay ───────────────────── */
+
+.fc-sw-circuit {
+    position: fixed;
+    inset: 0;
+    background: rgb(15 23 42 / 0.82);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    z-index: 2000;
+    animation: fc-sw-backdrop-in var(--motion-fast, 150ms) var(--ease-out) both;
+}
+
+@keyframes fc-sw-backdrop-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.fc-sw-circuit__card {
+    background: var(--cbn-surface, #fff);
+    border-radius: var(--radius-xl, 16px);
+    box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.35);
+    padding: var(--space-10, 40px) var(--space-8, 32px);
+    max-width: 380px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-4, 16px);
+    text-align: center;
+    animation: fc-sw-card-in var(--motion-normal) var(--ease-spring) both;
+}
+
+.fc-sw-circuit__icon { color: var(--cbn-warning, #d97706); }
+
+.fc-sw-circuit__title {
+    font-size: var(--text-xl, 1.25rem);
+    font-weight: 700;
+    color: var(--cbn-text, #1e293b);
+    margin: 0;
+}
+
+.fc-sw-circuit__desc {
+    font-size: var(--text-sm, 0.875rem);
+    color: var(--cbn-text-muted, #64748b);
+    margin: 0;
+    line-height: 1.6;
+}
+
+/* Animated dots: reconnecting state */
+.fc-sw-circuit__dots {
+    display: flex;
+    gap: 6px;
+    margin-top: var(--space-2);
+}
+
+.fc-sw-circuit__dots span {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--cbn-warning, #d97706);
+    animation: fc-sw-bounce 1.4s infinite ease-in-out;
+}
+
+.fc-sw-circuit__dots span:nth-child(1) { animation-delay:   0ms; }
+.fc-sw-circuit__dots span:nth-child(2) { animation-delay: 160ms; }
+.fc-sw-circuit__dots span:nth-child(3) { animation-delay: 320ms; }
+
+@keyframes fc-sw-bounce {
+    0%, 80%, 100% { transform: scale(0.7); opacity: 0.4; }
+    40%            { transform: scale(1.2); opacity: 1;   }
+}
+
+
+/* Session-expired modal alignment fix */
+.fc-modal-subtitle--spaced { margin-top: var(--space-2); }
+.fc-btn--wide { min-width: 180px; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   §50 — DataTable Column Presets, Density & User Preferences
+   ═══════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Active customisation dot ─────────────────────────────────────────────── */
+.fc-dt-active-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--cbn-info, #2563EB);
+    margin-left: var(--space-1);
+    flex-shrink: 0;
+    vertical-align: middle;
+    position: relative;
+    top: -1px;
+}
+
+/* ── Density variants ─────────────────────────────────────────────────────── */
+.fc-dt-wrapper--density-comfortable .fc-table tbody td {
+    padding-block: 0.875rem;
+}
+
+.fc-dt-wrapper--density-compact .fc-table tbody td {
+    padding-block: 0.25rem;
+    font-size: 0.8125rem;
+}
+
+.fc-dt-wrapper--density-comfortable .fc-table thead th {
+    padding-block: 0.875rem;
+}
+
+.fc-dt-wrapper--density-compact .fc-table thead th {
+    padding-block: 0.375rem;
+    font-size: 0.75rem;
+}
+
+/* ── Column toggle: drag handle & enhancements ────────────────────────────── */
+.fc-dt-col-toggle-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+.fc-dt-col-toggle-hint {
+    padding: var(--space-1) var(--space-3);
+    font-size: 0.6875rem;
+    color: var(--cbn-text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid var(--cbn-border);
+    margin-bottom: var(--space-1);
+}
+
+.fc-dt-col-drag-handle {
+    display: flex;
+    align-items: center;
+    color: var(--cbn-text-muted);
+    cursor: grab;
+    padding-right: var(--space-2);
+    flex-shrink: 0;
+    opacity: 0.5;
+    transition: opacity var(--transition-fast) var(--ease-standard);
+}
+
+.fc-dt-col-toggle-item:hover .fc-dt-col-drag-handle {
+    opacity: 1;
+}
+
+.fc-dt-col-toggle-item[draggable="true"] {
+    cursor: default;
+    user-select: none;
+}
+
+.fc-dt-col-toggle-item--drag-over {
+    border-top: 2px solid var(--cbn-primary) !important;
+    background: rgba(0, 107, 63, 0.06);
+}
+
+/* ── Preset menu button ───────────────────────────────────────────────────── */
+.fc-dt-preset-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+}
+
+/* ── Preset menu dropdown ─────────────────────────────────────────────────── */
+.fc-dt-preset-menu {
+    position: relative;
+    display: inline-block;
+}
+
+.fc-dt-preset-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 240px;
+    max-width: 300px;
+    background: var(--cbn-surface-elevated);
+    border: 1px solid var(--cbn-border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+    z-index: 120;
+    overflow: hidden;
+    animation: fcDropdownOpen var(--transition-fast) var(--ease-decelerate) both;
+}
+
+.fc-dt-preset-section {
+    padding: var(--space-2) var(--space-3);
+}
+
+.fc-dt-preset-section-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--cbn-text-muted);
+    margin-bottom: var(--space-2);
+}
+
+.fc-dt-preset-divider {
+    height: 1px;
+    background: var(--cbn-border);
+    border: none;
+    margin: 0;
+}
+
+/* ── Density picker ───────────────────────────────────────────────────────── */
+.fc-dt-density-group {
+    display: flex;
+    gap: var(--space-1);
+}
+
+.fc-dt-density-btn {
+    flex: 1;
+    padding: var(--space-1) var(--space-2);
+    font-size: 0.75rem;
+    font-weight: 500;
+    border: 1px solid var(--cbn-border);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--cbn-text-secondary);
+    cursor: pointer;
+    transition: all var(--transition-fast) var(--ease-standard);
+    text-align: center;
+}
+
+.fc-dt-density-btn:hover {
+    border-color: var(--cbn-primary);
+    color: var(--cbn-primary);
+    background: rgba(0, 107, 63, 0.06);
+}
+
+.fc-dt-density-btn--active {
+    background: var(--cbn-primary);
+    border-color: var(--cbn-primary);
+    color: #fff;
+}
+
+.fc-dt-density-btn--active:hover {
+    background: var(--cbn-primary-dark, #005230);
+    color: #fff;
+}
+
+/* ── Preset items ─────────────────────────────────────────────────────────── */
+.fc-dt-preset-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-1);
+    border-radius: var(--radius-md);
+    transition: background var(--transition-fast) var(--ease-standard);
+}
+
+.fc-dt-preset-item:hover {
+    background: var(--cbn-surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+.fc-dt-preset-item--active {
+    background: rgba(0, 107, 63, 0.06);
+}
+
+.fc-dt-preset-item-label {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--cbn-text-primary);
+}
+
+.fc-dt-preset-item-label input[type="radio"] {
+    accent-color: var(--cbn-primary);
+    flex-shrink: 0;
+}
+
+.fc-dt-preset-badge {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 2px 6px;
+    border-radius: var(--radius-full, 999px);
+    flex-shrink: 0;
+}
+
+.fc-dt-preset-badge--shared {
+    background: rgba(200, 164, 21, 0.15);
+    color: #92740A;
+}
+
+.fc-dt-preset-delete-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: var(--radius-sm);
+    border: none;
+    background: transparent;
+    color: var(--cbn-text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: all var(--transition-fast) var(--ease-standard);
+    flex-shrink: 0;
+}
+
+.fc-dt-preset-item:hover .fc-dt-preset-delete-btn {
+    opacity: 1;
+}
+
+.fc-dt-preset-delete-btn:hover {
+    background: var(--cbn-danger-subtle, rgba(220, 38, 38, 0.1));
+    color: var(--cbn-danger, #DC2626);
+}
+
+/* ── Save preset row ──────────────────────────────────────────────────────── */
+.fc-dt-preset-save-row {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+}
+
+.fc-dt-preset-name-input {
+    flex: 1;
+    padding: var(--space-1) var(--space-2);
+    font-size: 0.8125rem;
+    border: 1px solid var(--cbn-border);
+    border-radius: var(--radius-md);
+    background: var(--cbn-surface);
+    color: var(--cbn-text-primary);
+    outline: none;
+    transition: border-color var(--transition-fast) var(--ease-standard);
+    min-width: 0;
+}
+
+.fc-dt-preset-name-input:focus {
+    border-color: var(--cbn-primary);
+    box-shadow: 0 0 0 2px rgba(0, 107, 63, 0.15);
+}
+
+.fc-dt-preset-name-input::placeholder {
+    color: var(--cbn-text-muted);
+}
+
+/* ── Reset button ─────────────────────────────────────────────────────────── */
+.fc-dt-preset-reset-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2) var(--space-3);
+    font-size: 0.8125rem;
+    color: var(--cbn-text-muted);
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--cbn-border);
+    cursor: pointer;
+    transition: all var(--transition-fast) var(--ease-standard);
+    text-align: left;
+}
+
+.fc-dt-preset-reset-btn:hover {
+    color: var(--cbn-text-primary);
+    background: var(--cbn-surface-hover, rgba(0, 0, 0, 0.04));
+}
+
+/* ── Dark mode / forced-colors overrides ─────────────────────────────────── */
+@media (forced-colors: active) {
+    .fc-dt-active-dot { background: Highlight; }
+    .fc-dt-density-btn--active { forced-color-adjust: none; }
+}
+
+
+/* ==================================================================
+   50. KEYBOARD SHORTCUTS — Overlay extras & Discoverability Hint
+   ================================================================== */
+
+/* Section hint text (e.g. "500 ms window", "not in input") */
+.fc-ks-section-hint {
+    font-size: 10px;
+    font-weight: var(--font-weight-normal);
+    color: var(--cbn-text-muted);
+    text-transform: none;
+    letter-spacing: 0;
+    margin-left: auto;
+    opacity: 0.75;
+}
+
+/* Separator between alternative key combos (the "/" between ⌘K / Ctrl+K) */
+.fc-ks-key-sep {
+    font-size: 10px;
+    color: var(--cbn-text-muted);
+    padding: 0 var(--space-1);
+    user-select: none;
+}
+
+/* ── Command-palette discoverability hint tooltip ─────────────────────── */
+
+.fc-palette-hint-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.fc-palette-hint {
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--cbn-gray-900, #111827);
+    color: #fff;
+    font-size: 12px;
+    font-weight: var(--font-weight-medium, 500);
+    line-height: 1.4;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm, 6px);
+    white-space: nowrap;
+    z-index: 8500;
+    pointer-events: none;
+    animation: fc-hint-appear 0.22s var(--ease-spring, cubic-bezier(0.34,1.56,0.64,1)) forwards;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+}
+
+/* Arrow pointing up to the button */
+.fc-palette-hint::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-bottom-color: var(--cbn-gray-900, #111827);
+}
+
+/* kbd inside the hint (dark variant) */
+.fc-palette-hint kbd {
+    display: inline-flex;
+    align-items: center;
+    background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.3);
+    border-bottom-width: 2px;
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-size: 11px;
+    font-family: var(--font-mono, ui-monospace, 'Cascadia Code', monospace);
+    margin-left: 4px;
+    vertical-align: baseline;
+    line-height: 1.4;
+}
+
+@keyframes fc-hint-appear {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(6px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* High-contrast / forced-colors override */
+@media (forced-colors: active) {
+    .fc-palette-hint {
+        background: ButtonText;
+        color: ButtonFace;
+        border: 1px solid ButtonFace;
+    }
+    .fc-palette-hint::before {
+        border-bottom-color: ButtonText;
+    }
+}
+
+/* ==================================================================
+   §50c — TemplateDetail utility classes
+   ================================================================== */
+
+/* Inline flex with 4px gap (flag chips, small badge rows) */
+.fc-flex-row--gap1 {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Grid-column span 2 (description / change-summary info items) */
+.fc-grid-span-2 { grid-column: span 2; }
+
+/* Reorder column header fixed width */
+.fc-th-reorder { width: 36px; }
+
+/* ==================================================================
+   50b. DASHBOARD UTILITY CLASSES
+   ================================================================== */
+
+/* Date/time meta line used in PageHeader PrimaryAction slot */
+.fc-ph-date-meta {
+    font-size: var(--text-caption);
+    color: var(--cbn-text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+/* Muted icon colour (e.g. empty-state SVGs) */
+.fc-icon-muted {
+    color: var(--cbn-gray-300);
+}
+
+/* ── §50 Submission page utility classes ──────────────────────────────────── */
+/* Alert margin variants — replaces inline style="margin:..." on alert divs   */
+.fc-alert-margin    { margin: var(--space-4) var(--space-6); }
+.fc-alert-margin-sm { margin: var(--space-4) var(--space-5); border-radius: var(--radius-sm); }
+
+/* Narrow input — replaces inline style="max-width:160px;" on filter inputs  */
+.fc-input--narrow   { max-width: 160px; }
+
+/* ==================================================================
+   §50d. INLINE-STYLE REPLACEMENTS — MfaSetup & ThemeEditor
+   ================================================================== */
+
+/* ── MfaSetup ────────────────────────────────────────────────────── */
+.fc-login-container--auto { min-height: auto; }
+
+.fc-login-card--wide { max-width: 620px; }
+
+.fc-qr-img {
+    max-width: 220px;
+    margin: 12px 0;
+    display: block;
+}
+
+.fc-backup-codes-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(120px, 1fr));
+    gap: 8px;
+}
+
+.fc-code-box {
+    padding: 6px;
+    border: 1px solid var(--cbn-border, #ddd);
+    border-radius: var(--radius-sm, 6px);
+    display: block;
+    font-family: var(--font-code, monospace);
+}
+
+/* ── ThemeEditor ─────────────────────────────────────────────────── */
+.fc-hidden { display: none !important; }
+
+.fc-cursor-pointer { cursor: pointer; }
+
+.fc-te__import-label {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.fc-te__layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.fc-te__preview-card {
+    height: 100%;
+    position: sticky;
+    top: 5rem;
+}
+
+.fc-te__preview-header {
+    border-bottom: 1px solid var(--cbn-border);
+    padding: 0.75rem 1rem;
+}
+
+.fc-te__preview-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+/* ── Misc utility classes ────────────────────────────────────────── */
+.fc-th-w90 { width: 90px; }
+.fc-svg-countdown-arc { transition: stroke-dashoffset 1s linear; }
+.fc-formula-fields-hint {
+    margin-top: var(--space-2);
+    color: var(--cbn-text-secondary);
+    font-size: var(--text-body-sm);
+}
+/* ChartCanvas dynamic height via CSS custom property */
+.fc-chart-wrapper { height: var(--chart-h, 280px); }
+/* Danger icon colour */
+.fc-icon--danger { color: var(--cbn-danger, #dc2626); }
+/* Skeleton column cell (max-width constraint) */
+.fc-skel--col { max-width: 200px; }
+/* Full-height card */
+.fc-card--full-h { height: 100%; }
+/* ThemeEditor email preview company name */
+.fc-te__email-company-name { color: #fff; font-weight: 600; font-size: 1rem; }
+
+/* ThemeEditor: preset color dot swatch */
+.fc-te__preset-dot { background: var(--dot-bg, #ccc); }
+/* ThemeEditor: email preview body heading */
+.fc-te__email-body-heading {
+    font-family: var(--email-hdr-font), sans-serif;
+    color: var(--te-primary, var(--cbn-primary));
+    margin: 0 0 0.5rem;
+}
+/* ThemeEditor: email preview body paragraph */
+.fc-te__email-body-p { color: #374151; font-size: 0.875rem; margin: 0 0 1rem; }
+/* ThemeEditor: email preview footer paragraph */
+.fc-te__email-footer-p { color: #9CA3AF; font-size: 0.75rem; margin-top: 1rem; }
+/* ThemeEditor: email preview support link */
+.fc-te__email-support-link { color: var(--te-primary, var(--cbn-primary)); }
+
+/* Impersonation warning banner */
+.fc-impersonation-banner {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #f59e0b;
+    margin: 1rem 1.25rem 0;
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+.fc-impersonation-banner__link {
+    font-weight: 600;
+    color: #92400e;
+    text-decoration: underline;
 }

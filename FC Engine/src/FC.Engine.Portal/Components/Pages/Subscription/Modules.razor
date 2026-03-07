@@ -1,8 +1,10 @@
 @page "/subscription/modules"
 @attribute [Authorize(Policy = "InstitutionUser")]
 @using FC.Engine.Domain.Abstractions
+@using FC.Engine.Portal.Utilities
 @inject ISubscriptionService SubscriptionService
 @inject ITenantContext TenantContext
+@inject ToastService Toast
 
 <PageTitle>Subscription Modules</PageTitle>
 
@@ -31,11 +33,6 @@
     }
     else
     {
-        @if (!string.IsNullOrWhiteSpace(_message))
-        {
-            <div class="portal-alert portal-alert-success">@_message</div>
-        }
-
         <section class="portal-dash-stats">
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Active Modules</div>
@@ -110,7 +107,15 @@
                                     <button class="portal-btn portal-btn-danger portal-btn-sm"
                                             disabled="@(_busyModuleCode == module.ModuleCode || module.IsRequired)"
                                             @onclick="() => Deactivate(module.ModuleCode)">
-                                        Deactivate
+                                        @if (_busyModuleCode == module.ModuleCode)
+                                        {
+                                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                            <span>Deactivating...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Deactivate</span>
+                                        }
                                     </button>
                                 }
                                 else if (module.IsEligible && module.IsAvailableOnPlan)
@@ -118,7 +123,15 @@
                                     <button class="portal-btn portal-btn-primary portal-btn-sm"
                                             disabled="@(_busyModuleCode == module.ModuleCode)"
                                             @onclick="() => Activate(module.ModuleCode)">
-                                        Activate
+                                        @if (_busyModuleCode == module.ModuleCode)
+                                        {
+                                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                            <span>Activating...</span>
+                                        }
+                                        else
+                                        {
+                                            <span>Activate</span>
+                                        }
                                     </button>
                                 }
                                 else
@@ -137,7 +150,6 @@
 @code {
     private bool _loading = true;
     private string? _error;
-    private string? _message;
     private string _filter = "ALL";
     private const string FilterAll = "ALL";
     private const string FilterActive = "ACTIVE";
@@ -190,46 +202,55 @@
 
     private async Task Activate(string moduleCode)
     {
-        _busyModuleCode = moduleCode;
-        _message = null;
-        _error = null;
+        var module = _modules.FirstOrDefault(m => m.ModuleCode == moduleCode);
+        if (module is null) return;
 
-        try
-        {
-            await SubscriptionService.ActivateModule(_tenantId, moduleCode);
-            _message = $"Activated {moduleCode}.";
-            await Load();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busyModuleCode = null;
-        }
+        _busyModuleCode = moduleCode;
+
+        await OptimisticAction.Execute(
+            getter: () => module.IsActive,
+            setter: v => module.IsActive = v,
+            optimisticValue: true,
+            action: async () =>
+            {
+                await SubscriptionService.ActivateModule(_tenantId, moduleCode);
+                // Quiet background refresh to pick up updated Message field
+                var refreshed = await SubscriptionService.GetAvailableModules(_tenantId);
+                _modules = refreshed.OrderBy(m => m.ModuleCode).ToList();
+            },
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(module.ModuleName + " activated."),
+            onFailure: ex => Toast.Error("Failed to activate: " + ex.Message)
+        );
+
+        _busyModuleCode = null;
+        StateHasChanged();
     }
 
     private async Task Deactivate(string moduleCode)
     {
-        _busyModuleCode = moduleCode;
-        _message = null;
-        _error = null;
+        var module = _modules.FirstOrDefault(m => m.ModuleCode == moduleCode);
+        if (module is null) return;
 
-        try
-        {
-            await SubscriptionService.DeactivateModule(_tenantId, moduleCode);
-            _message = $"Deactivated {moduleCode}.";
-            await Load();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
-        finally
-        {
-            _busyModuleCode = null;
-        }
+        _busyModuleCode = moduleCode;
+
+        await OptimisticAction.Execute(
+            getter: () => module.IsActive,
+            setter: v => module.IsActive = v,
+            optimisticValue: false,
+            action: async () =>
+            {
+                await SubscriptionService.DeactivateModule(_tenantId, moduleCode);
+                var refreshed = await SubscriptionService.GetAvailableModules(_tenantId);
+                _modules = refreshed.OrderBy(m => m.ModuleCode).ToList();
+            },
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(module.ModuleName + " deactivated."),
+            onFailure: ex => Toast.Error("Failed to deactivate: " + ex.Message)
+        );
+
+        _busyModuleCode = null;
+        StateHasChanged();
     }
 
     private string GetFilterClass(string filter)

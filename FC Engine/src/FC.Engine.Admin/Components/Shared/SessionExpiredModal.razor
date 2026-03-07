@@ -1,67 +1,249 @@
-@* Session expiry overlay — detects when auth state transitions from authenticated → anonymous
-   and shows a non-dismissible modal prompting re-login.
-   Add <SessionExpiredModal /> once inside MainLayout's global overlays section. *@
+@* Session Lifecycle Manager
+   ─────────────────────────────────────────────────────────────────────────────
+   Handles the full session lifecycle in one place:
+     1. Inactivity warning modal with live countdown (driven by FCSession JS)
+     2. Session-expired modal (auth state → anonymous; server-side eviction)
+     3. Blazor Server circuit disconnect / failed overlays
+     4. Multi-tab sync via JS BroadcastChannel (transparent to this component)
+     5. Silent /api/session/ping to extend the sliding auth cookie
+     6. SessionService updates for the admin topbar indicator
+
+   Add <SessionExpiredModal /> once in MainLayout's global overlays section.
+   Configurable: WarningMinutes (default 25), CountdownSeconds (default 300).
+*@
 @inject AuthenticationStateProvider AuthProvider
-@inject NavigationManager Navigation
-@implements IDisposable
+@inject NavigationManager            Navigation
+@inject IJSRuntime                   JS
+@inject ToastService                 Toast
+@inject SessionService               SessionSvc
+@implements IAsyncDisposable
 
-@if (_visible)
+@* ── 1. Inactivity Warning Modal ─────────────────────────────────────────── *@
+@if (_state == SessionState.Warning)
 {
-    <div class="fc-modal-backdrop fc-modal-backdrop-active" role="presentation">
-        <div class="fc-modal fc-modal-sm fc-modal-active fc-session-expired"
-             role="alertdialog"
-             aria-modal="true"
-             aria-labelledby="session-expired-title"
-             aria-describedby="session-expired-desc">
+    <div class="fc-modal-backdrop fc-modal-backdrop-active fc-sw-backdrop"
+         role="presentation" aria-hidden="true"></div>
 
-            <!-- Gold accent -->
-            <div class="fc-modal-accent" aria-hidden="true"></div>
+    <div class="fc-sw-modal"
+         role="alertdialog"
+         aria-modal="true"
+         aria-labelledby="sw-warn-title"
+         aria-describedby="sw-warn-desc"
+         id="fc-session-warning">
 
-            <div class="fc-modal-body" style="display:flex; flex-direction:column; align-items:center; text-align:center; gap: var(--space-5); padding: var(--space-10) var(--space-8);">
+        <div class="fc-sw-modal__card">
+            <div class="fc-sw-modal__accent" aria-hidden="true"></div>
 
-                <!-- Lock illustration -->
-                <div class="fc-session-expired__illu" aria-hidden="true">
-                    <svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="2.5"
-                         stroke-linecap="round" stroke-linejoin="round" width="80" height="80">
-                        <!-- Lock body -->
-                        <rect x="16" y="36" width="48" height="36" rx="6"/>
-                        <!-- Shackle -->
-                        <path d="M26 36 V26 Q26 12 40 12 Q54 12 54 26 V36"/>
-                        <!-- Keyhole -->
-                        <circle cx="40" cy="52" r="5"/>
-                        <line x1="40" y1="57" x2="40" y2="64"/>
+            <div class="fc-sw-modal__body">
+
+                <!-- Hourglass illustration -->
+                <div class="fc-sw-modal__icon" aria-hidden="true">
+                    <svg viewBox="0 0 72 72" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                         width="64" height="64">
+                        <rect x="16" y="6"  width="40" height="8" rx="3"/>
+                        <rect x="16" y="58" width="40" height="8" rx="3"/>
+                        <path d="M18 14 Q36 36 54 14"/>
+                        <path d="M18 58 Q36 36 54 58"/>
+                        <path d="M18 14 L18 58" stroke-width="1" opacity=".25"/>
+                        <path d="M54 14 L54 58" stroke-width="1" opacity=".25"/>
+                        <path d="M28 58 Q36 46 44 58 Z" fill="currentColor" opacity=".2"/>
                     </svg>
                 </div>
 
-                <!-- Heading -->
-                <div>
-                    <h2 id="session-expired-title" class="fc-modal-title">Your session has expired</h2>
-                    <p id="session-expired-desc" class="fc-modal-subtitle" style="margin-top: var(--space-2);">
-                        For your security, you've been signed out after a period of inactivity.
-                        Please sign in again to continue.
+                <div class="fc-sw-modal__text">
+                    <h2 id="sw-warn-title" class="fc-sw-modal__title">
+                        Your session is about to expire
+                    </h2>
+                    <p id="sw-warn-desc" class="fc-sw-modal__subtitle">
+                        You've been inactive. Your session will end in:
                     </p>
                 </div>
 
-                <!-- Sign in button -->
-                <a href="@_loginUrl" class="fc-btn fc-btn--gold" style="min-width:180px;">
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
-                         stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-                        <path d="M10 3H13a1 1 0 011 1v8a1 1 0 01-1 1H10"/>
-                        <polyline points="7,11 10,8 7,5"/>
-                        <line x1="1" y1="8" x2="10" y2="8"/>
-                    </svg>
-                    Sign in again
-                </a>
+                <!-- Live countdown -->
+                <div class="fc-sw-countdown @(_remainingSec < 60 ? "fc-sw-countdown--urgent" : "")"
+                     role="timer"
+                     aria-live="polite"
+                     aria-atomic="true"
+                     aria-label="Time remaining: @FormatTime(_remainingSec)">
+                    @FormatTime(_remainingSec)
+                </div>
+
+                <!-- Actions -->
+                <div class="fc-sw-modal__actions">
+                    <button class="fc-btn fc-btn--gold fc-btn--lg"
+                            @onclick="StayLoggedIn"
+                            disabled="@_extending"
+                            aria-busy="@_extending.ToString().ToLowerInvariant()">
+                        @if (_extending)
+                        {
+                            <span class="fc-spinner fc-spinner--xs fc-spinner--white" aria-hidden="true"></span>
+                            <span>Extending&hellip;</span>
+                        }
+                        else
+                        {
+                            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                                 stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                                <polyline points="1 4 1 10 7 10"/>
+                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                            </svg>
+                            <span>Stay Logged In</span>
+                        }
+                    </button>
+                    <button class="fc-btn fc-btn--ghost" @onclick="SignOutNow">
+                        Sign Out Now
+                    </button>
+                </div>
 
             </div>
         </div>
     </div>
 }
 
+@* ── 2. Session Expired Modal (auth-state eviction) ───────────────────────── *@
+@if (_state == SessionState.Expired)
+{
+    <div class="fc-modal-backdrop fc-modal-backdrop-active" role="presentation"></div>
+
+    <div class="fc-modal fc-modal-sm fc-modal-active fc-session-expired"
+         role="alertdialog"
+         aria-modal="true"
+         aria-labelledby="session-expired-title"
+         aria-describedby="session-expired-desc">
+
+        <div class="fc-modal-accent" aria-hidden="true"></div>
+
+        <div class="fc-modal-body fc-modal-body--centered">
+
+            <div class="fc-session-expired__illu" aria-hidden="true">
+                <svg viewBox="0 0 80 80" fill="none" stroke="currentColor"
+                     stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"
+                     width="80" height="80">
+                    <rect x="16" y="36" width="48" height="36" rx="6"/>
+                    <path d="M26 36 V26 Q26 12 40 12 Q54 12 54 26 V36"/>
+                    <circle cx="40" cy="52" r="5"/>
+                    <line x1="40" y1="57" x2="40" y2="64"/>
+                </svg>
+            </div>
+
+            <div>
+                <h2 id="session-expired-title" class="fc-modal-title">Your session has expired</h2>
+                <p id="session-expired-desc" class="fc-modal-subtitle fc-modal-subtitle--spaced">
+                    For your security, you've been signed out after a period of inactivity.
+                    Please sign in again to continue.
+                </p>
+            </div>
+
+            <a href="@_loginUrl" class="fc-btn fc-btn--gold fc-btn--wide">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                    <path d="M10 3H13a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H10"/>
+                    <polyline points="7,11 10,8 7,5"/>
+                    <line x1="1" y1="8" x2="10" y2="8"/>
+                </svg>
+                Sign in again
+            </a>
+        </div>
+    </div>
+}
+
+@* ── 3. Circuit Disconnect / Failed Overlay ───────────────────────────────── *@
+@if (_state == SessionState.CircuitLost || _state == SessionState.CircuitFailed)
+{
+    <div class="fc-sw-circuit"
+         role="alertdialog"
+         aria-modal="true"
+         aria-labelledby="circuit-title"
+         aria-describedby="circuit-desc"
+         aria-live="assertive">
+
+        <div class="fc-sw-circuit__card">
+
+            <div class="fc-sw-circuit__icon" aria-hidden="true">
+                @if (_state == SessionState.CircuitFailed)
+                {
+                    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                         width="52" height="52" class="fc-icon--danger">
+                        <circle cx="24" cy="24" r="20"/>
+                        <line x1="16" y1="16" x2="32" y2="32"/>
+                        <line x1="32" y1="16" x2="16" y2="32"/>
+                    </svg>
+                }
+                else
+                {
+                    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                         width="52" height="52">
+                        <line x1="6" y1="6" x2="42" y2="42"/>
+                        <path d="M16.7 16.2A18 18 0 0 0 8 24"/>
+                        <path d="M5 12.6a29 29 0 0 1 9.8-6"/>
+                        <path d="M10.7 5A37 37 0 0 1 43 17.7"/>
+                        <path d="M21.3 21.3a11 11 0 0 1 8.7 2.9"/>
+                        <path d="M31.2 28A11 11 0 0 1 38 24"/>
+                        <circle cx="24" cy="36" r="2.5" fill="currentColor" opacity=".5"/>
+                    </svg>
+                }
+            </div>
+
+            <h2 id="circuit-title" class="fc-sw-circuit__title">
+                @(_state == SessionState.CircuitFailed ? "Connection Failed" : "Connection Lost")
+            </h2>
+
+            <p id="circuit-desc" class="fc-sw-circuit__desc">
+                @if (_state == SessionState.CircuitFailed)
+                {
+                    <span>Unable to reconnect to the server. Reload the page to continue.</span>
+                }
+                else
+                {
+                    <span>Attempting to reconnect. Please wait&hellip;</span>
+                }
+            </p>
+
+            @if (_state == SessionState.CircuitFailed)
+            {
+                <button class="fc-btn fc-btn--gold" @onclick="ReloadPage">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                         stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                        <polyline points="1 4 1 10 7 10"/>
+                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+                    </svg>
+                    Reload Page
+                </button>
+            }
+            else
+            {
+                <div class="fc-sw-circuit__dots" aria-hidden="true">
+                    <span></span><span></span><span></span>
+                </div>
+            }
+        </div>
+    </div>
+}
+
 @code {
-    private bool    _visible         = false;
-    private bool    _wasAuthenticated = false;
-    private string  _loginUrl        = "/login";
+    // ── State ──────────────────────────────────────────────────────────────
+    private enum SessionState { None, Warning, Expired, CircuitLost, CircuitFailed }
+
+    // ── Parameters ─────────────────────────────────────────────────────────
+    /// <summary>Minutes of inactivity before the warning modal appears (default 25).</summary>
+    [Parameter] public int WarningMinutes   { get; set; } = 25;
+
+    /// <summary>Seconds of the warning countdown before auto-logout (default 300 = 5 min).</summary>
+    [Parameter] public int CountdownSeconds { get; set; } = 300;
+
+    // ── Private state ───────────────────────────────────────────────────────
+    private SessionState _state           = SessionState.None;
+    private int          _remainingSec;
+    private bool         _extending;
+    private bool         _wasAuthenticated;
+    private string       _loginUrl        = "/login";
+    private bool         _jsInitialized;
+
+    private DotNetObjectReference<SessionExpiredModal>? _dotnetRef;
+
+    // ── Lifecycle ───────────────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
     {
@@ -72,33 +254,202 @@
         BuildLoginUrl();
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _jsInitialized || !_wasAuthenticated) return;
+
+        _jsInitialized = true;
+        _dotnetRef     = DotNetObjectReference.Create(this);
+
+        try
+        {
+            await JS.InvokeVoidAsync("FCSession.init", _dotnetRef, WarningMinutes, CountdownSeconds);
+        }
+        catch { /* JS not yet available — will init on next connection */ }
+    }
+
+    // ── Auth-state monitoring ───────────────────────────────────────────────
+
     private async void OnAuthStateChanged(Task<AuthenticationState> stateTask)
     {
         try
         {
-            var state       = await stateTask;
-            var isAuthed    = state.User.Identity?.IsAuthenticated == true;
+            var state  = await stateTask;
+            var isAuth = state.User.Identity?.IsAuthenticated == true;
 
-            if (_wasAuthenticated && !isAuthed)
+            if (_wasAuthenticated && !isAuth && _state != SessionState.Expired)
             {
                 BuildLoginUrl();
-                _visible = true;
-                await InvokeAsync(StateHasChanged);
+                await InvokeAsync(() =>
+                {
+                    _state = SessionState.Expired;
+                    SessionSvc.Clear();
+                    StateHasChanged();
+                });
             }
 
-            _wasAuthenticated = isAuthed;
+            _wasAuthenticated = isAuth;
         }
         catch { /* ignore disposal races */ }
     }
 
+    // ── JS-invokable callbacks ──────────────────────────────────────────────
+
+    /// <summary>Called by JS when inactivity period elapses. Shows the warning modal.</summary>
+    [JSInvokable]
+    public async Task OnInactivityWarning(int remainingSec)
+    {
+        _remainingSec = remainingSec;
+        _state        = SessionState.Warning;
+        SessionSvc.Update(remainingSec, warningActive: true);
+
+        await InvokeAsync(StateHasChanged);
+
+        try { await JS.InvokeVoidAsync("FCAccessibility.trapFocus", "fc-session-warning"); }
+        catch { }
+    }
+
+    /// <summary>Called by JS every second during the warning countdown.</summary>
+    [JSInvokable]
+    public async Task OnCountdownTick(int remainingSec)
+    {
+        _remainingSec = remainingSec;
+        SessionSvc.Update(remainingSec, warningActive: true);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Called when countdown reaches zero. Redirects to login with reason=expired.</summary>
+    [JSInvokable]
+    public async Task OnSessionTimeout()
+    {
+        await InvokeAsync(async () =>
+        {
+            _state = SessionState.Expired;
+            SessionSvc.Clear();
+            StateHasChanged();
+
+            await Task.Delay(300); // brief flash before redirect
+            var returnUrl = Uri.EscapeDataString(Navigation.Uri);
+            Navigation.NavigateTo($"/login?returnUrl={returnUrl}&reason=expired", forceLoad: true);
+        });
+    }
+
+    /// <summary>Called after "Stay Logged In" flow completes (emits toast).</summary>
+    [JSInvokable]
+    public async Task OnSessionExtended()
+    {
+        await InvokeAsync(StateHasChanged);
+        Toast.Success("You're all set — session extended.", "Session Active");
+    }
+
+    /// <summary>Called when another tab extended the session via BroadcastChannel.</summary>
+    [JSInvokable]
+    public async Task OnSessionExtendedByOtherTab()
+    {
+        if (_state != SessionState.Warning) return;
+
+        _state        = SessionState.None;
+        _remainingSec = 0;
+        SessionSvc.Clear();
+
+        try { await JS.InvokeVoidAsync("FCAccessibility.releaseFocus", "fc-session-warning"); }
+        catch { }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Periodic update (~60 s) so the admin topbar indicator stays accurate.</summary>
+    [JSInvokable]
+    public void OnRemainingUpdate(int remainingSec)
+    {
+        if (_state != SessionState.None) return; // countdown tick already handles it
+        SessionSvc.Update(remainingSec, warningActive: false);
+    }
+
+    // ── Circuit callbacks ───────────────────────────────────────────────────
+
+    [JSInvokable]
+    public async Task OnCircuitDisconnected()
+    {
+        if (_state is SessionState.Expired) return;
+        _state = SessionState.CircuitLost;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnCircuitReconnected()
+    {
+        if (_state != SessionState.CircuitLost) return;
+        _state = SessionState.None;
+        await InvokeAsync(StateHasChanged);
+        Toast.Success("Connection restored.", "Reconnected");
+    }
+
+    [JSInvokable]
+    public async Task OnCircuitFailed()
+    {
+        _state = SessionState.CircuitFailed;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ── User actions ────────────────────────────────────────────────────────
+
+    private async Task StayLoggedIn()
+    {
+        _extending = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            // Silent fetch extends the sliding auth cookie on the server
+            await JS.InvokeVoidAsync("FCSession.ping", Navigation.BaseUri);
+        }
+        catch { }
+        finally { _extending = false; }
+
+        // Reset JS inactivity timer and broadcast to sibling tabs
+        try { await JS.InvokeVoidAsync("FCSession.extend"); }
+        catch { }
+
+        _state        = SessionState.None;
+        _remainingSec = 0;
+        SessionSvc.Clear();
+
+        try { await JS.InvokeVoidAsync("FCAccessibility.releaseFocus", "fc-session-warning"); }
+        catch { }
+
+        await OnSessionExtended();
+    }
+
+    private void SignOutNow()
+        => Navigation.NavigateTo("/account/logout", forceLoad: true);
+
+    private void ReloadPage()
+        => Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
     private void BuildLoginUrl()
     {
         var returnUrl = Uri.EscapeDataString(Navigation.Uri);
-        _loginUrl = $"/login?returnUrl={returnUrl}";
+        _loginUrl = $"/login?returnUrl={returnUrl}&reason=expired";
     }
 
-    public void Dispose()
+    private static string FormatTime(int totalSec)
+    {
+        var t = Math.Max(0, totalSec);
+        return $"{t / 60:D2}:{t % 60:D2}";
+    }
+
+    // ── Disposal ────────────────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
     {
         AuthProvider.AuthenticationStateChanged -= OnAuthStateChanged;
+
+        try { await JS.InvokeVoidAsync("FCSession.dispose"); }
+        catch { }
+
+        _dotnetRef?.Dispose();
     }
 }

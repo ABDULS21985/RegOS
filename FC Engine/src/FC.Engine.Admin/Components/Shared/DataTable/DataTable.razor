@@ -1,6 +1,7 @@
 @typeparam TItem
 @inject IJSRuntime JS
 @inject DataTableExportService ExportService
+@inject ITablePresetService PresetService
 @implements IAsyncDisposable
 
 @* Render column definitions (they produce no HTML, just register themselves) *@
@@ -8,10 +9,10 @@
     @ChildContent
 </CascadingValue>
 
-<div id="@_tableId" class="fc-dt-wrapper @(Responsive ? "fc-dt-responsive" : "") @WrapperClass">
+<div id="@_tableId" class="fc-dt-wrapper @(Responsive ? "fc-dt-responsive" : "") @_densityClass @WrapperClass">
 
     @* ── Toolbar ── *@
-    @if (ToolbarContent is not null || ShowExport || _columns.Any(c => c.Hideable))
+    @if (ToolbarContent is not null || ShowExport || _columns.Any(c => c.Hideable) || EnablePresets || EnableDensity)
     {
         <div class="fc-dt-toolbar">
             <div class="fc-dt-toolbar-left">
@@ -22,7 +23,21 @@
                 {
                     <DataTableColumnToggle Columns="@_columnInfos"
                                           HiddenColumns="@_hiddenColumns"
-                                          OnToggle="ToggleColumn" />
+                                          HasCustomization="@_hasColumnCustomization"
+                                          OnToggle="ToggleColumn"
+                                          OnReorder="HandleColumnReorder" />
+                }
+                @if (EnablePresets || EnableDensity)
+                {
+                    <DataTablePresetMenu AllPresets="@_allPresets"
+                                        ActivePresetId="@_activePresetId"
+                                        HasCustomization="@_hasColumnCustomization"
+                                        Density="@_density"
+                                        OnApplyPreset="ApplyPreset"
+                                        OnSavePreset="SaveCurrentAsPreset"
+                                        OnDeletePreset="DeleteUserPreset"
+                                        OnReset="ResetToDefault"
+                                        OnDensityChange="SetDensity" />
                 }
                 @if (ShowExport)
                 {
@@ -65,7 +80,7 @@
                         @foreach (var col in visibleCols)
                         {
                             <th scope="col" style="@GetHeaderStyle(col)">
-                                <div class="fc-skel fc-skel-text" style="width:@SkeletonWidth(col)"></div>
+                                <div class="fc-skel fc-skel-text" style="--skel-w:@SkeletonWidth(col)"></div>
                             </th>
                         }
                     </tr>
@@ -77,13 +92,13 @@
                             @if (Selectable)
                             {
                                 <td class="fc-dt-checkbox-cell">
-                                    <div class="fc-skel" style="width:16px;height:16px;border-radius:3px;"></div>
+                                    <div class="fc-skel" style="--skel-w:16px;--skel-h:16px"></div>
                                 </td>
                             }
                             @foreach (var col in visibleCols)
                             {
                                 <td>
-                                    <div class="fc-skel fc-skel-text" style="width:@SkeletonWidth(col);max-width:200px;"></div>
+                                    <div class="fc-skel fc-skel-text fc-skel--col" style="--skel-w:@SkeletonWidth(col)"></div>
                                 </td>
                             }
                         </tr>
@@ -153,6 +168,7 @@
                             <th scope="col"
                                 class="@($"fc-dt-th {(isSortable ? "fc-dt-sortable" : "")} {sortCls} {col.HeaderClass}".Trim())"
                                 style="@GetHeaderStyle(col)"
+                                data-col-id="@col.Id"
                                 @onclick="() => HandleSort(col)"
                                 aria-sort="@ariaSortVal">
                                 @if (col.HeaderTemplate is not null)
@@ -257,7 +273,7 @@
                             </div>
                         }
 
-                        @* Primary fields — always visible *@
+                        @* Primary fields - always visible *@
                         @foreach (var col in primaryCols)
                         {
                             <div class="fc-dt-card-row">
@@ -268,7 +284,7 @@
                             </div>
                         }
 
-                        @* Secondary fields — hidden until expanded *@
+                        @* Secondary fields - hidden until expanded *@
                         @if (secondaryCols.Count > 0)
                         {
                             <div class="fc-dt-card-extra">
@@ -318,102 +334,58 @@
 </div>
 
 @code {
-    // ── Parameters ─────────────────────────────────────────────────────────────
+    // Parameters
 
-    /// <summary>Full data set. All sorting and pagination happen client-side.</summary>
     [Parameter] public IReadOnlyList<TItem> Items { get; set; } = Array.Empty<TItem>();
-
-    /// <summary>Show skeleton loading state.</summary>
     [Parameter] public bool Loading { get; set; }
-
-    /// <summary>Initial page size (rows per page).</summary>
     [Parameter] public int PageSize { get; set; } = 25;
-
-    /// <summary>Available page size options shown in the selector.</summary>
     [Parameter] public int[] PageSizeOptions { get; set; } = [10, 25, 50, 100];
-
-    /// <summary>Show pagination footer.</summary>
     [Parameter] public bool ShowPagination { get; set; } = true;
-
-    /// <summary>Show page size selector in pagination footer.</summary>
     [Parameter] public bool ShowPageSizeSelector { get; set; } = true;
-
-    /// <summary>Enable column header click-to-sort globally.</summary>
     [Parameter] public bool Sortable { get; set; } = true;
-
-    /// <summary>Enable row checkbox selection.</summary>
     [Parameter] public bool Selectable { get; set; }
-
-    /// <summary>Two-way binding for selected items.</summary>
     [Parameter] public HashSet<TItem> SelectedItems { get; set; } = new();
-
-    /// <summary>Raised when selection changes.</summary>
     [Parameter] public EventCallback<HashSet<TItem>> SelectedItemsChanged { get; set; }
-
-    /// <summary>Alternate row background color.</summary>
     [Parameter] public bool Striped { get; set; } = true;
-
-    /// <summary>Show pointer cursor on rows. Also enables OnRowClick.</summary>
     [Parameter] public bool Clickable { get; set; }
-
-    /// <summary>Raised when a row is clicked.</summary>
     [Parameter] public EventCallback<TItem> OnRowClick { get; set; }
-
-    /// <summary>Custom SVG icon shown in the empty state.</summary>
     [Parameter] public RenderFragment? EmptyIcon { get; set; }
-
-    /// <summary>Heading text for empty state.</summary>
     [Parameter] public string EmptyTitle { get; set; } = "No data found";
-
-    /// <summary>Body text for empty state.</summary>
     [Parameter] public string EmptyText { get; set; } = "Try adjusting your filters or search terms.";
-
-    /// <summary>Number of skeleton rows shown while loading.</summary>
     [Parameter] public int SkeletonRows { get; set; } = 5;
-
-    /// <summary>Show the export dropdown button.</summary>
     [Parameter] public bool ShowExport { get; set; }
-
-    /// <summary>Base filename for exported files (without extension).</summary>
     [Parameter] public string ExportFileName { get; set; } = "export";
-
-    /// <summary>Collapse table to card layout on mobile.</summary>
     [Parameter] public bool Responsive { get; set; } = true;
-
-    /// <summary>Use Blazor Virtualize instead of pagination. Suitable for very long lists.</summary>
     [Parameter] public bool UseVirtualization { get; set; }
-
-    /// <summary>Approximate row height in pixels for virtualization overscan calculation.</summary>
     [Parameter] public float VirtualItemHeight { get; set; } = 48;
-
-    /// <summary>Container for DataColumn definitions.</summary>
     [Parameter] public RenderFragment? ChildContent { get; set; }
-
-    /// <summary>Content injected into the toolbar's left side (search, filters, etc.).</summary>
     [Parameter] public RenderFragment? ToolbarContent { get; set; }
-
-    /// <summary>Action buttons shown when one or more rows are selected.</summary>
     [Parameter] public RenderFragment? BulkActionsContent { get; set; }
-
-    /// <summary>Dynamic row CSS class function.</summary>
     [Parameter] public Func<TItem, string>? RowClass { get; set; }
-
-    /// <summary>Additional CSS class on the outer wrapper div.</summary>
     [Parameter] public string? WrapperClass { get; set; }
-
-    /// <summary>Label shown in the right-swipe action strip on mobile cards.</summary>
     [Parameter] public string SwipeRightLabel { get; set; } = "View";
-
-    /// <summary>Label shown in the left-swipe action strip on mobile cards.</summary>
     [Parameter] public string SwipeLeftLabel { get; set; } = "Delete";
-
-    /// <summary>Raised on mobile when the user swipes a card right. Receives the swiped item.</summary>
     [Parameter] public EventCallback<TItem> OnSwipeRight { get; set; }
-
-    /// <summary>Raised on mobile when the user swipes a card left. Receives the swiped item.</summary>
     [Parameter] public EventCallback<TItem> OnSwipeLeft { get; set; }
 
-    // ── Internal State ──────────────────────────────────────────────────────────
+    // Preset & Preference Parameters
+
+    /// <summary>Unique key for localStorage storage, e.g. "users" or "audit-log".</summary>
+    [Parameter] public string? PresetKey { get; set; }
+
+    /// <summary>User identifier to namespace localStorage keys.</summary>
+    [Parameter] public string? UserId { get; set; }
+
+    /// <summary>Enable preset/views dropdown.</summary>
+    [Parameter] public bool EnablePresets { get; set; }
+
+    /// <summary>Enable row density selector (Comfortable/Default/Compact).</summary>
+    [Parameter] public bool EnableDensity { get; set; }
+
+    /// <summary>Built-in predefined presets defined on the consuming page.</summary>
+    [Parameter] public IReadOnlyList<TablePreset>? PredefinedPresets { get; set; }
+
+    // Internal State
 
     private readonly List<DataColumn<TItem>> _columns = new();
     private readonly HashSet<string> _hiddenColumns = new();
@@ -427,7 +399,45 @@
     private DotNetObjectReference<DataTable<TItem>>? _dotnetRef;
     private bool _jsInitialized;
 
-    // ── Lifecycle ───────────────────────────────────────────────────────────────
+    // Preset & preference state
+    private List<string> _columnOrder = new();
+    private string _density = "default";
+    private List<TablePreset> _userPresets = new();
+    private List<TablePreset> _sharedPresets = new();
+    private string? _activePresetId;
+    private Dictionary<string, int> _columnWidths = new();
+
+    // Computed
+
+    private string LocalStorageKey =>
+        $"fc_table_prefs_{UserId ?? "anon"}_{PresetKey ?? _tableId}";
+
+    private bool _hasColumnCustomization =>
+        _activePresetId is not null || _hiddenColumns.Count > 0 || _columnOrder.Count > 0;
+
+    private string _densityClass => _density switch
+    {
+        "comfortable" => "fc-dt-wrapper--density-comfortable",
+        "compact"     => "fc-dt-wrapper--density-compact",
+        _             => ""
+    };
+
+    private List<TablePreset> _allPresets
+    {
+        get
+        {
+            var all = new List<TablePreset>
+            {
+                new() { Id = "__default__", Name = "Default", IsDefault = true }
+            };
+            if (PredefinedPresets is not null) all.AddRange(PredefinedPresets);
+            all.AddRange(_sharedPresets);
+            all.AddRange(_userPresets);
+            return all;
+        }
+    }
+
+    // Lifecycle
 
     protected override void OnInitialized()
     {
@@ -438,7 +448,6 @@
     protected override void OnParametersSet()
     {
         _selectedItems = SelectedItems;
-        // Clamp current page when item count shrinks
         var totalPages = GetTotalPages(GetSortedItems().Count);
         if (_currentPage > totalPages) _currentPage = 1;
     }
@@ -453,11 +462,14 @@
                 await JS.InvokeVoidAsync("dataTable.init", _tableId + "-tbl", _dotnetRef);
                 _jsInitialized = true;
 
-                // Mobile swipe (no-op on desktop — JS guards against it)
                 if (Responsive && (OnSwipeRight.HasDelegate || OnSwipeLeft.HasDelegate))
-                {
                     await JS.InvokeVoidAsync("fcMobile.initCardSwipe", _tableId, _dotnetRef);
-                }
+
+                if (PresetKey is not null)
+                    _sharedPresets = (await PresetService.GetSharedPresetsAsync(PresetKey)).ToList();
+
+                if (EnablePresets || EnableDensity)
+                    await LoadPreferencesAsync();
             }
             catch { /* JS not available (prerender) */ }
         }
@@ -473,7 +485,7 @@
         _dotnetRef?.Dispose();
     }
 
-    // ── Column Registration ─────────────────────────────────────────────────────
+    // Column Registration
 
     internal void RegisterColumn(DataColumn<TItem> column)
     {
@@ -490,13 +502,38 @@
             StateHasChanged();
     }
 
-    // ── Computed Helpers ────────────────────────────────────────────────────────
+    // Computed Helpers
 
-    private List<DataColumn<TItem>> GetVisibleColumns() =>
-        _columns.Where(c => c.Visible && !_hiddenColumns.Contains(c.Id)).ToList();
+    private List<DataColumn<TItem>> GetVisibleColumns()
+    {
+        var visible = _columns.Where(c => c.Visible && !_hiddenColumns.Contains(c.Id));
+        if (_columnOrder.Count == 0) return visible.ToList();
+        return visible
+            .OrderBy(c =>
+            {
+                var i = _columnOrder.IndexOf(c.Id);
+                return i >= 0 ? i : int.MaxValue;
+            })
+            .ThenBy(c => _columns.IndexOf(c))
+            .ToList();
+    }
 
-    private IReadOnlyList<DataTableColumnToggle.DataColumnInfo> _columnInfos =>
-        _columns.Select(c => new DataTableColumnToggle.DataColumnInfo(c.Id, c.Title, c.Hideable)).ToList();
+    private IReadOnlyList<DataTableColumnToggle.DataColumnInfo> _columnInfos
+    {
+        get
+        {
+            var infos = _columns.Select(c =>
+                new DataTableColumnToggle.DataColumnInfo(c.Id, c.Title, c.Hideable));
+            if (_columnOrder.Count == 0) return infos.ToList();
+            return infos
+                .OrderBy(c =>
+                {
+                    var i = _columnOrder.IndexOf(c.Id);
+                    return i >= 0 ? i : int.MaxValue;
+                })
+                .ToList();
+        }
+    }
 
     private List<TItem> GetSortedItems()
     {
@@ -517,19 +554,26 @@
     private bool IsAllSelected(List<TItem> sorted) =>
         sorted.Count > 0 && sorted.All(i => _selectedItems.Contains(i));
 
-    private static string GetHeaderStyle(DataColumn<TItem> col)
+    private string GetHeaderStyle(DataColumn<TItem> col)
     {
         var parts = new List<string>();
-        if (col.Width is not null) parts.Add($"width:{col.Width}");
-        if (col.MinWidth is not null) parts.Add($"min-width:{col.MinWidth}");
+        if (_columnWidths.TryGetValue(col.Id, out var w))
+        {
+            parts.Add($"width:{w}px");
+            parts.Add($"min-width:{w}px");
+        }
+        else
+        {
+            if (col.Width is not null) parts.Add($"width:{col.Width}");
+            if (col.MinWidth is not null) parts.Add($"min-width:{col.MinWidth}");
+        }
         if (col.Align != "left") parts.Add($"text-align:{col.Align}");
         return string.Join(";", parts);
     }
 
-    private static string SkeletonWidth(DataColumn<TItem> col) =>
-        col.Width ?? "70%";
+    private static string SkeletonWidth(DataColumn<TItem> col) => col.Width ?? "70%";
 
-    // ── Sorting ─────────────────────────────────────────────────────────────────
+    // Sorting
 
     private void HandleSort(DataColumn<TItem> col)
     {
@@ -544,7 +588,7 @@
         _currentPage = 1;
     }
 
-    // ── Pagination ───────────────────────────────────────────────────────────────
+    // Pagination
 
     private void GoToPage(int page)
     {
@@ -558,7 +602,7 @@
         _currentPage = 1;
     }
 
-    // ── Selection ────────────────────────────────────────────────────────────────
+    // Selection
 
     private async Task ToggleSelectAll(ChangeEventArgs e, List<TItem> sorted)
     {
@@ -576,14 +620,13 @@
         await SelectedItemsChanged.InvokeAsync(_selectedItems);
     }
 
-    /// <summary>Clears all selected rows. Can be called by parent pages.</summary>
     public async Task ClearSelection()
     {
         _selectedItems.Clear();
         await SelectedItemsChanged.InvokeAsync(_selectedItems);
     }
 
-    // ── Row Click ────────────────────────────────────────────────────────────────
+    // Row Click
 
     private async Task HandleRowClick(TItem item)
     {
@@ -591,15 +634,37 @@
             await OnRowClick.InvokeAsync(item);
     }
 
-    // ── Column Visibility ────────────────────────────────────────────────────────
+    // Column Visibility
 
-    private void ToggleColumn(string columnId)
+    private async Task ToggleColumn(string columnId)
     {
         if (_hiddenColumns.Contains(columnId)) _hiddenColumns.Remove(columnId);
         else _hiddenColumns.Add(columnId);
+        _activePresetId = null;
+        await TrySavePreferencesAsync();
     }
 
-    // ── Column Resize (JS) ───────────────────────────────────────────────────────
+    // Column Reorder
+
+    private async Task HandleColumnReorder(DataTableColumnToggle.ColumnReorderArgs args)
+    {
+        if (_columnOrder.Count == 0)
+            _columnOrder = _columns.Select(c => c.Id).ToList();
+
+        var oldIdx = _columnOrder.IndexOf(args.ColumnId);
+        if (oldIdx < 0)
+            _columnOrder.Insert(Math.Min(args.NewIndex, _columnOrder.Count), args.ColumnId);
+        else
+        {
+            _columnOrder.RemoveAt(oldIdx);
+            _columnOrder.Insert(Math.Min(args.NewIndex, _columnOrder.Count), args.ColumnId);
+        }
+
+        _activePresetId = null;
+        await TrySavePreferencesAsync();
+    }
+
+    // Column Resize (JS)
 
     private async Task StartResize(int columnIndex, MouseEventArgs e)
     {
@@ -607,9 +672,14 @@
         catch { }
     }
 
-    // ── Keyboard Navigation (JS → .NET) ─────────────────────────────────────────
+    [JSInvokable]
+    public async Task OnColumnResized(string columnId, int widthPx)
+    {
+        _columnWidths[columnId] = widthPx;
+        await TrySavePreferencesAsync();
+    }
 
-    // ── Mobile Swipe (JS → .NET) ──────────────────────────────────────────
+    // Mobile Swipe (JS to .NET)
 
     [JSInvokable]
     public async Task OnMobileSwipeRight(int index)
@@ -653,7 +723,136 @@
         else if (key == " " && Selectable) await ToggleRowSelection(item);
     }
 
-    // ── Export ───────────────────────────────────────────────────────────────────
+    // Presets
+
+    private async Task ApplyPreset(TablePreset preset)
+    {
+        if (preset.IsDefault)
+        {
+            _hiddenColumns.Clear();
+            _columnOrder.Clear();
+            _columnWidths.Clear();
+            _activePresetId = null;
+        }
+        else
+        {
+            _hiddenColumns.Clear();
+            foreach (var h in preset.HiddenColumns) _hiddenColumns.Add(h);
+            _columnOrder = preset.ColumnOrder.ToList();
+            _columnWidths = preset.ColumnWidths.ToDictionary(kv => kv.Key, kv => kv.Value);
+            _activePresetId = preset.Id;
+
+            if (_columnWidths.Count > 0)
+            {
+                try { await JS.InvokeVoidAsync("dataTable.applyColumnWidths", _tableId + "-tbl", _columnWidths); }
+                catch { }
+            }
+        }
+        await TrySavePreferencesAsync();
+    }
+
+    private async Task SaveCurrentAsPreset(string name)
+    {
+        Dictionary<string, int> domWidths;
+        try { domWidths = await JS.InvokeAsync<Dictionary<string, int>>("dataTable.getColumnWidths", _tableId + "-tbl"); }
+        catch { domWidths = new Dictionary<string, int>(_columnWidths); }
+
+        var preset = new TablePreset
+        {
+            Id = Guid.NewGuid().ToString("N")[..8],
+            Name = name.Trim(),
+            HiddenColumns = _hiddenColumns.ToHashSet(),
+            ColumnOrder = _columnOrder.ToList(),
+            ColumnWidths = domWidths
+        };
+
+        _userPresets.Add(preset);
+        _activePresetId = preset.Id;
+        await TrySavePreferencesAsync();
+    }
+
+    private async Task DeleteUserPreset(string presetId)
+    {
+        _userPresets.RemoveAll(p => p.Id == presetId);
+        if (_activePresetId == presetId)
+        {
+            _activePresetId = null;
+            _hiddenColumns.Clear();
+            _columnOrder.Clear();
+        }
+        await TrySavePreferencesAsync();
+    }
+
+    private async Task ResetToDefault()
+    {
+        _hiddenColumns.Clear();
+        _columnOrder.Clear();
+        _columnWidths.Clear();
+        _activePresetId = null;
+        _density = "default";
+        await TrySavePreferencesAsync();
+    }
+
+    private async Task SetDensity(string density)
+    {
+        _density = density;
+        await TrySavePreferencesAsync();
+    }
+
+    // Persistence
+
+    private async Task LoadPreferencesAsync()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("dataTable.loadPrefs", LocalStorageKey);
+            if (string.IsNullOrEmpty(json)) return;
+
+            var opts = new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            var prefs = System.Text.Json.JsonSerializer.Deserialize<StoredPreferences>(json, opts);
+            if (prefs is null) return;
+
+            _density        = prefs.Density ?? "default";
+            _activePresetId = prefs.ActivePresetId;
+            _columnOrder    = prefs.ColumnOrder ?? new();
+            _columnWidths   = prefs.ColumnWidths ?? new();
+            _userPresets    = prefs.UserPresets ?? new();
+
+            _hiddenColumns.Clear();
+            foreach (var h in prefs.HiddenColumns ?? []) _hiddenColumns.Add(h);
+
+            if (_columnWidths.Count > 0)
+            {
+                try { await JS.InvokeVoidAsync("dataTable.applyColumnWidths", _tableId + "-tbl", _columnWidths); }
+                catch { }
+            }
+
+            StateHasChanged();
+        }
+        catch { }
+    }
+
+    private async Task TrySavePreferencesAsync()
+    {
+        if (!EnablePresets && !EnableDensity) return;
+        try
+        {
+            var prefs = new StoredPreferences
+            {
+                Density        = _density,
+                ActivePresetId = _activePresetId,
+                HiddenColumns  = _hiddenColumns.ToList(),
+                ColumnOrder    = _columnOrder,
+                ColumnWidths   = _columnWidths,
+                UserPresets    = _userPresets
+            };
+            var json = System.Text.Json.JsonSerializer.Serialize(prefs);
+            await JS.InvokeVoidAsync("dataTable.savePrefs", LocalStorageKey, json);
+        }
+        catch { }
+    }
+
+    // Export (respects visible columns and current order)
 
     private List<ExportColumnDef<TItem>> BuildExportColumns() =>
         GetVisibleColumns()
@@ -691,7 +890,7 @@
         catch { }
     }
 
-    // ── Row Rendering ─────────────────────────────────────────────────────────────
+    // Row Rendering
 
     private RenderFragment RenderRow(TItem item, int rowIndex, List<DataColumn<TItem>> cols) => builder =>
     {
@@ -721,8 +920,8 @@
             builder.AddAttribute(14, "checked", isSelected);
             builder.AddAttribute(15, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(this, _ => ToggleRowSelection(item)));
             builder.AddAttribute(16, "onclick", "event.stopPropagation()");
-            builder.CloseElement(); // input
-            builder.CloseElement(); // td
+            builder.CloseElement();
+            builder.CloseElement();
         }
 
         foreach (var col in cols)
@@ -737,9 +936,21 @@
             if (col.CellTemplate is not null)
                 builder.AddContent(22, col.CellTemplate(item));
 
-            builder.CloseElement(); // td
+            builder.CloseElement();
         }
 
-        builder.CloseElement(); // tr
+        builder.CloseElement();
     };
+
+    // Stored Preferences (private serialization model)
+
+    private sealed class StoredPreferences
+    {
+        public string? Density { get; set; }
+        public string? ActivePresetId { get; set; }
+        public List<string>? HiddenColumns { get; set; }
+        public List<string>? ColumnOrder { get; set; }
+        public Dictionary<string, int>? ColumnWidths { get; set; }
+        public List<TablePreset>? UserPresets { get; set; }
+    }
 }

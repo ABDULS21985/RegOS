@@ -21,19 +21,20 @@ public class TenantBrandingServiceTests : IDisposable
 
     public TenantBrandingServiceTests()
     {
+        var dbName = Guid.NewGuid().ToString();
         var options = new DbContextOptionsBuilder<MetadataDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .UseInMemoryDatabase(dbName)
             .Options;
 
         _db = new MetadataDbContext(options);
         _cache = new MemoryCache(new MemoryCacheOptions());
         _storage = new FakeStorageService();
 
-        _sut = new TenantBrandingService(
-            _db,
-            _cache,
-            _storage,
-            new ServiceCollection().BuildServiceProvider());
+        var services = new ServiceCollection();
+        services.AddDbContext<MetadataDbContext>(o => o.UseInMemoryDatabase(dbName));
+        var scopeFactory = services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>();
+
+        _sut = new TenantBrandingService(_cache, _storage, scopeFactory);
     }
 
     public void Dispose()

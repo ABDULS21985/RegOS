@@ -1,0 +1,54 @@
+@* Reusable button with built-in loading/disabled state management.
+   Usage:
+     <LoadingButton Variant="fc-btn--primary" IsLoading="_isSaving" OnClick="SaveAsync">
+         Save Changes
+     </LoadingButton>
+*@
+
+<button type="@Type"
+        class="fc-btn @Variant @Size @(IsLoading ? "fc-btn--loading" : "") @CssClass"
+        disabled="@(IsLoading || Disabled)"
+        aria-busy="@(IsLoading ? "true" : null)"
+        @onclick="HandleClick"
+        @attributes="AdditionalAttributes">
+    @if (IsLoading)
+    {
+        <span class="fc-spinner fc-spinner--sm @SpinnerColor" aria-hidden="true"></span>
+    }
+    @ChildContent
+</button>
+
+@code {
+    /// <summary>Color variant, e.g. "fc-btn--primary", "fc-btn--gold", "fc-btn--outline", "fc-btn--danger".</summary>
+    [Parameter] public string Variant { get; set; } = "fc-btn--primary";
+
+    /// <summary>Size modifier, e.g. "fc-btn--sm", "fc-btn--xs". Empty for default.</summary>
+    [Parameter] public string Size { get; set; } = "";
+
+    [Parameter] public string Type { get; set; } = "button";
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>Extra CSS classes appended to the button element.</summary>
+    [Parameter] public string? CssClass { get; set; }
+
+    [Parameter] public EventCallback OnClick { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public Dictionary<string, object>? AdditionalAttributes { get; set; }
+
+    // Auto-select spinner colour based on variant
+    private string SpinnerColor => Variant switch
+    {
+        var v when v.Contains("primary") || v.Contains("gold") ||
+                   v.Contains("danger") || v.Contains("success") => "fc-spinner--white",
+        _ => ""
+    };
+
+    private async Task HandleClick()
+    {
+        if (!IsLoading && !Disabled && OnClick.HasDelegate)
+            await OnClick.InvokeAsync();
+    }
+}

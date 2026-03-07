@@ -3,25 +3,23 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Security.Claims
 @using FC.Engine.Admin.Services
+@using FC.Engine.Admin.Utilities
 @using FC.Engine.Domain.Enums
 @inject PlatformAdminService PlatformService
 @inject NavigationManager Navigation
+@inject ToastService Toast
 
 <PageTitle>Tenant List</PageTitle>
 
 <PageHeader Title="Global Tenant List"
             Subtitle="Search, filter, sort, export, and take quick tenant actions." />
 
-@if (!string.IsNullOrWhiteSpace(_message))
-{
-    <div class="fc-alert fc-alert--inline fc-alert--success">@_message</div>
-}
 @if (!string.IsNullOrWhiteSpace(_error))
 {
     <div class="fc-alert fc-alert--inline fc-alert--error">@_error</div>
 }
 
-<div class="fc-card" style="margin-bottom:1rem;">
+<div class="fc-card fc-card--mb">
     <div class="fc-card__body">
         <div class="fc-grid fc-grid-3">
             <div class="fc-form-row">
@@ -77,18 +75,37 @@
             </div>
         </div>
 
-        <div style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap; align-items:center;">
-            <label style="display:flex; gap:0.35rem; align-items:center; font-size:0.9rem; color:#475569;">
+        <div class="fc-filter-bar">
+            <label class="fc-form-check fc-text-muted-sm">
                 <input type="checkbox" @bind="_query.SortDescending" />
                 Descending
             </label>
-            <button class="fc-btn fc-btn--primary" @onclick="LoadAsync" disabled="@_loading">Apply</button>
+            <button class="fc-btn fc-btn--primary" @onclick="ApplyFilters" disabled="@_loading">Apply</button>
             <button class="fc-btn fc-btn--outline" @onclick="ResetFilters" disabled="@_loading">Reset</button>
             <button class="fc-btn fc-btn--outline" @onclick="Export" disabled="@_loading">Export Excel</button>
-            <span style="margin-left:auto; color:#64748b; font-size:0.9rem;">@_data.Tenants.Count tenant(s)</span>
+            <span class="fc-count-label">@_data.Tenants.Count tenant(s)</span>
         </div>
     </div>
 </div>
+
+@{
+    var chips = GetActiveFilterChips().ToList();
+}
+@if (chips.Count > 0)
+{
+    <div class="fc-active-filters">
+        <span class="fc-active-filters-label">Filters active:</span>
+        @foreach (var chip in chips)
+        {
+            var c = chip;
+            <span class="fc-filter-chip">
+                @c.Label
+                <button class="fc-filter-chip__remove" type="button" @onclick="@c.Clear" title="Remove filter">x</button>
+            </span>
+        }
+        <button class="fc-filter-clear-all" type="button" @onclick="ResetFilters">Clear all x</button>
+    </div>
+}
 
 <DataTable TItem="PlatformTenantListItem"
            Items="@_data.Tenants"
@@ -102,8 +119,8 @@
     <ChildContent>
         <DataColumn TItem="PlatformTenantListItem" Title="Tenant Name" Width="200px">
             <CellTemplate>
-                <div style="font-weight:600;">@context.TenantName</div>
-                <small style="color:#64748b;">@(context.ContactEmail ?? "-")</small>
+                <div class="fc-cell-primary">@context.TenantName</div>
+                <small class="fc-cell-sub">@(context.ContactEmail ?? "-")</small>
             </CellTemplate>
         </DataColumn>
         <DataColumn TItem="PlatformTenantListItem" Title="Slug" Width="140px">
@@ -134,16 +151,23 @@
         </DataColumn>
         <DataColumn TItem="PlatformTenantListItem" Title="Actions" Align="right" Width="220px">
             <CellTemplate>
-                <div style="display:flex; gap:0.35rem; flex-wrap:wrap; justify-content:flex-end;">
+                <div class="fc-actions">
                     <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => OpenTenant(context.TenantId)" @onclick:stopPropagation="true">View</button>
                     <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => ImpersonateTenant(context.TenantId)" @onclick:stopPropagation="true">Impersonate</button>
-                    @if (context.Status == TenantStatus.Active)
+                    @if (_savingTenantIds.Contains(context.TenantId))
                     {
-                        <button class="fc-btn fc-btn--xs" style="background:#b91c1c;color:#fff;" @onclick="() => SuspendTenant(context.TenantId)" @onclick:stopPropagation="true">Suspend</button>
+                        <button class="fc-btn fc-btn--xs fc-btn--neutral" disabled aria-label="Saving..." @onclick:stopPropagation="true">
+                            <span class="fc-spinner fc-spinner--xs fc-spinner--muted" aria-hidden="true"></span>
+                            Saving...
+                        </button>
+                    }
+                    else if (context.Status == TenantStatus.Active)
+                    {
+                        <button class="fc-btn fc-btn--xs fc-btn--danger" @onclick="() => SuspendTenant(context.TenantId)" @onclick:stopPropagation="true">Suspend</button>
                     }
                     else if (context.Status == TenantStatus.PendingActivation || context.Status == TenantStatus.Suspended)
                     {
-                        <button class="fc-btn fc-btn--xs" style="background:#166534;color:#fff;" @onclick="() => ActivateTenant(context.TenantId)" @onclick:stopPropagation="true">Activate</button>
+                        <button class="fc-btn fc-btn--xs fc-btn--success" @onclick="() => ActivateTenant(context.TenantId)" @onclick:stopPropagation="true">Activate</button>
                     }
                 </div>
             </CellTemplate>
@@ -154,14 +178,38 @@
 @code {
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    // URL query parameters — Blazor hydrates these from the address bar on every navigation
+    [Parameter, SupplyParameterFromQuery(Name = "search")]   public string? QSearch   { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "status")]   public string? QStatus   { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "plan")]     public string? QPlan     { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "licence")]  public string? QLicence  { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "minMods")]  public int?    QMinMods  { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "sort")]     public string? QSort     { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "sortDesc")] public bool?   QSortDesc { get; set; }
+
     private PlatformTenantListQuery _query = new();
     private PlatformTenantListResult _data = new();
     private bool _loading = true;
+    private bool _initialized;
     private string? _error;
-    private string? _message;
+    private HashSet<Guid> _savingTenantIds = new();
+
+    // Fires on every navigation (browser back/forward); on first load runs before OnInitializedAsync
+    protected override async Task OnParametersSetAsync()
+    {
+        _query.Search         = QSearch   ?? "";
+        _query.Status         = QStatus   ?? "";
+        _query.PlanCode       = QPlan     ?? "";
+        _query.LicenceType    = QLicence  ?? "";
+        _query.MinModuleCount = QMinMods;
+        _query.SortBy         = QSort     ?? "name";
+        _query.SortDescending = QSortDesc ?? false;
+        if (_initialized) await LoadAsync();
+    }
 
     protected override async Task OnInitializedAsync()
     {
+        _initialized = true;
         await LoadAsync();
     }
 
@@ -169,7 +217,6 @@
     {
         _loading = true;
         _error = null;
-        _message = null;
 
         try
         {
@@ -187,20 +234,46 @@
 
     private async Task ActivateTenant(Guid tenantId)
     {
-        await ExecuteAction(async actor =>
-        {
-            await PlatformService.ActivateTenant(tenantId, actor);
-            _message = "Tenant activated.";
-        });
+        var tenant = _data.Tenants.Find(t => t.TenantId == tenantId);
+        if (tenant is null) return;
+
+        var actor = await GetActor();
+        _savingTenantIds.Add(tenantId);
+
+        await OptimisticAction.Execute(
+            getter: () => tenant.Status,
+            setter: v => tenant.Status = v,
+            optimisticValue: TenantStatus.Active,
+            action: () => PlatformService.ActivateTenant(tenantId, actor),
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(tenant.TenantName + " activated."),
+            onFailure: ex => Toast.Error("Failed to activate: " + ex.Message)
+        );
+
+        _savingTenantIds.Remove(tenantId);
+        StateHasChanged();
     }
 
     private async Task SuspendTenant(Guid tenantId)
     {
-        await ExecuteAction(async actor =>
-        {
-            await PlatformService.SuspendTenant(tenantId, actor);
-            _message = "Tenant suspended.";
-        });
+        var tenant = _data.Tenants.Find(t => t.TenantId == tenantId);
+        if (tenant is null) return;
+
+        var actor = await GetActor();
+        _savingTenantIds.Add(tenantId);
+
+        await OptimisticAction.Execute(
+            getter: () => tenant.Status,
+            setter: v => tenant.Status = v,
+            optimisticValue: TenantStatus.Suspended,
+            action: () => PlatformService.SuspendTenant(tenantId, actor),
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(tenant.TenantName + " suspended."),
+            onFailure: ex => Toast.Error("Failed to suspend: " + ex.Message)
+        );
+
+        _savingTenantIds.Remove(tenantId);
+        StateHasChanged();
     }
 
     private void OpenTenant(Guid tenantId)
@@ -209,10 +282,59 @@
     private void ImpersonateTenant(Guid tenantId)
         => Navigation.NavigateTo($"/platform/impersonate?tenantId={tenantId}", forceLoad: true);
 
-    private async Task ResetFilters()
+    // Encode current filter inputs into URL (replace: true = no history entry)
+    private void ApplyFilters() => Navigation.NavigateTo(BuildUrl(), replace: true);
+
+    // Navigate to clean URL; OnParametersSetAsync resets _query and reloads
+    private void ResetFilters() => Navigation.NavigateTo("/platform/tenants");
+
+    private string BuildUrl()
     {
-        _query = new PlatformTenantListQuery();
-        await LoadAsync();
+        var q = new List<string>();
+        AddQuery(q, "search",   _query.Search);
+        AddQuery(q, "status",   _query.Status);
+        AddQuery(q, "plan",     _query.PlanCode);
+        AddQuery(q, "licence",  _query.LicenceType);
+        AddQuery(q, "minMods",  _query.MinModuleCount?.ToString());
+        if (_query.SortBy != "name")  AddQuery(q, "sort",     _query.SortBy);
+        if (_query.SortDescending)    AddQuery(q, "sortDesc", "true");
+        return "/platform/tenants" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
+    }
+
+    private string BuildUrlExcluding(string excl)
+    {
+        var q = new List<string>();
+        if (excl != "search")   AddQuery(q, "search",   QSearch);
+        if (excl != "status")   AddQuery(q, "status",   QStatus);
+        if (excl != "plan")     AddQuery(q, "plan",     QPlan);
+        if (excl != "licence")  AddQuery(q, "licence",  QLicence);
+        if (excl != "minMods")  AddQuery(q, "minMods",  QMinMods?.ToString());
+        if (excl != "sort"     && !string.IsNullOrEmpty(QSort) && QSort != "name") AddQuery(q, "sort", QSort);
+        if (excl != "sortDesc" && (QSortDesc ?? false)) AddQuery(q, "sortDesc", "true");
+        return "/platform/tenants" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
+    }
+
+    private void RemoveFilter(string param) =>
+        Navigation.NavigateTo(BuildUrlExcluding(param), replace: true);
+
+    private sealed record FilterChip(string Label, Action Clear);
+
+    private IEnumerable<FilterChip> GetActiveFilterChips()
+    {
+        if (!string.IsNullOrEmpty(QSearch))
+            yield return new FilterChip($"search: {QSearch}",       () => RemoveFilter("search"));
+        if (!string.IsNullOrEmpty(QStatus))
+            yield return new FilterChip($"status: {QStatus}",       () => RemoveFilter("status"));
+        if (!string.IsNullOrEmpty(QPlan))
+            yield return new FilterChip($"plan: {QPlan}",           () => RemoveFilter("plan"));
+        if (!string.IsNullOrEmpty(QLicence))
+            yield return new FilterChip($"licence: {QLicence}",     () => RemoveFilter("licence"));
+        if (QMinMods.HasValue)
+            yield return new FilterChip($"min modules: {QMinMods}", () => RemoveFilter("minMods"));
+        if (!string.IsNullOrEmpty(QSort) && QSort != "name")
+            yield return new FilterChip(
+                $"sorted by: {QSort} {((QSortDesc ?? false) ? "↓" : "↑")}",
+                () => RemoveFilter("sort"));
     }
 
     private void Export()
@@ -228,22 +350,6 @@
 
         var qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
         Navigation.NavigateTo($"/platform/tenants/export{qs}", forceLoad: true);
-    }
-
-    private async Task ExecuteAction(Func<string, Task> action)
-    {
-        _error = null;
-        _message = null;
-        try
-        {
-            var actor = await GetActor();
-            await action(actor);
-            await LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
     }
 
     private async Task<string> GetActor()

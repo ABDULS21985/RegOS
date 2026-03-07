@@ -1,0 +1,145 @@
+@* ============================================================
+   SlugField — Input that auto-generates a slug / code from a
+   source value (e.g. name → xml-element-name).
+
+   • Displays as read-only with a pencil-edit icon by default
+   • Auto-updates when SourceValue changes (unless manually edited)
+   • Click pencil to toggle manual-edit mode; lock icon to commit
+   • On blur while editing: normalises the value to a valid slug
+
+   Parameters:
+     Value           — two-way bound current slug (use @bind-Value)
+     SourceValue     — the field to derive from (e.g. _newField.FieldName)
+     Label           — input label text
+     Prefix          — optional visual prefix shown before the value
+     Placeholder     — hint shown when empty
+     MaxLength       — HTML maxlength attribute (default 64)
+   ============================================================ *@
+
+@using System.Text.RegularExpressions
+
+<div class="fc-slug-field">
+    <label class="fc-slug-field__label" for="@_id">@Label</label>
+    <div class="fc-slug-field__row @(_editing ? "fc-slug-field__row--editing" : "")">
+        @if (Prefix != null)
+        {
+            <span class="fc-slug-field__prefix" aria-hidden="true">@Prefix</span>
+        }
+        <input id="@_id"
+               class="fc-slug-field__input"
+               type="text"
+               value="@Value"
+               maxlength="@MaxLength"
+               readonly="@(!_editing)"
+               placeholder="@(Placeholder ?? "auto-generated")"
+               aria-label="@Label"
+               aria-describedby="@_id-hint"
+               @oninput="OnInput"
+               @onblur="OnBlur" />
+        <button type="button"
+                class="fc-slug-field__btn @(_editing ? "fc-slug-field__btn--lock" : "")"
+                @onclick="ToggleEdit"
+                tabindex="0"
+                aria-label="@(_editing ? "Lock and normalise slug" : "Edit slug manually")">
+            @if (_editing)
+            {
+                @* Lock icon *@
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                    <path d="M7 11V7a5 5 0 0110 0v4"/>
+                </svg>
+            }
+            else
+            {
+                @* Pencil icon *@
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
+                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+            }
+        </button>
+    </div>
+    @if (!_editing && !string.IsNullOrEmpty(Value))
+    {
+        <span id="@_id-hint" class="fc-slug-field__hint">
+            auto-generated from name — click
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" width="10" height="10" aria-hidden="true">
+                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            to override
+        </span>
+    }
+</div>
+
+@code {
+    [Parameter] public string? Value { get; set; }
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public string? SourceValue { get; set; }
+    [Parameter] public string Label { get; set; } = "Slug";
+    [Parameter] public string? Prefix { get; set; }
+    [Parameter] public string? Placeholder { get; set; }
+    [Parameter] public int MaxLength { get; set; } = 64;
+
+    private readonly string _id = $"slug-{Guid.NewGuid():N}";
+    private bool _editing;
+    private bool _manuallyEdited;
+    private string? _prevSource;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Auto-generate only when SourceValue changes and user hasn't manually typed
+        if (!_manuallyEdited && SourceValue != _prevSource)
+        {
+            _prevSource = SourceValue;
+            var generated = Slugify(SourceValue ?? "");
+            if (generated != Value)
+                await ValueChanged.InvokeAsync(generated);
+        }
+    }
+
+    private async Task OnInput(ChangeEventArgs e)
+    {
+        _manuallyEdited = true;
+        await ValueChanged.InvokeAsync(e.Value?.ToString() ?? "");
+    }
+
+    private async Task OnBlur()
+    {
+        if (_editing && !string.IsNullOrWhiteSpace(Value))
+        {
+            // Normalise on blur while editing
+            var normalised = Slugify(Value);
+            if (normalised != Value)
+                await ValueChanged.InvokeAsync(normalised);
+        }
+    }
+
+    private async Task ToggleEdit()
+    {
+        _editing = !_editing;
+        if (!_editing && !string.IsNullOrWhiteSpace(Value))
+        {
+            var normalised = Slugify(Value);
+            if (normalised != Value)
+                await ValueChanged.InvokeAsync(normalised);
+        }
+    }
+
+    private static string Slugify(string input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return "";
+
+        var slug = input.Trim().ToLowerInvariant();
+        // Spaces/underscores → hyphens
+        slug = Regex.Replace(slug, @"[\s_]+", "-");
+        // Remove anything that isn't alphanumeric or hyphen
+        slug = Regex.Replace(slug, @"[^a-z0-9\-]", "");
+        // Collapse multiple hyphens
+        slug = Regex.Replace(slug, @"-{2,}", "-");
+        return slug.Trim('-');
+    }
+}

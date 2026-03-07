@@ -98,20 +98,26 @@
             </div>
             @if (_selectedTemplateFields.Any())
             {
-                <div style="margin-top:var(--space-2);color:var(--cbn-text-secondary);font-size:var(--text-body-sm);">
+                <div class="fc-formula-fields-hint">
                     Available fields: @string.Join(", ", _selectedTemplateFields.Take(20))@(_selectedTemplateFields.Count > 20 ? $"... (+{_selectedTemplateFields.Count - 20} more)" : "")
                 </div>
             }
             <div class="fc-list-form-actions">
                 @if (_editFormulaId.HasValue)
                 {
-                    <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="UpdateFormula">Update</button>
+                    <button class="fc-btn fc-btn--primary fc-btn--sm @(_isSaving ? "fc-btn--loading" : "")" @onclick="UpdateFormula" disabled="@_isSaving" aria-busy="@(_isSaving ? "true" : null)">
+                        @if (_isSaving) { <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span> }
+                        Update
+                    </button>
                 }
                 else
                 {
-                    <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="AddFormula">Add</button>
+                    <button class="fc-btn fc-btn--primary fc-btn--sm @(_isSaving ? "fc-btn--loading" : "")" @onclick="AddFormula" disabled="@_isSaving" aria-busy="@(_isSaving ? "true" : null)">
+                        @if (_isSaving) { <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span> }
+                        Add
+                    </button>
                 }
-                <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="CancelForm">Cancel</button>
+                <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="CancelForm" disabled="@_isSaving">Cancel</button>
             </div>
         </div>
     }
@@ -230,6 +236,7 @@
 
 @code {
     private bool _loading = true;
+    private bool _isSaving;
     private string _search = "", _typeFilter = "", _templateFilter = "";
     private List<string> _returnCodes = new();
     private List<(string ReturnCode, IntraSheetFormula Formula)> _allFormulas = new();
@@ -347,6 +354,7 @@
 
     private async Task AddFormula()
     {
+        _isSaving = true;
         try
         {
             var operandJson = BuildOperandJson(_addOperandFields);
@@ -369,12 +377,17 @@
         {
             Toast.Error(ex.Message, "Add Failed");
         }
+        finally
+        {
+            _isSaving = false;
+        }
     }
 
     private async Task UpdateFormula()
     {
         if (!_editFormulaId.HasValue) return;
 
+        _isSaving = true;
         try
         {
             var operandJson = BuildOperandJson(_addOperandFields);
@@ -396,6 +409,10 @@
         catch (Exception ex)
         {
             Toast.Error(ex.Message, "Update Failed");
+        }
+        finally
+        {
+            _isSaving = false;
         }
     }
 

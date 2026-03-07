@@ -1,0 +1,56 @@
+@*
+    JurisdictionChip — displays a single jurisdiction flag + name pill.
+
+    Parameters:
+      Jurisdiction   — the JurisdictionInfo to render (required)
+      ShowLatency    — show clock icon + tooltip when data is cross-region
+      Compact        — flag-only mode (no text label); useful in tight spaces
+*@
+
+<div class="fc-juri-chip fc-juri-chip--@(Jurisdiction.CountryCode.ToLowerInvariant())"
+     style="--juri-color: @Jurisdiction.AccentColor"
+     title="@GetTooltip()"
+     role="status"
+     aria-label="@GetAriaLabel()">
+
+    <span class="fc-juri-chip__flag" aria-hidden="true">@Jurisdiction.FlagEmoji</span>
+
+    @if (!Compact)
+    {
+        <span class="fc-juri-chip__name">@Jurisdiction.CountryName</span>
+    }
+
+    @if (ShowLatency)
+    {
+        <span class="fc-juri-chip__latency" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round"
+                 width="11" height="11">
+                <circle cx="12" cy="12" r="10"/>
+                <polyline points="12 6 12 12 16 14"/>
+            </svg>
+        </span>
+    }
+</div>
+
+@code {
+    /// <summary>The jurisdiction to display (required).</summary>
+    [Parameter, EditorRequired]
+    public JurisdictionInfo Jurisdiction { get; set; } = null!;
+
+    /// <summary>Show a clock icon and data-residency tooltip when this data is cross-region.</summary>
+    [Parameter] public bool ShowLatency { get; set; }
+
+    /// <summary>Render flag only (no text label).</summary>
+    [Parameter] public bool Compact { get; set; }
+
+    private string GetTooltip() =>
+        ShowLatency
+            ? $"Data stored in {Jurisdiction.AzureRegion} region"
+            : Jurisdiction.CountryName;
+
+    private string GetAriaLabel() =>
+        ShowLatency
+            ? $"{Jurisdiction.CountryName} jurisdiction — data stored in {Jurisdiction.AzureRegion} region"
+            : $"{Jurisdiction.CountryName} jurisdiction";
+}

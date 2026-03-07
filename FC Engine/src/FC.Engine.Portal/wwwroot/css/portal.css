@@ -3694,6 +3694,143 @@ code, pre {
 .portal-toast-progress-error   { background: var(--cbn-danger); }
 .portal-toast-progress-info    { background: var(--cbn-info); }
 
+/* ---- Toast: Extended (Loading, Dedup, Actions, Exit, Queue) ---- */
+
+/* Loading variant */
+.portal-toast-loading { border-left: 3px solid var(--cbn-border-strong); }
+.portal-toast-loading .portal-toast-icon { color: var(--cbn-text-secondary); }
+
+/* Loading spinner */
+.portal-toast-spinner {
+    animation: portalToastSpin 0.85s linear infinite;
+    transform-origin: center;
+}
+
+@keyframes portalToastSpin {
+    to { transform: rotate(360deg); }
+}
+
+/* Exit animation */
+.portal-toast-exiting {
+    animation: portalToastOut 300ms ease forwards !important;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+@keyframes portalToastOut {
+    0%   { opacity: 1; transform: translateX(0);    max-height: 200px; }
+    45%  { opacity: 0; transform: translateX(52px); max-height: 200px; }
+    100% { opacity: 0; transform: translateX(52px); max-height: 0; padding-top: 0; padding-bottom: 0; }
+}
+
+/* Duplicate count badge */
+.portal-toast-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 6px;
+    padding: 1px 7px;
+    background: var(--cbn-gray-200);
+    color: var(--cbn-text-secondary);
+    border-radius: 100px;
+    font-size: 11px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    vertical-align: middle;
+}
+
+.portal-toast-error .portal-toast-count {
+    background: color-mix(in srgb, var(--cbn-danger) 15%, transparent);
+    color: var(--cbn-danger);
+}
+
+/* Inline action button */
+.portal-toast-action {
+    display: inline-flex;
+    align-items: center;
+    margin-top: 8px;
+    padding: 3px 10px;
+    font-size: var(--text-sm, 0.8125rem);
+    font-weight: 500;
+    color: var(--cbn-primary);
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: var(--radius-sm, 4px);
+    cursor: pointer;
+    transition: background 150ms ease, color 150ms ease;
+    align-self: flex-start;
+    white-space: nowrap;
+}
+
+.portal-toast-action:hover {
+    background: var(--cbn-primary);
+    color: #fff;
+}
+
+.portal-toast-action:focus-visible {
+    outline: 2px solid var(--cbn-primary);
+    outline-offset: 2px;
+}
+
+.portal-toast-error .portal-toast-action { color: var(--cbn-danger); }
+
+/* Pause progress on hover */
+.portal-toast:hover .portal-toast-progress {
+    animation-play-state: paused;
+}
+
+/* Queue overflow badge */
+.portal-toast-queue-badge {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    font-size: var(--text-sm, 0.8125rem);
+    color: var(--cbn-text-muted);
+    background: var(--cbn-surface-elevated);
+    border: 1px solid var(--cbn-border);
+    border-radius: var(--radius-sm, 4px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    pointer-events: none;
+}
+
+.portal-toast-queue-badge::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--cbn-text-muted);
+    flex-shrink: 0;
+}
+
+/* Mobile: bottom-center */
+@media (max-width: 768px) {
+    .portal-toast-container {
+        top: auto !important;
+        bottom: 20px;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%);
+        width: calc(100vw - 24px);
+        max-width: 400px;
+    }
+}
+
+@media (max-width: 480px) {
+    .portal-toast-container {
+        bottom: 12px;
+        width: calc(100vw - 16px);
+    }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .portal-toast-spinner { animation: none; }
+    .portal-toast-exiting { animation: none !important; opacity: 0; }
+}
+
 /* ---- Modal / Confirm Dialog ---- */
 
 .portal-modal-backdrop {

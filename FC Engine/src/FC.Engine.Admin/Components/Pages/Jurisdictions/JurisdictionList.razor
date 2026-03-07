@@ -6,6 +6,8 @@
 @inject JurisdictionManagementService JurisdictionSvc
 @inject ToastService Toast
 @inject DialogService Dialog
+@inject IJSRuntime JS
+@inject NavigationManager Nav
 @implements IDisposable
 
 <PageTitle>Jurisdiction Registry</PageTitle>
@@ -14,6 +16,25 @@
             Subtitle="Multi-Jurisdiction Template Extension Framework — Manage regulatory jurisdictions and their template assignments." />
 
 <div class="fc-page">
+
+    @{
+        var chips = GetActiveFilterChips().ToList();
+    }
+    @if (chips.Count > 0)
+    {
+        <div class="fc-active-filters">
+            <span class="fc-active-filters-label">Filters active:</span>
+            @foreach (var chip in chips)
+            {
+                var c = chip;
+                <span class="fc-filter-chip">
+                    @c.Label
+                    <button class="fc-filter-chip__remove" type="button" @onclick="@c.Clear" title="Remove filter">x</button>
+                </span>
+            }
+            <button class="fc-filter-clear-all" type="button" @onclick="ResetFilters">Clear all x</button>
+        </div>
+    }
 
     <DataTable TItem="JurisdictionListItem"
                Items="@FilteredJurisdictions"
@@ -33,7 +54,7 @@
                 @if (_searchTyping) { <span class="fc-search-typing" aria-hidden="true" title="Filtering…"></span> }
             </div>
             <div class="fc-toolbar-filter">
-                <select @bind="_statusFilter" aria-label="Filter by status">
+                <select value="@_statusFilter" @onchange="OnStatusChange" aria-label="Filter by status">
                     <option value="">All Status</option>
                     <option value="active">Active</option>
                     <option value="planned">Planned</option>
@@ -43,7 +64,7 @@
         <ChildContent>
             <DataColumn TItem="JurisdictionListItem" Title="Country" SortKey="j => j.CountryName" MinWidth="150px">
                 <CellTemplate>
-                    <span class="fc-jur-cell-text" style="font-weight:500;">@context.CountryName</span>
+                    <span class="fc-jur-cell-text fc-fw-500">@context.CountryName</span>
                 </CellTemplate>
             </DataColumn>
             <DataColumn TItem="JurisdictionListItem" Title="Code" SortKey="j => j.CountryCode" Width="80px">
@@ -85,12 +106,19 @@
             </DataColumn>
             <DataColumn TItem="JurisdictionListItem" Title="Actions" Align="right" Width="200px">
                 <CellTemplate>
-                    <div style="display:flex;gap:0.35rem;justify-content:flex-end;">
+                    <div class="fc-actions">
                         <button class="fc-btn fc-btn--ghost" @onclick="() => OpenEditDialog(context)" @onclick:stopPropagation="true" type="button" title="Edit jurisdiction">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             Edit
                         </button>
-                        @if (context.IsActive)
+                        @if (_togglingIds.Contains(context.Id))
+                        {
+                            <button class="fc-btn fc-btn--ghost" disabled type="button" aria-label="Saving..." title="Saving...">
+                                <span class="fc-spinner fc-spinner--xs" aria-hidden="true"></span>
+                                Saving...
+                            </button>
+                        }
+                        else if (context.IsActive)
                         {
                             <button class="fc-btn fc-btn--ghost fc-btn--danger" @onclick="() => ToggleActive(context.Id)" @onclick:stopPropagation="true" type="button" title="Deactivate jurisdiction">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
@@ -111,19 +139,19 @@
     </DataTable>
 
     <!-- FX Rates Section -->
-    <div style="margin-top:2rem;">
+    <div class="fc-mt-8">
         <div class="fc-card">
-            <div class="fc-card__header" style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="fc-card__header fc-flex-between">
                 <div>
                     <h2 class="fc-card__title">FX Rates</h2>
-                    <p style="color:#64748b;font-size:0.85rem;margin:0;">Cross-jurisdiction currency conversion reference rates</p>
+                    <p class="fc-text-muted-sm">Cross-jurisdiction currency conversion reference rates</p>
                 </div>
                 <button class="fc-btn fc-btn--primary" @onclick="OpenFxRateDialog" type="button">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                     Add FX Rate
                 </button>
             </div>
-            <div class="fc-card__body" style="padding:0;overflow:auto;">
+            <div class="fc-card__body fc-card-body--flush">
                 @if (_fxRates is not null && _fxRates.Count > 0)
                 {
                     <table class="fc-table">
@@ -131,10 +159,10 @@
                             <tr>
                                 <th>Base</th>
                                 <th>Quote</th>
-                                <th style="text-align:right;">Rate</th>
+                                <th class="fc-text-right">Rate</th>
                                 <th>Date</th>
                                 <th>Source</th>
-                                <th style="text-align:right;">Actions</th>
+                                <th class="fc-text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -143,10 +171,10 @@
                                 <tr>
                                     <td><code>@rate.BaseCurrency</code></td>
                                     <td><code>@rate.QuoteCurrency</code></td>
-                                    <td style="text-align:right;"><code>@rate.Rate.ToString("N6")</code></td>
+                                    <td class="fc-text-right"><code>@rate.Rate.ToString("N6")</code></td>
                                     <td>@rate.RateDate.ToString("yyyy-MM-dd")</td>
                                     <td>@rate.Source</td>
-                                    <td style="text-align:right;">
+                                    <td class="fc-text-right">
                                         <button class="fc-btn fc-btn--ghost fc-btn--danger" @onclick="() => DeleteFxRate(rate.Id)" type="button" title="Delete FX rate">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
                                             Delete
@@ -179,43 +207,63 @@
           Subtitle="Update jurisdiction configuration and compliance settings"
           Size="lg">
     <ChildContent>
-        <div class="fc-form-grid">
-            <div class="fc-form-group">
-                <label class="fc-form-label fc-form-label-required">Country Name</label>
-                <input class="fc-form-input" type="text" @bind="_editCountryName" />
+        <div id="jur-edit-form">
+            <FormErrorSummary Errors="@_editErrors" />
+            <div class="fc-form-grid">
+                <FormField Label="Country Name" FieldId="jur-country" IsRequired="true"
+                           InputId="jur-country-input"
+                           ValidationState="@GetEditState("country")"
+                           ErrorMessage="@GetEditError("country")">
+                    <input id="jur-country-input" class="fc-form-input" type="text"
+                           value="@_editCountryName"
+                           @oninput="e => _editCountryName = e.Value?.ToString() ?? string.Empty"
+                           @onblur="() => ValidateEditCountryName()"
+                           aria-required="true"
+                           aria-invalid="@(HasEditError("country") ? "true" : "false")"
+                           aria-describedby="jur-country-hint jur-country-err" />
+                </FormField>
+                <FormField Label="Currency (ISO 4217)" FieldId="jur-currency" IsRequired="true"
+                           InputId="jur-currency-input"
+                           ValidationState="@GetEditState("currency")"
+                           ErrorMessage="@GetEditError("currency")"
+                           HintText="3-letter ISO 4217 code, e.g. NGN, USD, GBP">
+                    <input id="jur-currency-input" class="fc-form-input fc-mono-upper" type="text" maxlength="3"
+                           value="@_editCurrency"
+                           @oninput="e => _editCurrency = e.Value?.ToString() ?? string.Empty"
+                           @onblur="() => ValidateEditCurrency()"
+                           aria-required="true"
+                           aria-invalid="@(HasEditError("currency") ? "true" : "false")"
+                           aria-describedby="jur-currency-hint jur-currency-err" />
+                </FormField>
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Timezone</label>
+                    <input class="fc-form-input" type="text" @bind="_editTimezone" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Date Format</label>
+                    <input class="fc-form-input fc-font-mono" type="text" @bind="_editDateFormat" />
+                </div>
             </div>
-            <div class="fc-form-group">
-                <label class="fc-form-label fc-form-label-required">Currency (ISO 4217)</label>
-                <input class="fc-form-input" type="text" @bind="_editCurrency" maxlength="3" style="font-family:monospace;" />
+            <div class="fc-form-group fc-mt-4">
+                <label class="fc-form-label">Data Residency Region (Azure)</label>
+                <input class="fc-form-input" type="text" @bind="_editDataResidencyRegion" />
             </div>
-            <div class="fc-form-group">
-                <label class="fc-form-label">Timezone</label>
-                <input class="fc-form-input" type="text" @bind="_editTimezone" />
+            <div class="fc-form-group fc-mt-4">
+                <label class="fc-form-label">Regulatory Bodies (JSON array)</label>
+                <input class="fc-form-input fc-font-mono" type="text" @bind="_editRegulatoryBodies" />
             </div>
-            <div class="fc-form-group">
-                <label class="fc-form-label">Date Format</label>
-                <input class="fc-form-input" type="text" @bind="_editDateFormat" style="font-family:monospace;" />
+            <div class="fc-form-group fc-mt-4">
+                <label class="fc-form-label">Data Protection Law</label>
+                <input class="fc-form-input" type="text" @bind="_editDataProtectionLaw" />
             </div>
-        </div>
-        <div class="fc-form-group" style="margin-top:1rem;">
-            <label class="fc-form-label">Data Residency Region (Azure)</label>
-            <input class="fc-form-input" type="text" @bind="_editDataResidencyRegion" />
-        </div>
-        <div class="fc-form-group" style="margin-top:1rem;">
-            <label class="fc-form-label">Regulatory Bodies (JSON array)</label>
-            <input class="fc-form-input" type="text" @bind="_editRegulatoryBodies" style="font-family:monospace;" />
-        </div>
-        <div class="fc-form-group" style="margin-top:1rem;">
-            <label class="fc-form-label">Data Protection Law</label>
-            <input class="fc-form-input" type="text" @bind="_editDataProtectionLaw" />
         </div>
     </ChildContent>
     <FooterContent>
         <button class="fc-btn fc-btn--outline" @onclick="CloseDialogs" type="button">Cancel</button>
-        <button class="fc-btn fc-btn--primary" @onclick="SaveJurisdiction" disabled="@_isSaving" type="button">
+        <button class="fc-btn fc-btn--primary @(_isSaving ? "fc-btn--loading" : "")" @onclick="SaveJurisdiction" disabled="@_isSaving" aria-busy="@(_isSaving ? "true" : null)" type="button">
             @if (_isSaving)
             {
-                <span class="spinner" style="width:16px;height:16px;"></span>
+                <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
             }
             Save Changes
         </button>
@@ -228,35 +276,67 @@
           Subtitle="Define a cross-jurisdiction currency conversion rate"
           Size="default">
     <ChildContent>
-        <div class="fc-form-grid">
-            <div class="fc-form-group">
-                <label class="fc-form-label fc-form-label-required">Base Currency</label>
-                <input class="fc-form-input" type="text" @bind="_fxBaseCurrency" maxlength="3" placeholder="NGN" style="font-family:monospace;" />
+        <div id="jur-fx-form">
+            <FormErrorSummary Errors="@_fxErrors" />
+            <div class="fc-form-grid">
+                <FormField Label="Base Currency" FieldId="jur-fx-base" IsRequired="true"
+                           InputId="jur-fx-base-input"
+                           ValidationState="@GetFxState("base")"
+                           ErrorMessage="@GetFxError("base")"
+                           HintText="ISO 4217 code, e.g. NGN">
+                    <input id="jur-fx-base-input" class="fc-form-input fc-mono-upper" type="text" maxlength="3"
+                           placeholder="NGN"
+                           value="@_fxBaseCurrency"
+                           @oninput="OnFxBaseInput"
+                           @onblur="OnFxBaseBlur"
+                           aria-required="true"
+                           aria-invalid="@(HasFxError("base") ? "true" : "false")"
+                           aria-describedby="jur-fx-base-hint jur-fx-base-err" />
+                </FormField>
+                <FormField Label="Quote Currency" FieldId="jur-fx-quote" IsRequired="true"
+                           InputId="jur-fx-quote-input"
+                           ValidationState="@GetFxState("quote")"
+                           ErrorMessage="@GetFxError("quote")"
+                           HintText="ISO 4217 code, e.g. GHS">
+                    <input id="jur-fx-quote-input" class="fc-form-input fc-mono-upper" type="text" maxlength="3"
+                           placeholder="GHS"
+                           value="@_fxQuoteCurrency"
+                           @oninput="OnFxQuoteInput"
+                           @onblur="OnFxQuoteBlur"
+                           aria-required="true"
+                           aria-invalid="@(HasFxError("quote") ? "true" : "false")"
+                           aria-describedby="jur-fx-quote-hint jur-fx-quote-err" />
+                </FormField>
+                <FormField Label="Rate" FieldId="jur-fx-rate" IsRequired="true"
+                           InputId="jur-fx-rate-input"
+                           ValidationState="@GetFxState("rate")"
+                           ErrorMessage="@GetFxError("rate")"
+                           HintText="Decimal exchange rate, e.g. 0.000876">
+                    <input id="jur-fx-rate-input" class="fc-form-input fc-font-mono" type="number" step="0.000001"
+                           value="@(_fxRate == 0 ? string.Empty : _fxRate.ToString())"
+                           @oninput="OnFxRateInput"
+                           @onblur="ValidateFxRateValue"
+                           aria-required="true"
+                           aria-invalid="@(HasFxError("rate") ? "true" : "false")"
+                           aria-describedby="jur-fx-rate-hint jur-fx-rate-err" />
+                </FormField>
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Rate Date</label>
+                    <input class="fc-form-input" type="date" @bind="_fxRateDate" />
+                </div>
             </div>
-            <div class="fc-form-group">
-                <label class="fc-form-label fc-form-label-required">Quote Currency</label>
-                <input class="fc-form-input" type="text" @bind="_fxQuoteCurrency" maxlength="3" placeholder="GHS" style="font-family:monospace;" />
+            <div class="fc-form-group fc-mt-4">
+                <label class="fc-form-label">Source</label>
+                <input class="fc-form-input" type="text" @bind="_fxSource" placeholder="Manual" />
             </div>
-            <div class="fc-form-group">
-                <label class="fc-form-label fc-form-label-required">Rate</label>
-                <input class="fc-form-input" type="number" step="0.000001" @bind="_fxRate" style="font-family:monospace;" />
-            </div>
-            <div class="fc-form-group">
-                <label class="fc-form-label fc-form-label-required">Rate Date</label>
-                <input class="fc-form-input" type="date" @bind="_fxRateDate" />
-            </div>
-        </div>
-        <div class="fc-form-group" style="margin-top:1rem;">
-            <label class="fc-form-label">Source</label>
-            <input class="fc-form-input" type="text" @bind="_fxSource" placeholder="Manual" />
         </div>
     </ChildContent>
     <FooterContent>
         <button class="fc-btn fc-btn--outline" @onclick="CloseDialogs" type="button">Cancel</button>
-        <button class="fc-btn fc-btn--primary" @onclick="SaveFxRate" disabled="@_isSaving" type="button">
+        <button class="fc-btn fc-btn--primary @(_isSaving ? "fc-btn--loading" : "")" @onclick="SaveFxRate" disabled="@_isSaving" aria-busy="@(_isSaving ? "true" : null)" type="button">
             @if (_isSaving)
             {
-                <span class="spinner" style="width:16px;height:16px;"></span>
+                <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
             }
             Add Rate
         </button>
@@ -264,11 +344,16 @@
 </AppModal>
 
 @code {
+    // URL query parameters
+    [Parameter, SupplyParameterFromQuery(Name = "search")] public string? QSearch { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "status")] public string? QStatus { get; set; }
+
     private List<JurisdictionListItem>? _jurisdictions;
     private List<JurisdictionFxRate>? _fxRates;
     private JurisdictionDashboardStats? _stats;
     private bool _isSaving;
     private bool _loading = true;
+    private HashSet<int> _togglingIds = new();
 
     // Search & filter
     private string _searchQuery = "";
@@ -288,6 +373,49 @@
     private string? _editDataProtectionLaw;
     private string _editDataResidencyRegion = "";
 
+    // Edit dialog validation
+    private readonly Dictionary<string, string> _editErrors = new();
+    private readonly HashSet<string> _editTouched = new();
+
+    private FormField.FieldValidation GetEditState(string field) =>
+        _editErrors.ContainsKey(field) ? FormField.FieldValidation.Invalid :
+        _editTouched.Contains(field)   ? FormField.FieldValidation.Valid   :
+        FormField.FieldValidation.None;
+
+    private string? GetEditError(string field) => _editErrors.GetValueOrDefault(field);
+    private bool HasEditError(string field) => _editErrors.ContainsKey(field);
+
+    private void ValidateEditCountryName()
+    {
+        _editTouched.Add("country");
+        var v = _editCountryName?.Trim() ?? "";
+        if (v.Length == 0)
+            _editErrors["country"] = "Country name is required.";
+        else if (v.Length < 2)
+            _editErrors["country"] = "Must be at least 2 characters.";
+        else
+            _editErrors.Remove("country");
+    }
+
+    private void ValidateEditCurrency()
+    {
+        _editTouched.Add("currency");
+        var v = _editCurrency?.Trim().ToUpperInvariant() ?? "";
+        if (v.Length == 0)
+            _editErrors["currency"] = "Currency code is required.";
+        else if (v.Length != 3 || !v.All(char.IsLetter))
+            _editErrors["currency"] = "Enter a valid 3-letter ISO 4217 code (e.g. NGN, USD).";
+        else
+            _editErrors.Remove("currency");
+    }
+
+    private bool ValidateJurisdictionForm()
+    {
+        ValidateEditCountryName();
+        ValidateEditCurrency();
+        return _editErrors.Count == 0;
+    }
+
     // FX rate dialog state
     private bool _showFxRateDialog;
     private string _fxBaseCurrency = "";
@@ -295,6 +423,65 @@
     private decimal _fxRate;
     private DateTime _fxRateDate = DateTime.UtcNow.Date;
     private string _fxSource = "Manual";
+
+    // FX rate dialog validation
+    private readonly Dictionary<string, string> _fxErrors = new();
+    private readonly HashSet<string> _fxTouched = new();
+
+    private FormField.FieldValidation GetFxState(string field) =>
+        _fxErrors.ContainsKey(field) ? FormField.FieldValidation.Invalid :
+        _fxTouched.Contains(field)   ? FormField.FieldValidation.Valid   :
+        FormField.FieldValidation.None;
+
+    private string? GetFxError(string field) => _fxErrors.GetValueOrDefault(field);
+    private bool HasFxError(string field) => _fxErrors.ContainsKey(field);
+
+    private void ValidateFxCurrency(string field, string? value)
+    {
+        _fxTouched.Add(field);
+        var v = value?.Trim().ToUpperInvariant() ?? "";
+        if (v.Length == 0)
+            _fxErrors[field] = field == "base" ? "Base currency is required." : "Quote currency is required.";
+        else if (v.Length != 3 || !v.All(char.IsLetter))
+            _fxErrors[field] = "Enter a 3-letter ISO 4217 currency code.";
+        else
+            _fxErrors.Remove(field);
+    }
+
+    private void ValidateFxRateValue()
+    {
+        _fxTouched.Add("rate");
+        if (_fxRate <= 0)
+            _fxErrors["rate"] = "Rate must be greater than 0.";
+        else
+            _fxErrors.Remove("rate");
+    }
+
+    private void OnFxBaseInput(ChangeEventArgs e)
+        => _fxBaseCurrency = e.Value?.ToString() ?? string.Empty;
+
+    private void OnFxBaseBlur() => ValidateFxCurrency("base", _fxBaseCurrency);
+
+    private void OnFxQuoteBlur() => ValidateFxCurrency("quote", _fxQuoteCurrency);
+
+    private void OnFxQuoteInput(ChangeEventArgs e)
+        => _fxQuoteCurrency = e.Value?.ToString() ?? string.Empty;
+
+    private void OnFxRateInput(ChangeEventArgs e)
+    {
+        if (decimal.TryParse(e.Value?.ToString(), out var v))
+            _fxRate = v;
+        else
+            _fxRate = 0m;
+    }
+
+    private bool ValidateFxForm()
+    {
+        ValidateFxCurrency("base", _fxBaseCurrency);
+        ValidateFxCurrency("quote", _fxQuoteCurrency);
+        ValidateFxRateValue();
+        return _fxErrors.Count == 0;
+    }
 
     private IReadOnlyList<JurisdictionListItem> FilteredJurisdictions => (_jurisdictions ?? new())
         .Where(j => string.IsNullOrEmpty(_filterQuery) ||
@@ -316,6 +503,16 @@
             ? "No jurisdictions have been configured yet."
             : "Try adjusting your search or filters.";
 
+    // Restore filter state from URL on browser back/forward
+    protected override Task OnParametersSetAsync()
+    {
+        var s = QSearch ?? "";
+        var f = QStatus ?? "";
+        if (s != _searchQuery) { _searchQuery = s; _filterQuery = s; }
+        if (f != _statusFilter) _statusFilter = f;
+        return Task.CompletedTask;
+    }
+
     protected override async Task OnInitializedAsync()
     {
         await LoadData();
@@ -332,7 +529,9 @@
     private async Task ToggleActive(int id)
     {
         var idx = _jurisdictions?.FindIndex(j => j.Id == id) ?? -1;
-        if (idx < 0) return;
+        if (idx < 0 || _togglingIds.Contains(id)) return;
+
+        _togglingIds.Add(id);
 
         // Optimistic update — flip locally, revert on error
         var original = _jurisdictions![idx];
@@ -348,8 +547,12 @@
         catch (Exception ex)
         {
             _jurisdictions[idx] = original; // revert
-            StateHasChanged();
             Toast.Error($"Failed to update jurisdiction: {ex.Message}");
+        }
+        finally
+        {
+            _togglingIds.Remove(id);
+            StateHasChanged();
         }
     }
 
@@ -366,9 +569,43 @@
             await Task.Delay(200, _searchCts.Token);
             _filterQuery = _searchQuery;
             _searchTyping = false;
+            PushUrl();   // encode into URL after debounce
             StateHasChanged();
         }
         catch (TaskCanceledException) { }
+    }
+
+    private void OnStatusChange(ChangeEventArgs e)
+    {
+        _statusFilter = e.Value?.ToString() ?? "";
+        PushUrl();
+    }
+
+    private void PushUrl() => Nav.NavigateTo(BuildUrl(), replace: true);
+
+    private string BuildUrl()
+    {
+        var q = new List<string>();
+        if (!string.IsNullOrEmpty(_filterQuery))  q.Add($"search={Uri.EscapeDataString(_filterQuery)}");
+        if (!string.IsNullOrEmpty(_statusFilter)) q.Add($"status={Uri.EscapeDataString(_statusFilter)}");
+        return "/jurisdictions" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
+    }
+
+    private void ResetFilters()
+    {
+        _searchQuery = ""; _filterQuery = "";
+        _statusFilter = "";
+        Nav.NavigateTo("/jurisdictions");
+    }
+
+    private sealed record FilterChip(string Label, Action Clear);
+
+    private IEnumerable<FilterChip> GetActiveFilterChips()
+    {
+        if (!string.IsNullOrEmpty(_filterQuery))
+            yield return new FilterChip($"search: {_filterQuery}",   () => { _searchQuery = ""; _filterQuery = ""; PushUrl(); });
+        if (!string.IsNullOrEmpty(_statusFilter))
+            yield return new FilterChip($"status: {_statusFilter}", () => { _statusFilter = ""; PushUrl(); });
     }
 
     public void Dispose() => _searchCts?.Dispose();
@@ -383,12 +620,22 @@
         _editRegulatoryBodies = item.RegulatoryBodies;
         _editDataProtectionLaw = item.DataProtectionLaw;
         _editDataResidencyRegion = item.DataResidencyRegion;
+        _editErrors.Clear();
+        _editTouched.Clear();
         _showEditDialog = true;
     }
 
     private async Task SaveJurisdiction()
     {
         if (_editItem is null) return;
+
+        if (!ValidateJurisdictionForm())
+        {
+            try { await JS.InvokeVoidAsync("FCForms.focusFirstError", "jur-edit-form"); }
+            catch (JSDisconnectedException) { }
+            return;
+        }
+
         _isSaving = true;
 
         try
@@ -425,14 +672,17 @@
         _fxRate = 0;
         _fxRateDate = DateTime.UtcNow.Date;
         _fxSource = "Manual";
+        _fxErrors.Clear();
+        _fxTouched.Clear();
         _showFxRateDialog = true;
     }
 
     private async Task SaveFxRate()
     {
-        if (string.IsNullOrWhiteSpace(_fxBaseCurrency) || string.IsNullOrWhiteSpace(_fxQuoteCurrency) || _fxRate <= 0)
+        if (!ValidateFxForm())
         {
-            Toast.Error("Please fill in all required fields.");
+            try { await JS.InvokeVoidAsync("FCForms.focusFirstError", "jur-fx-form"); }
+            catch (JSDisconnectedException) { }
             return;
         }
 
@@ -492,6 +742,10 @@
         _showEditDialog = false;
         _showFxRateDialog = false;
         _editItem = null;
+        _editErrors.Clear();
+        _editTouched.Clear();
+        _fxErrors.Clear();
+        _fxTouched.Clear();
     }
 
     private static string FormatRegulators(string json)

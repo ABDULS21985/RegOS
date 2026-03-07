@@ -1,0 +1,91 @@
+@*
+    JurisdictionSyncStatus — animated sync-freshness indicator for the Consolidation Dashboard.
+
+    Pulse colour:
+      Green  = synced within the last 5 minutes
+      Yellow = 5–30 minutes ago
+      Red    = more than 30 minutes ago (stale)
+
+    Parameters:
+      LastSync          — UTC datetime of the last successful sync (null = never synced)
+      JurisdictionName  — label shown in the tooltip
+      ShowLabel         — whether to render the relative-time text label (default: true)
+*@
+
+@implements IDisposable
+
+<div class="fc-juri-sync"
+     title="@TooltipText"
+     aria-label="@TooltipText"
+     role="status">
+    <span class="fc-juri-pulse fc-juri-pulse--@_statusColor" aria-hidden="true"></span>
+
+    @if (ShowLabel)
+    {
+        <span class="fc-juri-sync__label">
+            @if (LastSync.HasValue)
+            {
+                @FormatElapsed(LastSync.Value)
+            }
+            else
+            {
+                <span class="fc-juri-sync__never">Never synced</span>
+            }
+        </span>
+    }
+</div>
+
+@code {
+    /// <summary>UTC timestamp of the last successful sync. Null means never synced.</summary>
+    [Parameter] public DateTime? LastSync { get; set; }
+
+    /// <summary>Human-readable jurisdiction name used in the tooltip.</summary>
+    [Parameter] public string JurisdictionName { get; set; } = string.Empty;
+
+    /// <summary>Show the relative-time label next to the dot (default true).</summary>
+    [Parameter] public bool ShowLabel { get; set; } = true;
+
+    private string _statusColor = "red";
+    private System.Threading.Timer? _ticker;
+
+    protected override void OnInitialized()
+    {
+        UpdateStatus();
+        // Tick every 30 s so pulse colour stays fresh without page reload
+        _ticker = new System.Threading.Timer(_ => InvokeAsync(() =>
+        {
+            UpdateStatus();
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    protected override void OnParametersSet() => UpdateStatus();
+
+    private void UpdateStatus()
+    {
+        if (LastSync is null)
+        {
+            _statusColor = "red";
+            return;
+        }
+        var elapsed = DateTime.UtcNow - LastSync.Value;
+        _statusColor = elapsed.TotalMinutes < 5 ? "green"
+                     : elapsed.TotalMinutes < 30 ? "yellow"
+                     : "red";
+    }
+
+    private string TooltipText =>
+        LastSync is null
+            ? $"{JurisdictionName}: Never synced"
+            : $"{JurisdictionName}: Last synced {FormatElapsed(LastSync.Value)}";
+
+    private static string FormatElapsed(DateTime utc)
+    {
+        var elapsed = DateTime.UtcNow - utc;
+        if (elapsed.TotalSeconds < 60) return $"{(int)elapsed.TotalSeconds}s ago";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        return $"{(int)elapsed.TotalHours}h ago";
+    }
+
+    public void Dispose() => _ticker?.Dispose();
+}
