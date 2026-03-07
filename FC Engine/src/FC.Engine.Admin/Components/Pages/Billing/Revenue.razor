@@ -5,6 +5,7 @@
 @using Microsoft.EntityFrameworkCore
 @attribute [Authorize(Policy = "PlatformAdmin")]
 @inject MetadataDbContext Db
+@inject IJSRuntime JS
 
 <PageTitle>Revenue Dashboard</PageTitle>
 
@@ -172,27 +173,29 @@
                         </div>
                         <span class="fc-revenue-pill">Peak: @FormatCompactCurrency(_trendMaxAmount)</span>
                     </div>
-                    <div class="fc-card__body">
+                    <div class="fc-card__body fc-card__body--chart">
                         @if (!_monthlyTrend.Any())
                         {
                             <p class="fc-page-header-subtitle">No paid invoice activity in the selected window.</p>
                         }
                         else
                         {
-                            <div class="fc-billing-chart-list">
-                                @foreach (var point in _monthlyTrend)
-                                {
-                                    var width = _trendMaxAmount <= 0m ? 0m : Math.Clamp((point.Amount / _trendMaxAmount) * 100m, 0m, 100m);
-                                    <div class="fc-billing-chart-row fc-revenue-chart-row">
-                                        <div class="fc-billing-chart-label">@point.Label</div>
-                                        <div class="fc-billing-chart-track">
-                                            <div class="fc-billing-chart-fill" style="width:@($"{width:0.##}%")"></div>
-                                        </div>
-                                        <div class="fc-billing-chart-value">@FormatCurrency(point.Amount)</div>
-                                        <div class="fc-revenue-chart-percent">@FormatPercent(width)</div>
-                                    </div>
-                                }
-                            </div>
+                            <ChartCanvas Spec="@TrendChartSpec"
+                                         AriaLabel="Collections trend over the last 12 months"
+                                         Height="260">
+                                <FallbackTable>
+                                    <table>
+                                        <caption>Monthly Collections (12 months)</caption>
+                                        <thead><tr><th scope="col">Month</th><th scope="col">Amount (NGN)</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var p in _monthlyTrend)
+                                            {
+                                                <tr><td>@p.Label</td><td>@p.Amount.ToString("N2")</td></tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </FallbackTable>
+                            </ChartCanvas>
                         }
                     </div>
                 </article>
@@ -207,33 +210,29 @@
                             Top plan: @(TopPlanByRevenue?.PlanCode ?? "N/A") (@FormatPercent(TopPlanSharePercent))
                         </span>
                     </div>
-                    <div class="fc-card__body">
+                    <div class="fc-card__body fc-card__body--chart">
                         @if (!_planMix.Any())
                         {
                             <p class="fc-page-header-subtitle">No active subscriptions found.</p>
                         }
                         else
                         {
-                            <div class="fc-billing-planmix-list">
-                                @foreach (var plan in _planMix)
-                                {
-                                    var tenantShare = _activeSubscriptionCount == 0 ? 0m : (decimal)plan.Count / _activeSubscriptionCount * 100m;
-                                    var revenueShare = PlanMixMonthlyTotal <= 0m ? 0m : plan.MonthlyRevenue / PlanMixMonthlyTotal * 100m;
-                                    <div class="fc-billing-planmix-row">
-                                        <div class="fc-billing-planmix-head">
-                                            <span>@plan.PlanCode</span>
-                                            <span>@plan.Count tenant(s) and @FormatPercent(tenantShare) of active base</span>
-                                        </div>
-                                        <div class="fc-billing-chart-track">
-                                            <div class="fc-billing-chart-fill fc-billing-chart-fill-accent" style="width:@($"{tenantShare:0.##}%")"></div>
-                                        </div>
-                                        <div class="fc-billing-planmix-foot">
-                                            <span>Monthly contribution</span>
-                                            <strong>@FormatCurrency(plan.MonthlyRevenue) and @FormatPercent(revenueShare)</strong>
-                                        </div>
-                                    </div>
-                                }
-                            </div>
+                            <ChartCanvas Spec="@PlanBarChartSpec"
+                                         AriaLabel="Revenue and tenant count by subscription plan"
+                                         Height="260">
+                                <FallbackTable>
+                                    <table>
+                                        <caption>Plan Mix</caption>
+                                        <thead><tr><th scope="col">Plan</th><th scope="col">Tenants</th><th scope="col">Monthly Revenue (NGN)</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var p in _planMix)
+                                            {
+                                                <tr><td>@p.PlanCode</td><td>@p.Count</td><td>@p.MonthlyRevenue.ToString("N2")</td></tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </FallbackTable>
+                            </ChartCanvas>
                         }
                     </div>
                 </article>
@@ -293,6 +292,66 @@
                     </div>
                 </article>
             </section>
+
+            @* ── Revenue distribution donut ─────────────────────────── *@
+            @if (_planMix.Any())
+            {
+                <section class="fc-billing-layout fc-revenue-layout">
+                    <article class="fc-card fc-revenue-card">
+                        <div class="fc-card__header fc-revenue-card-header">
+                            <div>
+                                <h2 class="fc-card__title">Revenue Distribution by Plan</h2>
+                                <p class="fc-revenue-card-note">Monthly recurring revenue share across active subscription plans.</p>
+                            </div>
+                        </div>
+                        <div class="fc-card__body fc-card__body--chart">
+                            <ChartCanvas Spec="@PlanDonutChartSpec"
+                                         AriaLabel="Donut chart showing revenue distribution by subscription plan"
+                                         Height="260">
+                                <FallbackTable>
+                                    <table>
+                                        <caption>Revenue by Plan</caption>
+                                        <thead><tr><th scope="col">Plan</th><th scope="col">Monthly Revenue (NGN)</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var p in _planMix)
+                                            {
+                                                <tr><td>@p.PlanCode</td><td>@p.MonthlyRevenue.ToString("N2")</td></tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </FallbackTable>
+                            </ChartCanvas>
+                        </div>
+                    </article>
+
+                    <article class="fc-card fc-revenue-card">
+                        <div class="fc-card__header fc-revenue-card-header">
+                            <div>
+                                <h2 class="fc-card__title">Tenant Count by Plan</h2>
+                                <p class="fc-revenue-card-note">Active tenant distribution across subscription plan tiers.</p>
+                            </div>
+                        </div>
+                        <div class="fc-card__body fc-card__body--chart">
+                            <ChartCanvas Spec="@TenantCountChartSpec"
+                                         AriaLabel="Bar chart showing number of tenants per subscription plan"
+                                         Height="260">
+                                <FallbackTable>
+                                    <table>
+                                        <caption>Tenants by Plan</caption>
+                                        <thead><tr><th scope="col">Plan</th><th scope="col">Tenants</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var p in _planMix)
+                                            {
+                                                <tr><td>@p.PlanCode</td><td>@p.Count</td></tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </FallbackTable>
+                            </ChartCanvas>
+                        </div>
+                    </article>
+                </section>
+            }
 
             <section class="fc-card fc-revenue-table-card">
                 <div class="fc-card__header fc-revenue-card-header">
@@ -488,7 +547,7 @@
     private async Task LoadMonthlyTrend()
     {
         var currentMonth = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-        var firstMonth = currentMonth.AddMonths(-5);
+        var firstMonth = currentMonth.AddMonths(-11); // 12 months rolling window
 
         var paidRows = await Db.Invoices
             .AsNoTracking()
@@ -499,7 +558,7 @@
             .ToListAsync();
 
         _monthlyTrend = new List<MonthlyTrendPoint>();
-        for (var i = 0; i < 6; i++)
+        for (var i = 0; i < 12; i++)
         {
             var bucket = firstMonth.AddMonths(i);
             var amount = paidRows
@@ -508,7 +567,7 @@
 
             _monthlyTrend.Add(new MonthlyTrendPoint
             {
-                Label = bucket.ToString("MMM yyyy"),
+                Label = bucket.ToString("MMM yy"),
                 Amount = amount
             });
         }
@@ -557,6 +616,80 @@
             .Take(10)
             .ToListAsync();
     }
+
+    /* ── Chart specs (serialised to JSON by Blazor JSInterop) ───────── */
+
+    private object TrendChartSpec => new
+    {
+        type    = "line",
+        labels  = _monthlyTrend.Select(p => p.Label).ToArray(),
+        datasets = new[]
+        {
+            new
+            {
+                label = "Collections (NGN)",
+                data  = _monthlyTrend.Select(p => (double)p.Amount).ToArray(),
+                color = "primary",
+            }
+        },
+        yFormat      = "currency",
+        tooltipFormat = "currency",
+        legend       = false,
+    };
+
+    private object PlanBarChartSpec => new
+    {
+        type    = "bar",
+        labels  = _planMix.Select(p => p.PlanCode).ToArray(),
+        datasets = new[]
+        {
+            new
+            {
+                label = "Monthly Revenue (NGN)",
+                data  = _planMix.Select(p => (double)p.MonthlyRevenue).ToArray(),
+                color = "primary",
+            },
+            new
+            {
+                label = "Tenant Count",
+                data  = _planMix.Select(p => (double)p.Count).ToArray(),
+                color = "accent",
+            }
+        },
+        yFormat       = "compact",
+        tooltipFormat = "currency",
+    };
+
+    private object PlanDonutChartSpec => new
+    {
+        type    = "donut",
+        labels  = _planMix.Select(p => p.PlanCode).ToArray(),
+        datasets = new[]
+        {
+            new
+            {
+                label = "Revenue",
+                data  = _planMix.Select(p => (double)p.MonthlyRevenue).ToArray(),
+            }
+        },
+        tooltipFormat = "currency",
+    };
+
+    private object TenantCountChartSpec => new
+    {
+        type    = "bar",
+        labels  = _planMix.Select(p => p.PlanCode).ToArray(),
+        datasets = new[]
+        {
+            new
+            {
+                label = "Tenants",
+                data  = _planMix.Select(p => (double)p.Count).ToArray(),
+                color = "accent",
+            }
+        },
+        legend = false,
+    };
 
     private static string FormatCurrency(decimal value) => $"NGN {value:N2}";
 

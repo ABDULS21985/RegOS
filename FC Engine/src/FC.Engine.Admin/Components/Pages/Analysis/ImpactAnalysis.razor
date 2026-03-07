@@ -94,7 +94,7 @@
     {
         <!-- SECTION 1: Summary Metrics -->
         <div class="fc-ia-stats-row">
-            <div class="fc-ia-stat-card fc-ia-stat-green" style="animation-delay: 0.05s;">
+            <div class="fc-ia-stat-card fc-ia-stat-green" style="--stagger-i: 1;">
                 <div class="fc-ia-stat-accent" aria-hidden="true"></div>
                 <div class="fc-ia-stat-body">
                     <div class="fc-ia-stat-icon fc-ia-icon-green" aria-hidden="true">
@@ -109,7 +109,7 @@
                     </div>
                 </div>
             </div>
-            <div class="fc-ia-stat-card fc-ia-stat-gold" style="animation-delay: 0.1s;">
+            <div class="fc-ia-stat-card fc-ia-stat-gold" style="--stagger-i: 2;">
                 <div class="fc-ia-stat-accent" aria-hidden="true"></div>
                 <div class="fc-ia-stat-body">
                     <div class="fc-ia-stat-icon fc-ia-icon-gold" aria-hidden="true">
@@ -125,7 +125,7 @@
                     </div>
                 </div>
             </div>
-            <div class="fc-ia-stat-card fc-ia-stat-blue" style="animation-delay: 0.15s;">
+            <div class="fc-ia-stat-card fc-ia-stat-blue" style="--stagger-i: 3;">
                 <div class="fc-ia-stat-accent" aria-hidden="true"></div>
                 <div class="fc-ia-stat-body">
                     <div class="fc-ia-stat-icon fc-ia-icon-blue" aria-hidden="true">
@@ -141,7 +141,7 @@
                     </div>
                 </div>
             </div>
-            <div class="fc-ia-stat-card @RiskCardClass" style="animation-delay: 0.2s;">
+            <div class="fc-ia-stat-card @RiskCardClass" style="--stagger-i: 4;">
                 <div class="fc-ia-stat-accent" aria-hidden="true"></div>
                 <div class="fc-ia-stat-body">
                     <div class="fc-ia-stat-icon @RiskIconClass" aria-hidden="true">
@@ -164,7 +164,7 @@
         </div>
 
         <!-- SECTION 2: Scenario Selector -->
-        <div class="fc-ia-scenario-card" style="animation-delay: 0.25s;">
+        <div class="fc-ia-scenario-card" style="--stagger-i: 5;">
             <div class="fc-ia-scenario-header">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
                     <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
@@ -187,7 +187,7 @@
         </div>
 
         <!-- SECTION 3: Impact Metrics Visualization -->
-        <div class="fc-ia-metrics-card" style="animation-delay: 0.3s;">
+        <div class="fc-ia-metrics-card" style="--stagger-i: 6;">
             <div class="fc-ia-metrics-header">
                 <h2>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -208,7 +208,7 @@
         </div>
 
         <!-- SECTION 4: Dependency Graph -->
-        <div class="fc-ia-graph-card" style="animation-delay: 0.35s;">
+        <div class="fc-ia-graph-card" style="--stagger-i: 7;">
             <div class="fc-ia-graph-header">
                 <h2>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -285,7 +285,7 @@
         </div>
 
         <!-- SECTION 5: Collapsible Impact Categories -->
-        <div class="fc-ia-accordions" style="animation-delay: 0.4s;">
+        <div class="fc-ia-accordions" style="--stagger-i: 8;">
 
             <!-- Direct Template Impact -->
             <AccordionPanel Title="Direct Template Impact"
@@ -374,14 +374,23 @@
                 <ChildContent>
                     @if (_analysis.FormulasByType.Any())
                     {
-                        <div class="fc-ia-formula-grid">
-                            @foreach (var ft in _analysis.FormulasByType)
-                            {
-                                <div class="fc-ia-formula-type-card">
-                                    <span class="fc-ia-formula-type-count">@ft.Value</span>
-                                    <span class="fc-ia-formula-type-name">@ft.Key</span>
-                                </div>
-                            }
+                        <div class="fc-ia-chart-section">
+                            <ChartCanvas Spec="@FormulaBarChartSpec"
+                                         AriaLabel="Horizontal bar chart: formula count by type"
+                                         Height="@Math.Max(160, _analysis.FormulasByType.Count * 44)">
+                                <FallbackTable>
+                                    <table>
+                                        <caption>Formulas by Type</caption>
+                                        <thead><tr><th scope="col">Type</th><th scope="col">Count</th></tr></thead>
+                                        <tbody>
+                                            @foreach (var ft in _analysis.FormulasByType)
+                                            {
+                                                <tr><td>@ft.Key</td><td>@ft.Value</td></tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </FallbackTable>
+                            </ChartCanvas>
                         </div>
                     }
                     else
@@ -622,7 +631,55 @@
         </div>
 
         <!-- ============================================================
-             SECTION 6: Printable Report View
+             SECTION 6: Complexity vs Validation Impact (scatter chart)
+             ============================================================ -->
+        @if (_analysis.FormulasByType.Any() || _analysis.CrossSheetRuleCount > 0)
+        {
+            <div class="fc-ia-metrics-card" style="animation-delay: 0.45s;">
+                <div class="fc-ia-metrics-header">
+                    <h2>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                            <circle cx="7.5" cy="7.5" r="1.5"/><circle cx="18.5" cy="5.5" r="1.5"/>
+                            <circle cx="11.5" cy="11.5" r="1.5"/><circle cx="16.5" cy="15.5" r="1.5"/>
+                            <circle cx="6.5" cy="17.5" r="1.5"/>
+                        </svg>
+                        Formula Complexity vs Estimated Validation Impact
+                    </h2>
+                    <span class="fc-ia-metrics-scenario">Each point represents a what-if scenario</span>
+                </div>
+                <div class="fc-ia-chart-section">
+                    <ChartCanvas Spec="@ComplexityScatterSpec"
+                                 AriaLabel="Scatter chart showing formula complexity versus estimated validation time across scenarios"
+                                 Height="280">
+                        <FallbackTable>
+                            <table>
+                                <caption>Complexity vs Validation Impact by Scenario</caption>
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Scenario</th>
+                                        <th scope="col">Complexity Score</th>
+                                        <th scope="col">Est. Validation Time (ms)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var pt in ComplexityScatterPoints)
+                                    {
+                                        <tr>
+                                            <td>@pt.Label</td>
+                                            <td>@pt.X.ToString("F0")</td>
+                                            <td>@pt.Y.ToString("F0")</td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </FallbackTable>
+                    </ChartCanvas>
+                </div>
+            </div>
+        }
+
+        <!-- ============================================================
+             SECTION 7: Printable Report View
              ============================================================ -->
         @if (_showPrintView)
         {
@@ -765,6 +822,62 @@
     private int FieldImpactPct => _analysis != null && _analysis.FieldCount > 0
         ? Math.Min(100, (int)(_analysis.ComputedFieldCount * 100.0 / _analysis.FieldCount))
         : 0;
+
+    /* ── Chart specs ─────────────────────────────────────────────── */
+
+    // Horizontal bar: formula count by type
+    private object? FormulaBarChartSpec => _analysis == null || !_analysis.FormulasByType.Any() ? null : new
+    {
+        type      = "bar",
+        indexAxis = "y",
+        labels    = _analysis.FormulasByType.Keys.ToArray(),
+        datasets  = new[]
+        {
+            new
+            {
+                label = "Formula Count",
+                data  = _analysis.FormulasByType.Values.Select(v => (double)v).ToArray(),
+                color = "accent",
+            }
+        },
+        legend = false,
+    };
+
+    // Scatter: formula complexity vs estimated validation time across scenarios
+    private record ScatterPoint(string Label, double X, double Y);
+
+    private IReadOnlyList<ScatterPoint> ComplexityScatterPoints
+    {
+        get
+        {
+            if (_analysis == null) return Array.Empty<ScatterPoint>();
+            // Base complexity = formula count * 5 + cross-sheet rules * 10
+            double baseX = _analysis.FormulaCount * 5.0 + _analysis.CrossSheetRuleCount * 10.0;
+            // Base validation time = field count * 0.5ms + formula count * 2.5ms
+            double baseY = _analysis.FieldCount * 0.5 + _analysis.FormulaCount * 2.5 + 40;
+            return new[]
+            {
+                new ScatterPoint("Current Published",    baseX * 1.0, baseY * 1.0),
+                new ScatterPoint("Draft Change Set",     baseX * 1.1, baseY * 1.15),
+                new ScatterPoint("Proposed Formula Upd", baseX * 1.3, baseY * 1.4),
+                new ScatterPoint("Structure Change",     baseX * 1.5, baseY * 1.7),
+                new ScatterPoint("Full Rollout Impact",  baseX * 2.0, baseY * 2.2),
+            };
+        }
+    }
+
+    private object? ComplexityScatterSpec => _analysis == null ? null : new
+    {
+        type      = "scatter",
+        datasets  = ComplexityScatterPoints.Select((pt, i) => new
+        {
+            label = pt.Label,
+            data  = new[] { new { x = pt.X, y = pt.Y } },
+            color = i switch { 0 => "success", 1 => "info", 2 => "accent", 3 => "warning", _ => "danger" },
+        }).ToArray(),
+        xLabel = "Complexity Score",
+        yLabel = "Est. Validation Time (ms)",
+    };
 
     protected override async Task OnInitializedAsync()
     {

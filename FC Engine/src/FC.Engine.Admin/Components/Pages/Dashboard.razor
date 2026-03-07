@@ -77,7 +77,7 @@ else
     <!-- Stat Cards Row -->
     <div class="fc-dash-stats-row" role="region" aria-label="Key metrics">
         <!-- Card 1: Active Templates -->
-        <div class="fc-dash-stat-card fc-dash-stat-green" style="animation-delay: 0ms;">
+        <div class="fc-dash-stat-card fc-dash-stat-green" style="--stagger-i: 0;">
             <div class="fc-dash-stat-accent"></div>
             <div class="fc-dash-stat-body">
                 <div class="fc-dash-stat-icon-wrap fc-dash-icon-green">
@@ -100,7 +100,7 @@ else
         </div>
 
         <!-- Card 2: Pending Review -->
-        <div class="fc-dash-stat-card fc-dash-stat-gold" style="animation-delay: 80ms;">
+        <div class="fc-dash-stat-card fc-dash-stat-gold" style="--stagger-i: 1;">
             <div class="fc-dash-stat-accent"></div>
             <div class="fc-dash-stat-body">
                 <div class="fc-dash-stat-icon-wrap fc-dash-icon-gold">
@@ -127,7 +127,7 @@ else
         </div>
 
         <!-- Card 3: Validation Rules -->
-        <div class="fc-dash-stat-card fc-dash-stat-blue" style="animation-delay: 160ms;">
+        <div class="fc-dash-stat-card fc-dash-stat-blue" style="--stagger-i: 2;">
             <div class="fc-dash-stat-accent"></div>
             <div class="fc-dash-stat-body">
                 <div class="fc-dash-stat-icon-wrap fc-dash-icon-blue">
@@ -145,8 +145,8 @@ else
             </div>
         </div>
 
-        <!-- Card 4: Total Submissions -->
-        <div class="fc-dash-stat-card fc-dash-stat-green" style="animation-delay: 240ms;">
+        <!-- Card 4: Total Submissions (with 7-day sparkline) -->
+        <div class="fc-dash-stat-card fc-dash-stat-green" style="--stagger-i: 3;">
             <div class="fc-dash-stat-accent"></div>
             <div class="fc-dash-stat-body">
                 <div class="fc-dash-stat-icon-wrap fc-dash-icon-green">
@@ -159,6 +159,21 @@ else
                     <span class="fc-dash-stat-number">@_totalSubmissions</span>
                     <span class="fc-dash-stat-label">Total Submissions</span>
                 </div>
+                @if (_submissionSparkline.Count > 1)
+                {
+                    <svg class="fc-dash-sparkline"
+                         viewBox="0 0 60 20"
+                         preserveAspectRatio="none"
+                         aria-hidden="true"
+                         focusable="false">
+                        <polyline points="@BuildSparklinePoints(_submissionSparkline)"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="1.5"
+                                  stroke-linejoin="round"
+                                  stroke-linecap="round" />
+                    </svg>
+                }
                 <div class="fc-dash-stat-change @(_acceptanceRate > 0 ? "fc-dash-change-up" : "fc-dash-change-neutral")">
                     @if (_totalSubmissions > 0)
                     {
@@ -179,7 +194,7 @@ else
     <!-- Two-Column Content Grid -->
     <div class="fc-dash-content-grid">
         <!-- Left: Recent Submissions -->
-        <div class="fc-card" style="animation-delay: 320ms;">
+        <div class="fc-card" style="--stagger-i: 4;">
             <div class="fc-card__header">
                 <h2>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -233,7 +248,7 @@ else
         </div>
 
         <!-- Right: Template Health -->
-        <div class="fc-card" style="animation-delay: 400ms;">
+        <div class="fc-card" style="--stagger-i: 5;">
             <div class="fc-card__header">
                 <h2>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -245,40 +260,53 @@ else
                 <a href="/templates" class="fc-card__link">Manage</a>
             </div>
             <div class="fc-card__body">
-                <!-- Structural Category Breakdown -->
+                <!-- Structural Category Breakdown — conic-gradient ring charts -->
                 <div class="fc-dash-health-section" role="group" aria-label="Templates by structure">
                     <div class="fc-dash-health-label">By Structure</div>
-                    @foreach (var (cat, count) in _categoryBreakdown)
-                    {
-                        var pct = _templateCount > 0 ? (double)count / _templateCount * 100 : 0;
-                        <div class="fc-dash-progress-row">
-                            <div class="fc-dash-progress-info">
-                                <span class="fc-dash-progress-name">@cat</span>
-                                <span class="fc-dash-progress-count">@count</span>
+                    <div class="fc-dash-rings-row">
+                        @foreach (var (cat, count) in _categoryBreakdown)
+                        {
+                            var pct = _templateCount > 0 ? (int)Math.Round((double)count / _templateCount * 100) : 0;
+                            <div class="fc-dash-ring-item">
+                                <div class="fc-dash-ring"
+                                     style="--ring-pct: @pct; --ring-color: var(--cbn-primary);"
+                                     role="img"
+                                     aria-label="@cat: @pct%">
+                                    <div class="fc-dash-ring-hole">
+                                        <span class="fc-dash-ring-val">@pct<span class="fc-dash-ring-sym">%</span></span>
+                                    </div>
+                                </div>
+                                <span class="fc-dash-ring-name">@cat</span>
+                                <span class="fc-dash-ring-count">@count templates</span>
                             </div>
-                            <div class="fc-dash-progress-track" role="progressbar" aria-valuenow="@pct.ToString("F0")" aria-valuemin="0" aria-valuemax="100" aria-label="@cat: @count templates">
-                                <div class="fc-dash-progress-fill fc-dash-fill-@cat.ToLowerInvariant()" style="width: @pct.ToString("F0")%"></div>
-                            </div>
-                        </div>
-                    }
+                        }
+                    </div>
                 </div>
 
-                <!-- Frequency Breakdown -->
+                <!-- Frequency Breakdown — conic-gradient ring charts -->
                 <div class="fc-dash-health-section" role="group" aria-label="Templates by frequency">
                     <div class="fc-dash-health-label">By Frequency</div>
-                    @foreach (var (freq, count) in _frequencyBreakdown)
-                    {
-                        var pct = _templateCount > 0 ? (double)count / _templateCount * 100 : 0;
-                        <div class="fc-dash-progress-row">
-                            <div class="fc-dash-progress-info">
-                                <span class="fc-dash-progress-name">@freq</span>
-                                <span class="fc-dash-progress-count">@count</span>
+                    <div class="fc-dash-rings-row">
+                        @{ var freqColors = new[] { "--cbn-accent", "--cbn-info", "--cbn-success", "--cbn-warning" }; }
+                        @for (var fi = 0; fi < _frequencyBreakdown.Count; fi++)
+                        {
+                            var (freq, count) = _frequencyBreakdown[fi];
+                            var pct = _templateCount > 0 ? (int)Math.Round((double)count / _templateCount * 100) : 0;
+                            var ringColor = freqColors[fi % freqColors.Length];
+                            <div class="fc-dash-ring-item">
+                                <div class="fc-dash-ring"
+                                     style="--ring-pct: @pct; --ring-color: var(@ringColor);"
+                                     role="img"
+                                     aria-label="@freq: @pct%">
+                                    <div class="fc-dash-ring-hole">
+                                        <span class="fc-dash-ring-val">@pct<span class="fc-dash-ring-sym">%</span></span>
+                                    </div>
+                                </div>
+                                <span class="fc-dash-ring-name">@freq</span>
+                                <span class="fc-dash-ring-count">@count templates</span>
                             </div>
-                            <div class="fc-dash-progress-track" role="progressbar" aria-valuenow="@pct.ToString("F0")" aria-valuemin="0" aria-valuemax="100" aria-label="@freq: @count templates">
-                                <div class="fc-dash-progress-fill fc-dash-fill-freq" style="width: @pct.ToString("F0")%"></div>
-                            </div>
-                        </div>
-                    }
+                        }
+                    </div>
                 </div>
 
                 <!-- Version Status Summary -->
@@ -304,7 +332,7 @@ else
     </div>
 
     <!-- Quick Actions -->
-    <div class="fc-card fc-card--actions" style="animation-delay: 480ms;" role="region" aria-label="Quick actions">
+    <div class="fc-card fc-card--actions" style="--stagger-i: 6;" role="region" aria-label="Quick actions">
         <div class="fc-card__header">
             <h2>
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -313,7 +341,7 @@ else
                 Quick Actions
             </h2>
         </div>
-        <div class="fc-dash-actions-grid">
+        <div class="fc-dash-actions-grid fc-stagger-group">
             <a href="/templates" class="fc-btn fc-btn--action-card">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
                     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
@@ -360,6 +388,8 @@ else
     private List<(string Freq, int Count)> _frequencyBreakdown = new();
     private List<(string Cat, int Count)> _categoryBreakdown = new();
     private List<Submission> _recentSubmissions = new();
+    // 7-day submission count for sparkline (index 0 = 6 days ago, index 6 = today)
+    private List<int> _submissionSparkline = new();
 
     protected override async Task OnInitializedAsync()
     {
@@ -427,6 +457,12 @@ else
             _acceptanceRate = _totalSubmissions > 0
                 ? (int)Math.Round((double)_acceptedCount / _totalSubmissions * 100)
                 : 0;
+
+            // Build 7-day sparkline from recent submissions
+            var today = DateTime.UtcNow.Date;
+            _submissionSparkline = Enumerable.Range(0, 7)
+                .Select(i => _recentSubmissions.Count(s => s.SubmittedAt.Date == today.AddDays(i - 6)))
+                .ToList();
         }
         catch
         {
@@ -453,6 +489,26 @@ else
         SubmissionStatus.Parsing => "Parsing",
         _ => "Draft"
     };
+
+    /// <summary>
+    /// Converts a list of integer counts into SVG polyline points within a 60×20 viewBox.
+    /// Y is inverted so higher values appear at the top.
+    /// </summary>
+    private static string BuildSparklinePoints(List<int> values)
+    {
+        if (values.Count < 2) return string.Empty;
+        var max = values.Max();
+        var min = values.Min();
+        var range = max - min;
+        var step = 60.0 / (values.Count - 1);
+        return string.Join(" ", values.Select((v, i) =>
+        {
+            var x = i * step;
+            // Map value to Y: 18 (bottom) when value=min, 2 (top) when value=max
+            var y = range == 0 ? 10.0 : 18.0 - (v - min) * 16.0 / range;
+            return $"{x:F1},{y:F1}";
+        }));
+    }
 
     private static string FormatTimeAgo(DateTime utcTime)
     {
