@@ -1,0 +1,587 @@
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Portal.Services
+@inject IReturnTimelineService TimelineSvc
+@inject IAuditCommentService CommentSvc
+@inject ExportService ExportSvc
+@inject IJSRuntime JS
+
+@* ─── Filter bar + export action ─────────────────────────────────────── *@
+<div class="at-toolbar">
+    <div class="at-filter-row">
+        <span class="at-filter-label">Show:</span>
+        <button class="at-chip @(_filterSystem ? "at-chip--on" : "")"
+                @onclick='() => Toggle("System")'
+                aria-pressed="@_filterSystem">
+            <span class="at-chip-dot at-chip-dot--system" aria-hidden="true"></span>
+            System Events
+        </button>
+        <button class="at-chip @(_filterUserActions ? "at-chip--on" : "")"
+                @onclick='() => Toggle("UserAction")'
+                aria-pressed="@_filterUserActions">
+            <span class="at-chip-dot at-chip-dot--user" aria-hidden="true"></span>
+            User Actions
+        </button>
+        <button class="at-chip @(_filterComments ? "at-chip--on" : "")"
+                @onclick='() => Toggle("Comment")'
+                aria-pressed="@_filterComments">
+            <span class="at-chip-dot at-chip-dot--comment" aria-hidden="true"></span>
+            Comments
+        </button>
+    </div>
+
+    <button class="portal-btn portal-btn-outline portal-btn-sm at-pdf-btn"
+            @onclick="DownloadPdf"
+            disabled="@_exportingPdf"
+            title="Download a formatted PDF of this audit trail for compliance records">
+        @if (_exportingPdf)
+        {
+            <span class="portal-btn-spinner" aria-hidden="true"></span>
+        }
+        else
+        {
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                <polyline points="14 2 14 8 20 8"/>
+                <line x1="12" y1="18" x2="12" y2="12"/>
+                <polyline points="9 15 12 18 15 15"/>
+            </svg>
+        }
+        Download Audit Trail PDF
+    </button>
+</div>
+
+@* ─── Timeline body ───────────────────────────────────────────────────── *@
+@if (_loading)
+{
+    <div class="at-loading" role="status" aria-live="polite">
+        <div class="portal-spinner" aria-hidden="true"></div>
+        <span>Loading audit trail…</span>
+    </div>
+}
+else if (_visible.Count == 0)
+{
+    <div class="portal-empty-state" style="padding: 2.5rem 0; text-align: center;">
+        <div class="portal-empty-state-icon" aria-hidden="true">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+        </div>
+        <p class="portal-empty-state-desc">No events match the selected filters.</p>
+    </div>
+}
+else
+{
+    <div class="at-timeline" role="log" aria-label="Audit trail timeline" aria-live="polite">
+        @foreach (var group in _visible.GroupBy(e => e.Timestamp.ToLocalTime().Date).OrderByDescending(g => g.Key))
+        {
+            <div class="at-date-group">
+                <div class="at-date-label" role="separator">
+                    <span>@FormatDateLabel(group.Key)</span>
+                </div>
+                @foreach (var evt in group.OrderByDescending(e => e.Timestamp))
+                {
+                    var isCurrent = evt.IsCurrentStatus;
+                    var evtTypeLower = evt.EventType.ToLowerInvariant();
+                    <div class="at-item @(isCurrent ? "at-item--current" : "") at-item--@evtTypeLower"
+                         id="at-evt-@evt.EventId">
+
+                        @* Marker (left dot) *@
+                        <div class="at-marker-col" aria-hidden="true">
+                            <div class="at-marker at-marker--@evtTypeLower @(isCurrent ? "at-marker--current" : "")">
+                                @GetEventIcon(evt.EventType)
+                            </div>
+                            <div class="at-connector"></div>
+                        </div>
+
+                        @* Event card *@
+                        <div class="at-card @(isCurrent ? "at-card--current" : "")">
+
+                            @* Actor row *@
+                            <div class="at-actor-row">
+                                <div class="at-avatar at-avatar--@evtTypeLower" aria-hidden="true">@evt.ActorInitials</div>
+                                <div class="at-actor-info">
+                                    <span class="at-actor-name">@evt.PerformedBy</span>
+                                    @if (!string.IsNullOrEmpty(evt.ActorRole))
+                                    {
+                                        <span class="at-actor-role">@evt.ActorRole</span>
+                                    }
+                                </div>
+                                <div class="at-event-meta">
+                                    <span class="at-event-type-label at-label--@evtTypeLower">@evt.EventType</span>
+                                    @if (isCurrent)
+                                    {
+                                        <span class="at-current-badge">
+                                            <span class="at-pulse-dot" aria-hidden="true"></span>
+                                            Current Status
+                                        </span>
+                                    }
+                                    <time class="at-time" datetime="@evt.Timestamp.ToString("o")"
+                                          title="@evt.Timestamp.ToLocalTime().ToString("dd MMM yyyy HH:mm:ss")">
+                                        @evt.Timestamp.ToLocalTime().ToString("HH:mm:ss")
+                                    </time>
+                                </div>
+                            </div>
+
+                            @* Description *@
+                            <p class="at-description">@evt.Description</p>
+
+                            @* Status duration badge *@
+                            @if (!string.IsNullOrEmpty(evt.StatusDuration))
+                            {
+                                <div class="at-duration-badge" title="Time spent in prior state">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    @evt.StatusDuration
+                                </div>
+                            }
+
+                            @* ── Field diff (FieldChanged / Amendment) ── *@
+                            @if (evt.ChangedFields.Count > 0 || evt.Diff != null)
+                            {
+                                <div class="at-diff-section">
+                                    <button class="at-diff-toggle"
+                                            @onclick="() => ToggleDiff(evt.EventId)"
+                                            aria-expanded="@_expandedDiffs.Contains(evt.EventId)">
+                                        @if (_expandedDiffs.Contains(evt.EventId))
+                                        {
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
+                                            <span>Hide field changes</span>
+                                        }
+                                        else
+                                        {
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                                            @{ int changeCount = evt.ChangedFields.Count > 0 ? evt.ChangedFields.Count : 1; }
+                                            <span>Show @changeCount changed field@(changeCount != 1 ? "s" : "")</span>
+                                        }
+                                    </button>
+
+                                    @if (_expandedDiffs.Contains(evt.EventId))
+                                    {
+                                        <div class="at-diff-grid">
+                                            @if (evt.ChangedFields.Count > 0)
+                                            {
+                                                @foreach (var fd in evt.ChangedFields)
+                                                {
+                                                    <div class="at-diff-row">
+                                                        <div class="at-diff-field-name">@fd.FieldName</div>
+                                                        <div class="at-diff-values">
+                                                            @if (fd.Before != null)
+                                                            {
+                                                                <div class="at-diff-before">
+                                                                    <span class="at-diff-label">Before</span>
+                                                                    <code>@fd.Before</code>
+                                                                </div>
+                                                            }
+                                                            @if (fd.After != null)
+                                                            {
+                                                                <div class="at-diff-after">
+                                                                    <span class="at-diff-label">After</span>
+                                                                    <code>@fd.After</code>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                            }
+                                            else if (evt.Diff != null)
+                                            {
+                                                @* Fallback for raw Diff dictionary *@
+                                                @if (evt.Diff.TryGetValue("field", out var fld))
+                                                {
+                                                    <div class="at-diff-row">
+                                                        <div class="at-diff-field-name">@fld</div>
+                                                        <div class="at-diff-values">
+                                                            @if (evt.Diff.TryGetValue("before", out var bef))
+                                                            {
+                                                                <div class="at-diff-before">
+                                                                    <span class="at-diff-label">Before</span>
+                                                                    <code>@(bef?.ToString() ?? "(empty)")</code>
+                                                                </div>
+                                                            }
+                                                            @if (evt.Diff.TryGetValue("after", out var aft))
+                                                            {
+                                                                <div class="at-diff-after">
+                                                                    <span class="at-diff-label">After</span>
+                                                                    <code>@(aft?.ToString() ?? "(empty)")</code>
+                                                                </div>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                }
+                                                else
+                                                {
+                                                    @if (evt.Diff.TryGetValue("before", out var bef2))
+                                                    {
+                                                        <div class="at-diff-before"><span class="at-diff-label">Before</span><code>@bef2</code></div>
+                                                    }
+                                                    @if (evt.Diff.TryGetValue("after", out var aft2))
+                                                    {
+                                                        <div class="at-diff-after"><span class="at-diff-label">After</span><code>@aft2</code></div>
+                                                    }
+                                                }
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+
+                            @* ── Comment bubble (approval note / checker comment) ── *@
+                            @if (!string.IsNullOrEmpty(evt.Comment))
+                            {
+                                <div class="at-comment-bubble">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                    </svg>
+                                    <blockquote class="at-comment-text">"@evt.Comment"</blockquote>
+                                </div>
+                            }
+
+                            @* ── Reply thread ── *@
+                            @if (evt.Replies.Count > 0 || evt.EventCategory == "UserAction" && (evt.EventType is "Approved" or "Rejected" or "Submitted"))
+                            {
+                                <div class="at-thread">
+                                    @if (evt.Replies.Count > 0)
+                                    {
+                                        <div class="at-thread-replies">
+                                            @foreach (var reply in evt.Replies)
+                                            {
+                                                <div class="at-reply">
+                                                    <div class="at-reply-avatar" aria-hidden="true">@reply.AuthorInitials</div>
+                                                    <div class="at-reply-body">
+                                                        <div class="at-reply-header">
+                                                            <span class="at-reply-author">@reply.AuthorName</span>
+                                                            <time class="at-reply-time" datetime="@reply.CreatedAt.ToString("o")">
+                                                                @RelativeTime(reply.CreatedAt)
+                                                            </time>
+                                                        </div>
+                                                        <p class="at-reply-text">@reply.Content</p>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+
+                                    @if (!string.IsNullOrEmpty(CurrentUserName))
+                                    {
+                                        @{ var draft = GetDraft(evt.EventId); }
+                                        @if (_replyOpenFor == evt.EventId)
+                                        {
+                                            <div class="at-reply-form">
+                                                <div class="at-reply-form-avatar" aria-hidden="true">@GetInitials(CurrentUserName)</div>
+                                                <div class="at-reply-form-field">
+                                                    <textarea class="portal-input at-reply-textarea"
+                                                              placeholder="Add a compliance note or reply…"
+                                                              rows="2"
+                                                              value="@draft"
+                                                              @oninput="e => SetDraft(evt.EventId, e.Value?.ToString())"
+                                                              aria-label="Reply to this event"></textarea>
+                                                    <div class="at-reply-form-actions">
+                                                        <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                                                                @onclick="() => _replyOpenFor = null">Cancel</button>
+                                                        <button class="portal-btn portal-btn-primary portal-btn-sm"
+                                                                disabled="@(string.IsNullOrWhiteSpace(draft) || _submittingReply)"
+                                                                @onclick="() => SubmitReply(evt.EventId)">
+                                                            @if (_submittingReply)
+                                                            {
+                                                                <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                                            }
+                                                            Post Note
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <button class="at-add-reply-btn"
+                                                    @onclick="() => _replyOpenFor = evt.EventId">
+                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                                    <line x1="12" y1="5" x2="12" y2="19"/>
+                                                    <line x1="5" y1="12" x2="19" y2="12"/>
+                                                </svg>
+                                                Add compliance note
+                                            </button>
+                                        }
+                                    }
+                                </div>
+                            }
+
+                            @* ── Document attachments ── *@
+                            @if (evt.Attachments.Count > 0)
+                            {
+                                <div class="at-attachments">
+                                    @foreach (var att in evt.Attachments)
+                                    {
+                                        <a class="at-attachment"
+                                           href="@(att.DownloadUrl ?? "#")"
+                                           target="_blank"
+                                           rel="noopener noreferrer"
+                                           title="@att.FileName">
+                                            <span class="at-attachment-icon" aria-hidden="true">@GetFileIcon(att.FileType)</span>
+                                            <span class="at-attachment-name">@att.FileName</span>
+                                            @if (!string.IsNullOrEmpty(att.DisplaySize))
+                                            {
+                                                <span class="at-attachment-size">@att.DisplaySize</span>
+                                            }
+                                        </a>
+                                    }
+                                </div>
+                            }
+
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public int SubmissionId { get; set; }
+    [Parameter] public int InstitutionId { get; set; }
+    [Parameter] public string? CurrentUserName { get; set; }
+    [Parameter] public int? CurrentUserId { get; set; }
+
+    /// <summary>
+    /// Optional pre-loaded approval for embedding submitter/reviewer comments in timeline.
+    /// If not supplied the component will render without embedded comments.
+    /// </summary>
+    [Parameter] public SubmissionApproval? Approval { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────────────────
+    private List<TimelineEvent> _all     = new();
+    private List<TimelineEvent> _visible = new();
+
+    private bool _loading       = true;
+    private bool _exportingPdf  = false;
+    private bool _submittingReply = false;
+
+    private bool _filterSystem      = true;
+    private bool _filterUserActions = true;
+    private bool _filterComments    = true;
+
+    private readonly HashSet<string> _expandedDiffs = new();
+    private readonly Dictionary<string, string> _replyDrafts = new();
+    private string? _replyOpenFor;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        _all = await TimelineSvc.GetTimelineAsync(SubmissionId);
+
+        // Embed approval comments directly into matching timeline events
+        if (Approval is not null)
+            EnrichWithApprovalComments(Approval);
+
+        // Load persisted reply threads for events that can have them
+        await LoadRepliesAsync();
+
+        _loading = false;
+        ApplyFilter();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Re-embed if approval changes after initial load
+        if (!_loading && Approval is not null)
+        {
+            EnrichWithApprovalComments(Approval);
+            ApplyFilter();
+        }
+        await Task.CompletedTask;
+    }
+
+    // ── Filter ────────────────────────────────────────────────────────────────
+    private void Toggle(string category)
+    {
+        switch (category)
+        {
+            case "System":     _filterSystem      = !_filterSystem;      break;
+            case "UserAction": _filterUserActions = !_filterUserActions; break;
+            case "Comment":    _filterComments    = !_filterComments;    break;
+        }
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        _visible = _all.Where(e =>
+        {
+            if (e.EventCategory == "System"     && !_filterSystem)      return false;
+            if (e.EventCategory == "UserAction" && !_filterUserActions) return false;
+            if (e.EventCategory == "Comment"    && !_filterComments)    return false;
+            return true;
+        }).ToList();
+    }
+
+    // ── Diff expand ───────────────────────────────────────────────────────────
+    private void ToggleDiff(string eventId)
+    {
+        if (!_expandedDiffs.Remove(eventId))
+            _expandedDiffs.Add(eventId);
+    }
+
+    // ── Reply thread ──────────────────────────────────────────────────────────
+    private string GetDraft(string eventId) =>
+        _replyDrafts.TryGetValue(eventId, out var v) ? v : string.Empty;
+
+    private void SetDraft(string eventId, string? value) =>
+        _replyDrafts[eventId] = value ?? string.Empty;
+
+    private async Task SubmitReply(string eventId)
+    {
+        if (string.IsNullOrWhiteSpace(GetDraft(eventId)) || string.IsNullOrEmpty(CurrentUserName)) return;
+
+        _submittingReply = true;
+        try
+        {
+            var reply = await CommentSvc.AddReplyAsync(SubmissionId, eventId, CurrentUserName, GetDraft(eventId));
+            var evt   = _all.FirstOrDefault(e => e.EventId == eventId);
+            if (evt is not null)
+                evt.Replies.Add(reply);
+
+            _replyDrafts.Remove(eventId);
+            _replyOpenFor = null;
+            ApplyFilter();
+        }
+        finally
+        {
+            _submittingReply = false;
+        }
+    }
+
+    private async Task LoadRepliesAsync()
+    {
+        // Load replies for events that support comment threads
+        foreach (var evt in _all.Where(e =>
+            e.EventCategory == "UserAction" &&
+            e.EventType is "Approved" or "Rejected" or "Submitted"))
+        {
+            evt.Replies = await CommentSvc.GetRepliesAsync(SubmissionId, evt.EventId);
+        }
+    }
+
+    // ── Approval comment enrichment ───────────────────────────────────────────
+    private void EnrichWithApprovalComments(SubmissionApproval apv)
+    {
+        // Match the Submitted event to embed SubmitterNotes
+        if (!string.IsNullOrWhiteSpace(apv.SubmitterNotes))
+        {
+            var submittedEvt = _all
+                .Where(e => e.EventType == "Submitted")
+                .OrderBy(e => e.Timestamp)
+                .LastOrDefault();
+
+            if (submittedEvt is not null)
+            {
+                submittedEvt.Comment       = apv.SubmitterNotes;
+                submittedEvt.EventCategory = "UserAction";
+            }
+        }
+
+        // Match the Approved / Rejected event to embed ReviewerComments
+        if (!string.IsNullOrWhiteSpace(apv.ReviewerComments))
+        {
+            var reviewEvt = _all
+                .Where(e => e.EventType is "Approved" or "Rejected")
+                .OrderBy(e => e.Timestamp)
+                .LastOrDefault();
+
+            if (reviewEvt is not null)
+            {
+                reviewEvt.Comment       = apv.ReviewerComments;
+                reviewEvt.EventCategory = "UserAction";
+            }
+        }
+    }
+
+    // ── PDF export ────────────────────────────────────────────────────────────
+    private async Task DownloadPdf()
+    {
+        _exportingPdf = true;
+        try
+        {
+            var bytes = await ExportSvc.ExportAuditTrailPdfAsync(SubmissionId, InstitutionId);
+            if (bytes is { Length: > 0 })
+            {
+                var b64 = Convert.ToBase64String(bytes);
+                await JS.InvokeVoidAsync("portalDownloadBase64File",
+                    b64,
+                    $"audit-trail-{SubmissionId}.pdf",
+                    "application/pdf");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JS.InvokeVoidAsync("console.error", $"[AuditTimeline] PDF export failed: {ex.Message}");
+        }
+        finally
+        {
+            _exportingPdf = false;
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    private static string GetInitials(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return "?";
+        var parts = name.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length == 1
+            ? parts[0][0].ToString().ToUpperInvariant()
+            : $"{parts[0][0]}{parts[^1][0]}".ToUpperInvariant();
+    }
+
+    private static string RelativeTime(DateTime dt)
+    {
+        var diff = DateTime.UtcNow - dt.ToUniversalTime();
+        if (diff.TotalSeconds < 60)  return "just now";
+        if (diff.TotalMinutes < 60)  return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24)    return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 7)      return $"{(int)diff.TotalDays}d ago";
+        return dt.ToLocalTime().ToString("d MMM yyyy");
+    }
+
+    private static string FormatDateLabel(DateTime date)
+    {
+        var today = DateTime.Today;
+        if (date == today)           return "Today";
+        if (date == today.AddDays(-1)) return "Yesterday";
+        return date.ToString("dddd, d MMMM yyyy");
+    }
+
+    private static string GetFileIcon(string fileType) => fileType.ToLowerInvariant() switch
+    {
+        "pdf"  => "📄",
+        "xml"  => "📋",
+        "csv"  => "📊",
+        "xlsx" => "📊",
+        "zip"  => "📦",
+        _      => "📎",
+    };
+
+    private static MarkupString GetEventIcon(string eventType) => new(eventType switch
+    {
+        "Submitted" =>
+            """<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="22 2 15 22 11 13 2 9 22 2"/></svg>""",
+        "Validated" =>
+            """<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>""",
+        "Approved" =>
+            """<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>""",
+        "Rejected" =>
+            """<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>""",
+        "Amended" =>
+            """<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>""",
+        "FieldChanged" =>
+            """<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>""",
+        "Exported" =>
+            """<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>""",
+        _ =>
+            """<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="4"/></svg>""",
+    });
+}

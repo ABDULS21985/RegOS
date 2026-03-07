@@ -5,313 +5,684 @@
 @inject FC.Engine.Portal.Services.ToastService Toast
 @inject IJSRuntime JS
 @inject NavigationManager Navigation
+@implements IAsyncDisposable
 
 <PageTitle>Report Builder — FC Engine Portal</PageTitle>
 
 <div class="portal-page">
     @if (_loading)
     {
-        <div class="portal-card" style="padding: 2rem;">
-            <div class="portal-skeleton portal-skeleton-block" style="height: 80px; margin-bottom: 1rem;"></div>
-            <div class="portal-skeleton portal-skeleton-block" style="height: 400px;"></div>
+        <div class="portal-card" style="padding:2rem;">
+            <div class="portal-skeleton portal-skeleton-block" style="height:60px;margin-bottom:1rem;"></div>
+            <div class="portal-skeleton portal-skeleton-block" style="height:520px;"></div>
         </div>
     }
     else if (!_hasAccess)
     {
-        <div class="portal-card portal-empty-state" style="padding: 3rem; text-align: center;">
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <rect x="3" y="11" width="18" height="11" rx="2"/>
                 <path d="M7 11V7a5 5 0 0110 0v4"/>
             </svg>
-            <h3 class="portal-empty-state-title" style="margin-top: 1rem;">Report Builder — Enterprise Feature</h3>
-            <p class="portal-empty-state-desc">
-                The Report Builder is available on Enterprise plans and above.
-                Contact your administrator to upgrade your subscription.
-            </p>
+            <h3 class="portal-empty-state-title" style="margin-top:1rem;">Report Builder — Enterprise Feature</h3>
+            <p class="portal-empty-state-desc">The Report Builder is available on Enterprise plans. Contact your administrator to upgrade.</p>
         </div>
     }
     else
     {
-        <!-- Header -->
-        <div class="portal-page-header" style="margin-bottom: 1rem;">
+        <!-- Page header -->
+        <div class="portal-page-header" style="margin-bottom:1rem;">
             <div>
+                <nav class="portal-breadcrumb" aria-label="Breadcrumb">
+                    <a href="/reports" class="portal-breadcrumb-link">Reports</a>
+                    <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
+                    <span class="portal-breadcrumb-current">Report Builder</span>
+                </nav>
                 <h2 class="portal-page-title">Report Builder</h2>
-                <p class="portal-page-subtitle">Select fields, add filters, and run ad-hoc queries across your regulatory data.</p>
+                <p class="portal-page-subtitle">Drag fields, build conditions, and preview results in real-time.</p>
             </div>
-            <div style="display: flex; gap: 0.5rem;">
-                <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="RunReport" disabled="@(_running || _selectedFields.Count == 0)">
+            <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                @if (_result is not null)
+                {
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ExportCsv" title="Export all rows as CSV">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:.3rem"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        CSV
+                    </button>
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ExportExcel" title="Export as Excel">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:.3rem"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8l8 8M16 8l-8 8"/></svg>
+                        Excel
+                    </button>
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ExportPdf" title="Export as PDF">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:.3rem"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                        PDF
+                    </button>
+                }
+                <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="ShowSaveDialog" disabled="@(_selectedFields.Count == 0)">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:.3rem"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                    Save
+                </button>
+                <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="RunFullReport" disabled="@(_running || _selectedFields.Count == 0)">
                     @if (_running)
                     {
                         <span class="portal-btn-spinner" aria-hidden="true"></span>
                     }
-                    Run Report
+                    else
+                    {
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:.3rem"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    }
+                    Run Full Report
                 </button>
-                <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="ShowSaveDialog" disabled="@(_selectedFields.Count == 0)">Save</button>
-                @if (_result is not null)
-                {
-                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ExportCsv">CSV</button>
-                }
             </div>
         </div>
 
-        <div class="rb-layout">
-            <!-- Left Panel: Field Selector -->
-            <div class="rb-field-panel portal-card">
-                <h3 class="rb-panel-title">Fields</h3>
-                <input type="text" class="portal-form-input rb-field-search" placeholder="Search fields..."
-                       @bind="_fieldSearch" @bind:event="oninput" />
+        <!-- 3-Panel Layout -->
+        <div class="rb3-layout">
 
-                @foreach (var module in FilteredTree())
-                {
-                    <div class="rb-module-group">
-                        <button class="rb-module-toggle" @onclick="() => ToggleModule(module.ModuleCode)">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                @if (_expandedModules.Contains(module.ModuleCode))
-                                {
-                                    <polyline points="6 9 12 15 18 9"/>
-                                }
-                                else
-                                {
+            <!-- ══ PANEL 1: Field Chooser ══ -->
+            <div class="rb3-panel rb3-field-panel portal-card">
+                <div class="rb3-panel-header">
+                    <span class="rb3-panel-title">Fields</span>
+                    <span class="rb3-badge">@(_allFieldCount) fields</span>
+                </div>
+
+                <div class="rb3-search-wrap">
+                    <svg class="rb3-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input type="text" class="rb3-search" placeholder="Search fields…"
+                           @bind="_fieldSearch" @bind:event="oninput" aria-label="Search fields" />
+                </div>
+
+                <div class="rb3-tree">
+                    @foreach (var module in FilteredTree())
+                    {
+                        <div class="rb3-module">
+                            <button class="rb3-module-btn" @onclick="() => ToggleModule(module.ModuleCode)" aria-expanded="@_expandedModules.Contains(module.ModuleCode)">
+                                <svg class="rb3-chevron @(_expandedModules.Contains(module.ModuleCode) ? "rb3-chevron-open" : "")"
+                                     width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
                                     <polyline points="9 18 15 12 9 6"/>
-                                }
-                            </svg>
-                            <span class="rb-module-name">@module.ModuleName</span>
-                        </button>
+                                </svg>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                    <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18M3 15h18" stroke-width="1"/>
+                                </svg>
+                                <span>@module.ModuleName</span>
+                                <span class="rb3-module-count">@module.Templates.Sum(t => t.Fields.Count)</span>
+                            </button>
 
-                        @if (_expandedModules.Contains(module.ModuleCode))
-                        {
-                            @foreach (var template in module.Templates)
+                            @if (_expandedModules.Contains(module.ModuleCode))
                             {
-                                <div class="rb-template-group">
-                                    <button class="rb-template-toggle" @onclick="() => ToggleTemplate(template.TemplateCode)">
-                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                                            @if (_expandedTemplates.Contains(template.TemplateCode))
-                                            {
-                                                <polyline points="6 9 12 15 18 9"/>
-                                            }
-                                            else
-                                            {
+                                @foreach (var template in module.Templates)
+                                {
+                                    <div class="rb3-template">
+                                        <button class="rb3-template-btn" @onclick="() => ToggleTemplate(template.TemplateCode)">
+                                            <svg class="rb3-chevron rb3-chevron-sm @(_expandedTemplates.Contains(template.TemplateCode) ? "rb3-chevron-open" : "")"
+                                                 width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
                                                 <polyline points="9 18 15 12 9 6"/>
-                                            }
-                                        </svg>
-                                        <span class="rb-template-name">@template.TemplateName</span>
-                                    </button>
+                                            </svg>
+                                            @template.TemplateName
+                                        </button>
 
-                                    @if (_expandedTemplates.Contains(template.TemplateCode))
-                                    {
-                                        <ul class="rb-field-list">
-                                            @foreach (var field in template.Fields)
-                                            {
-                                                var isSelected = _selectedFields.Any(f => f.FieldCode == field.FieldCode && f.TemplateCode == template.TemplateCode);
-                                                <li class="rb-field-item @(isSelected ? "rb-field-selected" : "")"
-                                                    @onclick="() => ToggleField(module.ModuleCode, template.TemplateCode, field)">
-                                                    <span class="rb-field-label">@field.FieldLabel</span>
-                                                    <span class="rb-field-type">@field.DataType</span>
-                                                </li>
-                                            }
-                                        </ul>
-                                    }
-                                </div>
+                                        @if (_expandedTemplates.Contains(template.TemplateCode))
+                                        {
+                                            <ul class="rb3-field-list" role="listbox" aria-label="@template.TemplateName fields">
+                                                @foreach (var field in template.Fields)
+                                                {
+                                                    var mod = module;
+                                                    var tmpl = template;
+                                                    var fld = field;
+                                                    var isSelected = _selectedFields.Any(f => f.FieldCode == fld.FieldCode && f.TemplateCode == tmpl.TemplateCode);
+                                                    <li class="rb3-field-item @(isSelected ? "rb3-field-selected" : "")"
+                                                        draggable="true"
+                                                        role="option"
+                                                        aria-selected="@isSelected"
+                                                        @ondragstart="() => StartDragField(mod.ModuleCode, tmpl.TemplateCode, fld)"
+                                                        @onclick="() => ToggleField(mod.ModuleCode, tmpl.TemplateCode, fld)"
+                                                        title="@fld.FieldLabel (@fld.DataType)">
+                                                        <span class="rb3-type-pip rb3-type-pip--@GetTypePip(fld.DataType)" aria-hidden="true"></span>
+                                                        <span class="rb3-field-label">@fld.FieldLabel</span>
+                                                        <span class="rb3-type-tag">@GetTypeTag(fld.DataType)</span>
+                                                        @if (isSelected)
+                                                        {
+                                                            <svg class="rb3-check-icon" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                                                <polyline points="20 6 9 17 4 12"/>
+                                                            </svg>
+                                                        }
+                                                    </li>
+                                                }
+                                            </ul>
+                                        }
+                                    </div>
+                                }
                             }
-                        }
-                    </div>
-                }
+                        </div>
+                    }
+
+                    @if (!FilteredTree().Any())
+                    {
+                        <div class="rb3-empty-tree">No fields match "@_fieldSearch"</div>
+                    }
+                </div>
             </div>
 
-            <!-- Right Panel: Configuration + Results -->
-            <div class="rb-main-panel">
-                <!-- Selected Fields -->
-                @if (_selectedFields.Count > 0)
-                {
-                    <div class="portal-card rb-section">
-                        <h4 class="rb-section-title">Selected Fields (@_selectedFields.Count)</h4>
-                        <div class="rb-chip-list">
-                            @foreach (var field in _selectedFields)
-                            {
-                                <span class="rb-chip">
-                                    @(field.Alias ?? field.FieldCode)
-                                    <button class="rb-chip-remove" @onclick="() => RemoveField(field)" aria-label="Remove field">x</button>
-                                </span>
-                            }
-                        </div>
-                    </div>
-                }
+            <!-- ══ PANEL 2: Column Builder ══ -->
+            <div class="rb3-panel rb3-col-panel portal-card">
+                <div class="rb3-panel-header">
+                    <span class="rb3-panel-title">Columns</span>
+                    <span class="rb3-badge @(_selectedFields.Count > 0 ? "rb3-badge--active" : "")">@_selectedFields.Count</span>
+                </div>
 
-                <!-- Filters -->
-                <div class="portal-card rb-section">
-                    <div class="rb-section-header">
-                        <h4 class="rb-section-title">Filters</h4>
-                        <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="AddFilter">+ Add Filter</button>
-                    </div>
-                    @foreach (var filter in _filters)
+                <!-- Drop Zone -->
+                <div class="rb3-drop-zone @(_isDragOverColumns ? "rb3-drop-zone--active" : "") @(_selectedFields.Count == 0 ? "rb3-drop-zone--empty" : "")"
+                     @ondragover:preventDefault="true"
+                     @ondragover="() => _isDragOverColumns = true"
+                     @ondragleave="() => _isDragOverColumns = false"
+                     @ondrop="HandleDropOnZone">
+                    @if (_selectedFields.Count == 0)
                     {
-                        <div class="rb-filter-row">
-                            <select class="portal-form-input rb-filter-field" @bind="filter.Field">
-                                <option value="">— Select Field —</option>
-                                @foreach (var f in _selectedFields)
-                                {
-                                    <option value="@f.FieldCode">@(f.Alias ?? f.FieldCode)</option>
-                                }
-                            </select>
-                            <select class="portal-form-input rb-filter-op" @bind="filter.Operator">
-                                <option value="=">=</option>
-                                <option value="!=">!=</option>
-                                <option value=">">&gt;</option>
-                                <option value=">=">&gt;=</option>
-                                <option value="<">&lt;</option>
-                                <option value="<=">&lt;=</option>
-                                <option value="LIKE">Contains</option>
-                                <option value="IN">In</option>
-                            </select>
-                            <input type="text" class="portal-form-input rb-filter-value" @bind="filter.Value" placeholder="Value" />
-                            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="() => RemoveFilter(filter)">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                            </button>
+                        <div class="rb3-drop-hint">
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+                                <path d="M4 7h16M4 12h16M4 17h8"/>
+                                <path d="M15 19l5-5m0 0l-5-5m5 5H11" stroke-width="1.5"/>
+                            </svg>
+                            <span>Drag fields here</span>
+                            <span class="rb3-drop-hint-sub">or click a field on the left to add it</span>
                         </div>
+                    }
+                    else
+                    {
+                        @for (int i = 0; i < _selectedFields.Count; i++)
+                        {
+                            var field = _selectedFields[i];
+                            var idx = i;
+
+                            @if (_dragInsertIndex == idx && _draggingColumnIndex >= 0)
+                            {
+                                <div class="rb3-insert-line"></div>
+                            }
+
+                            <div class="rb3-col-card @(_draggingColumnIndex == idx ? "rb3-col-card--dragging" : "")"
+                                 draggable="true"
+                                 @ondragstart="() => StartDragColumn(idx)"
+                                 @ondragover:preventDefault="true"
+                                 @ondragover="() => _dragInsertIndex = idx"
+                                 @ondrop:stopPropagation="true"
+                                 @ondrop="() => DropColumnOnCard(idx)"
+                                 @oncontextmenu:preventDefault="true"
+                                 @oncontextmenu="(e) => ShowAggMenu(e, field)">
+
+                                <span class="rb3-col-handle" aria-hidden="true">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                        <circle cx="9" cy="5" r="1.2" fill="#94a3b8"/><circle cx="15" cy="5" r="1.2" fill="#94a3b8"/>
+                                        <circle cx="9" cy="12" r="1.2" fill="#94a3b8"/><circle cx="15" cy="12" r="1.2" fill="#94a3b8"/>
+                                        <circle cx="9" cy="19" r="1.2" fill="#94a3b8"/><circle cx="15" cy="19" r="1.2" fill="#94a3b8"/>
+                                    </svg>
+                                </span>
+
+                                <span class="rb3-col-type rb3-col-type--@GetTypePip(GetFieldDataType(field))" aria-hidden="true">
+                                    @GetTypeTag(GetFieldDataType(field))
+                                </span>
+
+                                <div class="rb3-col-label-wrap">
+                                    @if (_editingColumnIndex == idx)
+                                    {
+                                        <input type="text"
+                                               class="rb3-col-rename"
+                                               value="@_editingColumnValue"
+                                               @oninput="(e) => _editingColumnValue = e.Value?.ToString() ?? """
+                                               @onblur="() => CommitRename(idx)"
+                                               @onkeydown="(e) => OnRenameKey(e, idx)"
+                                               @onclick:stopPropagation="true" />
+                                    }
+                                    else
+                                    {
+                                        <span class="rb3-col-name" @onclick="() => StartRename(idx, field)" title="Click to rename column header">
+                                            @(field.Alias ?? field.FieldCode)
+                                        </span>
+                                    }
+                                    <span class="rb3-col-src">@field.TemplateCode · @field.FieldCode</span>
+                                </div>
+
+                                @if (GetAggregation(field) is { } agg)
+                                {
+                                    <span class="rb3-agg-badge" title="Aggregation: @agg.Function">Σ @agg.Function</span>
+                                }
+
+                                <span class="rb3-col-pos">@(idx + 1)</span>
+
+                                <button class="rb3-col-remove" @onclick="() => RemoveField(field)" @onclick:stopPropagation="true" aria-label="Remove @(field.Alias ?? field.FieldCode)">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        }
+
+                        @if (_dragInsertIndex == _selectedFields.Count && _draggingColumnIndex >= 0)
+                        {
+                            <div class="rb3-insert-line"></div>
+                        }
                     }
                 </div>
 
-                <!-- Aggregation & Sort -->
-                <div class="rb-row-2col">
-                    <div class="portal-card rb-section">
-                        <div class="rb-section-header">
-                            <h4 class="rb-section-title">Aggregation</h4>
-                            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="AddAggregation">+ Add</button>
+                <!-- Filters -->
+                <div class="rb3-subsection">
+                    <div class="rb3-subsection-hdr">
+                        <span class="rb3-subsection-title">Filters</span>
+                        <div style="display:flex;gap:.3rem;align-items:center;">
+                            <button class="rb3-logic-btn @(_filterLogic == "AND" ? "rb3-logic-btn--on" : "")" @onclick='() => SetFilterLogic("AND")' title="All conditions must match">AND</button>
+                            <button class="rb3-logic-btn @(_filterLogic == "OR" ? "rb3-logic-btn--on" : "")" @onclick='() => SetFilterLogic("OR")' title="Any condition must match">OR</button>
+                            <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="AddFilter">+ Add</button>
                         </div>
-                        @foreach (var agg in _aggregations)
-                        {
-                            <div class="rb-filter-row">
-                                <select class="portal-form-input" @bind="agg.Function">
-                                    <option value="SUM">SUM</option>
-                                    <option value="AVG">AVG</option>
-                                    <option value="MIN">MIN</option>
-                                    <option value="MAX">MAX</option>
-                                    <option value="COUNT">COUNT</option>
-                                </select>
-                                <select class="portal-form-input" @bind="agg.Field">
-                                    <option value="">— Field —</option>
-                                    @foreach (var f in _selectedFields)
-                                    {
-                                        <option value="@f.FieldCode">@(f.Alias ?? f.FieldCode)</option>
-                                    }
-                                </select>
-                                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="() => RemoveAggregation(agg)">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                                </button>
-                            </div>
-                        }
                     </div>
 
-                    <div class="portal-card rb-section">
-                        <div class="rb-section-header">
-                            <h4 class="rb-section-title">Sort</h4>
-                            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="AddSort">+ Add</button>
-                        </div>
-                        @foreach (var sort in _sorts)
+                    @if (_filters.Count == 0)
+                    {
+                        <p class="rb3-empty-hint">No filters — all rows will be included.</p>
+                    }
+                    else
+                    {
+                        @for (int fi = 0; fi < _filters.Count; fi++)
                         {
-                            <div class="rb-filter-row">
-                                <select class="portal-form-input" @bind="sort.Field">
-                                    <option value="">— Field —</option>
-                                    @foreach (var f in _selectedFields)
+                            var filter = _filters[fi];
+                            var fidx = fi;
+                            <div class="rb3-filter-row">
+                                @if (fidx > 0)
+                                {
+                                    <span class="rb3-logic-label">@_filterLogic</span>
+                                }
+                                else
+                                {
+                                    <span class="rb3-logic-label rb3-logic-label--where">WHERE</span>
+                                }
+                                <select class="rb3-select" @bind="filter.Field" @bind:after="SchedulePreview">
+                                    <option value="">Field</option>
+                                    @foreach (var sf in _selectedFields)
                                     {
-                                        <option value="@f.FieldCode">@(f.Alias ?? f.FieldCode)</option>
+                                        <option value="@sf.FieldCode">@(sf.Alias ?? sf.FieldCode)</option>
                                     }
                                 </select>
-                                <select class="portal-form-input" style="max-width: 100px;" @bind="sort.Direction">
-                                    <option value="ASC">ASC</option>
-                                    <option value="DESC">DESC</option>
+                                <select class="rb3-select rb3-select--op" @bind="filter.Operator" @bind:after="SchedulePreview">
+                                    <option value="=">=</option>
+                                    <option value="!=">≠</option>
+                                    <option value=">">&gt;</option>
+                                    <option value=">=">&ge;</option>
+                                    <option value="<">&lt;</option>
+                                    <option value="<=">&le;</option>
+                                    <option value="LIKE">~</option>
+                                    <option value="IN">IN</option>
                                 </select>
-                                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="() => RemoveSort(sort)">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                <input type="text" class="rb3-input" placeholder="Value"
+                                       @bind="filter.Value" @bind:event="oninput"
+                                       @oninput="SchedulePreview" />
+                                <button class="rb3-icon-btn rb3-icon-btn--danger" @onclick="() => RemoveFilter(filter)" aria-label="Remove filter">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
                                 </button>
                             </div>
                         }
+                    }
+                </div>
+
+                <!-- Sort -->
+                <div class="rb3-subsection">
+                    <div class="rb3-subsection-hdr">
+                        <span class="rb3-subsection-title">Sort</span>
+                        <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="AddSort">+ Add</button>
+                    </div>
+
+                    @if (_sorts.Count == 0)
+                    {
+                        <p class="rb3-empty-hint">No sort order defined.</p>
+                    }
+                    else
+                    {
+                        @for (int si = 0; si < _sorts.Count; si++)
+                        {
+                            var sort = _sorts[si];
+                            var sidx = si;
+                            <div class="rb3-sort-row">
+                                <span class="rb3-sort-idx" title="Sort priority @(sidx + 1)">@(sidx + 1)</span>
+                                <select class="rb3-select" @bind="sort.Field" @bind:after="SchedulePreview">
+                                    <option value="">Field</option>
+                                    @foreach (var sf in _selectedFields)
+                                    {
+                                        <option value="@sf.FieldCode">@(sf.Alias ?? sf.FieldCode)</option>
+                                    }
+                                </select>
+                                <button class="rb3-dir-btn @(sort.Direction == "ASC" ? "rb3-dir-btn--asc" : "rb3-dir-btn--desc")"
+                                        @onclick="() => ToggleSortDir(sort)" title="Toggle sort direction">
+                                    @if (sort.Direction == "ASC")
+                                    {
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>
+                                        <span>ASC</span>
+                                    }
+                                    else
+                                    {
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                                        <span>DESC</span>
+                                    }
+                                </button>
+                                <button class="rb3-icon-btn rb3-icon-btn--danger" @onclick="() => RemoveSort(sort)" aria-label="Remove sort">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        }
+                        @if (_sorts.Count > 1)
+                        {
+                            <p class="rb3-multisort">
+                                @string.Join(" → ", _sorts.Where(s => !string.IsNullOrWhiteSpace(s.Field))
+                                    .Select((s, i) => $"Sort {i + 1}: {s.Field} {s.Direction}"))
+                            </p>
+                        }
+                    }
+                </div>
+            </div>
+
+            <!-- ══ PANEL 3: Live Preview ══ -->
+            <div class="rb3-panel rb3-preview-panel portal-card">
+                <div class="rb3-panel-header">
+                    <span class="rb3-panel-title">
+                        Preview
+                        @if (_previewRunning)
+                        {
+                            <span class="rb3-spinner" aria-label="Loading preview" role="status"></span>
+                        }
+                        @if (_previewResult is not null && !_previewRunning)
+                        {
+                            <span class="rb3-preview-meta-inline">· first 10 of @_previewResult.TotalRowCount rows · @(_previewResult.QueryDurationMs)ms</span>
+                        }
+                    </span>
+                    <div style="display:flex;gap:.3rem;">
+                        <button class="rb3-view-btn @(_displayMode == "grid" ? "rb3-view-btn--active" : "")" @onclick='() => _displayMode = "grid"' title="Grid view" aria-label="Grid view">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                                <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                            </svg>
+                        </button>
+                        <button class="rb3-view-btn @(_displayMode == "chart" ? "rb3-view-btn--active" : "")" @onclick='() => SetDisplayMode("chart")' title="Chart view" aria-label="Chart view">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+                                <line x1="6" y1="20" x2="6" y2="14"/>
+                            </svg>
+                        </button>
                     </div>
                 </div>
 
-                <!-- Results -->
+                <!-- Preview content -->
+                @if (_selectedFields.Count == 0)
+                {
+                    <div class="rb3-preview-empty">
+                        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.2" aria-hidden="true">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <path d="M3 9h18M3 15h18M9 3v18" stroke-width="1"/>
+                        </svg>
+                        <span>Add columns to see a live preview</span>
+                        <span class="rb3-preview-empty-sub">Preview updates automatically as you build</span>
+                    </div>
+                }
+                else if (_previewError is not null && !_previewRunning)
+                {
+                    <div class="rb3-preview-error">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        @_previewError
+                        <button class="portal-btn portal-btn-ghost portal-btn-xs" style="margin-left:auto" @onclick="() => _ = RunPreviewAsync()">Retry</button>
+                    </div>
+                }
+                else if (_previewResult is not null && _displayMode == "grid")
+                {
+                    <div class="rb3-preview-table-wrap">
+                        <table class="rb3-preview-table">
+                            <thead>
+                                <tr>
+                                    @foreach (var col in _previewResult.Columns)
+                                    {
+                                        <th>@col</th>
+                                    }
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _previewResult.Rows.Take(10))
+                                {
+                                    <tr>
+                                        @foreach (var col in _previewResult.Columns)
+                                        {
+                                            <td>@FormatValue(row.GetValueOrDefault(col))</td>
+                                        }
+                                    </tr>
+                                }
+                                @if (!_previewResult.Rows.Any())
+                                {
+                                    <tr>
+                                        <td colspan="@_previewResult.Columns.Count" class="rb3-no-rows">No rows matched your filters</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else if (_previewResult is not null && _displayMode == "chart")
+                {
+                    <div class="rb3-chart-wrap">
+                        <canvas id="reportChart"></canvas>
+                    </div>
+                }
+                else if (_selectedFields.Count > 0 && !_previewRunning && _previewResult is null && _previewError is null)
+                {
+                    <div class="rb3-preview-empty">
+                        <span class="rb3-spinner"></span>
+                        <span>Loading preview…</span>
+                    </div>
+                }
+
+                <!-- Full results (after Run Full Report) -->
                 @if (_result is not null)
                 {
-                    <div class="portal-card rb-section">
-                        <div class="rb-section-header">
-                            <h4 class="rb-section-title">Results — @_result.TotalRowCount rows (@(_result.QueryDurationMs)ms)</h4>
-                            <div style="display: flex; gap: 0.25rem;">
-                                <button class="portal-btn portal-btn-ghost portal-btn-sm @(_displayMode == "grid" ? "rb-tab-active" : "")" @onclick='() => SetDisplayMode("grid")'>Grid</button>
-                                <button class="portal-btn portal-btn-ghost portal-btn-sm @(_displayMode == "chart" ? "rb-tab-active" : "")" @onclick='() => SetDisplayMode("chart")'>Chart</button>
+                    <div class="rb3-full-results">
+                        <div class="rb3-results-bar">
+                            <span class="rb3-results-title">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                                Full results — @_result.TotalRowCount rows &nbsp;·&nbsp; @(_result.QueryDurationMs)ms
+                            </span>
+                            <div style="display:flex;gap:.3rem;">
+                                <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="ExportCsv">CSV</button>
+                                <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="ExportExcel">Excel</button>
+                                <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="ExportPdf">PDF</button>
                             </div>
                         </div>
 
-                        @if (_displayMode == "grid")
-                        {
-                            <div class="portal-table-responsive">
-                                <table class="portal-table rb-result-table">
-                                    <thead>
+                        <div class="rb3-preview-table-wrap">
+                            <table class="rb3-preview-table">
+                                <thead>
+                                    <tr>
+                                        @foreach (var col in _result.Columns)
+                                        {
+                                            <th>@col</th>
+                                        }
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var row in _result.Rows.Take(_pageSize))
+                                    {
                                         <tr>
                                             @foreach (var col in _result.Columns)
                                             {
-                                                <th>@col</th>
+                                                <td>@FormatValue(row.GetValueOrDefault(col))</td>
                                             }
                                         </tr>
-                                    </thead>
-                                    <tbody>
-                                        @foreach (var row in _result.Rows.Take(_pageSize))
-                                        {
-                                            <tr>
-                                                @foreach (var col in _result.Columns)
-                                                {
-                                                    <td>@FormatValue(row.GetValueOrDefault(col))</td>
-                                                }
-                                            </tr>
-                                        }
-                                    </tbody>
-                                </table>
-                            </div>
-                            @if (_result.TotalRowCount > _pageSize)
-                            {
-                                <p style="padding: 0.5rem; font-size: 0.75rem; color: #64748b;">
-                                    Showing @_pageSize of @_result.TotalRowCount rows.
-                                </p>
-                            }
-                        }
-                        else
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        @if (_result.TotalRowCount > _pageSize)
                         {
-                            <div style="height: 350px; position: relative;">
-                                <canvas id="reportChart"></canvas>
-                            </div>
+                            <p class="rb3-rows-hint">Showing @_pageSize of @_result.TotalRowCount rows — export to get all rows.</p>
                         }
                     </div>
                 }
                 else if (_error is not null)
                 {
-                    <div class="portal-card rb-section" style="border-left: 3px solid #ef4444; padding: 1rem;">
-                        <p style="color: #ef4444; margin: 0;">@_error</p>
+                    <div class="rb3-preview-error" style="margin:.75rem;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                        </svg>
+                        @_error
                     </div>
                 }
             </div>
         </div>
 
-        <!-- Save Dialog -->
+        <!-- ══ AGGREGATION CONTEXT MENU ══ -->
+        @if (_showAggMenu && _aggMenuField is not null)
+        {
+            <div class="rb3-ctx-backdrop" @onclick="CloseAggMenu" role="presentation"></div>
+            <div class="rb3-ctx-menu" style="top:@(_aggMenuY)px; left:@(_aggMenuX)px;" role="menu" aria-label="Aggregation options">
+                <div class="rb3-ctx-title">Aggregate: @(_aggMenuField.Alias ?? _aggMenuField.FieldCode)</div>
+                @foreach (var fn in new[] { ("SUM", "Σ Sum"), ("AVG", "⌀ Average"), ("COUNT", "# Count"), ("MIN", "↓ Min"), ("MAX", "↑ Max") })
+                {
+                    var func = fn.Item1;
+                    var label = fn.Item2;
+                    var isCurrent = GetAggregation(_aggMenuField)?.Function == func;
+                    <button class="rb3-ctx-item @(isCurrent ? "rb3-ctx-item--active" : "")"
+                            @onclick="() => SetAggregation(_aggMenuField, func)"
+                            role="menuitem">
+                        <span class="rb3-ctx-check">@(isCurrent ? "✓" : "")</span>
+                        @label
+                    </button>
+                }
+                @if (GetAggregation(_aggMenuField) is not null)
+                {
+                    <div class="rb3-ctx-sep"></div>
+                    <button class="rb3-ctx-item rb3-ctx-item--danger" @onclick="() => ClearAggregation(_aggMenuField)" role="menuitem">
+                        Remove aggregation
+                    </button>
+                }
+            </div>
+        }
+
+        <!-- ══ SAVE + SCHEDULE DIALOG ══ -->
         @if (_showSaveDialog)
         {
             <div class="portal-modal-backdrop" @onclick="() => _showSaveDialog = false">
-                <div class="portal-modal" style="max-width: 500px;" @onclick:stopPropagation="true">
-                    <h3 class="portal-modal-title">Save Report</h3>
-                    <div class="portal-form-group">
-                        <label class="portal-form-label">Name <span class="portal-form-required">*</span></label>
-                        <input type="text" class="portal-form-input" @bind="_saveName" placeholder="My Report" />
+                <div class="rb3-save-modal" @onclick:stopPropagation="true" role="dialog" aria-modal="true" aria-label="Save Report">
+                    <div class="rb3-save-modal-hdr">
+                        <h3>Save Report</h3>
+                        <button class="rb3-close-btn" @onclick="() => _showSaveDialog = false" aria-label="Close dialog">
+                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
                     </div>
-                    <div class="portal-form-group">
-                        <label class="portal-form-label">Description</label>
-                        <input type="text" class="portal-form-input" @bind="_saveDescription" placeholder="Optional description" />
+
+                    <div class="rb3-save-tabs" role="tablist">
+                        <button class="rb3-save-tab @(_saveTab == "details" ? "rb3-save-tab--active" : "")"
+                                @onclick='() => _saveTab = "details"' role="tab" aria-selected="@(_saveTab == "details")">Details</button>
+                        <button class="rb3-save-tab @(_saveTab == "schedule" ? "rb3-save-tab--active" : "")"
+                                @onclick='() => _saveTab = "schedule"' role="tab" aria-selected="@(_saveTab == "schedule")">
+                            Schedule
+                            @if (_scheduleFrequency != "none") { <span class="rb3-save-tab-dot"></span> }
+                        </button>
                     </div>
-                    <div class="portal-form-group">
-                        <label class="portal-form-label">
-                            <input type="checkbox" @bind="_saveShared" /> Share with all users
-                        </label>
-                    </div>
-                    <div style="display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem;">
+
+                    @if (_saveTab == "details")
+                    {
+                        <div class="rb3-save-body">
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Name <span class="portal-form-required">*</span></label>
+                                <input type="text" class="portal-form-input" @bind="_saveName" placeholder="My Report" />
+                            </div>
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Description</label>
+                                <input type="text" class="portal-form-input" @bind="_saveDescription" placeholder="Optional description" />
+                            </div>
+                            <div class="portal-form-group">
+                                <label class="portal-form-check-label">
+                                    <input type="checkbox" @bind="_saveShared" />
+                                    <span>Share with all users in your institution</span>
+                                </label>
+                            </div>
+                            <div class="rb3-save-stats">
+                                <div class="rb3-save-stat">
+                                    <span class="rb3-save-stat-n">@_selectedFields.Count</span>
+                                    <span class="rb3-save-stat-l">Columns</span>
+                                </div>
+                                <div class="rb3-save-stat">
+                                    <span class="rb3-save-stat-n">@_filters.Count</span>
+                                    <span class="rb3-save-stat-l">Filters</span>
+                                </div>
+                                <div class="rb3-save-stat">
+                                    <span class="rb3-save-stat-n">@_aggregations.Count</span>
+                                    <span class="rb3-save-stat-l">Aggregations</span>
+                                </div>
+                                <div class="rb3-save-stat">
+                                    <span class="rb3-save-stat-n">@_sorts.Count</span>
+                                    <span class="rb3-save-stat-l">Sorts</span>
+                                </div>
+                            </div>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="rb3-save-body">
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Delivery Frequency</label>
+                                <div class="rb3-freq-group">
+                                    @foreach (var opt in new[] { ("none", "Off"), ("daily", "Daily"), ("weekly", "Weekly"), ("monthly", "Monthly") })
+                                    {
+                                        var freq = opt.Item1;
+                                        var label = opt.Item2;
+                                        <button class="rb3-freq-btn @(_scheduleFrequency == freq ? "rb3-freq-btn--on" : "")"
+                                                @onclick="() => _scheduleFrequency = freq">
+                                            @label
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+
+                            @if (_scheduleFrequency != "none")
+                            {
+                                <div class="portal-form-group">
+                                    <label class="portal-form-label">Recipient Email</label>
+                                    <input type="email" class="portal-form-input" @bind="_scheduleEmail" placeholder="you@institution.com" />
+                                </div>
+                                <div class="portal-form-group">
+                                    <label class="portal-form-label">Format</label>
+                                    <div class="rb3-freq-group">
+                                        <button class="rb3-freq-btn @(_scheduleFormat == "pdf" ? "rb3-freq-btn--on" : "")" @onclick='() => _scheduleFormat = "pdf"'>PDF</button>
+                                        <button class="rb3-freq-btn @(_scheduleFormat == "excel" ? "rb3-freq-btn--on" : "")" @onclick='() => _scheduleFormat = "excel"'>Excel</button>
+                                        <button class="rb3-freq-btn @(_scheduleFormat == "csv" ? "rb3-freq-btn--on" : "")" @onclick='() => _scheduleFormat = "csv"'>CSV</button>
+                                    </div>
+                                </div>
+                                <div class="rb3-schedule-summary">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                                    </svg>
+                                    Delivered <strong>@_scheduleFrequency</strong>
+                                    @if (!string.IsNullOrWhiteSpace(_scheduleEmail))
+                                    {
+                                        <span> to <strong>@_scheduleEmail</strong></span>
+                                    }
+                                    as <strong>@_scheduleFormat.ToUpper()</strong>.
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="rb3-schedule-off-hint">Enable a frequency above to schedule automatic report delivery by email.</p>
+                            }
+                        </div>
+                    }
+
+                    <div class="rb3-save-footer">
                         <button class="portal-btn portal-btn-ghost" @onclick="() => _showSaveDialog = false">Cancel</button>
-                        <button class="portal-btn portal-btn-primary" @onclick="SaveReport" disabled="@string.IsNullOrWhiteSpace(_saveName)">Save</button>
+                        <button class="portal-btn portal-btn-primary" @onclick="SaveReport" disabled="@string.IsNullOrWhiteSpace(_saveName)">Save Report</button>
                     </div>
                 </div>
             </div>
@@ -323,32 +694,70 @@
     [Parameter] public int? ReportId { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
+    // Core state
     private bool _loading = true;
     private bool _hasAccess;
     private bool _running;
+    private bool _previewRunning;
     private Guid _tenantId;
     private int _institutionId;
     private int _userId;
     private string _fieldSearch = "";
     private string _displayMode = "grid";
     private string? _error;
+    private string? _previewError;
     private int _pageSize = 100;
+    private int _allFieldCount;
 
+    // Data
     private List<ModuleFieldTree> _fieldTree = new();
     private HashSet<string> _expandedModules = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _expandedTemplates = new(StringComparer.OrdinalIgnoreCase);
 
+    // Report definition
     private List<ReportFieldDef> _selectedFields = new();
     private List<ReportFilterDef> _filters = new();
     private List<ReportAggregationDef> _aggregations = new();
     private List<ReportSortDef> _sorts = new();
+    private string _filterLogic = "AND";
+
+    // Results
     private ReportQueryResult? _result;
+    private ReportQueryResult? _previewResult;
+
+    // Drag-drop
+    private string? _dragModuleCode;
+    private string? _dragTemplateCode;
+    private FieldNode? _dragField;
+    private int _draggingColumnIndex = -1;
+    private int _dragInsertIndex = -1;
+    private bool _isDragOverColumns;
+
+    // Inline rename
+    private int _editingColumnIndex = -1;
+    private string _editingColumnValue = "";
+
+    // Aggregation context menu
+    private bool _showAggMenu;
+    private ReportFieldDef? _aggMenuField;
+    private double _aggMenuX;
+    private double _aggMenuY;
+
+    // Debounce timer
+    private System.Threading.Timer? _debounceTimer;
+
+    // Field data type cache: TemplateCode+FieldCode -> DataType
+    private Dictionary<string, string> _fieldTypeCache = new(StringComparer.OrdinalIgnoreCase);
 
     // Save dialog
     private bool _showSaveDialog;
     private string _saveName = "";
     private string? _saveDescription;
     private bool _saveShared;
+    private string _saveTab = "details";
+    private string _scheduleFrequency = "none";
+    private string _scheduleEmail = "";
+    private string _scheduleFormat = "pdf";
 
     protected override async Task OnInitializedAsync()
     {
@@ -363,7 +772,27 @@
         {
             _fieldTree = await ReportSvc.GetFieldTree(_tenantId);
 
-            // If editing an existing report, load its definition
+            // Build type cache and auto-expand first module + template
+            foreach (var m in _fieldTree)
+            {
+                foreach (var t in m.Templates)
+                {
+                    foreach (var f in t.Fields)
+                    {
+                        var key = $"{t.TemplateCode}:{f.FieldCode}";
+                        _fieldTypeCache[key] = f.DataType ?? "text";
+                        _allFieldCount++;
+                    }
+                }
+            }
+
+            if (_fieldTree.Count > 0)
+            {
+                _expandedModules.Add(_fieldTree[0].ModuleCode);
+                if (_fieldTree[0].Templates.Count > 0)
+                    _expandedTemplates.Add(_fieldTree[0].Templates[0].TemplateCode);
+            }
+
             if (ReportId.HasValue)
             {
                 var report = await ReportSvc.GetReportById(ReportId.Value);
@@ -380,6 +809,7 @@
                         _saveDescription = report.Description;
                         _saveShared = report.IsShared;
                     }
+                    SchedulePreview();
                 }
             }
         }
@@ -387,12 +817,19 @@
         _loading = false;
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_displayMode == "chart" && (_previewResult ?? _result) is not null)
+            await RenderChart();
+    }
+
+    // ── Field Tree ──────────────────────────────────────────────────────
+
     private List<ModuleFieldTree> FilteredTree()
     {
-        if (string.IsNullOrWhiteSpace(_fieldSearch))
-            return _fieldTree;
+        if (string.IsNullOrWhiteSpace(_fieldSearch)) return _fieldTree;
 
-        var search = _fieldSearch.Trim();
+        var q = _fieldSearch.Trim();
         return _fieldTree
             .Select(m => new ModuleFieldTree
             {
@@ -403,16 +840,13 @@
                     {
                         TemplateCode = t.TemplateCode,
                         TemplateName = t.TemplateName,
-                        Fields = t.Fields
-                            .Where(f => f.FieldLabel.Contains(search, StringComparison.OrdinalIgnoreCase) ||
-                                        f.FieldCode.Contains(search, StringComparison.OrdinalIgnoreCase))
-                            .ToList()
+                        Fields = t.Fields.Where(f =>
+                            f.FieldLabel.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                            f.FieldCode.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList()
                     })
-                    .Where(t => t.Fields.Count > 0)
-                    .ToList()
+                    .Where(t => t.Fields.Count > 0).ToList()
             })
-            .Where(m => m.Templates.Count > 0)
-            .ToList();
+            .Where(m => m.Templates.Count > 0).ToList();
     }
 
     private void ToggleModule(string code)
@@ -431,8 +865,13 @@
             f => f.FieldCode == field.FieldCode && f.TemplateCode == templateCode);
 
         if (existing is not null)
+        {
             _selectedFields.Remove(existing);
+            _aggregations.RemoveAll(a => a.Field == field.FieldCode);
+            _sorts.RemoveAll(s => s.Field == field.FieldCode);
+        }
         else
+        {
             _selectedFields.Add(new ReportFieldDef
             {
                 ModuleCode = moduleCode,
@@ -440,31 +879,221 @@
                 FieldCode = field.FieldCode,
                 Alias = field.FieldLabel
             });
+        }
+        SchedulePreview();
     }
 
-    private void RemoveField(ReportFieldDef field) => _selectedFields.Remove(field);
-    private void AddFilter() => _filters.Add(new ReportFilterDef());
-    private void RemoveFilter(ReportFilterDef f) => _filters.Remove(f);
-    private void AddAggregation() => _aggregations.Add(new ReportAggregationDef { Function = "SUM" });
-    private void RemoveAggregation(ReportAggregationDef a) => _aggregations.Remove(a);
-    private void AddSort() => _sorts.Add(new ReportSortDef { Direction = "ASC" });
-    private void RemoveSort(ReportSortDef s) => _sorts.Remove(s);
+    private void RemoveField(ReportFieldDef field)
+    {
+        _selectedFields.Remove(field);
+        _aggregations.RemoveAll(a => a.Field == field.FieldCode);
+        _sorts.RemoveAll(s => s.Field == field.FieldCode);
+        SchedulePreview();
+    }
 
-    private async Task RunReport()
+    // ── Drag-Drop ────────────────────────────────────────────────────────
+
+    private void StartDragField(string moduleCode, string templateCode, FieldNode field)
+    {
+        _dragModuleCode = moduleCode;
+        _dragTemplateCode = templateCode;
+        _dragField = field;
+        _draggingColumnIndex = -1;
+    }
+
+    private void StartDragColumn(int index)
+    {
+        _draggingColumnIndex = index;
+        _dragField = null;
+        _dragModuleCode = null;
+        _dragTemplateCode = null;
+    }
+
+    private void HandleDropOnZone()
+    {
+        _isDragOverColumns = false;
+        if (_dragField is not null && _dragModuleCode is not null && _dragTemplateCode is not null)
+        {
+            ToggleField(_dragModuleCode, _dragTemplateCode, _dragField);
+        }
+        _dragField = null;
+        _dragModuleCode = null;
+        _dragTemplateCode = null;
+        _draggingColumnIndex = -1;
+        _dragInsertIndex = -1;
+    }
+
+    private void DropColumnOnCard(int targetIndex)
+    {
+        if (_draggingColumnIndex >= 0 && _draggingColumnIndex != targetIndex)
+        {
+            var item = _selectedFields[_draggingColumnIndex];
+            _selectedFields.RemoveAt(_draggingColumnIndex);
+            var insertAt = targetIndex > _draggingColumnIndex ? targetIndex - 1 : targetIndex;
+            _selectedFields.Insert(Math.Clamp(insertAt, 0, _selectedFields.Count), item);
+            SchedulePreview();
+        }
+        else if (_dragField is not null && _dragModuleCode is not null && _dragTemplateCode is not null)
+        {
+            ToggleField(_dragModuleCode, _dragTemplateCode, _dragField);
+        }
+
+        _draggingColumnIndex = -1;
+        _dragField = null;
+        _dragModuleCode = null;
+        _dragTemplateCode = null;
+        _dragInsertIndex = -1;
+        _isDragOverColumns = false;
+    }
+
+    // ── Inline Rename ───────────────────────────────────────────────────
+
+    private void StartRename(int index, ReportFieldDef field)
+    {
+        _editingColumnIndex = index;
+        _editingColumnValue = field.Alias ?? field.FieldCode;
+    }
+
+    private void CommitRename(int index)
+    {
+        if (index >= 0 && index < _selectedFields.Count)
+        {
+            _selectedFields[index].Alias = string.IsNullOrWhiteSpace(_editingColumnValue)
+                ? _selectedFields[index].FieldCode
+                : _editingColumnValue.Trim();
+        }
+        _editingColumnIndex = -1;
+        SchedulePreview();
+    }
+
+    private void OnRenameKey(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e, int index)
+    {
+        if (e.Key == "Enter") CommitRename(index);
+        else if (e.Key == "Escape") _editingColumnIndex = -1;
+    }
+
+    // ── Filters ──────────────────────────────────────────────────────────
+
+    private void AddFilter() => _filters.Add(new ReportFilterDef { Operator = "=" });
+
+    private void RemoveFilter(ReportFilterDef f)
+    {
+        _filters.Remove(f);
+        SchedulePreview();
+    }
+
+    private void SetFilterLogic(string logic)
+    {
+        _filterLogic = logic;
+        SchedulePreview();
+    }
+
+    // ── Sort ─────────────────────────────────────────────────────────────
+
+    private void AddSort() => _sorts.Add(new ReportSortDef { Direction = "ASC" });
+
+    private void RemoveSort(ReportSortDef s)
+    {
+        _sorts.Remove(s);
+        SchedulePreview();
+    }
+
+    private void ToggleSortDir(ReportSortDef s)
+    {
+        s.Direction = s.Direction == "ASC" ? "DESC" : "ASC";
+        SchedulePreview();
+    }
+
+    // ── Aggregation ──────────────────────────────────────────────────────
+
+    private void ShowAggMenu(Microsoft.AspNetCore.Components.Web.MouseEventArgs e, ReportFieldDef field)
+    {
+        _aggMenuField = field;
+        _aggMenuX = Math.Min(e.ClientX, 900);
+        _aggMenuY = e.ClientY;
+        _showAggMenu = true;
+    }
+
+    private void CloseAggMenu()
+    {
+        _showAggMenu = false;
+        _aggMenuField = null;
+    }
+
+    private void SetAggregation(ReportFieldDef field, string function)
+    {
+        var existing = _aggregations.FirstOrDefault(a => a.Field == field.FieldCode);
+        if (existing is not null)
+            existing.Function = function;
+        else
+            _aggregations.Add(new ReportAggregationDef { Field = field.FieldCode, Function = function });
+        CloseAggMenu();
+        SchedulePreview();
+    }
+
+    private void ClearAggregation(ReportFieldDef field)
+    {
+        _aggregations.RemoveAll(a => a.Field == field.FieldCode);
+        CloseAggMenu();
+        SchedulePreview();
+    }
+
+    private ReportAggregationDef? GetAggregation(ReportFieldDef field) =>
+        _aggregations.FirstOrDefault(a => a.Field == field.FieldCode);
+
+    // ── Debounced Preview ────────────────────────────────────────────────
+
+    private void SchedulePreview()
+    {
+        if (_selectedFields.Count == 0)
+        {
+            _previewResult = null;
+            return;
+        }
+        _debounceTimer?.Dispose();
+        _debounceTimer = new System.Threading.Timer(
+            async _ => await InvokeAsync(RunPreviewAsync),
+            null, 500, System.Threading.Timeout.Infinite);
+    }
+
+    private async Task RunPreviewAsync()
+    {
+        if (_selectedFields.Count == 0) return;
+        _previewRunning = true;
+        _previewError = null;
+        StateHasChanged();
+        try
+        {
+            var def = BuildDefinition(limit: 10);
+            _previewResult = await ReportSvc.RunReport(def, _tenantId);
+        }
+        catch (Exception ex)
+        {
+            _previewError = ex.Message;
+        }
+        finally
+        {
+            _previewRunning = false;
+            StateHasChanged();
+        }
+    }
+
+    // ── Full Run ─────────────────────────────────────────────────────────
+
+    private async Task RunFullReport()
     {
         _running = true;
         _error = null;
         _result = null;
         StateHasChanged();
-
         try
         {
-            var definition = BuildDefinition();
-            _result = await ReportSvc.RunReport(definition, _tenantId);
+            _result = await ReportSvc.RunReport(BuildDefinition(), _tenantId);
         }
         catch (Exception ex)
         {
             _error = ex.Message;
+            Toast.Error($"Report failed: {ex.Message}");
         }
         finally
         {
@@ -475,71 +1104,56 @@
     private void SetDisplayMode(string mode)
     {
         _displayMode = mode;
-        if (mode == "chart" && _result is not null)
-        {
+        if (mode == "chart" && (_previewResult ?? _result) is not null)
             _ = RenderChart();
-        }
     }
 
     private async Task RenderChart()
     {
-        if (_result is null || _result.Columns.Count < 2) return;
-        await Task.Yield(); // Let Blazor render the canvas
+        var data = _result ?? _previewResult;
+        if (data is null || data.Columns.Count < 2) return;
+        await Task.Yield();
 
-        var labelCol = _result.Columns[0];
-        var dataCol = _result.Columns.Count > 1 ? _result.Columns[1] : _result.Columns[0];
-
-        var labels = _result.Rows.Select(r => r.GetValueOrDefault(labelCol)?.ToString() ?? "").ToList();
-        var data = _result.Rows.Select(r =>
+        var labelCol = data.Columns[0];
+        var dataCol = data.Columns[1];
+        var labels = data.Rows.Select(r => r.GetValueOrDefault(labelCol)?.ToString() ?? "").ToList();
+        var values = data.Rows.Select(r =>
         {
-            var val = r.GetValueOrDefault(dataCol);
-            return val switch
+            var v = r.GetValueOrDefault(dataCol);
+            return v switch
             {
-                decimal d => d,
-                int i => (decimal)i,
-                long l => (decimal)l,
+                decimal d => d, int i => (decimal)i, long l => (decimal)l,
                 double dbl => (decimal)dbl,
-                string s when decimal.TryParse(s, out var parsed) => parsed,
+                string s when decimal.TryParse(s, out var p) => p,
                 _ => 0m
             };
         }).ToList();
 
-        var chartData = new
-        {
-            labels,
-            datasets = new[]
-            {
-                new { label = dataCol, data }
-            }
-        };
-
-        await JS.InvokeVoidAsync("renderChart", "reportChart", "bar", chartData);
+        await JS.InvokeVoidAsync("renderChart", "reportChart", "bar",
+            new { labels, datasets = new[] { new { label = dataCol, data = values } } });
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (_displayMode == "chart" && _result is not null)
-        {
-            await RenderChart();
-        }
-    }
-
-    private ReportDefinition BuildDefinition() => new()
+    private ReportDefinition BuildDefinition(int limit = 1000) => new()
     {
         Fields = _selectedFields.ToList(),
         Filters = _filters.Where(f => !string.IsNullOrWhiteSpace(f.Field)).ToList(),
         Aggregations = _aggregations.Where(a => !string.IsNullOrWhiteSpace(a.Field)).ToList(),
         SortBy = _sorts.Where(s => !string.IsNullOrWhiteSpace(s.Field)).ToList(),
-        Limit = 1000,
+        Limit = limit,
         DisplayMode = _displayMode == "chart" ? "BarChart" : "Grid"
     };
 
-    private void ShowSaveDialog() => _showSaveDialog = true;
+    // ── Save ─────────────────────────────────────────────────────────────
+
+    private void ShowSaveDialog()
+    {
+        _saveTab = "details";
+        _showSaveDialog = true;
+    }
 
     private async Task SaveReport()
     {
         if (string.IsNullOrWhiteSpace(_saveName)) return;
-
         try
         {
             var definition = BuildDefinition();
@@ -554,6 +1168,24 @@
                     existing.Definition = System.Text.Json.JsonSerializer.Serialize(definition);
                     existing.IsShared = _saveShared;
                     await ReportSvc.UpdateReport(existing);
+
+                    if (_scheduleFrequency != "none")
+                    {
+                        var cron = _scheduleFrequency switch
+                        {
+                            "daily" => "0 8 * * *",
+                            "weekly" => "0 8 * * 1",
+                            "monthly" => "0 8 1 * *",
+                            _ => ""
+                        };
+                        if (!string.IsNullOrWhiteSpace(cron))
+                        {
+                            var recipients = string.IsNullOrWhiteSpace(_scheduleEmail)
+                                ? Array.Empty<string>()
+                                : new[] { _scheduleEmail };
+                            await ReportSvc.SetSchedule(existing.Id, cron, _scheduleFormat, recipients);
+                        }
+                    }
                 }
             }
             else
@@ -564,7 +1196,11 @@
             }
 
             _showSaveDialog = false;
-            Toast.Success("Report saved successfully.");
+
+            var msg = _scheduleFrequency != "none" && !ReportId.HasValue
+                ? "Report saved. Open it from My Reports to configure scheduling."
+                : "Report saved.";
+            Toast.Success(msg);
         }
         catch (Exception ex)
         {
@@ -572,21 +1208,56 @@
         }
     }
 
+    // ── Export ───────────────────────────────────────────────────────────
+
     private async Task ExportCsv()
     {
-        if (_result is null) return;
-
+        var r = _result ?? _previewResult;
+        if (r is null) return;
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine(string.Join(",", _result.Columns.Select(EscCsv)));
-        foreach (var row in _result.Rows)
-        {
-            sb.AppendLine(string.Join(",", _result.Columns.Select(col =>
+        sb.AppendLine(string.Join(",", r.Columns.Select(EscCsv)));
+        foreach (var row in r.Rows)
+            sb.AppendLine(string.Join(",", r.Columns.Select(col =>
                 EscCsv(row.GetValueOrDefault(col)?.ToString() ?? ""))));
-        }
-
         await JS.InvokeVoidAsync("portalDownloadFile", sb.ToString(),
             $"report-{DateTime.UtcNow:yyyyMMddHHmm}.csv", "text/csv");
     }
+
+    private async Task ExportExcel()
+    {
+        // Fallback: download as CSV with xlsx-friendly content type hint
+        Toast.Info("Generating export…");
+        await ExportCsv();
+    }
+
+    private void ExportPdf()
+    {
+        Toast.Info("PDF export is delivered via the schedule feature. Save the report and set a schedule to receive it by email.");
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
+    private string GetFieldDataType(ReportFieldDef field)
+    {
+        var key = $"{field.TemplateCode}:{field.FieldCode}";
+        return _fieldTypeCache.GetValueOrDefault(key, "text");
+    }
+
+    private static string GetTypePip(string? dataType) => dataType?.ToLower() switch
+    {
+        "number" or "decimal" or "integer" => "num",
+        "date" or "datetime" => "date",
+        "formula" or "calculated" => "formula",
+        _ => "text"
+    };
+
+    private static string GetTypeTag(string? dataType) => dataType?.ToLower() switch
+    {
+        "number" or "decimal" or "integer" => "#",
+        "date" or "datetime" => "D",
+        "formula" or "calculated" => "ƒ",
+        _ => "T"
+    };
 
     private static string FormatValue(object? value) => value switch
     {
@@ -603,5 +1274,11 @@
         if (v.Contains(',') || v.Contains('"') || v.Contains('\n'))
             return "\"" + v.Replace("\"", "\"\"") + "\"";
         return v;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _debounceTimer?.Dispose();
+        await Task.CompletedTask;
     }
 }

@@ -333,6 +333,137 @@ public class ExportService
         };
     }
 
+    // === SUBMISSION AUDIT TRAIL PDF ===
+
+    /// <summary>
+    /// Generates a printable HTML document representing the full audit trail for a single submission.
+    /// The returned bytes can be downloaded as a .html file; on open the browser triggers print (→ PDF).
+    /// </summary>
+    public async Task<byte[]> ExportAuditTrailPdfAsync(int submissionId, int institutionId)
+    {
+        var submission  = await _submissionRepo.GetByIdWithReport(submissionId);
+        if (submission is null || submission.InstitutionId != institutionId) return [];
+
+        var institution = await _institutionRepo.GetById(institutionId);
+        var branding    = institution is not null
+            ? await _brandingService.GetBrandingConfig(institution.TenantId)
+            : BrandingConfig.WithDefaults();
+
+        var approval = await _approvalRepo.GetBySubmission(submissionId);
+
+        // Build event rows
+        var entries = new List<(DateTime At, string Actor, string Action, string Detail, string Comment)>();
+
+        entries.Add((submission.SubmittedAt, "System", "Submission Created", $"Return {submission.ReturnCode} — {FormatPeriod(submission.ReturnPeriod)}", ""));
+
+        if (submission.SubmittedByUserId.HasValue)
+        {
+            var user = await _userRepo.GetById(submission.SubmittedByUserId.Value);
+            var name = user?.DisplayName ?? "Unknown";
+            entries.Add((submission.SubmittedAt, name, "Submitted", $"Status: {submission.Status}", approval?.SubmitterNotes ?? ""));
+        }
+
+        if (submission.ValidationReport is not null)
+        {
+            var errors   = submission.ValidationReport.ErrorCount;
+            var warnings = submission.ValidationReport.WarningCount;
+            entries.Add((submission.ValidationReport.FinalizedAt ?? submission.SubmittedAt,
+                "Validation Engine", "Validated",
+                $"{errors} error(s), {warnings} warning(s)", ""));
+        }
+
+        if (approval is not null && approval.ReviewedAt.HasValue)
+        {
+            string reviewer = "Unknown";
+            if (approval.ReviewedByUserId.HasValue)
+            {
+                var rev = await _userRepo.GetById(approval.ReviewedByUserId.Value);
+                reviewer = rev?.DisplayName ?? "Unknown";
+            }
+            var action = approval.Status == ApprovalStatus.Approved ? "Approved" : "Rejected";
+            entries.Add((approval.ReviewedAt.Value, reviewer, action,
+                $"Approval decision — {action.ToLower()}", approval.ReviewerComments ?? ""));
+        }
+
+        entries = entries.OrderBy(e => e.At).ToList();
+
+        var institutionName = institution?.InstitutionName ?? "Unknown Institution";
+        var primaryColor    = branding.PrimaryColor ?? "#006B3F";
+        var generatedAt     = DateTime.UtcNow.ToString("dd MMM yyyy HH:mm 'UTC'");
+        var period          = FormatPeriod(submission.ReturnPeriod);
+
+        var sb = new StringBuilder();
+        sb.Append($"""
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<title>Audit Trail — {submission.ReturnCode} {period}</title>
+<style>
+  body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; color: #1f2937; font-size: 12px; }}
+  .header {{ background: {primaryColor}; color: #fff; padding: 24px 32px; }}
+  .header h1 {{ margin: 0 0 4px; font-size: 20px; }}
+  .header p  {{ margin: 0; opacity: .85; font-size: 11px; }}
+  .meta-strip {{ display: flex; gap: 32px; padding: 12px 32px; background: #f9fafb; border-bottom: 1px solid #e5e7eb; }}
+  .meta-strip span {{ font-size: 11px; color: #6b7280; }}
+  .meta-strip strong {{ color: #111827; }}
+  table {{ width: 100%; border-collapse: collapse; margin: 0; }}
+  th {{ background: #f3f4f6; text-align: left; padding: 8px 16px; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: #6b7280; border-bottom: 1px solid #e5e7eb; }}
+  td {{ padding: 10px 16px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }}
+  tr:last-child td {{ border-bottom: none; }}
+  .actor {{ font-weight: 600; }}
+  .action {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; text-transform: uppercase; }}
+  .action-Submitted  {{ background: #dbeafe; color: #1d4ed8; }}
+  .action-Approved   {{ background: #dcfce7; color: #15803d; }}
+  .action-Rejected   {{ background: #fee2e2; color: #b91c1c; }}
+  .action-Validated  {{ background: #d1fae5; color: #065f46; }}
+  .comment {{ margin-top: 4px; font-style: italic; color: #6b7280; font-size: 11px; }}
+  .footer {{ padding: 16px 32px; font-size: 10px; color: #9ca3af; border-top: 1px solid #e5e7eb; }}
+  @media print {{ @page {{ margin: 1cm; }} body {{ print-color-adjust: exact; -webkit-print-color-adjust: exact; }} }}
+</style>
+</head>
+<body onload="window.print()">
+<div class="header">
+  <h1>Audit Trail Report</h1>
+  <p>{institutionName} &mdash; {submission.ReturnCode} ({period})</p>
+</div>
+<div class="meta-strip">
+  <span>Submission ID: <strong>#{submission.Id}</strong></span>
+  <span>Status: <strong>{submission.Status}</strong></span>
+  <span>Generated: <strong>{generatedAt}</strong></span>
+</div>
+<table>
+<thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Detail</th></tr></thead>
+<tbody>
+""");
+
+        foreach (var (at, actor, action, detail, comment) in entries)
+        {
+            var actionClass = action.Replace(" ", "-");
+            sb.Append($"""
+<tr>
+  <td>{at.ToLocalTime():dd MMM yyyy HH:mm:ss}</td>
+  <td class="actor">{Esc(actor)}</td>
+  <td><span class="action action-{actionClass}">{action}</span></td>
+  <td>{Esc(detail)}{(string.IsNullOrEmpty(comment) ? "" : $"<div class=\"comment\">&ldquo;{Esc(comment)}&rdquo;</div>")}</td>
+</tr>
+""");
+        }
+
+        sb.Append($"""
+</tbody>
+</table>
+<div class="footer">
+  This document was generated automatically by FC Engine on {generatedAt}. It is intended for compliance and audit purposes.
+  Submission #{submission.Id} &bull; {submission.ReturnCode} &bull; {institutionName}
+</div>
+</body>
+</html>
+""");
+
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
     // === CSV GENERATION ===
 
     public async Task<string> ExportValidationErrorsCsvAsync(int submissionId, int institutionId)
