@@ -28,9 +28,36 @@
 
     @if (_loading)
     {
-        <section class="portal-card">
-            <p>Loading invoices...</p>
-        </section>
+        <SkeletonGuard OnRetry="Load">
+            <div aria-busy="true" aria-label="Loading invoices…">
+                <div class="fc-skel-stats-row fc-skel-section">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="6" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="9" />
+                </div>
+                <div style="display:flex; flex-direction:column; gap:var(--space-4);" class="fc-skel-section">
+                    @for (int i = 0; i < 3; i++)
+                    {
+                        var si = 12 + i * 6;
+                        <div class="fc-skel-card-body">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:var(--space-4);">
+                                <div style="display:flex; flex-direction:column; gap:var(--space-2);">
+                                    <div class="fc-skel fc-skel-text" style="width: 80px; --skeleton-index: @si;"></div>
+                                    <div class="fc-skel fc-skel-text-lg" style="width: 160px; --skeleton-index: @(si+1);"></div>
+                                </div>
+                                <div class="fc-skel fc-skel-block" style="width: 72px; height: 26px; --skeleton-index: @si;"></div>
+                            </div>
+                            <div style="display:flex; gap:var(--space-6);">
+                                <div class="fc-skel fc-skel-text" style="width: 120px; --skeleton-index: @(si+2);"></div>
+                                <div class="fc-skel fc-skel-text" style="width: 100px; --skeleton-index: @(si+3);"></div>
+                                <div class="fc-skel fc-skel-text" style="width: 90px; --skeleton-index: @(si+4);"></div>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </SkeletonGuard>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
@@ -370,7 +397,7 @@
     {
         var lineItemsHtml = invoice.LineItems.Any()
             ? string.Join("", invoice.LineItems.OrderBy(l => l.DisplayOrder).Select(li =>
-                $"<tr><td>{System.Web.HttpUtility.HtmlEncode(li.Description)}</td>" +
+                $"<tr><td>{System.Net.WebUtility.HtmlEncode(li.Description)}</td>" +
                 $"<td style='text-align:right'>{li.Quantity}</td>" +
                 $"<td style='text-align:right'>NGN {li.UnitPrice:N2}</td>" +
                 $"<td style='text-align:right'>NGN {li.LineTotal:N2}</td></tr>"))
@@ -381,7 +408,7 @@
             : "—";
 
         var notesHtml = !string.IsNullOrWhiteSpace(invoice.Notes)
-            ? $"<div class='inv-section'><h3>Notes</h3><p>{System.Web.HttpUtility.HtmlEncode(invoice.Notes)}</p></div>"
+            ? $"<div class='inv-section'><h3>Notes</h3><p>{System.Net.WebUtility.HtmlEncode(invoice.Notes)}</p></div>"
             : "";
 
         var vatRatePct = (invoice.VatRate * 100).ToString("0.##");

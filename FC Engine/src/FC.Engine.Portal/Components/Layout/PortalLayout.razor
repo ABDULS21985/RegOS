@@ -124,6 +124,32 @@
                         title="Start page tour"
                         aria-label="Start guided page tour"
                         type="button">?</button>
+                <button class="portal-theme-toggle"
+                        @onclick="ToggleTheme"
+                        title="@(_isDark ? "Switch to light mode" : "Switch to dark mode")"
+                        aria-label="@(_isDark ? "Switch to light mode" : "Switch to dark mode")"
+                        type="button">
+                    @if (_isDark)
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                            <circle cx="12" cy="12" r="5"/>
+                            <line x1="12" y1="1" x2="12" y2="3"/>
+                            <line x1="12" y1="21" x2="12" y2="23"/>
+                            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                            <line x1="1" y1="12" x2="3" y2="12"/>
+                            <line x1="21" y1="12" x2="23" y2="12"/>
+                            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                        </svg>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                            <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                        </svg>
+                    }
+                </button>
                 <NotificationBell />
             </div>
         </header>
@@ -251,6 +277,7 @@
     private bool _sandboxBusy;
     private string? _sandboxMessage;
     private DotNetObjectReference<PortalLayout>? _shortcutsRef;
+    private bool _isDark;
 
     // ── Contextual spotlight map: path → config ────────────────────────────
     private sealed record SpotlightConfig(string PageKey, string Selector, string Title, string Description);
@@ -310,6 +337,19 @@
         if (!firstRender) return;
         _shortcutsRef = DotNetObjectReference.Create(this);
         await JS.InvokeVoidAsync("portalShortcuts.init", _shortcutsRef);
+        await JS.InvokeVoidAsync("portalTheme.init", DotNetObjectReference.Create(this));
+    }
+
+    [JSInvokable]
+    public void OnThemeChanged(bool isDark)
+    {
+        _isDark = isDark;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ToggleTheme()
+    {
+        await JS.InvokeVoidAsync("portalTheme.toggle");
     }
 
     // ── JSInvokable: called from portalShortcuts.js ────────────────────────────

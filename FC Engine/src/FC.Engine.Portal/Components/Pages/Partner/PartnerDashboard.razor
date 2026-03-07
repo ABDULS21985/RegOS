@@ -16,12 +16,60 @@
 }
 else if (_loading)
 {
-    <div class="portal-card"><div class="portal-card-body pd-loading-msg">
-        <svg class="pd-spinner" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20" aria-hidden="true">
-            <path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"/>
-        </svg>
-        Loading portfolio intelligence…
-    </div></div>
+    <SkeletonGuard OnRetry="ReloadAsync">
+        <div aria-busy="true" aria-label="Loading partner dashboard…">
+            @* 6 hero stats *@
+            <div class="pd-hero fc-skel-section" style="display:grid; grid-template-columns: repeat(6, 1fr); gap:var(--space-4);">
+                @for (int i = 0; i < 6; i++)
+                {
+                    var si = i * 3;
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="@si" />
+                }
+            </div>
+            @* Dashboard body: heatmap + health matrix + alerts *@
+            <div class="pd-layout fc-skel-section">
+                <div class="pd-main">
+                    @* Heatmap skeleton *@
+                    <div class="fc-skel-card-body fc-skel-section">
+                        <div class="fc-skel fc-skel-text-lg" style="width: 200px; --skeleton-index: 18; margin-bottom:var(--space-4);"></div>
+                        <div style="display:grid; grid-template-columns: 120px repeat(6, 1fr); gap: 4px;">
+                            @for (int r = 0; r < 10; r++)
+                            {
+                                var si = 19 + r;
+                                <div class="fc-skel fc-skel-text" style="width: 90%; --skeleton-index: @si;"></div>
+                                @for (int c = 0; c < 6; c++)
+                                {
+                                    <div class="fc-skel" style="height: 28px; border-radius: 3px; --skeleton-index: @si;"></div>
+                                }
+                            }
+                        </div>
+                    </div>
+                    @* Health matrix skeleton *@
+                    <div class="fc-skel-card-body">
+                        <div class="fc-skel fc-skel-text-lg" style="width: 180px; --skeleton-index: 29; margin-bottom:var(--space-4);"></div>
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.FormTable" Index="30" />
+                    </div>
+                </div>
+                @* Alerts sidebar skeleton *@
+                <div class="pd-sidebar">
+                    <div class="fc-skel-card-body" style="display:flex; flex-direction:column; gap:var(--space-3);">
+                        <div class="fc-skel fc-skel-text-lg" style="width: 100px; --skeleton-index: 35;"></div>
+                        @for (int i = 0; i < 4; i++)
+                        {
+                            var si = 36 + i;
+                            <div class="fc-skel-notif-row">
+                                <div class="fc-skel fc-skel-circle" style="width:32px; height:32px; --skeleton-index: @si;"></div>
+                                <div class="fc-skel-notif-row__body">
+                                    <div class="fc-skel fc-skel-text-lg" style="width:70%; --skeleton-index: @si;"></div>
+                                    <div class="fc-skel fc-skel-text" style="width:85%; --skeleton-index: @si;"></div>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </SkeletonGuard>
 }
 else if (!_isPartner)
 {
@@ -491,8 +539,14 @@ else
     private record PortfolioAlert(string TenantName, string Message, string Severity, string TimeAgo);
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
     {
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
         try
         {
             if (!TenantContext.CurrentTenantId.HasValue)

@@ -30,9 +30,42 @@
 
     @if (_loading)
     {
-        <section class="portal-card">
-            <p>Loading subscription...</p>
-        </section>
+        <SkeletonGuard OnRetry="ReloadAsync">
+            <div aria-busy="true" aria-label="Loading subscription…">
+                @* Plan hero card *@
+                <div class="fc-skel-card-body fc-skel-section" style="display:flex; justify-content:space-between; align-items:flex-start; gap:var(--space-6);">
+                    <div style="display:flex; flex-direction:column; gap:var(--space-3); flex:1;">
+                        <div class="fc-skel fc-skel-text" style="width: 140px; --skeleton-index: 0;"></div>
+                        <div class="fc-skel fc-skel-text-xl fc-skel--fast" style="width: 220px; --skeleton-index: 1;"></div>
+                        <div class="fc-skel fc-skel-text-lg" style="width: 160px; --skeleton-index: 2;"></div>
+                        <div style="display:flex; gap:var(--space-2);">
+                            <div class="fc-skel fc-skel-block" style="width: 72px; height: 22px; --skeleton-index: 3;"></div>
+                            <div class="fc-skel fc-skel-block" style="width: 96px; height: 22px; --skeleton-index: 3;"></div>
+                        </div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; align-items:center; gap:var(--space-2);">
+                        <div class="fc-skel fc-skel-text-xl fc-skel--fast" style="width: 48px; --skeleton-index: 2;"></div>
+                        <div class="fc-skel fc-skel-text" style="width: 80px; --skeleton-index: 3;"></div>
+                        <div class="fc-skel fc-skel-text" style="width: 100px; --skeleton-index: 4;"></div>
+                    </div>
+                </div>
+                @* Usage meters *@
+                <div class="fc-skel-card-body fc-skel-section">
+                    <div class="fc-skel fc-skel-text-lg" style="width: 130px; --skeleton-index: 5; margin-bottom:var(--space-4);"></div>
+                    @for (int i = 0; i < 5; i++)
+                    {
+                        var si = 6 + i;
+                        <div style="margin-bottom:var(--space-3);">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:var(--space-1);">
+                                <div class="fc-skel fc-skel-text" style="width: 22%; --skeleton-index: @si;"></div>
+                                <div class="fc-skel fc-skel-text" style="width: 15%; --skeleton-index: @si;"></div>
+                            </div>
+                            <div class="fc-skel fc-skel-block" style="height:8px; width:100%; --skeleton-index: @si;"></div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </SkeletonGuard>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
@@ -345,8 +378,14 @@
     private string? _selectedPlanCode;
     private bool _upgrading;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
     {
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
         var tenantId = TenantContext.CurrentTenantId;
         if (!tenantId.HasValue)
         {

@@ -1293,3 +1293,381 @@ window.portalTmpl = {
         window.portalTmpl._set(window.portalTmpl._k.searches, list.slice(0, 8));
     }
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// §IP — Institution Profile: Logo Cropper
+// ═══════════════════════════════════════════════════════════════════════════
+
+window.portalLogoCropper = (function () {
+    var _container = null;
+    var _img = null;
+    var _state = { x: 0, y: 0, zoom: 1, isDragging: false, startX: 0, startY: 0 };
+    var _handlers = {};
+
+    function applyTransform() {
+        if (!_img) return;
+        _img.style.transform =
+            'translate(calc(-50% + ' + _state.x + 'px), calc(-50% + ' + _state.y + 'px)) scale(' + _state.zoom + ')';
+    }
+
+    function destroy() {
+        if (_container) {
+            _container.removeEventListener('mousedown', _handlers.mousedown);
+            _container.removeEventListener('touchstart', _handlers.touchstart, { passive: false });
+        }
+        document.removeEventListener('mousemove', _handlers.mousemove);
+        document.removeEventListener('mouseup', _handlers.mouseup);
+        document.removeEventListener('touchmove', _handlers.touchmove);
+        document.removeEventListener('touchend', _handlers.touchend);
+        _container = null; _img = null;
+        _handlers = {};
+    }
+
+    return {
+        init: function () {
+            // No-op on first render; called once after first render to satisfy Blazor interop
+        },
+
+        load: function (containerId, imgSrc) {
+            destroy();
+            _container = document.getElementById(containerId);
+            if (!_container) return;
+            _img = _container.querySelector('img');
+            if (!_img) return;
+
+            _state = { x: 0, y: 0, zoom: 1, isDragging: false, startX: 0, startY: 0 };
+
+            _handlers.mousedown = function (e) {
+                _state.isDragging = true;
+                _state.startX = e.clientX - _state.x;
+                _state.startY = e.clientY - _state.y;
+                e.preventDefault();
+            };
+            _handlers.mousemove = function (e) {
+                if (!_state.isDragging) return;
+                _state.x = e.clientX - _state.startX;
+                _state.y = e.clientY - _state.startY;
+                applyTransform();
+            };
+            _handlers.mouseup = function () { _state.isDragging = false; };
+
+            _handlers.touchstart = function (e) {
+                if (e.touches.length !== 1) return;
+                _state.isDragging = true;
+                _state.startX = e.touches[0].clientX - _state.x;
+                _state.startY = e.touches[0].clientY - _state.y;
+                e.preventDefault();
+            };
+            _handlers.touchmove = function (e) {
+                if (!_state.isDragging || e.touches.length !== 1) return;
+                _state.x = e.touches[0].clientX - _state.startX;
+                _state.y = e.touches[0].clientY - _state.startY;
+                applyTransform();
+                e.preventDefault();
+            };
+            _handlers.touchend = function () { _state.isDragging = false; };
+
+            _container.addEventListener('mousedown', _handlers.mousedown);
+            document.addEventListener('mousemove', _handlers.mousemove);
+            document.addEventListener('mouseup', _handlers.mouseup);
+            _container.addEventListener('touchstart', _handlers.touchstart, { passive: false });
+            document.addEventListener('touchmove', _handlers.touchmove, { passive: false });
+            document.addEventListener('touchend', _handlers.touchend);
+
+            applyTransform();
+        },
+
+        setZoom: function (zoomFactor) {
+            _state.zoom = zoomFactor;
+            applyTransform();
+        },
+
+        reset: function () {
+            _state.x = 0; _state.y = 0; _state.zoom = 1;
+            applyTransform();
+        },
+
+        destroy: destroy
+    };
+})();
+
+// ── Dark Mode Theme Toggle ────────────────────────────────────────────────
+window.portalTheme = {
+    _dotNet: null,
+    _mq: null,
+
+    init: function (dotNetRef) {
+        this._dotNet = dotNetRef;
+        var saved = localStorage.getItem('portal-theme');
+        if (saved) {
+            this._apply(saved === 'dark');
+        } else {
+            this._mq = window.matchMedia('(prefers-color-scheme: dark)');
+            this._apply(this._mq.matches);
+            var self = this;
+            this._mq.addEventListener('change', function (e) {
+                if (!localStorage.getItem('portal-theme')) self._apply(e.matches);
+            });
+        }
+    },
+
+    toggle: function () {
+        var isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        var next = !isDark;
+        localStorage.setItem('portal-theme', next ? 'dark' : 'light');
+        this._apply(next);
+    },
+
+    _apply: function (isDark) {
+        if (isDark) {
+            document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+            document.documentElement.removeAttribute('data-theme');
+        }
+        if (typeof window.portalUpdateChartsTheme === 'function') {
+            window.portalUpdateChartsTheme(isDark);
+        }
+        if (this._dotNet) {
+            this._dotNet.invokeMethodAsync('OnThemeChanged', isDark);
+        }
+    },
+
+    isDark: function () {
+        return document.documentElement.getAttribute('data-theme') === 'dark';
+    }
+};
+
+// ── Team Management Hub helpers ──────────────────────────────────────────
+window.portalTeam = (function () {
+    'use strict';
+
+    function parseCsv(text) {
+        var lines = text.trim().split(/\r?\n/);
+        if (lines.length < 2) return [];
+        var rows = [];
+        for (var i = 1; i < lines.length; i++) {
+            var cols = lines[i].split(',').map(function (c) { return c.trim().replace(/^"|"$/g, ''); });
+            if (cols.length >= 2) {
+                rows.push({
+                    email: cols[0] || '',
+                    name: cols[1] || '',
+                    role: cols[2] || 'Maker',
+                    error: (!cols[0] || !cols[0].includes('@')) ? 'Invalid email' : ''
+                });
+            }
+        }
+        return rows;
+    }
+
+    function downloadTemplate() {
+        var csv = 'email,name,role\nuser@example.com,Jane Smith,Maker\nuser2@example.com,John Doe,Checker\n';
+        var blob = new Blob([csv], { type: 'text/csv' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url; a.download = 'team-import-template.csv';
+        document.body.appendChild(a); a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    function readCsvFile(inputId, dotNetRef) {
+        var input = document.getElementById(inputId);
+        if (!input || !input.files || !input.files[0]) return;
+        var reader = new FileReader();
+        reader.onload = function (e) {
+            var rows = parseCsv(e.target.result);
+            dotNetRef.invokeMethodAsync('OnCsvParsed', rows);
+        };
+        reader.readAsText(input.files[0]);
+    }
+
+    function timeAgo(isoString) {
+        if (!isoString) return 'Never';
+        var diff = Date.now() - new Date(isoString).getTime();
+        var m = Math.floor(diff / 60000);
+        if (m < 1) return 'Just now';
+        if (m < 60) return m + ' min ago';
+        var h = Math.floor(m / 60);
+        if (h < 24) return h + ' hour' + (h > 1 ? 's' : '') + ' ago';
+        var d = Math.floor(h / 24);
+        if (d < 30) return d + ' day' + (d > 1 ? 's' : '') + ' ago';
+        return new Date(isoString).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    return { downloadTemplate: downloadTemplate, readCsvFile: readCsvFile, timeAgo: timeAgo };
+})();
+
+// ── Period Picker keyboard navigation ────────────────────────────────────
+window.portalPeriodPicker = {
+    /**
+     * Move focus within the period picker grid using arrow keys.
+     * Cells carry data-pp-row (1-12) and data-pp-col (0-2) attributes.
+     */
+    moveFocus: function (key) {
+        const focused = document.activeElement;
+        if (!focused || !focused.dataset.ppRow) return;
+
+        const row = parseInt(focused.dataset.ppRow, 10);
+        const col = parseInt(focused.dataset.ppCol, 10);
+        const grid = focused.closest('[data-pp-grid]');
+        if (!grid) return;
+
+        let nr = row, nc = col;
+        if (key === 'ArrowRight')     nc = Math.min(nc + 1, 2);
+        else if (key === 'ArrowLeft') nc = Math.max(nc - 1, 0);
+        else if (key === 'ArrowDown') nr = Math.min(nr + 1, 12);
+        else if (key === 'ArrowUp')   nr = Math.max(nr - 1, 1);
+
+        const target = grid.querySelector(
+            `[data-pp-row="${nr}"][data-pp-col="${nc}"]:not([disabled])`
+        );
+        if (target) target.focus();
+    }
+};
+
+// ── Login Page Interactivity ───────────────────────────────────────────────────
+window.portalLogin = (function () {
+
+    function initPasswordToggles() {
+        document.querySelectorAll('[data-pw-toggle]').forEach(function (btn) {
+            var targetId = btn.getAttribute('data-pw-toggle');
+            var input = document.getElementById(targetId);
+            if (!input) return;
+
+            btn.addEventListener('click', function () {
+                var showing = input.type === 'text';
+                input.type = showing ? 'password' : 'text';
+                btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+                btn.setAttribute('title',      showing ? 'Show password' : 'Hide password');
+                var showIcon = btn.querySelector('.portal-pw-show-icon');
+                var hideIcon = btn.querySelector('.portal-pw-hide-icon');
+                if (showIcon) showIcon.style.display = showing ? '' : 'none';
+                if (hideIcon) hideIcon.style.display = showing ? 'none' : '';
+            });
+        });
+    }
+
+    function initCapsLock() {
+        var pwInput    = document.getElementById('password');
+        var capsWarn   = document.getElementById('capsLockWarning');
+        if (!pwInput || !capsWarn) return;
+
+        function check(e) {
+            if (typeof e.getModifierState !== 'function') return;
+            capsWarn.classList.toggle('is-visible', e.getModifierState('CapsLock'));
+        }
+
+        pwInput.addEventListener('keydown', check);
+        pwInput.addEventListener('keyup',   check);
+    }
+
+    function initMfaDigits() {
+        var container    = document.getElementById('mfaDigitsContainer');
+        var fallback     = document.getElementById('mfaFallback');
+        var hiddenInput  = document.getElementById('mfaCodeHidden');
+        if (!container || !hiddenInput) return;
+
+        // Reveal 6-digit UX, disable fallback input
+        container.style.display = 'flex';
+        if (fallback) {
+            var fallbackInput = fallback.querySelector('input');
+            if (fallbackInput) fallbackInput.disabled = true;
+            fallback.style.display = 'none';
+        }
+
+        var digits = container.querySelectorAll('.portal-mfa-digit');
+
+        function syncHidden() {
+            var val = '';
+            digits.forEach(function (d) { val += d.value; });
+            hiddenInput.value = val;
+        }
+
+        function markFilled(digit) {
+            digit.classList.toggle('portal-mfa-digit--filled', digit.value.length > 0);
+        }
+
+        digits.forEach(function (digit, i) {
+            digit.addEventListener('input', function () {
+                // Keep only last single digit
+                digit.value = digit.value.replace(/\D/g, '').slice(-1);
+                markFilled(digit);
+                syncHidden();
+                if (digit.value && i < digits.length - 1) {
+                    digits[i + 1].focus();
+                }
+            });
+
+            digit.addEventListener('keydown', function (e) {
+                if (e.key === 'Backspace' && !digit.value && i > 0) {
+                    digits[i - 1].focus();
+                }
+            });
+
+            digit.addEventListener('paste', function (e) {
+                e.preventDefault();
+                var text = (e.clipboardData || window.clipboardData).getData('text').replace(/\D/g, '');
+                digits.forEach(function (d, j) {
+                    d.value = text[j] || '';
+                    markFilled(d);
+                });
+                syncHidden();
+                // Focus first empty or last
+                var firstEmpty = -1;
+                digits.forEach(function (d, j) { if (firstEmpty < 0 && !d.value) firstEmpty = j; });
+                (firstEmpty >= 0 ? digits[firstEmpty] : digits[digits.length - 1]).focus();
+            });
+        });
+
+        // Auto-focus first digit
+        if (digits.length) digits[0].focus();
+    }
+
+    function initSubmitLoading() {
+        var forms = document.querySelectorAll('.portal-login-form');
+        forms.forEach(function (form) {
+            var btn      = form.querySelector('#loginSubmitBtn');
+            var textEl   = btn && btn.querySelector('.portal-btn-submit-text');
+            var spinner  = btn && btn.querySelector('.portal-btn-submit-spinner');
+            if (!btn) return;
+
+            form.addEventListener('submit', function () {
+                btn.classList.add('is-loading');
+                btn.disabled = true;
+                if (spinner) spinner.style.display = 'block';
+
+                // After short delay, update label to "Verifying…"
+                setTimeout(function () {
+                    if (textEl) textEl.textContent = 'Verifying\u2026';
+                }, 600);
+            });
+        });
+    }
+
+    function init() {
+        if (!document.querySelector('.portal-login-layout')) return;
+        initPasswordToggles();
+        initCapsLock();
+        initMfaDigits();
+        initSubmitLoading();
+    }
+
+    // Auto-init on DOMContentLoaded (full-page loads)
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+
+    return { init: init };
+})();
+
+// ── Certificate page helpers ──────────────────────────────────────────────────
+
+/**
+ * Triggers the browser's print dialog for the current page.
+ * Used by the Print button on the certificate page.
+ */
+window.portalCertPrint = function () {
+    window.print();
+};

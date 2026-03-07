@@ -22,9 +22,31 @@
 
     @if (_loading)
     {
-        <section class="portal-card">
-            <p>Loading payments...</p>
-        </section>
+        <SkeletonGuard OnRetry="ReloadAsync">
+            <div aria-busy="true" aria-label="Loading payments…">
+                <div class="fc-skel-stats-row fc-skel-section">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="6" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="9" />
+                </div>
+                <section class="portal-card fc-skel-section">
+                    <div class="fc-skel fc-skel-text-lg" style="width: 200px; --skeleton-index: 12; margin-bottom: var(--space-4);"></div>
+                    @for (int i = 0; i < 6; i++)
+                    {
+                        var si = 13 + i;
+                        <div style="display:flex; align-items:center; gap:var(--space-4); padding:var(--space-3) 0; border-bottom:1px solid var(--cbn-border-subtle);">
+                            <div class="fc-skel fc-skel-circle" style="width:36px; height:36px; --skeleton-index: @si;"></div>
+                            <div style="flex:1; display:flex; flex-direction:column; gap:var(--space-1);">
+                                <div class="fc-skel fc-skel-text-lg" style="width: 50%; --skeleton-index: @si;"></div>
+                                <div class="fc-skel fc-skel-text" style="width: 35%; --skeleton-index: @si;"></div>
+                            </div>
+                            <div class="fc-skel fc-skel-text-lg" style="width: 90px; --skeleton-index: @si;"></div>
+                        </div>
+                    }
+                </section>
+            </div>
+        </SkeletonGuard>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
@@ -148,8 +170,14 @@
     private string? _error;
     private List<Payment> _payments = new();
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
     {
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
         if (!TenantContext.CurrentTenantId.HasValue)
         {
             _error = "Tenant context not available.";

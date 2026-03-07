@@ -23,6 +23,8 @@ public class NotificationRequest
     public List<int> RecipientPortalUserIds { get; set; } = new();
     public List<string> RecipientRoles { get; set; } = new();
     public int? RecipientInstitutionId { get; set; }
+    /// <summary>Arbitrary external email addresses (e.g. for certificate delivery to third parties).</summary>
+    public List<string> ExternalEmailAddresses { get; set; } = new();
 
     public NotificationPayload ToPayload() => new()
     {

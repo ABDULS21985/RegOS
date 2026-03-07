@@ -26,6 +26,12 @@ public class PeriodSelectItem
     public bool HasExistingSubmission { get; set; }
     /// <summary>Effective deadline for this period (override date takes precedence over base deadline).</summary>
     public DateTime DeadlineDate { get; set; }
+    /// <summary>Period is past its filing window with no extension granted — no new submissions allowed.</summary>
+    public bool IsLocked { get; set; }
+    /// <summary>Status of the existing submission for this period, if one exists.</summary>
+    public FC.Engine.Domain.Enums.SubmissionStatus? ExistingSubmissionStatus { get; set; }
+    /// <summary>ID of the existing submission for this period, used to navigate to read-only view.</summary>
+    public int? ExistingSubmissionId { get; set; }
 }
 
 /// <summary>

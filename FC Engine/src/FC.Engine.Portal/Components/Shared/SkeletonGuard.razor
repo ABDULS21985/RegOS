@@ -1,0 +1,67 @@
+@* Wraps skeleton content and replaces it with a timeout error after a configurable delay.
+   Usage: wrap your @if (_loading) skeleton block with this component and pass OnRetry="ReloadAsync". *@
+
+@implements IAsyncDisposable
+
+@if (_timedOut)
+{
+    <div class="fc-skel-timeout" role="alert" aria-live="polite">
+        <div class="fc-skel-timeout__icon" aria-hidden="true">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+            </svg>
+        </div>
+        <p class="fc-skel-timeout__title">Taking longer than expected</p>
+        <p class="fc-skel-timeout__msg">This section didn't load in time. Check your connection and try again.</p>
+        <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="RetryAsync">
+            Retry
+        </button>
+    </div>
+}
+else
+{
+    @ChildContent
+}
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnRetry { get; set; }
+    [Parameter] public int TimeoutSeconds { get; set; } = 10;
+
+    private CancellationTokenSource _cts = new();
+    private bool _timedOut;
+
+    protected override void OnInitialized()
+    {
+        _ = StartTimeoutAsync(_cts.Token);
+    }
+
+    private async Task StartTimeoutAsync(CancellationToken ct)
+    {
+        try
+        {
+            await Task.Delay(TimeoutSeconds * 1_000, ct);
+            _timedOut = true;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    private async Task RetryAsync()
+    {
+        _timedOut = false;
+        _cts.Cancel();
+        _cts.Dispose();
+        _cts = new CancellationTokenSource();
+        _ = StartTimeoutAsync(_cts.Token);
+        await OnRetry.InvokeAsync();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

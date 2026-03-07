@@ -306,22 +306,11 @@
             }
             else
             {
-                <div class="portal-form-row">
-                    <div class="portal-form-group" style="max-width: 300px;">
-                        <label for="periodSelect" class="portal-form-label">Select Period</label>
-                        <select id="periodSelect"
-                                class="portal-form-select"
-                                value="@selectedPeriodId"
-                                @onchange="OnPeriodChanged">
-                            <option value="0">Choose a period...</option>
-                            @foreach (var period in availablePeriods)
-                            {
-                                <option value="@period.ReturnPeriodId" disabled="@period.HasExistingSubmission">
-                                    @period.Label @(period.HasExistingSubmission ? "(Already Submitted)" : "")
-                                </option>
-                            }
-                        </select>
-                    </div>
+                <div class="portal-form-group" style="max-width: 420px;">
+                    <label class="portal-form-label">Select Period</label>
+                    <PeriodPicker Periods="availablePeriods"
+                                  Value="selectedPeriodId"
+                                  ValueChanged="OnPeriodIdChanged" />
                 </div>
             }
         </div>
@@ -1461,6 +1450,17 @@
             return;
         }
 
+        await InitializeDraftSession();
+    }
+
+    private async Task OnPeriodIdChanged(int periodId)
+    {
+        selectedPeriodId = periodId;
+        if (selectedPeriodId == 0)
+        {
+            await ReleaseLock();
+            return;
+        }
         await InitializeDraftSession();
     }
 

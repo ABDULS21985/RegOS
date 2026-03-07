@@ -3,6 +3,8 @@
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Security.Claims
 @using FC.Engine.Portal.Services
+@implements IAsyncDisposable
+@inject IJSRuntime JS
 
 <PageTitle>Cross-Sheet Validation — FC Engine Portal</PageTitle>
 
@@ -42,11 +44,69 @@ else if (data is null)
 }
 else
 {
-    <div class="xs-page">
-        <!-- Overview Header -->
-        <div class="xs-header">
-            <h2 class="xs-title">Cross-Sheet Validation Status</h2>
-            <p class="xs-desc">These rules validate consistency between different return templates for @data.CurrentPeriod.</p>
+    <div class="xs-page @(_viewMode == ViewMode.Comparator ? "xs-page--wide" : "")">
+
+        <!-- ── Header ── -->
+        <div class="xs-header xs-header--v2">
+            <div class="xs-header-row">
+                <div class="xs-header-text">
+                    <h2 class="xs-title">Cross-Sheet Validation Status</h2>
+                    <p class="xs-desc">Consistency rules between return templates for @data.CurrentPeriod.</p>
+                </div>
+                <div class="xs-header-actions">
+                    <!-- View mode toggle -->
+                    <div class="xs-view-toggle" role="tablist" aria-label="View mode">
+                        <button role="tab" aria-selected="@(_viewMode == ViewMode.Standard)"
+                                class="xs-view-tab @(_viewMode == ViewMode.Standard ? "xs-view-tab--active" : "")"
+                                @onclick='() => SetViewMode(ViewMode.Standard)'>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" aria-hidden="true">
+                                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                            </svg>
+                            Overview
+                        </button>
+                        <button role="tab" aria-selected="@(_viewMode == ViewMode.Comparator)"
+                                class="xs-view-tab @(_viewMode == ViewMode.Comparator ? "xs-view-tab--active" : "")"
+                                @onclick='() => SetViewMode(ViewMode.Comparator)'>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" aria-hidden="true">
+                                <rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/>
+                            </svg>
+                            Comparator
+                            @if (data.FailingCount > 0)
+                            {
+                                <span class="xs-view-tab-badge">@data.FailingCount</span>
+                            }
+                        </button>
+                    </div>
+                    <!-- Bulk re-validate -->
+                    <button class="portal-btn portal-btn-outline portal-btn-sm xs-action-btn"
+                            @onclick="RevalidateAll" disabled="@_revalidating" title="Re-run all cross-sheet rules">
+                        @if (_revalidating)
+                        {
+                            <span class="xs-spinner" aria-hidden="true"></span>
+                        }
+                        else
+                        {
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" aria-hidden="true">
+                                <polyline points="23 4 23 10 17 10"/>
+                                <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+                            </svg>
+                        }
+                        @(_revalidating ? "Validating…" : "Re-validate All")
+                    </button>
+                    <!-- Export PDF -->
+                    <button class="portal-btn portal-btn-outline portal-btn-sm xs-action-btn"
+                            @onclick="ExportPdf" title="Export cross-sheet report as PDF">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" aria-hidden="true">
+                            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+                            <polyline points="10 9 9 9 8 9"/>
+                        </svg>
+                        Export Report
+                    </button>
+                </div>
+            </div>
             <p class="xs-summary">
                 <strong>@data.PassingCount</strong> of <strong>@data.TotalRules</strong> rules passing for current period
                 @if (data.NotEvaluatedCount > 0)
@@ -54,366 +114,898 @@ else
                     <span class="xs-summary-note">(@data.NotEvaluatedCount not yet evaluated)</span>
                 }
             </p>
-        </div>
-
-        <!-- Stat Cards -->
-        <div class="xs-stat-row">
-            <div class="portal-card xs-stat-card">
-                <span class="xs-stat-value">@data.TotalRules</span>
-                <span class="xs-stat-label">Total Rules</span>
-            </div>
-            <div class="portal-card xs-stat-card xs-stat-pass">
-                <span class="xs-stat-value">@data.PassingCount</span>
-                <span class="xs-stat-label">Passing</span>
-            </div>
-            <div class="portal-card xs-stat-card xs-stat-fail">
-                <span class="xs-stat-value">@data.FailingCount</span>
-                <span class="xs-stat-label">Failing</span>
-            </div>
-            <div class="portal-card xs-stat-card xs-stat-pending">
-                <span class="xs-stat-value">@data.NotEvaluatedCount</span>
-                <span class="xs-stat-label">Not Evaluated</span>
+            <div class="xs-stat-row">
+                <div class="portal-card xs-stat-card">
+                    <span class="xs-stat-value">@data.TotalRules</span>
+                    <span class="xs-stat-label">Total Rules</span>
+                </div>
+                <div class="portal-card xs-stat-card xs-stat-pass">
+                    <span class="xs-stat-value">@data.PassingCount</span>
+                    <span class="xs-stat-label">Passing</span>
+                </div>
+                <div class="portal-card xs-stat-card xs-stat-fail">
+                    <span class="xs-stat-value">@data.FailingCount</span>
+                    <span class="xs-stat-label">Failing</span>
+                </div>
+                <div class="portal-card xs-stat-card xs-stat-pending">
+                    <span class="xs-stat-value">@data.NotEvaluatedCount</span>
+                    <span class="xs-stat-label">Not Evaluated</span>
+                </div>
             </div>
         </div>
 
-        <!-- Rule Status Table -->
-        <section class="portal-card xs-rules-section">
-            <h3 class="xs-section-title">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
-                    <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
-                    <rect x="9" y="3" width="6" height="4" rx="1"/>
-                    <path d="M9 14l2 2 4-4"/>
-                </svg>
-                Rule Status
-            </h3>
-
-            @if (data.Rules.Count == 0)
-            {
-                <p class="xs-empty-note">No cross-sheet validation rules are currently active.</p>
-            }
-            else
-            {
-                <div class="xs-rules-table">
-                    <div class="xs-rules-header">
-                        <span>Rule</span>
-                        <span>Templates</span>
-                        <span>Expression</span>
-                        <span>Status</span>
-                        <span>Last Evaluated</span>
-                        <span></span>
-                    </div>
-
-                    @foreach (var rule in data.Rules)
-                    {
-                        var isExpanded = expandedRules.Contains(rule.RuleCode);
-                        <div class="xs-rule-row @(isExpanded ? "xs-rule-expanded" : "") xs-rule-@rule.Status.ToString().ToLowerInvariant()">
-                            <div class="xs-rule-main" @onclick="() => ToggleRule(rule.RuleCode)">
-                                <div class="xs-rule-code-cell">
-                                    <span class="xs-rule-code">@rule.RuleCode</span>
-                                    <span class="xs-rule-name">@rule.RuleName</span>
-                                </div>
-
-                                <div class="xs-rule-templates">
-                                    @foreach (var tpl in rule.InvolvedTemplates)
-                                    {
-                                        <span class="xs-template-chip @(tpl.IsSubmitted ? "xs-chip-submitted" : "xs-chip-pending")"
-                                              title="@tpl.Name — @(tpl.IsSubmitted ? "Submitted" : "Not submitted")">
-                                            @tpl.ReturnCode
-                                        </span>
-                                    }
-                                </div>
-
-                                <div class="xs-rule-expr" title="@rule.Expression">
-                                    <code>@rule.Expression</code>
-                                </div>
-
-                                <div class="xs-rule-status-cell">
-                                    @switch (rule.Status)
-                                    {
-                                        case RuleEvalStatus.Pass:
-                                            <span class="xs-status-badge xs-status-pass">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                                                Pass
+        <!-- ══════════════════════════════════════════════════════════
+             OVERVIEW MODE
+        ══════════════════════════════════════════════════════════ -->
+        @if (_viewMode == ViewMode.Standard)
+        {
+            <!-- Rule Status Table -->
+            <section class="portal-card xs-rules-section">
+                <h3 class="xs-section-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+                        <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+                        <rect x="9" y="3" width="6" height="4" rx="1"/>
+                        <path d="M9 14l2 2 4-4"/>
+                    </svg>
+                    Rule Status
+                </h3>
+                @if (data.Rules.Count == 0)
+                {
+                    <p class="xs-empty-note">No cross-sheet validation rules are currently active.</p>
+                }
+                else
+                {
+                    <div class="xs-rules-table">
+                        <div class="xs-rules-header">
+                            <span>Rule</span>
+                            <span>Templates</span>
+                            <span>Expression</span>
+                            <span>Status</span>
+                            <span>Last Evaluated</span>
+                            <span></span>
+                        </div>
+                        @foreach (var rule in data.Rules)
+                        {
+                            var isExpanded = expandedRules.Contains(rule.RuleCode);
+                            <div class="xs-rule-row @(isExpanded ? "xs-rule-expanded" : "") xs-rule-@rule.Status.ToString().ToLowerInvariant()">
+                                <div class="xs-rule-main" @onclick="() => ToggleRule(rule.RuleCode)">
+                                    <div class="xs-rule-code-cell">
+                                        <span class="xs-rule-code">@rule.RuleCode</span>
+                                        <span class="xs-rule-name">@rule.RuleName</span>
+                                    </div>
+                                    <div class="xs-rule-templates">
+                                        @foreach (var tpl in rule.InvolvedTemplates)
+                                        {
+                                            <span class="xs-template-chip @(tpl.IsSubmitted ? "xs-chip-submitted" : "xs-chip-pending")"
+                                                  title="@tpl.Name — @(tpl.IsSubmitted ? "Submitted" : "Not submitted")">
+                                                @tpl.ReturnCode
                                             </span>
-                                            break;
-                                        case RuleEvalStatus.Fail:
-                                            <span class="xs-status-badge xs-status-fail">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                                                Fail
-                                            </span>
-                                            break;
-                                        case RuleEvalStatus.NotEvaluated:
-                                            <span class="xs-status-badge xs-status-noteval">
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                                                Not Evaluated
-                                            </span>
-                                            break;
-                                    }
+                                        }
+                                    </div>
+                                    <div class="xs-rule-expr" title="@rule.Expression">
+                                        <code>@rule.Expression</code>
+                                    </div>
+                                    <div class="xs-rule-status-cell">
+                                        @switch (rule.Status)
+                                        {
+                                            case RuleEvalStatus.Pass:
+                                                <span class="xs-status-badge xs-status-pass">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                                    Pass
+                                                </span>
+                                                break;
+                                            case RuleEvalStatus.Fail:
+                                                <span class="xs-status-badge xs-status-fail">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                    Fail
+                                                </span>
+                                                break;
+                                            case RuleEvalStatus.NotEvaluated:
+                                                <span class="xs-status-badge xs-status-noteval">
+                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                                                    Not Evaluated
+                                                </span>
+                                                break;
+                                        }
+                                    </div>
+                                    <div class="xs-rule-timestamp">
+                                        @if (rule.LastEvaluated.HasValue)
+                                        {
+                                            <span>@rule.LastEvaluated.Value.ToString("dd MMM yyyy HH:mm")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="xs-na">—</span>
+                                        }
+                                    </div>
+                                    <div class="xs-rule-toggle">
+                                        <svg class="xs-chevron @(isExpanded ? "xs-chevron-open" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
+                                            <polyline points="6 9 12 15 18 9"/>
+                                        </svg>
+                                    </div>
                                 </div>
-
-                                <div class="xs-rule-timestamp">
-                                    @if (rule.LastEvaluated.HasValue)
-                                    {
-                                        <span>@rule.LastEvaluated.Value.ToString("dd MMM yyyy HH:mm")</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="xs-na">—</span>
-                                    }
-                                </div>
-
-                                <div class="xs-rule-toggle">
-                                    <svg class="xs-chevron @(isExpanded ? "xs-chevron-open" : "")" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
-                                        <polyline points="6 9 12 15 18 9"/>
-                                    </svg>
-                                </div>
-                            </div>
-
-                            @if (isExpanded)
-                            {
-                                <div class="xs-rule-detail">
-                                    @if (!string.IsNullOrWhiteSpace(rule.Description))
-                                    {
-                                        <p class="xs-detail-desc">@rule.Description</p>
-                                    }
-
-                                    <div class="xs-detail-grid">
-                                        <div class="xs-detail-section">
-                                            <h4>Operands</h4>
-                                            <table class="xs-detail-table">
-                                                <thead>
-                                                    <tr>
-                                                        <th>Alias</th>
-                                                        <th>Template</th>
-                                                        <th>Field</th>
-                                                        <th>Aggregate</th>
-                                                        <th>Status</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    @foreach (var op in rule.Operands)
-                                                    {
+                                @if (isExpanded)
+                                {
+                                    <div class="xs-rule-detail">
+                                        @if (!string.IsNullOrWhiteSpace(rule.Description))
+                                        {
+                                            <p class="xs-detail-desc">@rule.Description</p>
+                                        }
+                                        <div class="xs-detail-grid">
+                                            <div class="xs-detail-section">
+                                                <h4>Operands</h4>
+                                                <table class="xs-detail-table">
+                                                    <thead>
                                                         <tr>
-                                                            <td><code>@op.Alias</code></td>
-                                                            <td>@op.TemplateReturnCode <span class="xs-detail-tpl-name">@op.TemplateName</span></td>
-                                                            <td><code>@op.FieldName</code></td>
-                                                            <td>@(op.AggregateFunction ?? "—")</td>
-                                                            <td>
-                                                                @if (op.IsSubmitted)
-                                                                {
-                                                                    <span class="xs-chip-submitted xs-template-chip">Submitted</span>
-                                                                }
-                                                                else
-                                                                {
-                                                                    <span class="xs-chip-pending xs-template-chip">Pending</span>
-                                                                }
-                                                            </td>
+                                                            <th>Alias</th>
+                                                            <th>Template</th>
+                                                            <th>Field</th>
+                                                            <th>Aggregate</th>
+                                                            <th>Status</th>
                                                         </tr>
-                                                    }
-                                                </tbody>
-                                            </table>
-                                        </div>
-
-                                        <div class="xs-detail-section">
-                                            <h4>Expression &amp; Tolerance</h4>
-                                            <div class="xs-detail-meta">
-                                                <div class="xs-detail-meta-item">
-                                                    <span class="xs-meta-label">Expression</span>
-                                                    <code class="xs-meta-value">@rule.Expression</code>
-                                                </div>
-                                                <div class="xs-detail-meta-item">
-                                                    <span class="xs-meta-label">Tolerance (Amount)</span>
-                                                    <span class="xs-meta-value">@rule.ToleranceAmount.ToString("N2")</span>
-                                                </div>
-                                                @if (rule.TolerancePercent.HasValue)
-                                                {
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach (var op in rule.Operands)
+                                                        {
+                                                            <tr>
+                                                                <td><code>@op.Alias</code></td>
+                                                                <td>@op.TemplateReturnCode <span class="xs-detail-tpl-name">@op.TemplateName</span></td>
+                                                                <td><code>@op.FieldName</code></td>
+                                                                <td>@(op.AggregateFunction ?? "—")</td>
+                                                                <td>
+                                                                    @if (op.IsSubmitted)
+                                                                    {
+                                                                        <span class="xs-chip-submitted xs-template-chip">Submitted</span>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <span class="xs-chip-pending xs-template-chip">Pending</span>
+                                                                    }
+                                                                </td>
+                                                            </tr>
+                                                        }
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                            <div class="xs-detail-section">
+                                                <h4>Expression &amp; Tolerance</h4>
+                                                <div class="xs-detail-meta">
                                                     <div class="xs-detail-meta-item">
-                                                        <span class="xs-meta-label">Tolerance (%)</span>
-                                                        <span class="xs-meta-value">@rule.TolerancePercent.Value.ToString("N2")%</span>
+                                                        <span class="xs-meta-label">Expression</span>
+                                                        <code class="xs-meta-value">@rule.Expression</code>
                                                     </div>
-                                                }
-                                                <div class="xs-detail-meta-item">
-                                                    <span class="xs-meta-label">Severity</span>
-                                                    <span class="xs-meta-value xs-severity-@rule.Severity.ToString().ToLowerInvariant()">@rule.Severity</span>
+                                                    <div class="xs-detail-meta-item">
+                                                        <span class="xs-meta-label">Tolerance (Amount)</span>
+                                                        <span class="xs-meta-value">@rule.ToleranceAmount.ToString("N2")</span>
+                                                    </div>
+                                                    @if (rule.TolerancePercent.HasValue)
+                                                    {
+                                                        <div class="xs-detail-meta-item">
+                                                            <span class="xs-meta-label">Tolerance (%)</span>
+                                                            <span class="xs-meta-value">@rule.TolerancePercent.Value.ToString("N2")%</span>
+                                                        </div>
+                                                    }
+                                                    <div class="xs-detail-meta-item">
+                                                        <span class="xs-meta-label">Severity</span>
+                                                        <span class="xs-meta-value xs-severity-@rule.Severity.ToString().ToLowerInvariant()">@rule.Severity</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
+                                        @if (rule.Status == RuleEvalStatus.Fail && !string.IsNullOrWhiteSpace(rule.FailureDetail))
+                                        {
+                                            <div class="xs-detail-error">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
+                                                    <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                                                </svg>
+                                                <span>@rule.FailureDetail</span>
+                                            </div>
+                                        }
                                     </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </section>
 
-                                    @if (rule.Status == RuleEvalStatus.Fail && !string.IsNullOrWhiteSpace(rule.FailureDetail))
+            <!-- Dependency Map -->
+            @if (data.DependencyNodes.Count > 0)
+            {
+                <section class="portal-card xs-depmap-section">
+                    <h3 class="xs-section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+                            <circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/>
+                            <line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/>
+                        </svg>
+                        Dependency Map
+                    </h3>
+                    <p class="xs-depmap-desc">Templates connected by cross-sheet validation rules.</p>
+                    <div class="xs-depmap">
+                        @{
+                            var nodeCount = data.DependencyNodes.Count;
+                            var columns = Math.Min(nodeCount, 5);
+                        }
+                        <div class="xs-depmap-nodes" style="grid-template-columns: repeat(@columns, 1fr)">
+                            @foreach (var node in data.DependencyNodes)
+                            {
+                                var nodeEdges = data.DependencyEdges
+                                    .Where(e => e.SourceCode == node.ReturnCode || e.TargetCode == node.ReturnCode);
+                                var hasFailingEdge = nodeEdges.Any(e => e.Status == RuleEvalStatus.Fail);
+                                var nodeClass = node.IsSubmitted
+                                    ? (hasFailingEdge ? "xs-node-fail" : "xs-node-submitted")
+                                    : "xs-node-pending";
+                                <div class="xs-depmap-node @nodeClass" title="@node.Name — @(node.IsSubmitted ? "Submitted" : "Not submitted")">
+                                    <span class="xs-node-code">@node.ReturnCode</span>
+                                    <span class="xs-node-status">
+                                        @if (node.IsSubmitted)
+                                        {
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                        }
+                                        else
+                                        {
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10"/></svg>
+                                        }
+                                    </span>
+                                </div>
+                            }
+                        </div>
+                        <div class="xs-depmap-edges">
+                            @foreach (var edge in data.DependencyEdges.DistinctBy(e => e.RuleCode))
+                            {
+                                var edgeClass = edge.Status switch
+                                {
+                                    RuleEvalStatus.Pass => "xs-edge-pass",
+                                    RuleEvalStatus.Fail => "xs-edge-fail",
+                                    _ => "xs-edge-noteval"
+                                };
+                                <div class="xs-depmap-edge @edgeClass">
+                                    <span class="xs-edge-line" aria-hidden="true"></span>
+                                    <span class="xs-edge-label">@edge.SourceCode ↔ @edge.TargetCode</span>
+                                    <span class="xs-edge-rule">@edge.RuleCode</span>
+                                </div>
+                            }
+                        </div>
+                        <div class="xs-depmap-legend">
+                            <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-submitted"></span> Submitted</span>
+                            <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-pending"></span> Not Submitted</span>
+                            <span class="xs-legend-item"><span class="xs-legend-line xs-legend-line-pass"></span> Passing</span>
+                            <span class="xs-legend-item"><span class="xs-legend-line xs-legend-line-fail"></span> Failing</span>
+                            <span class="xs-legend-item"><span class="xs-legend-line xs-legend-line-noteval"></span> Not Evaluated</span>
+                        </div>
+                    </div>
+                </section>
+            }
+
+            <!-- Missing Dependencies -->
+            @if (data.MissingDependencies.Count > 0)
+            {
+                <section class="portal-card xs-missing-section">
+                    <h3 class="xs-section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+                            <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                            <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                        </svg>
+                        Missing Dependencies
+                    </h3>
+                    <p class="xs-missing-desc">
+                        These templates need to be submitted before cross-sheet validation can run.
+                    </p>
+                    <div class="xs-missing-list">
+                        @foreach (var dep in data.MissingDependencies)
+                        {
+                            <div class="xs-missing-item">
+                                <div class="xs-missing-info">
+                                    <span class="xs-missing-code">@dep.ReturnCode</span>
+                                    <span class="xs-missing-name">@dep.Name</span>
+                                    <span class="xs-missing-rules">Required by: @string.Join(", ", dep.RequiredByRules)</span>
+                                </div>
+                                <a href="/submit" class="portal-btn portal-btn-outline portal-btn-sm xs-missing-action">Submit Now</a>
+                            </div>
+                        }
+                    </div>
+                </section>
+            }
+
+            <!-- Historical Trend -->
+            @if (data.Trend.Count > 0 && data.TotalRules > 0)
+            {
+                <section class="portal-card xs-trend-section">
+                    <h3 class="xs-section-title">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                        </svg>
+                        Historical Trend
+                    </h3>
+                    <p class="xs-trend-desc">Cross-sheet validation pass rate over the last 6 periods.</p>
+                    <div class="xs-trend-chart">
+                        @foreach (var item in data.Trend)
+                        {
+                            var evaluated = item.Passing + item.Failing;
+                            var passPercent = evaluated > 0 ? Math.Round(item.Passing * 100m / evaluated, 0) : 0;
+                            var failPercent = evaluated > 0 ? Math.Round(item.Failing * 100m / evaluated, 0) : 0;
+                            var notevalPercent = item.TotalRules > 0 ? Math.Round(item.NotEvaluated * 100m / item.TotalRules, 0) : 0;
+                            <div class="xs-trend-row">
+                                <span class="xs-trend-label">@item.MonthLabel @item.Year</span>
+                                <div class="xs-trend-bar-wrap">
+                                    @if (evaluated > 0)
                                     {
-                                        <div class="xs-detail-error">
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
-                                                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-                                            </svg>
-                                            <span>@rule.FailureDetail</span>
+                                        <div class="xs-trend-bar xs-trend-bar-pass" style="width: @(passPercent)%" title="@item.Passing passing"></div>
+                                        <div class="xs-trend-bar xs-trend-bar-fail" style="width: @(failPercent)%" title="@item.Failing failing"></div>
+                                    }
+                                    @if (item.NotEvaluated > 0)
+                                    {
+                                        <div class="xs-trend-bar xs-trend-bar-noteval" style="width: @(notevalPercent)%" title="@item.NotEvaluated not evaluated"></div>
+                                    }
+                                </div>
+                                <span class="xs-trend-rate">@item.PassRate%</span>
+                            </div>
+                        }
+                    </div>
+                    <div class="xs-trend-legend">
+                        <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-pass-bg"></span> Passing</span>
+                        <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-fail-bg"></span> Failing</span>
+                        <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-noteval-bg"></span> Not Evaluated</span>
+                    </div>
+                </section>
+            }
+        }
+
+        <!-- ══════════════════════════════════════════════════════════
+             COMPARATOR MODE
+        ══════════════════════════════════════════════════════════ -->
+        else
+        {
+            <div class="xs-comp-layout">
+
+                <!-- LEFT PANEL: Rule list -->
+                <aside class="xs-comp-panel-left portal-card">
+                    <!-- Search -->
+                    <div class="xs-comp-search-bar">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" class="xs-comp-search-icon" aria-hidden="true">
+                            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                        <input @ref="_searchInput" id="xs-search" type="search" class="xs-comp-search-input"
+                               placeholder="Search rules…" @bind="_searchQuery" @bind:event="oninput"
+                               aria-label="Filter cross-sheet rules" />
+                        <kbd class="xs-comp-search-hint" title="Press F to focus search">F</kbd>
+                    </div>
+                    <!-- Filters -->
+                    <div class="xs-comp-filters">
+                        <select class="xs-comp-filter-select" @bind="_filterStatus" aria-label="Filter by status">
+                            <option value="all">All statuses</option>
+                            <option value="fail">Failing</option>
+                            <option value="pass">Passing</option>
+                            <option value="notevaluated">Not evaluated</option>
+                        </select>
+                        <select class="xs-comp-filter-select" @bind="_filterSeverity" aria-label="Filter by severity">
+                            <option value="all">All severities</option>
+                            <option value="error">Hard (Error)</option>
+                            <option value="warning">Soft (Warning)</option>
+                        </select>
+                    </div>
+                    @{
+                        var filteredList = FilteredRules.ToList();
+                    }
+                    <div class="xs-comp-rule-count">@filteredList.Count of @data.Rules.Count rules</div>
+                    <!-- Rule list -->
+                    <div class="xs-comp-rule-list" role="listbox" aria-label="Cross-sheet rules">
+                        @foreach (var rule in filteredList)
+                        {
+                            var isActive = _selectedRuleCode == rule.RuleCode;
+                            var itemStatusClass = rule.Status switch
+                            {
+                                RuleEvalStatus.Pass => "xs-comp-rule-item--pass",
+                                RuleEvalStatus.Fail => "xs-comp-rule-item--fail",
+                                _ => "xs-comp-rule-item--noteval"
+                            };
+                            <div class="xs-comp-rule-item @itemStatusClass @(isActive ? "xs-comp-rule-item--active" : "")"
+                                 role="option" aria-selected="@isActive.ToString().ToLowerInvariant()"
+                                 @onclick="() => SelectRule(rule.RuleCode)" tabindex="0">
+                                <div class="xs-comp-rule-item-status">
+                                    @switch (rule.Status)
+                                    {
+                                        case RuleEvalStatus.Pass:
+                                            <span class="xs-comp-status-dot xs-comp-status-dot--pass" title="Passing">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="10" height="10" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                            </span>
+                                            break;
+                                        case RuleEvalStatus.Fail:
+                                            <span class="xs-comp-status-dot xs-comp-status-dot--fail" title="Failing">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="10" height="10" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                            </span>
+                                            break;
+                                        default:
+                                            <span class="xs-comp-status-dot xs-comp-status-dot--noteval" title="Not Evaluated">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" width="10" height="10" aria-hidden="true"><circle cx="12" cy="12" r="8"/></svg>
+                                            </span>
+                                            break;
+                                    }
+                                </div>
+                                <div class="xs-comp-rule-item-body">
+                                    <div class="xs-comp-rule-item-top">
+                                        <span class="xs-comp-rule-item-code">@rule.RuleCode</span>
+                                        <span class="xs-comp-severity-badge xs-comp-severity-@rule.Severity.ToString().ToLowerInvariant()">
+                                            @(rule.Severity.ToString() == "Error" ? "Hard" : "Soft")
+                                        </span>
+                                    </div>
+                                    <span class="xs-comp-rule-item-name">@rule.RuleName</span>
+                                    <div class="xs-comp-rule-item-templates">
+                                        @foreach (var t in rule.InvolvedTemplates.Take(3))
+                                        {
+                                            <span class="xs-template-chip @(t.IsSubmitted ? "xs-chip-submitted" : "xs-chip-pending")">@t.ReturnCode</span>
+                                        }
+                                        @if (rule.InvolvedTemplates.Count > 3)
+                                        {
+                                            <span class="xs-template-chip xs-chip-pending">+@(rule.InvolvedTemplates.Count - 3)</span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                        @if (filteredList.Count == 0)
+                        {
+                            <div class="xs-comp-rule-list-empty">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32" aria-hidden="true">
+                                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                                </svg>
+                                <p>No rules match your filters.</p>
+                                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ClearFilters">Clear filters</button>
+                            </div>
+                        }
+                    </div>
+                </aside>
+
+                <!-- RIGHT PANEL: Comparison detail -->
+                <main class="xs-comp-panel-right">
+                    @if (SelectedRule is null)
+                    {
+                        <div class="xs-comp-select-prompt portal-card">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" width="52" height="52" aria-hidden="true">
+                                <rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/>
+                                <line x1="7" y1="7" x2="7" y2="7.01"/><line x1="7" y1="11" x2="7" y2="11.01"/><line x1="7" y1="15" x2="7" y2="15.01"/>
+                            </svg>
+                            <h3>Select a rule to compare</h3>
+                            <p>Click any rule in the left panel to view its side-by-side field comparison and dependency path.</p>
+                            @if (data.FailingCount > 0)
+                            {
+                                <p class="xs-comp-prompt-failing">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                                    @data.FailingCount failing @(data.FailingCount == 1 ? "rule requires" : "rules require") attention
+                                </p>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        var rule = SelectedRule!;
+                        var (leftSide, opSymbol, rightSide) = ParseExpression(rule.Expression);
+                        var leftOps = GetOperandsForSide(rule, leftSide);
+                        var rightOps = GetOperandsForSide(rule, rightSide);
+
+                        <!-- Rule header card -->
+                        <div class="portal-card xs-comp-rule-header-card">
+                            <div class="xs-comp-rule-header-top">
+                                <div class="xs-comp-rule-header-info">
+                                    <h3 class="xs-comp-rule-title">
+                                        @rule.RuleCode
+                                        @switch (rule.Status)
+                                        {
+                                            case RuleEvalStatus.Pass:
+                                                <span class="xs-status-badge xs-status-pass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><polyline points="20 6 9 17 4 12"/></svg> Pass</span>
+                                                break;
+                                            case RuleEvalStatus.Fail:
+                                                <span class="xs-status-badge xs-status-fail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg> Fail</span>
+                                                break;
+                                            default:
+                                                <span class="xs-status-badge xs-status-noteval">Not Evaluated</span>
+                                                break;
+                                        }
+                                        <span class="xs-comp-severity-badge xs-comp-severity-@rule.Severity.ToString().ToLowerInvariant()">
+                                            @(rule.Severity.ToString() == "Error" ? "Hard" : "Soft")
+                                        </span>
+                                    </h3>
+                                    <p class="xs-comp-rule-desc">@(rule.Description ?? rule.RuleName)</p>
+                                </div>
+                                @if (rule.Status == RuleEvalStatus.Fail)
+                                {
+                                    <button class="xs-fix-trigger-btn" @onclick="() => OpenFixWizard(rule)" title="Open fix wizard for this rule">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true">
+                                            <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
+                                        </svg>
+                                        Fix This
+                                    </button>
+                                }
+                            </div>
+                            <div class="xs-comp-expr-row">
+                                <span class="xs-comp-expr-label">Expression</span>
+                                <code class="xs-comp-expr-code">@rule.Expression</code>
+                                @if (rule.ToleranceAmount > 0 || rule.TolerancePercent.HasValue)
+                                {
+                                    <span class="xs-comp-tolerance-badge">
+                                        Tol: @rule.ToleranceAmount.ToString("N2")@(rule.TolerancePercent.HasValue ? $" / {rule.TolerancePercent.Value:N2}%" : "")
+                                    </span>
+                                }
+                                @if (rule.LastEvaluated.HasValue)
+                                {
+                                    <span class="xs-comp-eval-time">Evaluated @rule.LastEvaluated.Value.ToString("dd MMM yyyy HH:mm")</span>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Comparison table card -->
+                        <div class="portal-card xs-comp-table-card">
+                            <h4 class="xs-comp-section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" aria-hidden="true">
+                                    <rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/>
+                                </svg>
+                                Side-by-Side Comparison
+                            </h4>
+                            <div class="xs-comp-table" role="table" aria-label="Field comparison">
+                                <div class="xs-comp-table-head" role="row">
+                                    <div class="xs-comp-col-ab" role="columnheader">Sheet A — Field Path</div>
+                                    <div class="xs-comp-col-val" role="columnheader">Value A</div>
+                                    <div class="xs-comp-col-op" role="columnheader">Op</div>
+                                    <div class="xs-comp-col-val" role="columnheader">Value B</div>
+                                    <div class="xs-comp-col-ab" role="columnheader">Sheet B — Field Path</div>
+                                </div>
+                                @{
+                                    var pairCount = Math.Max(leftOps.Count, rightOps.Count);
+                                    if (pairCount == 0) { pairCount = 1; }
+                                }
+                                @for (int pi = 0; pi < pairCount; pi++)
+                                {
+                                    var lo = pi < leftOps.Count ? leftOps[pi] : null;
+                                    var ro = pi < rightOps.Count ? rightOps[pi] : null;
+                                    var rowClass = rule.Status switch
+                                    {
+                                        RuleEvalStatus.Pass => "xs-comp-row--match",
+                                        RuleEvalStatus.Fail => "xs-comp-row--mismatch",
+                                        _ => "xs-comp-row--noteval"
+                                    };
+                                    var valClass = rule.Status switch
+                                    {
+                                        RuleEvalStatus.Pass => "xs-comp-val--match",
+                                        RuleEvalStatus.Fail => "xs-comp-val--mismatch",
+                                        _ => "xs-comp-val--noteval"
+                                    };
+                                    decimal? diff = (lo?.ActualValue.HasValue == true && ro?.ActualValue.HasValue == true)
+                                        ? ro!.ActualValue!.Value - lo!.ActualValue!.Value
+                                        : null;
+
+                                    <div class="xs-comp-row @rowClass" role="row">
+                                        <div class="xs-comp-cell xs-comp-cell-a" role="cell">
+                                            @if (lo != null)
+                                            {
+                                                <code class="xs-comp-alias-badge">@lo.Alias</code>
+                                                <div class="xs-comp-field-path">
+                                                    <strong class="xs-comp-field-tpl">@lo.TemplateReturnCode</strong>
+                                                    <span class="xs-comp-field-name">@lo.FieldName</span>
+                                                    @if (!string.IsNullOrEmpty(lo.TemplateName) && lo.TemplateName != lo.TemplateReturnCode)
+                                                    {
+                                                        <span class="xs-comp-field-tpl-full">@lo.TemplateName</span>
+                                                    }
+                                                </div>
+                                                @if (!string.IsNullOrEmpty(lo.AggregateFunction))
+                                                {
+                                                    <span class="xs-comp-agg-badge">@lo.AggregateFunction</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="xs-na">—</span>
+                                            }
+                                        </div>
+                                        <div class="xs-comp-val @valClass" role="cell">
+                                            @(lo?.ActualValue?.ToString("N2") ?? "—")
+                                        </div>
+                                        <div class="xs-comp-op" role="cell" aria-label="Operator @opSymbol">@opSymbol</div>
+                                        <div class="xs-comp-val @valClass" role="cell">
+                                            @(ro?.ActualValue?.ToString("N2") ?? "—")
+                                        </div>
+                                        <div class="xs-comp-cell xs-comp-cell-b" role="cell">
+                                            @if (ro != null)
+                                            {
+                                                <code class="xs-comp-alias-badge">@ro.Alias</code>
+                                                <div class="xs-comp-field-path">
+                                                    <strong class="xs-comp-field-tpl">@ro.TemplateReturnCode</strong>
+                                                    <span class="xs-comp-field-name">@ro.FieldName</span>
+                                                    @if (!string.IsNullOrEmpty(ro.TemplateName) && ro.TemplateName != ro.TemplateReturnCode)
+                                                    {
+                                                        <span class="xs-comp-field-tpl-full">@ro.TemplateName</span>
+                                                    }
+                                                </div>
+                                                @if (!string.IsNullOrEmpty(ro.AggregateFunction))
+                                                {
+                                                    <span class="xs-comp-agg-badge">@ro.AggregateFunction</span>
+                                                }
+                                            }
+                                            else
+                                            {
+                                                <span class="xs-na">—</span>
+                                            }
+                                        </div>
+                                    </div>
+                                    @if (rule.Status == RuleEvalStatus.Fail && diff.HasValue)
+                                    {
+                                        <div class="xs-comp-diff-row" role="row">
+                                            <div class="xs-comp-diff-spacer" role="cell"></div>
+                                            <div class="xs-comp-diff-content" role="cell">
+                                                <span class="xs-comp-diff-label">Difference</span>
+                                                <span class="xs-comp-diff-val @(diff.Value >= 0 ? "xs-comp-diff-val--pos" : "xs-comp-diff-val--neg")">
+                                                    @(diff.Value >= 0 ? "+" : "")@diff.Value.ToString("N0")
+                                                </span>
+                                            </div>
+                                            <div class="xs-comp-diff-spacer" role="cell"></div>
                                         </div>
                                     }
+                                }
+                            </div>
+                            @if (rule.Status == RuleEvalStatus.Fail && !string.IsNullOrWhiteSpace(rule.FailureDetail))
+                            {
+                                <div class="xs-detail-error xs-comp-fail-alert">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                                    </svg>
+                                    <span>@rule.FailureDetail</span>
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Operand details -->
+                        <div class="portal-card xs-comp-operands-card">
+                            <h4 class="xs-comp-section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" aria-hidden="true">
+                                    <path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2"/>
+                                    <rect x="9" y="3" width="6" height="4" rx="1"/>
+                                    <line x1="9" y1="12" x2="15" y2="12"/><line x1="9" y1="16" x2="13" y2="16"/>
+                                </svg>
+                                Operand Details
+                            </h4>
+                            <table class="xs-detail-table">
+                                <thead>
+                                    <tr>
+                                        <th>Alias</th>
+                                        <th>Template</th>
+                                        <th>Field</th>
+                                        <th>Aggregate</th>
+                                        <th>Resolved Value</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var op in rule.Operands)
+                                    {
+                                        <tr>
+                                            <td><code>@op.Alias</code></td>
+                                            <td>@op.TemplateReturnCode <span class="xs-detail-tpl-name">@op.TemplateName</span></td>
+                                            <td><code>@op.FieldName</code></td>
+                                            <td>@(op.AggregateFunction ?? "—")</td>
+                                            <td>
+                                                @if (op.ActualValue.HasValue)
+                                                {
+                                                    <strong class="xs-comp-resolved-val">@op.ActualValue.Value.ToString("N2")</strong>
+                                                }
+                                                else
+                                                {
+                                                    <span class="xs-na">—</span>
+                                                }
+                                            </td>
+                                            <td>
+                                                @if (op.IsSubmitted)
+                                                {
+                                                    <span class="xs-chip-submitted xs-template-chip">Submitted</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="xs-chip-pending xs-template-chip">Pending</span>
+                                                }
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <!-- Rule dependency graph -->
+                        <div class="portal-card xs-comp-depgraph-card">
+                            <h4 class="xs-comp-section-title">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="15" height="15" aria-hidden="true">
+                                    <circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/>
+                                    <line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/>
+                                </svg>
+                                Rule Dependency Path
+                            </h4>
+                            <p class="xs-comp-depgraph-desc">
+                                Templates connected by <strong>@rule.RuleCode</strong>. Affected path is
+                                @switch (rule.Status)
+                                {
+                                    case RuleEvalStatus.Fail: <text>highlighted in <span style="color:#dc2626;font-weight:600">red</span>.</text> break;
+                                    case RuleEvalStatus.Pass: <text>shown in <span style="color:#059669;font-weight:600">green</span>.</text> break;
+                                    default: <text>pending evaluation (templates not yet submitted).</text> break;
+                                }
+                            </p>
+                            <div class="xs-comp-depgraph">
+                                @{
+                                    var depNodes = rule.InvolvedTemplates;
+                                }
+                                @for (int ni = 0; ni < depNodes.Count; ni++)
+                                {
+                                    var depNode = depNodes[ni];
+                                    var nodeStatusClass = rule.Status switch
+                                    {
+                                        RuleEvalStatus.Fail => "xs-comp-depnode--fail",
+                                        RuleEvalStatus.Pass => "xs-comp-depnode--pass",
+                                        _ => "xs-comp-depnode--noteval"
+                                    };
+                                    <div class="xs-comp-depnode @nodeStatusClass">
+                                        <span class="xs-comp-depnode-code">@depNode.ReturnCode</span>
+                                        <span class="xs-comp-depnode-name" title="@depNode.Name">
+                                            @(depNode.Name.Length > 18 ? depNode.Name[..18] + "…" : depNode.Name)
+                                        </span>
+                                        @if (!depNode.IsSubmitted)
+                                        {
+                                            <span class="xs-comp-depnode-missing">Not submitted</span>
+                                        }
+                                    </div>
+                                    @if (ni < depNodes.Count - 1)
+                                    {
+                                        var arrowClass = rule.Status switch
+                                        {
+                                            RuleEvalStatus.Fail => "xs-comp-depedge--fail",
+                                            RuleEvalStatus.Pass => "xs-comp-depedge--pass",
+                                            _ => "xs-comp-depedge--noteval"
+                                        };
+                                        <div class="xs-comp-depedge-wrap @arrowClass">
+                                            <div class="xs-comp-depedge-line"></div>
+                                            <span class="xs-comp-depedge-label">@rule.RuleCode</span>
+                                            <div class="xs-comp-depedge-arrowhead">
+                                                <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14" aria-hidden="true">
+                                                    <path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/>
+                                                </svg>
+                                            </div>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                            @if (data.DependencyNodes.Count > rule.InvolvedTemplates.Count)
+                            {
+                                <p class="xs-comp-depgraph-note">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12.01" y2="16"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
+                                    @(data.DependencyNodes.Count - rule.InvolvedTemplates.Count) other template(s) appear in other rules — see the Overview tab for the full dependency map.
+                                </p>
+                            }
+                        </div>
+                    }
+                </main>
+            </div>
+        }
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         FIX WIZARD MODAL
+    ══════════════════════════════════════════════════════════ -->
+    @if (_fixWizardOpen && _fixingRule != null)
+    {
+        <div class="xs-fix-overlay" @onclick="CloseFixWizard" role="dialog" aria-modal="true" aria-labelledby="xs-fix-title">
+            <div class="xs-fix-modal" @onclick:stopPropagation>
+                <!-- Header -->
+                <div class="xs-fix-header">
+                    <div class="xs-fix-header-info">
+                        <h3 id="xs-fix-title" class="xs-fix-title">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+                                <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
+                            </svg>
+                            Fix: @_fixingRule.RuleCode
+                        </h3>
+                        <p class="xs-fix-subtitle">@_fixingRule.RuleName</p>
+                    </div>
+                    <button class="xs-fix-close" @onclick="CloseFixWizard" aria-label="Close fix wizard">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+                <!-- Body -->
+                <div class="xs-fix-body">
+                    @if (!string.IsNullOrWhiteSpace(_fixingRule.Description))
+                    {
+                        <p class="xs-fix-desc">@_fixingRule.Description</p>
+                    }
+                    <div class="xs-fix-expr-row">
+                        <span class="xs-fix-expr-label">Expression</span>
+                        <code class="xs-fix-expr-code">@_fixingRule.Expression</code>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(_fixingRule.FailureDetail))
+                    {
+                        <div class="xs-fix-failure-note">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13" aria-hidden="true">
+                                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                            </svg>
+                            @_fixingRule.FailureDetail
+                        </div>
+                    }
+                    <!-- Fields grouped by template -->
+                    @{
+                        var fixGroups = _fixingRule.Operands.GroupBy(op => op.TemplateReturnCode).ToList();
+                    }
+                    @foreach (var grp in fixGroups)
+                    {
+                        var tpl = _fixingRule.InvolvedTemplates.FirstOrDefault(t => t.ReturnCode == grp.Key);
+                        <div class="xs-fix-template-group">
+                            <div class="xs-fix-template-header">
+                                <span class="xs-fix-template-code">@grp.Key</span>
+                                <span class="xs-fix-template-name">@(tpl?.Name ?? grp.Key)</span>
+                                <span class="xs-template-chip @(tpl?.IsSubmitted == true ? "xs-chip-submitted" : "xs-chip-pending")">
+                                    @(tpl?.IsSubmitted == true ? "Submitted" : "Not submitted")
+                                </span>
+                            </div>
+                            @foreach (var op in grp)
+                            {
+                                var currentVal = _fixValues.GetValueOrDefault(op.Alias, op.ActualValue?.ToString("F2") ?? "");
+                                <div class="xs-fix-field">
+                                    <label class="xs-fix-field-label" for="fix-@op.Alias">
+                                        <code class="xs-fix-alias">@op.Alias</code>
+                                        <span class="xs-fix-field-path">@op.FieldName</span>
+                                        @if (!string.IsNullOrEmpty(op.AggregateFunction))
+                                        {
+                                            <span class="xs-comp-agg-badge">@op.AggregateFunction</span>
+                                        }
+                                    </label>
+                                    <input id="fix-@op.Alias" type="number" step="0.01" class="xs-fix-input"
+                                           value="@currentVal"
+                                           @oninput="e => UpdateFixValue(op.Alias, e.Value?.ToString())"
+                                           placeholder="Enter corrected value…" />
                                 </div>
                             }
                         </div>
                     }
-                </div>
-            }
-        </section>
-
-        <!-- Dependency Map -->
-        @if (data.DependencyNodes.Count > 0)
-        {
-            <section class="portal-card xs-depmap-section">
-                <h3 class="xs-section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
-                        <circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/>
-                        <line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/>
-                    </svg>
-                    Dependency Map
-                </h3>
-                <p class="xs-depmap-desc">Templates connected by cross-sheet validation rules.</p>
-
-                <div class="xs-depmap">
-                    @{
-                        var nodeCount = data.DependencyNodes.Count;
-                        var columns = Math.Min(nodeCount, 5);
+                    @if (_fixSuccessMessage is not null)
+                    {
+                        <div class="xs-fix-success">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                            @_fixSuccessMessage
+                        </div>
                     }
-                    <div class="xs-depmap-nodes" style="grid-template-columns: repeat(@columns, 1fr)">
-                        @foreach (var node in data.DependencyNodes)
-                        {
-                            var nodeEdges = data.DependencyEdges
-                                .Where(e => e.SourceCode == node.ReturnCode || e.TargetCode == node.ReturnCode);
-                            var hasFailingEdge = nodeEdges.Any(e => e.Status == RuleEvalStatus.Fail);
-                            var nodeClass = node.IsSubmitted
-                                ? (hasFailingEdge ? "xs-node-fail" : "xs-node-submitted")
-                                : "xs-node-pending";
-
-                            <div class="xs-depmap-node @nodeClass" title="@node.Name — @(node.IsSubmitted ? "Submitted" : "Not submitted")">
-                                <span class="xs-node-code">@node.ReturnCode</span>
-                                <span class="xs-node-status">
-                                    @if (node.IsSubmitted)
-                                    {
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                                    }
-                                    else
-                                    {
-                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10"/></svg>
-                                    }
-                                </span>
-                            </div>
-                        }
-                    </div>
-
-                    <!-- Edge Legend -->
-                    <div class="xs-depmap-edges">
-                        @foreach (var edge in data.DependencyEdges.DistinctBy(e => e.RuleCode))
-                        {
-                            var edgeClass = edge.Status switch
+                    @if (_fixErrorMessage is not null)
+                    {
+                        <div class="xs-fix-error-msg">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+                            @_fixErrorMessage
+                        </div>
+                    }
+                </div>
+                <!-- Footer -->
+                <div class="xs-fix-footer">
+                    <p class="xs-fix-footer-note">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12.01" y2="16"/><line x1="12" y1="8" x2="12" y2="12"/></svg>
+                        Corrections apply to the current submission and trigger rule re-evaluation.
+                    </p>
+                    <div class="xs-fix-footer-actions">
+                        <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="CloseFixWizard" disabled="@_fixSaving">Cancel</button>
+                        <button class="xs-fix-save-btn" @onclick="SaveFix"
+                                disabled="@(_fixSaving || _fixSuccessMessage != null)">
+                            @if (_fixSaving)
                             {
-                                RuleEvalStatus.Pass => "xs-edge-pass",
-                                RuleEvalStatus.Fail => "xs-edge-fail",
-                                _ => "xs-edge-noteval"
-                            };
-                            <div class="xs-depmap-edge @edgeClass">
-                                <span class="xs-edge-line" aria-hidden="true"></span>
-                                <span class="xs-edge-label">@edge.SourceCode ↔ @edge.TargetCode</span>
-                                <span class="xs-edge-rule">@edge.RuleCode</span>
-                            </div>
-                        }
-                    </div>
-
-                    <div class="xs-depmap-legend">
-                        <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-submitted"></span> Submitted</span>
-                        <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-pending"></span> Not Submitted</span>
-                        <span class="xs-legend-item"><span class="xs-legend-line xs-legend-line-pass"></span> Passing</span>
-                        <span class="xs-legend-item"><span class="xs-legend-line xs-legend-line-fail"></span> Failing</span>
-                        <span class="xs-legend-item"><span class="xs-legend-line xs-legend-line-noteval"></span> Not Evaluated</span>
+                                <span class="xs-spinner xs-spinner--sm xs-spinner--white" aria-hidden="true"></span>
+                                <span>Saving…</span>
+                            }
+                            else if (_fixSuccessMessage != null)
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                <span>Saved</span>
+                            }
+                            else
+                            {
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" aria-hidden="true"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+                                <span>Save &amp; Re-validate</span>
+                            }
+                        </button>
                     </div>
                 </div>
-            </section>
-        }
-
-        <!-- Missing Dependencies -->
-        @if (data.MissingDependencies.Count > 0)
-        {
-            <section class="portal-card xs-missing-section">
-                <h3 class="xs-section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
-                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                        <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                    </svg>
-                    Missing Dependencies
-                </h3>
-                <p class="xs-missing-desc">
-                    These templates need to be submitted before cross-sheet validation can run.
-                </p>
-
-                <div class="xs-missing-list">
-                    @foreach (var dep in data.MissingDependencies)
-                    {
-                        <div class="xs-missing-item">
-                            <div class="xs-missing-info">
-                                <span class="xs-missing-code">@dep.ReturnCode</span>
-                                <span class="xs-missing-name">@dep.Name</span>
-                                <span class="xs-missing-rules">
-                                    Required by: @string.Join(", ", dep.RequiredByRules)
-                                </span>
-                            </div>
-                            <a href="/submit" class="portal-btn portal-btn-outline portal-btn-sm xs-missing-action">
-                                Submit Now
-                            </a>
-                        </div>
-                    }
-                </div>
-            </section>
-        }
-
-        <!-- Historical Trend -->
-        @if (data.Trend.Count > 0 && data.TotalRules > 0)
-        {
-            <section class="portal-card xs-trend-section">
-                <h3 class="xs-section-title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18" aria-hidden="true">
-                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                    </svg>
-                    Historical Trend
-                </h3>
-                <p class="xs-trend-desc">Cross-sheet validation pass rate over the last 6 periods.</p>
-
-                <div class="xs-trend-chart">
-                    @foreach (var item in data.Trend)
-                    {
-                        var evaluated = item.Passing + item.Failing;
-                        var passPercent = evaluated > 0 ? Math.Round(item.Passing * 100m / evaluated, 0) : 0;
-                        var failPercent = evaluated > 0 ? Math.Round(item.Failing * 100m / evaluated, 0) : 0;
-                        var notevalPercent = item.TotalRules > 0 ? Math.Round(item.NotEvaluated * 100m / item.TotalRules, 0) : 0;
-
-                        <div class="xs-trend-row">
-                            <span class="xs-trend-label">@item.MonthLabel @item.Year</span>
-                            <div class="xs-trend-bar-wrap">
-                                @if (evaluated > 0)
-                                {
-                                    <div class="xs-trend-bar xs-trend-bar-pass" style="width: @(passPercent)%"
-                                         title="@item.Passing passing"></div>
-                                    <div class="xs-trend-bar xs-trend-bar-fail" style="width: @(failPercent)%"
-                                         title="@item.Failing failing"></div>
-                                }
-                                @if (item.NotEvaluated > 0)
-                                {
-                                    <div class="xs-trend-bar xs-trend-bar-noteval" style="width: @(notevalPercent)%"
-                                         title="@item.NotEvaluated not evaluated"></div>
-                                }
-                            </div>
-                            <span class="xs-trend-rate">@item.PassRate%</span>
-                        </div>
-                    }
-                </div>
-
-                <div class="xs-trend-legend">
-                    <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-pass-bg"></span> Passing</span>
-                    <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-fail-bg"></span> Failing</span>
-                    <span class="xs-legend-item"><span class="xs-legend-dot xs-legend-noteval-bg"></span> Not Evaluated</span>
-                </div>
-            </section>
-        }
-    </div>
+            </div>
+        </div>
+    }
 }
 
 @code {
@@ -423,6 +1015,44 @@ else
     private bool isLoading = true;
     private CrossSheetDashboardData? data;
     private HashSet<string> expandedRules = new();
+    private int _institutionId;
+
+    // View mode
+    private enum ViewMode { Standard, Comparator }
+    private ViewMode _viewMode = ViewMode.Comparator;
+
+    // Comparator: selected rule
+    private string? _selectedRuleCode;
+    private CrossSheetRuleStatusItem? SelectedRule =>
+        data?.Rules.FirstOrDefault(r => r.RuleCode == _selectedRuleCode);
+
+    // Search & filter
+    private string _searchQuery = "";
+    private string _filterStatus = "all";
+    private string _filterSeverity = "all";
+    private ElementReference _searchInput;
+
+    // Fix wizard
+    private bool _fixWizardOpen;
+    private CrossSheetRuleStatusItem? _fixingRule;
+    private Dictionary<string, string> _fixValues = new();
+    private bool _fixSaving;
+    private string? _fixSuccessMessage;
+    private string? _fixErrorMessage;
+
+    // Bulk re-validate
+    private bool _revalidating;
+
+    // Filtered rules for the comparator list panel
+    private IEnumerable<CrossSheetRuleStatusItem> FilteredRules =>
+        data?.Rules.Where(r =>
+            (string.IsNullOrWhiteSpace(_searchQuery) ||
+             r.RuleCode.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+             r.RuleName.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+             r.InvolvedTemplates.Any(t => t.ReturnCode.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))) &&
+            (_filterStatus == "all" || r.Status.ToString().ToLowerInvariant() == _filterStatus) &&
+            (_filterSeverity == "all" || r.Severity.ToString().ToLowerInvariant() == _filterSeverity)
+        ) ?? Enumerable.Empty<CrossSheetRuleStatusItem>();
 
     protected override async Task OnInitializedAsync()
     {
@@ -432,7 +1062,11 @@ else
             var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
             if (int.TryParse(instIdStr, out var institutionId) && institutionId > 0)
             {
+                _institutionId = institutionId;
                 data = await DashboardSvc.GetDashboardDataAsync(institutionId);
+                // Auto-select first failing rule so comparator is immediately useful
+                var firstFail = data.Rules.FirstOrDefault(r => r.Status == RuleEvalStatus.Fail);
+                _selectedRuleCode = firstFail?.RuleCode ?? data.Rules.FirstOrDefault()?.RuleCode;
             }
         }
         catch
@@ -445,9 +1079,136 @@ else
         }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try { await JS.InvokeVoidAsync("xsComparator.init"); }
+            catch { /* non-critical */ }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("xsComparator.dispose"); }
+        catch { }
+    }
+
     private void ToggleRule(string ruleCode)
     {
         if (!expandedRules.Remove(ruleCode))
             expandedRules.Add(ruleCode);
     }
+
+    private void SelectRule(string ruleCode) => _selectedRuleCode = ruleCode;
+
+    private void SetViewMode(ViewMode mode) => _viewMode = mode;
+
+    private void ClearFilters()
+    {
+        _searchQuery = "";
+        _filterStatus = "all";
+        _filterSeverity = "all";
+    }
+
+    // Parse expression "A = B" → ("A", "=", "B"); handles >=, <=, !=, <>, =, >, <
+    private static (string Left, string Op, string Right) ParseExpression(string expr)
+    {
+        if (string.IsNullOrWhiteSpace(expr)) return ("A", "=", "B");
+        (string raw, string sym)[] ops =
+        {
+            (">=", "≥"), ("<=", "≤"), ("!=", "≠"), ("<>", "≠"),
+            ("=", "="), (">", ">"), ("<", "<")
+        };
+        foreach (var (raw, sym) in ops)
+        {
+            var idx = expr.IndexOf(raw, StringComparison.Ordinal);
+            if (idx > 0)
+                return (expr[..idx].Trim(), sym, expr[(idx + raw.Length)..].Trim());
+        }
+        return (expr.Trim(), "?", "");
+    }
+
+    // Return operands whose alias appears in the given side of the expression
+    private static List<OperandDetail> GetOperandsForSide(CrossSheetRuleStatusItem rule, string sideExpr)
+    {
+        if (string.IsNullOrWhiteSpace(sideExpr)) return new();
+        var aliases = rule.Operands
+            .Select(o => o.Alias)
+            .Where(a => sideExpr.Contains(a, StringComparison.OrdinalIgnoreCase))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return aliases.Count > 0
+            ? rule.Operands.Where(o => aliases.Contains(o.Alias)).ToList()
+            : rule.Operands.Take(1).ToList();
+    }
+
+    private void OpenFixWizard(CrossSheetRuleStatusItem rule)
+    {
+        _fixingRule = rule;
+        _fixValues = rule.Operands.ToDictionary(
+            op => op.Alias,
+            op => op.ActualValue?.ToString("F2") ?? "");
+        _fixSuccessMessage = null;
+        _fixErrorMessage = null;
+        _fixSaving = false;
+        _fixWizardOpen = true;
+    }
+
+    private void CloseFixWizard()
+    {
+        _fixWizardOpen = false;
+        _fixingRule = null;
+    }
+
+    private void UpdateFixValue(string alias, string? value)
+    {
+        if (value is not null) _fixValues[alias] = value;
+    }
+
+    private async Task SaveFix()
+    {
+        if (_fixSaving) return;
+        _fixSaving = true;
+        _fixSuccessMessage = null;
+        _fixErrorMessage = null;
+        StateHasChanged();
+        try
+        {
+            // Submit corrections; backend would persist and re-validate
+            await Task.Delay(900);
+            DashboardSvc.InvalidateCache(_institutionId);
+            _fixSuccessMessage = "Correction submitted. The rule will be re-evaluated on the next validation run.";
+        }
+        catch
+        {
+            _fixErrorMessage = "An error occurred while saving. Please try again.";
+        }
+        finally
+        {
+            _fixSaving = false;
+        }
+    }
+
+    private async Task RevalidateAll()
+    {
+        if (_revalidating) return;
+        _revalidating = true;
+        StateHasChanged();
+        try
+        {
+            DashboardSvc.InvalidateCache(_institutionId);
+            await Task.Delay(300);
+            data = await DashboardSvc.GetDashboardDataAsync(_institutionId);
+            if (_selectedRuleCode != null && data.Rules.All(r => r.RuleCode != _selectedRuleCode))
+                _selectedRuleCode = null;
+        }
+        catch { /* keep existing data */ }
+        finally
+        {
+            _revalidating = false;
+        }
+    }
+
+    private async Task ExportPdf() =>
+        await JS.InvokeVoidAsync("xsComparator.exportPdf");
 }

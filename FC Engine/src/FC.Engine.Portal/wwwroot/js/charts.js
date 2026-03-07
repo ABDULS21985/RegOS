@@ -183,13 +183,17 @@
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
-        const intensityColors = ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"];
+        const darkMode = document.documentElement.getAttribute('data-theme') === 'dark';
+        const intensityColors = darkMode
+            ? ["#161b22", "#0e4429", "#006d32", "#26a641", "#39d353"]
+            : ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"];
+        const labelColor = darkMode ? "#94A3B8" : "#64748b";
         const dayLabels = ["", "Mon", "", "Wed", "", "Fri", ""];
         const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
         // Draw day labels
         ctx.font = "10px sans-serif";
-        ctx.fillStyle = "#64748b";
+        ctx.fillStyle = labelColor;
         for (let r = 0; r < rows; r++) {
             if (dayLabels[r]) ctx.fillText(dayLabels[r], 0, topPad + r * (cellSize + gap) + cellSize - 2);
         }
@@ -204,7 +208,7 @@
             const date = new Date(day.date);
             const month = date.getMonth();
             if (row === 0 && month !== lastMonth) {
-                ctx.fillStyle = "#64748b";
+                ctx.fillStyle = labelColor;
                 ctx.fillText(monthNames[month], x, topPad - 6);
                 lastMonth = month;
             }
@@ -350,6 +354,30 @@
                 if (el) el.classList.add("portal-widget-visible");
             }, i * (delayMs || 100));
         });
+    };
+
+    // ── Dark Mode Chart Theming ───────────────────────────────────────
+    window.portalUpdateChartsTheme = function (isDark) {
+        var gridColor = isDark ? 'rgba(255,255,255,0.08)' : '#E2E8F0';
+        var tickColor = isDark ? '#94A3B8' : '#6B7280';
+        var bgColor   = isDark ? '#1E293B' : '#FFFFFF';
+        if (typeof Chart !== 'undefined') {
+            Chart.defaults.color = tickColor;
+            Chart.defaults.backgroundColor = bgColor;
+            if (Chart.defaults.scale) {
+                if (Chart.defaults.scale.grid)  Chart.defaults.scale.grid.color  = gridColor;
+                if (Chart.defaults.scale.ticks) Chart.defaults.scale.ticks.color = tickColor;
+            }
+            Object.values(Chart.instances).forEach(function (chart) {
+                if (chart.options && chart.options.scales) {
+                    Object.values(chart.options.scales).forEach(function (scale) {
+                        if (scale.grid)  scale.grid.color  = gridColor;
+                        if (scale.ticks) scale.ticks.color = tickColor;
+                    });
+                }
+                chart.update('none');
+            });
+        }
     };
 
 })();

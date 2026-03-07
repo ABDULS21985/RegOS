@@ -1,5 +1,6 @@
 @page "/subscription/modules"
 @attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Portal.Utilities
 @inject ISubscriptionService SubscriptionService
 @inject ITenantContext TenantContext
 @inject ToastService Toast
@@ -27,9 +28,33 @@
 
     @if (_loading)
     {
-        <section class="portal-card">
-            <p>Loading modules...</p>
-        </section>
+        <SkeletonGuard OnRetry="Load">
+            <div aria-busy="true" aria-label="Loading modules…">
+                <div class="fc-skel-stats-row fc-skel-section">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="6" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="9" />
+                </div>
+                <div class="portal-card fc-skel-section">
+                    <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-4);">
+                        @for (int i = 0; i < 6; i++)
+                        {
+                            var si = 12 + i * 5;
+                            <div class="fc-skel-card-body" style="display:flex; flex-direction:column; gap:var(--space-3);">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <div class="fc-skel fc-skel-text-lg" style="width: 55%; --skeleton-index: @si;"></div>
+                                    <div class="fc-skel fc-skel-block" style="width: 52px; height: 22px; --skeleton-index: @si;"></div>
+                                </div>
+                                <div class="fc-skel fc-skel-text" style="width: 80%; --skeleton-index: @(si+1);"></div>
+                                <div class="fc-skel fc-skel-text" style="width: 60%; --skeleton-index: @(si+2);"></div>
+                                <div class="fc-skel fc-skel-block" style="height: 36px; --skeleton-index: @(si+3);"></div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </SkeletonGuard>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {

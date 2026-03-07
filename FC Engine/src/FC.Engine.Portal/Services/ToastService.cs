@@ -15,6 +15,7 @@ public sealed class ToastItem
     public string? ActionLabel { get; init; }
     public Action? ActionCallback { get; init; }
     internal bool IsExiting { get; set; }
+    internal bool IsUpdating { get; set; }
 
     internal int Priority => Variant switch
     {
@@ -29,14 +30,16 @@ public sealed class ToastItem
 
 public sealed class ToastService : IDisposable
 {
-    private const int MaxVisible    = 4;
-    private const int DedupWindowMs = 2_000;
-    private const int ExitAnimMs    = 320;
+    private const int MaxVisible     = 4;
+    private const int DedupWindowMs  = 3_000;
+    private const int ExitAnimMs     = 320;
+    private const int UpdateMorphMs  = 600;
 
-    private readonly List<ToastItem>           _visible    = new();
-    private readonly Queue<ToastItem>          _queue      = new();
-    private readonly Dictionary<string, Timer> _timers     = new();
-    private readonly Dictionary<string, Timer> _exitTimers = new();
+    private readonly List<ToastItem>           _visible      = new();
+    private readonly Queue<ToastItem>          _queue        = new();
+    private readonly Dictionary<string, Timer> _timers       = new();
+    private readonly Dictionary<string, Timer> _exitTimers   = new();
+    private readonly Dictionary<string, Timer> _updateTimers = new();
 
     public event Action? OnChange;
 
@@ -48,7 +51,7 @@ public sealed class ToastService : IDisposable
     private static int DefaultDuration(ToastVariant v) => v switch
     {
         ToastVariant.Error   => 0,
-        ToastVariant.Warning => 6_000,
+        ToastVariant.Warning => 8_000,
         ToastVariant.Loading => 0,
         _                    => 4_000
     };
@@ -138,16 +141,28 @@ public sealed class ToastService : IDisposable
         if (toast == null) return;
 
         if (_timers.Remove(id, out var old)) old.Dispose();
+        if (_updateTimers.Remove(id, out var oldU)) oldU.Dispose();
 
         toast.Variant     = variant;
         toast.Message     = message;
         if (title != null) toast.Title = title;
         toast.Dismissible = true;
         toast.DurationMs  = DefaultDuration(variant);
+        toast.IsUpdating  = true;
 
         if (toast.DurationMs > 0)
             _timers[id] = new Timer(_ => BeginDismiss(id), null, toast.DurationMs, Timeout.Infinite);
 
+        _updateTimers[id] = new Timer(_ => ClearUpdating(id), null, UpdateMorphMs, Timeout.Infinite);
+
+        Notify();
+    }
+
+    private void ClearUpdating(string id)
+    {
+        var toast = _visible.FirstOrDefault(t => t.Id == id);
+        if (toast != null) toast.IsUpdating = false;
+        if (_updateTimers.Remove(id, out var ut)) ut.Dispose();
         Notify();
     }
 
@@ -210,9 +225,11 @@ public sealed class ToastService : IDisposable
 
     public void Dispose()
     {
-        foreach (var t in _timers.Values)     t.Dispose();
-        foreach (var t in _exitTimers.Values) t.Dispose();
+        foreach (var t in _timers.Values)       t.Dispose();
+        foreach (var t in _exitTimers.Values)   t.Dispose();
+        foreach (var t in _updateTimers.Values) t.Dispose();
         _timers.Clear();
         _exitTimers.Clear();
+        _updateTimers.Clear();
     }
 }

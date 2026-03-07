@@ -4,6 +4,7 @@ using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Validation;
 using Microsoft.Extensions.Caching.Memory;
+using System.Text.RegularExpressions;
 
 public class CrossSheetDashboardService
 {
@@ -37,6 +38,9 @@ public class CrossSheetDashboardService
         _cache.Set(cacheKey, data, CacheDuration);
         return data;
     }
+
+    public void InvalidateCache(int institutionId) =>
+        _cache.Remove($"xs-dashboard:{institutionId}");
 
     private async Task<CrossSheetDashboardData> BuildDashboardAsync(
         int institutionId, CancellationToken ct)
@@ -124,10 +128,13 @@ public class CrossSheetDashboardService
                     .FirstOrDefault();
             }
 
-            // Build operand detail for expanded view
+            // Build operand detail for expanded view — include best-effort actual values
             var operandDetails = rule.Operands.Select(op =>
             {
                 var opSubmitted = submittedCodes.Contains(op.TemplateReturnCode);
+                decimal? actualValue = null;
+                if (status == RuleEvalStatus.Fail && !string.IsNullOrEmpty(failureDetail))
+                    actualValue = TryExtractOperandValue(failureDetail, op.OperandAlias);
                 return new OperandDetail
                 {
                     Alias = op.OperandAlias,
@@ -135,7 +142,8 @@ public class CrossSheetDashboardService
                     TemplateName = templateNameLookup.GetValueOrDefault(op.TemplateReturnCode, op.TemplateReturnCode),
                     FieldName = op.FieldName,
                     AggregateFunction = op.AggregateFunction,
-                    IsSubmitted = opSubmitted
+                    IsSubmitted = opSubmitted,
+                    ActualValue = actualValue
                 };
             }).ToList();
 
@@ -281,6 +289,25 @@ public class CrossSheetDashboardService
             Trend = trend
         };
     }
+
+    /// <summary>
+    /// Best-effort extraction of a numeric value for the given operand alias from a failure message.
+    /// The CrossSheetValidator typically produces messages containing alias–value pairs.
+    /// </summary>
+    private static decimal? TryExtractOperandValue(string? message, string alias)
+    {
+        if (string.IsNullOrEmpty(message)) return null;
+        // Match patterns: "A: 12450", "A = 12450", "A (12,450)", "[A] 12450", "A=12450"
+        var pattern = $@"\b{Regex.Escape(alias)}\s*(?:[:=({\[])\s*([-]?\d[\d,]*\.?\d*)";
+        var m = Regex.Match(message, pattern, RegexOptions.IgnoreCase);
+        if (m.Success &&
+            decimal.TryParse(m.Groups[1].Value.Replace(",", ""),
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out var val))
+            return val;
+        return null;
+    }
 }
 
 // ── View Models ──────────────────────────────────────────────────
@@ -337,6 +364,8 @@ public class OperandDetail
     public string FieldName { get; set; } = "";
     public string? AggregateFunction { get; set; }
     public bool IsSubmitted { get; set; }
+    /// <summary>Best-effort resolved field value from the validation error message.</summary>
+    public decimal? ActualValue { get; set; }
 }
 
 public class DependencyNode

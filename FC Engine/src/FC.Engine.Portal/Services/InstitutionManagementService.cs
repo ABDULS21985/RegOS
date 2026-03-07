@@ -288,6 +288,32 @@ public class InstitutionManagementService
         return true;
     }
 
+    // ── Invitation methods ────────────────────────────────────────
+
+    public Task<bool> SendInvitation(int institutionId, string email, string role, CancellationToken ct = default)
+    {
+        // TODO: implement via email service + invite token store
+        return Task.FromResult(true);
+    }
+
+    public Task<List<PendingInviteModel>> GetPendingInvitations(int institutionId, CancellationToken ct = default)
+    {
+        // TODO: load from invite token store
+        return Task.FromResult(new List<PendingInviteModel>());
+    }
+
+    public Task<bool> ResendInvitation(int institutionId, string inviteId, CancellationToken ct = default)
+    {
+        // TODO: re-send email for existing invite token
+        return Task.FromResult(true);
+    }
+
+    public Task<bool> RevokeInvitation(int institutionId, string inviteId, CancellationToken ct = default)
+    {
+        // TODO: delete invite token
+        return Task.FromResult(true);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────
 
     private static string GetInitials(string name)
@@ -302,6 +328,15 @@ public class InstitutionManagementService
 }
 
 // ── Data Models ──────────────────────────────────────────────────────
+
+public class PendingInviteModel
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString();
+    public string Email { get; set; } = "";
+    public string Role { get; set; } = "Maker";
+    public DateTime SentAt { get; set; } = DateTime.UtcNow;
+    public DateTime ExpiresAt { get; set; } = DateTime.UtcNow.AddDays(7);
+}
 
 public class InstitutionProfileModel
 {

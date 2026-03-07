@@ -8,79 +8,183 @@
 <PageTitle>Sign In — FC Engine Portal</PageTitle>
 
 <div class="portal-login-container">
-    <div class="portal-login-card">
-        <div class="portal-login-header-logo">
-            <img src="@_branding.LogoUrl" alt="@_branding.CompanyName" style="height: 52px; width: auto;" />
-        </div>
-        <div class="portal-login-header">
-            <h2 class="portal-login-title">Sign In</h2>
-            <p class="portal-login-subtitle">Financial Institution Portal</p>
+    <div class="portal-login-card @(HasError ? "portal-login-card--error" : "")">
+
+        <!-- Logo -->
+        <div class="portal-login-header-logo portal-login-animate-in" style="--login-delay:0ms">
+            <img src="@_branding.LogoUrl" alt="@_branding.CompanyName" style="height:48px;width:auto;" />
         </div>
 
-        @if (!string.IsNullOrEmpty(errorMessage))
-        {
-            <div class="portal-alert portal-alert-error" role="alert">
-                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true">
-                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
-                </svg>
-                <span>@errorMessage</span>
-            </div>
-        }
+        <!-- Heading -->
+        <div class="portal-login-header portal-login-animate-in" style="--login-delay:100ms">
+            <h2 class="portal-login-title">@(showMfaChallenge ? "Two-Factor Auth" : "Sign In")</h2>
+            <p class="portal-login-subtitle">@(showMfaChallenge ? "Enter the code from your authenticator app" : "Financial Institution Portal")</p>
+        </div>
 
         @if (showMfaChallenge && !string.IsNullOrWhiteSpace(challenge))
         {
-            <form method="post" action="/account/login" class="portal-login-form">
+            <form method="post" action="/account/login" class="portal-login-form portal-login-animate-in" style="--login-delay:150ms">
                 <input type="hidden" name="challengeId" value="@challenge" />
                 <input type="hidden" name="returnUrl" value="@returnUrl" />
                 <AntiforgeryToken />
 
                 <div class="portal-form-group">
-                    <label for="mfaCode" class="portal-form-label">Authenticator Code</label>
-                    <input type="text" id="mfaCode" name="mfaCode" class="portal-form-input"
-                           placeholder="000000" maxlength="6" autocomplete="one-time-code" autofocus />
+                    <label class="portal-form-label" style="text-align:center;display:block;margin-bottom:0.75rem">
+                        Authenticator Code
+                    </label>
+
+                    <!-- 6-digit enhanced input (JS reveals this, hides fallback) -->
+                    <div class="portal-mfa-digits" id="mfaDigitsContainer" style="display:none" aria-label="Enter 6-digit code">
+                        @for (var i = 0; i < 6; i++)
+                        {
+                            var idx = i + 1;
+                            <input type="text" inputmode="numeric" pattern="[0-9]*"
+                                   maxlength="1" class="portal-mfa-digit"
+                                   aria-label="Digit @idx" autocomplete="off" />
+                        }
+                        <input type="hidden" name="mfaCode" id="mfaCodeHidden" />
+                    </div>
+
+                    <!-- Fallback single input (hidden by JS when enhanced inputs are active) -->
+                    <div id="mfaFallback">
+                        <input type="text" name="mfaCode" class="portal-form-input @(IsMfaError ? "portal-form-input--error" : "")"
+                               placeholder="000 000" maxlength="6" autocomplete="one-time-code" autofocus
+                               style="text-align:center;letter-spacing:0.5em;font-size:1.25rem;font-weight:700" />
+                    </div>
+
+                    @if (IsMfaError)
+                    {
+                        <div class="portal-field-error" style="justify-content:center;margin-top:0.5rem">
+                            <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 3a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 018 4zm0 8a1 1 0 110-2 1 1 0 010 2z"/></svg>
+                            @errorMessage
+                        </div>
+                    }
                 </div>
 
                 <div class="portal-form-group">
-                    <label for="backupCode" class="portal-form-label">Backup Code (optional)</label>
+                    <label for="backupCode" class="portal-form-label">
+                        Backup Code
+                        <span style="color:var(--cbn-text-muted);font-weight:400;font-size:var(--text-caption)">&nbsp;(optional)</span>
+                    </label>
                     <input type="text" id="backupCode" name="backupCode" class="portal-form-input"
-                           placeholder="XXXX-XXXX" maxlength="9" />
+                           placeholder="XXXX-XXXX" maxlength="9" autocomplete="off" />
                 </div>
 
-                <button type="submit" class="portal-btn portal-btn-primary portal-btn-full">
-                    Verify Code
+                <button type="submit" id="loginSubmitBtn" class="portal-btn portal-btn-primary portal-btn-full portal-btn-submit">
+                    <svg class="portal-btn-submit-spinner" viewBox="0 0 24 24" fill="none" width="16" height="16" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"
+                                stroke-linecap="round" stroke-dasharray="31.4" stroke-dashoffset="10" />
+                    </svg>
+                    <span class="portal-btn-submit-text">Verify Code</span>
                 </button>
             </form>
         }
         else
         {
-            <form method="post" action="/account/login" class="portal-login-form">
+            <form method="post" action="/account/login" class="portal-login-form" novalidate>
                 <input type="hidden" name="returnUrl" value="@returnUrl" />
                 <AntiforgeryToken />
 
-                <div class="portal-form-group">
+                <!-- Username -->
+                <div class="portal-form-group portal-login-animate-in" style="--login-delay:200ms">
                     <label for="username" class="portal-form-label">Username</label>
-                    <input type="text" id="username" name="username" class="portal-form-input"
+                    <input type="text" id="username" name="username"
+                           class="portal-form-input @(IsUsernameError ? "portal-form-input--error" : "")"
                            placeholder="Enter your username" required autocomplete="username" autofocus />
+                    @if (error == "locked")
+                    {
+                        <div class="portal-field-error">
+                            <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 3a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 018 4zm0 8a1 1 0 110-2 1 1 0 010 2z"/></svg>
+                            Account is locked. Please try again later.
+                        </div>
+                    }
                 </div>
 
-                <div class="portal-form-group">
+                <!-- Password -->
+                <div class="portal-form-group portal-login-animate-in" style="--login-delay:300ms">
                     <label for="password" class="portal-form-label">Password</label>
-                    <input type="password" id="password" name="password" class="portal-form-input"
-                           placeholder="Enter your password" required autocomplete="current-password" />
+                    <div class="portal-pw-wrapper">
+                        <input type="password" id="password" name="password"
+                               class="portal-form-input @(IsPasswordError ? "portal-form-input--error" : "")"
+                               placeholder="Enter your password" required autocomplete="current-password" />
+                        <button type="button" class="portal-pw-toggle" data-pw-toggle="password"
+                                aria-label="Show password" title="Show password">
+                            <!-- Eye icon (show state) -->
+                            <svg class="portal-pw-show-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18" aria-hidden="true">
+                                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/>
+                                <path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/>
+                            </svg>
+                            <!-- Eye-slash icon (hide state, initially hidden) -->
+                            <svg class="portal-pw-hide-icon" viewBox="0 0 20 20" fill="currentColor" width="18" height="18" aria-hidden="true" style="display:none">
+                                <path fill-rule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074L3.707 2.293zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clip-rule="evenodd"/>
+                                <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.064 7 9.542 7 .847 0 1.669-.105 2.454-.303z"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- Caps Lock warning (JS shows/hides via .is-visible) -->
+                    <div id="capsLockWarning" class="portal-caps-warning" role="status" aria-live="polite" aria-atomic="true">
+                        <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true">
+                            <path d="M8.293 1.293a1 1 0 011.414 0l5 5A1 1 0 0114 8h-1v4a1 1 0 01-1 1H8a1 1 0 01-1-1V8H4a1 1 0 01-.707-1.707l5-5zM10 12V8h2l-4-4-4 4h2v4h4z"/>
+                        </svg>
+                        Caps Lock is on
+                    </div>
+
+                    @if (error == "invalid")
+                    {
+                        <div class="portal-field-error">
+                            <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 3a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 018 4zm0 8a1 1 0 110-2 1 1 0 010 2z"/></svg>
+                            Invalid username or password.
+                        </div>
+                    }
                 </div>
 
-                <button type="submit" class="portal-btn portal-btn-primary portal-btn-full">
-                    Sign In
-                </button>
+                <!-- Remember device -->
+                <div class="portal-remember-row portal-login-animate-in" style="--login-delay:350ms">
+                    <label class="portal-animated-checkbox">
+                        <input type="checkbox" name="rememberDevice" value="true" />
+                        <span class="portal-checkbox-box">
+                            <svg width="10" height="8" viewBox="0 0 10 8" fill="none" aria-hidden="true">
+                                <path class="portal-checkbox-check" d="M1 4l3 3 5-6"
+                                      stroke="#fff" stroke-width="1.75"
+                                      stroke-linecap="round" stroke-linejoin="round" />
+                            </svg>
+                        </span>
+                        <span class="portal-checkbox-label">Remember this device for 30 days</span>
+                    </label>
+                </div>
+
+                <!-- General errors (inactive / not-configured) -->
+                @if (error == "inactive" || error == "not-configured")
+                {
+                    <div class="portal-field-error portal-login-animate-in" style="--login-delay:360ms;margin-bottom:var(--space-4,1rem)">
+                        <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm0 3a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 018 4zm0 8a1 1 0 110-2 1 1 0 010 2z"/></svg>
+                        @errorMessage
+                    </div>
+                }
+
+                <!-- Submit -->
+                <div class="portal-login-animate-in" style="--login-delay:400ms">
+                    <button type="submit" id="loginSubmitBtn"
+                            class="portal-btn portal-btn-primary portal-btn-full portal-btn-submit">
+                        <svg class="portal-btn-submit-spinner" viewBox="0 0 24 24" fill="none" width="16" height="16" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="3"
+                                    stroke-linecap="round" stroke-dasharray="31.4" stroke-dashoffset="10" />
+                        </svg>
+                        <span class="portal-btn-submit-text">Sign In</span>
+                    </button>
+                </div>
             </form>
         }
 
-        <div class="portal-login-help">
+        <!-- Help -->
+        <div class="portal-login-help portal-login-animate-in" style="--login-delay:460ms">
             <p>Having trouble signing in? Contact your institution administrator.</p>
             <p>New institution? <a href="/onboarding/wizard">Start onboarding</a>.</p>
         </div>
 
-        <div class="portal-login-footer">
+        <!-- Footer -->
+        <div class="portal-login-footer portal-login-animate-in" style="--login-delay:520ms">
             <p>@_branding.CopyrightText</p>
         </div>
     </div>
@@ -103,19 +207,24 @@
     private BrandingConfig _branding = BrandingConfig.WithDefaults();
     private bool showMfaChallenge;
 
+    private bool HasError => !string.IsNullOrEmpty(errorMessage);
+    private bool IsUsernameError => error is "invalid" or "locked";
+    private bool IsPasswordError => error == "invalid";
+    private bool IsMfaError => error is "mfa-invalid" or "mfa-expired";
+
     protected override async Task OnInitializedAsync()
     {
         showMfaChallenge = string.Equals(mfa, "required", StringComparison.OrdinalIgnoreCase);
 
         errorMessage = error switch
         {
-            "invalid" => "Invalid username or password.",
-            "locked" => "Account is locked. Please try again later.",
-            "inactive" => "Account has been deactivated. Contact your institution administrator.",
+            "invalid"        => "Invalid username or password.",
+            "locked"         => "Account is locked. Please try again later.",
+            "inactive"       => "Account has been deactivated. Contact your institution administrator.",
             "not-configured" => "Institution authentication is being configured. Please try again later.",
-            "mfa-invalid" => "Invalid MFA or backup code. Please try again.",
-            "mfa-expired" => "MFA challenge expired. Sign in again.",
-            _ => ""
+            "mfa-invalid"    => "Invalid MFA or backup code. Please try again.",
+            "mfa-expired"    => "MFA challenge expired. Sign in again.",
+            _                => ""
         };
 
         if (TenantContext.CurrentTenantId.HasValue)

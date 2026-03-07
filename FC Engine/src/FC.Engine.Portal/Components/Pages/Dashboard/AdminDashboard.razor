@@ -11,7 +11,37 @@
 
 @if (_loading)
 {
-    <div class="dash17-loading">Loading tenant admin dashboard...</div>
+    <SkeletonGuard OnRetry="ReloadAsync">
+        <div class="dash17-admin" aria-busy="true" aria-label="Loading dashboard…">
+            <div class="fc-skel-stats-row fc-skel-section">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="6" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="9" />
+            </div>
+            <section class="dash17-usage-grid fc-skel-section">
+                <article class="fc-skel-card-body">
+                    <div class="fc-skel fc-skel-text-lg" style="width: 55%; --skeleton-index: 12; margin-bottom: var(--space-4);"></div>
+                    @for (int i = 0; i < 5; i++)
+                    {
+                        var si = 13 + i;
+                        <div style="display:flex; gap:var(--space-3); align-items:center; padding:6px 0; border-bottom:1px solid var(--cbn-border-subtle);">
+                            <div class="fc-skel fc-skel-text" style="width: 28%; --skeleton-index: @si;"></div>
+                            <div class="fc-skel fc-skel-block" style="height:8px; flex:1; --skeleton-index: @si;"></div>
+                        </div>
+                    }
+                </article>
+                <article class="fc-skel-card-body">
+                    <div class="fc-skel fc-skel-text-lg" style="width: 50%; --skeleton-index: 18; margin-bottom: var(--space-4);"></div>
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.NotificationRow" RowCount="4" Index="19" />
+                </article>
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.ChartBar" Index="23" />
+            </section>
+            <div class="fc-skel-section">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.ChartBar" Index="27" />
+            </div>
+        </div>
+    </SkeletonGuard>
 }
 else if (!string.IsNullOrWhiteSpace(_error))
 {
@@ -100,10 +130,14 @@ else if (_data is not null)
     private bool _chartsRendered;
     private string? _error;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
     {
         _loading = true;
         _error = null;
+        _chartsRendered = false;
+        StateHasChanged();
 
         try
         {

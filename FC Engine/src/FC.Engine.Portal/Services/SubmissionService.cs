@@ -86,19 +86,26 @@ public class SubmissionService
         var existingByPeriod = submissions
             .Where(s => s.ReturnCode.Equals(returnCode, StringComparison.OrdinalIgnoreCase))
             .Where(s => s.Status != SubmissionStatus.Rejected && s.Status != SubmissionStatus.ApprovalRejected)
-            .Select(s => s.ReturnPeriodId)
-            .ToHashSet();
+            .GroupBy(s => s.ReturnPeriodId)
+            .ToDictionary(g => g.Key, g => g.First());
 
-        return periods.Select(p => new PeriodSelectItem
+        return periods.Select(p =>
         {
-            ReturnPeriodId = p.Id,
-            Value = $"{p.Year}-{p.Month:00}",
-            Label = new DateTime(p.Year, p.Month, 1).ToString("MMMM yyyy"),
-            ReportingDate = p.ReportingDate,
-            Year = p.Year,
-            Month = p.Month,
-            HasExistingSubmission = existingByPeriod.Contains(p.Id),
-            DeadlineDate = p.EffectiveDeadline
+            var hasSub = existingByPeriod.TryGetValue(p.Id, out var sub);
+            return new PeriodSelectItem
+            {
+                ReturnPeriodId = p.Id,
+                Value = $"{p.Year}-{p.Month:00}",
+                Label = new DateTime(p.Year, p.Month, 1).ToString("MMMM yyyy"),
+                ReportingDate = p.ReportingDate,
+                Year = p.Year,
+                Month = p.Month,
+                HasExistingSubmission = hasSub,
+                DeadlineDate = p.EffectiveDeadline,
+                IsLocked = false, // open periods are by definition not locked
+                ExistingSubmissionStatus = hasSub ? sub!.Status : null,
+                ExistingSubmissionId = hasSub ? sub!.Id : null
+            };
         }).ToList();
     }
 

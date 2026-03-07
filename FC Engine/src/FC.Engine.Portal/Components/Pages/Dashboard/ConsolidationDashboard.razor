@@ -17,7 +17,20 @@
 
     @if (_loading)
     {
-        <div class="portal-loading"><div class="portal-spinner" aria-hidden="true"></div><p>Loading consolidation...</p></div>
+        <SkeletonGuard OnRetry="ReloadAsync">
+            <div aria-busy="true" aria-label="Loading consolidation…">
+                <div class="fc-skel-stats-row fc-skel-section">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="6" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="9" />
+                </div>
+                <div class="portal-card fc-skel-section">
+                    <div class="fc-skel fc-skel-text-lg" style="width: 180px; --skeleton-index: 12; margin-bottom: var(--space-4);"></div>
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.FormTable" Index="13" />
+                </div>
+            </div>
+        </SkeletonGuard>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
@@ -84,8 +97,14 @@
     private string? _error;
     private CrossJurisdictionConsolidation? _data;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
     {
+        _loading = true;
+        _error = null;
+        StateHasChanged();
+
         try
         {
             var tenantId = TenantContext.CurrentTenantId;

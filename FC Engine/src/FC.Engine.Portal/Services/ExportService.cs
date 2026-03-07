@@ -135,7 +135,13 @@ public class ExportService
         return await BuildCertificateModelAsync(submission, institution);
     }
 
-    public async Task SendCertificateEmailAsync(int submissionId, int institutionId, int requestingUserId, string portalBaseUrl, CancellationToken ct = default)
+    public async Task SendCertificateEmailAsync(
+        int submissionId,
+        int institutionId,
+        int requestingUserId,
+        string portalBaseUrl,
+        IEnumerable<string>? additionalEmails = null,
+        CancellationToken ct = default)
     {
         if (_notificationOrchestrator is null) return;
 
@@ -146,6 +152,7 @@ public class ExportService
         if (institution is null) return;
 
         var verifyUrl = $"{portalBaseUrl.TrimEnd('/')}/verify/{Uri.EscapeDataString(model.CertificateNumber)}";
+        var externalEmails = additionalEmails?.Where(e => !string.IsNullOrWhiteSpace(e)).ToList() ?? new List<string>();
 
         await _notificationOrchestrator.Notify(new NotificationRequest
         {
@@ -156,6 +163,7 @@ public class ExportService
             Priority = NotificationPriority.Normal,
             ActionUrl = verifyUrl,
             RecipientUserIds = new List<int> { requestingUserId },
+            ExternalEmailAddresses = externalEmails,
             Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
                 ["CertificateNumber"] = model.CertificateNumber,
