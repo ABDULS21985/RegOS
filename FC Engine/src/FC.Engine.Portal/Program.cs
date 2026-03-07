@@ -57,6 +57,8 @@ builder.Services.AddScoped<FC.Engine.Portal.Services.PartnerPortalService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.OnboardingWizardService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.SandboxService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.KnowledgeBaseService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.OverdueAlertService>();
+builder.Services.AddScoped<FC.Engine.Domain.Abstractions.IFormDataService, FC.Engine.Infrastructure.Services.FormDataService>();
 
 // Caching
 builder.Services.AddMemoryCache();

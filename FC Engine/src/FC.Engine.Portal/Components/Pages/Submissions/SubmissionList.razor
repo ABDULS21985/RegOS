@@ -5,24 +5,19 @@
 @inject ITemplateMetadataCache TemplateCache
 @inject NavigationManager Navigation
 @inject DragDropInterop DragDrop
+@inject IJSRuntime JS
 @implements IDisposable
 
 <PageTitle>My Submissions — FC Engine Portal</PageTitle>
 
 <div class="portal-page">
-    <div class="portal-page-header portal-page-header-split">
-        <div class="portal-page-header-main">
-            <h1 class="portal-page-title">
-                My Submissions
-                @if (!isLoading && submissions.Any())
-                {
-                    <span class="portal-badge portal-badge-neutral portal-badge-lg">@totalCount</span>
-                }
-            </h1>
-            <p class="portal-page-subtitle">View and track all your institution's return submissions</p>
-        </div>
-        <div class="portal-page-header-actions">
-            <!-- View toggle: Table | Kanban -->
+    <PortalPageHeader Title="My Submissions"
+                      Subtitle="View and track all your institution's return submissions"
+                      Breadcrumb="@(new[] {
+                          new BreadcrumbItem(\"Home\", \"/\"),
+                          new BreadcrumbItem(\"My Submissions\", IsCurrent: true)
+                      })">
+        <SecondaryActions>
             <div class="portal-view-toggle" role="group" aria-label="View mode">
                 <button class="portal-view-toggle-btn @(viewMode == "table" ? "portal-view-toggle-btn-active" : "")"
                         @onclick='() => SetView("table")' title="Table view" aria-pressed="@(viewMode == "table")">
@@ -38,14 +33,16 @@
                     </svg>
                 </button>
             </div>
+        </SecondaryActions>
+        <PrimaryAction>
             <a href="/submit" class="portal-btn portal-btn-primary">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
                 Submit New Return
             </a>
-        </div>
-    </div>
+        </PrimaryAction>
+    </PortalPageHeader>
 
     <!-- ═══════════════════════════════════════════════════════
          FILTERS & SEARCH TOOLBAR
@@ -185,45 +182,80 @@
             @foreach (var col in kanbanColumns)
             {
                 var colCards = filteredSubmissions.Where(s => col.Statuses.Contains(s.Status)).ToList();
-                <div class="portal-kanban-column" data-column-id="@col.Id" role="group" aria-label="@col.Title column">
+                var wipExceeded = col.WipLimit.HasValue && colCards.Count > col.WipLimit.Value;
+                <div class="portal-kanban-column @(wipExceeded ? "portal-kanban-column--wip-exceeded" : "")"
+                     data-column-id="@col.Id" role="group" aria-label="@col.Title column">
                     <div class="portal-kanban-column-header">
                         <span class="portal-kanban-column-title">@col.Title</span>
-                        <span class="portal-badge portal-badge-neutral portal-badge-sm">@colCards.Count</span>
+                        <span class="portal-badge portal-badge-neutral portal-badge-sm portal-kanban-col-badge">@colCards.Count</span>
+                        @if (wipExceeded)
+                        {
+                            <span class="portal-kanban-col-wip-label" hidden="@(!wipExceeded)">
+                                Limit reached (@colCards.Count/@col.WipLimit)
+                            </span>
+                        }
+                        else if (col.WipLimit.HasValue)
+                        {
+                            <span class="portal-kanban-col-wip-label" hidden="true"></span>
+                        }
                     </div>
                     @if (!colCards.Any())
                     {
-                        <div class="portal-kanban-empty">No submissions</div>
+                        <div class="portal-kanban-empty" aria-label="No submissions in @col.Title">Drop cards here</div>
                     }
                     @foreach (var sub in colCards)
                     {
-                        <div class="portal-kanban-card" data-card-id="@sub.Id"
+                        <div class="portal-kanban-card @GetCardAccentClass(sub.Status)"
+                             data-card-id="@sub.Id"
                              role="button" tabindex="0"
                              @onclick="() => ViewDetail(sub.Id)"
                              @onkeydown="e => OnKanbanCardKey(e, sub.Id)"
-                             aria-label="@sub.ReturnCode — @sub.TemplateName, @GetStatusLabel(sub.Status)">
+                             aria-label="@sub.ReturnCode — @sub.TemplateName, @GetStatusLabel(sub.Status). Press K to move columns.">
                             <div class="portal-kanban-card-header">
-                                <span class="portal-table-primary portal-kanban-card-code">@sub.ReturnCode</span>
-                                <span class="portal-badge @GetStatusBadgeClass(sub.Status) portal-badge-xs">@GetStatusLabel(sub.Status)</span>
+                                <span class="portal-kanban-card-code">@sub.ReturnCode</span>
+                                <span class="portal-badge @GetStatusBadgeClass(sub.Status) portal-badge-xs">@GetStatusIcon(sub.Status)@GetStatusLabel(sub.Status)</span>
                             </div>
-                            <div class="portal-kanban-card-name">@sub.TemplateName</div>
+                            <div class="portal-kanban-card-name" title="@sub.TemplateName">@sub.TemplateName</div>
                             <div class="portal-kanban-card-meta">
                                 <span>@sub.PeriodLabel</span>
-                                <span>·</span>
-                                <span>@sub.SubmittedAt.ToString("d MMM yyyy")</span>
+                                <span aria-hidden="true">·</span>
+                                <span title="@sub.SubmittedAt.ToString("d MMM yyyy HH:mm")">@RelativeTime(sub.SubmittedAt)</span>
                             </div>
                             @if (sub.ErrorCount > 0 || sub.WarningCount > 0)
                             {
                                 <div class="portal-kanban-card-counts">
                                     @if (sub.ErrorCount > 0)
                                     {
-                                        <span class="portal-text-danger-bold">@sub.ErrorCount err</span>
+                                        <span class="portal-kanban-card-count-badge portal-kanban-card-count-badge--error">
+                                            ✕ @sub.ErrorCount @(sub.ErrorCount == 1 ? "error" : "errors")
+                                        </span>
                                     }
                                     @if (sub.WarningCount > 0)
                                     {
-                                        <span class="portal-text-warning-bold">@sub.WarningCount warn</span>
+                                        <span class="portal-kanban-card-count-badge portal-kanban-card-count-badge--warn">
+                                            ⚠ @sub.WarningCount @(sub.WarningCount == 1 ? "warning" : "warnings")
+                                        </span>
                                     }
                                 </div>
                             }
+                            <!-- Quick actions (slide-up on hover) -->
+                            <div class="portal-kanban-card-actions" @onclick:stopPropagation>
+                                <a href="@DetailUrl(sub.Id)" class="portal-kanban-card-action-btn" title="View details">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                    View
+                                </a>
+                                @if (sub.Status == "PendingApproval")
+                                {
+                                    <button class="portal-kanban-card-action-btn" title="Approve">
+                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                        Approve
+                                    </button>
+                                }
+                                <button class="portal-kanban-card-action-btn" title="Download report">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    Download
+                                </button>
+                            </div>
                         </div>
                     }
                 </div>
@@ -238,6 +270,12 @@
                 <table class="portal-table" id="submissions-table" aria-label="Submissions list">
                     <thead>
                         <tr>
+                            <th class="portal-th-cb" scope="col">
+                                <input type="checkbox" class="portal-cb" @ref="_headerCbRef"
+                                       checked="@AllPageSelected"
+                                       aria-label="Select all submissions on this page"
+                                       @onclick="ToggleSelectAll" @onclick:stopPropagation />
+                            </th>
                             <th data-col-id="id">ID</th>
                             <th data-col-id="returncode">Return Code</th>
                             <th data-col-id="name">Return Name</th>
@@ -251,9 +289,21 @@
                         </tr>
                     </thead>
                     <tbody>
-                        @foreach (var sub in pagedSubmissions)
+                        @for (int i = 0; i < pagedSubmissions.Count; i++)
                         {
-                            <tr class="portal-table-row-clickable" @onclick="() => ViewDetail(sub.Id)">
+                            var sub = pagedSubmissions[i];
+                            var pageIndex = i;
+                            <tr class='portal-table-row-clickable @(_selectedIds.Contains(sub.Id) ? "portal-table-row-selected" : "")'
+                                tabindex="0"
+                                @onclick="() => ViewDetail(sub.Id)"
+                                @onkeydown="e => OnRowKeyDown(e, sub.Id, pageIndex)">
+                                <td class="portal-td-cb" @onclick:stopPropagation>
+                                    <input type="checkbox" class="portal-cb"
+                                           checked="@_selectedIds.Contains(sub.Id)"
+                                           aria-label="Select submission @sub.ReturnCode for @sub.PeriodLabel"
+                                           @onclick="e => ToggleSelect(e, sub.Id, pageIndex)"
+                                           @onclick:stopPropagation />
+                                </td>
                                 <td class="portal-td-mono">@sub.Id</td>
                                 <td>
                                     <span class="portal-table-primary">@sub.ReturnCode</span>
@@ -291,7 +341,7 @@
                                 </td>
                                 <td class="portal-td-mono">@FormatDuration(sub.ProcessingDurationMs)</td>
                                 <td class="portal-th-center" @onclick:stopPropagation>
-                                    <a href="/submissions/@sub.Id" class="portal-btn portal-btn-ghost portal-btn-xs" title="View details">
+                                    <a href="@DetailUrl(sub.Id)" class="portal-btn portal-btn-ghost portal-btn-xs" title="View details">
                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-label="View">
                                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
                                         </svg>
@@ -308,7 +358,7 @@
         <div class="portal-show-mobile">
             @foreach (var sub in pagedSubmissions)
             {
-                <a href="/submissions/@sub.Id" class="portal-submission-card-mobile">
+                <a href="@DetailUrl(sub.Id)" class="portal-submission-card-mobile">
                     <div class="portal-submission-card-mobile-header">
                         <span class="portal-table-primary">@sub.ReturnCode</span>
                         <span class="portal-badge @GetStatusBadgeClass(sub.Status)">
@@ -375,13 +425,81 @@
             </nav>
         }
     }
+    <!-- Bulk Action Bar -->
+    <div class="@BulkBarCss"
+         role="toolbar" aria-label="Bulk actions for selected submissions">
+        <div class="portal-bulk-bar-info">
+            <span class="portal-bulk-bar-count">@SelectedCount @(SelectedCount == 1 ? "submission" : "submissions") selected</span>
+            @if (AllPageSelected && HasFilters && !_allMatchingSelected && filteredSubmissions.Count > pagedSubmissions.Count)
+            {
+                <button class="portal-bulk-bar-select-all" @onclick="SelectAllMatching">
+                    Select all @filteredSubmissions.Count matching submissions
+                </button>
+            }
+        </div>
+        <div class="portal-bulk-bar-actions">
+            <button class="portal-bulk-bar-btn" @onclick="BulkExportCsv">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Export CSV
+            </button>
+            <button class="portal-bulk-bar-btn" @onclick="BulkDownloadReceipts">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+                Download Receipts
+            </button>
+            <button class="portal-bulk-bar-btn portal-bulk-bar-btn--danger" @onclick='() => _showWithdrawConfirm = true'>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/><path d="M14 11v6"/>
+                </svg>
+                Withdraw
+            </button>
+            <button class="portal-bulk-bar-close" @onclick="DeselectAll" aria-label="Clear selection (Esc)" title="Clear selection (Esc)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Withdraw Confirm Dialog -->
+    @if (_showWithdrawConfirm)
+    {
+        <div class="portal-dialog-overlay" @onclick='() => _showWithdrawConfirm = false'
+             role="dialog" aria-modal="true" aria-labelledby="withdraw-dialog-title">
+            <div class="portal-dialog" @onclick:stopPropagation>
+                <h3 id="withdraw-dialog-title" class="portal-dialog-title">
+                    Withdraw @SelectedCount @(SelectedCount == 1 ? "Submission" : "Submissions")?
+                </h3>
+                <p class="portal-dialog-body">
+                    This will withdraw the selected submissions. Withdrawn submissions cannot be resubmitted without regulatory approval.
+                </p>
+                <div class="portal-dialog-actions">
+                    <button class="portal-btn portal-btn-outline" @onclick='() => _showWithdrawConfirm = false'>Cancel</button>
+                    <button class="portal-btn portal-btn-danger" @onclick="ConfirmWithdraw">
+                        Withdraw @SelectedCount @(SelectedCount == 1 ? "Submission" : "Submissions")
+                    </button>
+                </div>
+            </div>
+        </div>
+    }
+
 </div>
 
 @code {
+    // ── Query params: restores filter state when navigating back from detail page ──
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusParam { get; set; }
+    [SupplyParameterFromQuery(Name = "template")] public string? TemplateParam { get; set; }
+
     private bool isLoading = true;
     private List<SubmissionListItem> submissions = new();
     private List<SubmissionListItem> filteredSubmissions = new();
     private List<string> availableReturnCodes = new();
+    private DotNetObjectReference<SubmissionList>? _dotNetRef;
 
     private string searchQuery = "";
     private string filterStatus = "";
@@ -389,6 +507,19 @@
     private string sortBy = "date-desc";
     private string viewMode = "table";
     private bool colReorderInitialized = false;
+
+    // Bulk selection
+    private HashSet<int> _selectedIds = new();
+    private bool _allMatchingSelected = false;
+    private bool _showWithdrawConfirm = false;
+    private int _lastSelectedPageIndex = -1;
+    private ElementReference _headerCbRef;
+
+    private bool AllPageSelected => pagedSubmissions.Any() && pagedSubmissions.All(s => _selectedIds.Contains(s.Id));
+    private bool SomePageSelected => pagedSubmissions.Any(s => _selectedIds.Contains(s.Id));
+    private int SelectedCount => _allMatchingSelected ? filteredSubmissions.Count : _selectedIds.Count;
+    private bool HasFilters => !string.IsNullOrEmpty(searchQuery) || !string.IsNullOrEmpty(filterStatus) || !string.IsNullOrEmpty(filterReturnCode);
+    private string BulkBarCss => _selectedIds.Any() ? "portal-bulk-bar portal-bulk-bar--visible" : "portal-bulk-bar";
 
     private int currentPage = 1;
     private const int pageSize = 20;
@@ -399,11 +530,11 @@
 
     private static readonly KanbanColumnDef[] kanbanColumns =
     [
-        new("draft",      "Draft",        ["Draft"]),
-        new("processing", "Processing",   ["Parsing", "Validating"]),
-        new("review",     "Pending Review", ["PendingApproval"]),
-        new("accepted",   "Accepted",     ["Accepted", "AcceptedWithWarnings"]),
-        new("rejected",   "Rejected",     ["Rejected", "ApprovalRejected", "Historical"])
+        new("draft",      "Draft",          ["Draft"],                                    WipLimit: 10),
+        new("processing", "Processing",     ["Parsing", "Validating"],                    WipLimit: null),
+        new("review",     "Pending Review", ["PendingApproval"],                          WipLimit: 5),
+        new("accepted",   "Accepted",       ["Accepted", "AcceptedWithWarnings"],         WipLimit: null),
+        new("rejected",   "Rejected",       ["Rejected", "ApprovalRejected", "Historical"], WipLimit: null)
     ];
 
     [CascadingParameter]
@@ -411,11 +542,21 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _dotNetRef = DotNetObjectReference.Create(this);
+        // Restore filter state from URL params (set when navigating back from detail page)
+        if (!string.IsNullOrEmpty(Q)) searchQuery = Q;
+        if (!string.IsNullOrEmpty(StatusParam)) filterStatus = StatusParam;
+        if (!string.IsNullOrEmpty(TemplateParam)) filterReturnCode = TemplateParam;
         await LoadSubmissions();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        if (firstRender)
+        {
+            await JS.InvokeVoidAsync("portalInitEscHandler", DotNetObjectReference.Create(this));
+        }
+
         if (!isLoading && viewMode == "table" && !colReorderInitialized && filteredSubmissions.Any())
         {
             colReorderInitialized = true;
@@ -423,6 +564,12 @@
             {
                 storageKey = "fc-table-cols-submissions"
             });
+        }
+
+        if (!isLoading && viewMode == "table" && pagedSubmissions.Any())
+        {
+            try { await JS.InvokeVoidAsync("portalSetIndeterminate", _headerCbRef, SomePageSelected && !AllPageSelected); }
+            catch { /* element may not be in DOM yet */ }
         }
     }
 
@@ -436,10 +583,15 @@
         if (mode == "kanban")
         {
             await Task.Yield(); // let Blazor render kanban DOM first
+            var wipLimitsObj = kanbanColumns
+                .Where(c => c.WipLimit.HasValue)
+                .ToDictionary(c => c.Id, c => c.WipLimit!.Value);
             await DragDrop.InitKanban("#submissions-kanban", ".portal-kanban-column",
                 ".portal-kanban-card", new
                 {
-                    storageKey = "fc-kanban-submissions"
+                    storageKey = "fc-kanban-submissions",
+                    dotNetRef = _dotNetRef,
+                    wipLimits = wipLimitsObj
                 });
         }
     }
@@ -450,11 +602,39 @@
             ViewDetail(submissionId);
     }
 
+    [JSInvokable]
+    public Task OnCardMoved(string cardId, string fromColId, string toColId)
+    {
+        // Optimistic update already applied in JS DOM; call an API here to persist status if needed.
+        return Task.CompletedTask;
+    }
+
     public void Dispose()
     {
+        _dotNetRef?.Dispose();
         _ = DragDrop.Destroy("submissions-kanban");
         _ = DragDrop.Destroy("submissions-table");
+        _ = JS.InvokeVoidAsync("portalDisposeEscHandler");
     }
+
+    private static string RelativeTime(DateTime dt)
+    {
+        var diff = DateTime.UtcNow - dt.ToUniversalTime();
+        if (diff.TotalMinutes < 2) return "just now";
+        if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+        return dt.ToString("d MMM");
+    }
+
+    private static string GetCardAccentClass(string status) => status switch
+    {
+        "Accepted" => "portal-kanban-card--accent-success",
+        "AcceptedWithWarnings" => "portal-kanban-card--accent-warning",
+        "Rejected" or "ApprovalRejected" => "portal-kanban-card--accent-danger",
+        "PendingApproval" => "portal-kanban-card--accent-info",
+        _ => "portal-kanban-card--accent-neutral"
+    };
 
     private async Task LoadSubmissions()
     {
@@ -512,6 +692,8 @@
 
     private void ApplyFilters()
     {
+        _selectedIds.Clear();
+        _allMatchingSelected = false;
         var query = submissions.AsEnumerable();
 
         if (!string.IsNullOrWhiteSpace(searchQuery))
@@ -556,9 +738,114 @@
         ApplyFilters();
     }
 
+    private void ToggleSelectAll()
+    {
+        _allMatchingSelected = false;
+        if (AllPageSelected)
+            foreach (var sub in pagedSubmissions) _selectedIds.Remove(sub.Id);
+        else
+            foreach (var sub in pagedSubmissions) _selectedIds.Add(sub.Id);
+        _lastSelectedPageIndex = -1;
+        StateHasChanged();
+    }
+
+    private void ToggleSelect(MouseEventArgs e, int id, int pageIndex)
+    {
+        _allMatchingSelected = false;
+        if (e.ShiftKey && _lastSelectedPageIndex >= 0)
+        {
+            int minIdx = Math.Min(_lastSelectedPageIndex, pageIndex);
+            int maxIdx = Math.Max(_lastSelectedPageIndex, pageIndex);
+            bool shouldSelect = !_selectedIds.Contains(id);
+            for (int i = minIdx; i <= maxIdx && i < pagedSubmissions.Count; i++)
+            {
+                if (shouldSelect) _selectedIds.Add(pagedSubmissions[i].Id);
+                else _selectedIds.Remove(pagedSubmissions[i].Id);
+            }
+        }
+        else
+        {
+            if (_selectedIds.Contains(id)) _selectedIds.Remove(id);
+            else _selectedIds.Add(id);
+            _lastSelectedPageIndex = pageIndex;
+        }
+        StateHasChanged();
+    }
+
+    private void OnRowKeyDown(KeyboardEventArgs e, int id, int pageIndex)
+    {
+        if (e.Key == " " || e.Key == "Spacebar")
+        {
+            _allMatchingSelected = false;
+            if (_selectedIds.Contains(id)) _selectedIds.Remove(id);
+            else _selectedIds.Add(id);
+            _lastSelectedPageIndex = pageIndex;
+            StateHasChanged();
+        }
+    }
+
+    private void SelectAllMatching()
+    {
+        _allMatchingSelected = true;
+        foreach (var sub in filteredSubmissions) _selectedIds.Add(sub.Id);
+        StateHasChanged();
+    }
+
+    private void DeselectAll()
+    {
+        _selectedIds.Clear();
+        _allMatchingSelected = false;
+        StateHasChanged();
+    }
+
+    [JSInvokable]
+    public void HandleEscapeKey()
+    {
+        if (_selectedIds.Any())
+        {
+            _selectedIds.Clear();
+            _allMatchingSelected = false;
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void BulkExportCsv()
+    {
+        // TODO: wire to export service
+    }
+
+    private void BulkDownloadReceipts()
+    {
+        // TODO: wire to receipt download service
+    }
+
+    private async Task ConfirmWithdraw()
+    {
+        _showWithdrawConfirm = false;
+        // TODO: wire to withdrawal service
+        DeselectAll();
+        await Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Builds the back-URL for this list page, encoding any active filters so the detail
+    /// page can restore them when the user navigates back.
+    /// </summary>
+    private string BuildBackUrl()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(searchQuery)) parts.Add($"q={Uri.EscapeDataString(searchQuery)}");
+        if (!string.IsNullOrEmpty(filterStatus)) parts.Add($"status={Uri.EscapeDataString(filterStatus)}");
+        if (!string.IsNullOrEmpty(filterReturnCode)) parts.Add($"template={Uri.EscapeDataString(filterReturnCode)}");
+        return parts.Count > 0 ? "/submissions?" + string.Join("&", parts) : "/submissions";
+    }
+
+    /// <summary>Returns a detail URL that embeds the current filter state as a back-link.</summary>
+    private string DetailUrl(int id) => $"/submissions/{id}?back={Uri.EscapeDataString(BuildBackUrl())}";
+
     private void ViewDetail(int submissionId)
     {
-        Navigation.NavigateTo($"/submissions/{submissionId}");
+        Navigation.NavigateTo(DetailUrl(submissionId));
     }
 
     private void GoToPage(int page)
@@ -566,6 +853,7 @@
         if (page >= 1 && page <= totalPages)
         {
             currentPage = page;
+            _lastSelectedPageIndex = -1;
             StateHasChanged();
         }
     }
@@ -633,5 +921,5 @@
         public int? ProcessingDurationMs { get; set; }
     }
 
-    private record KanbanColumnDef(string Id, string Title, string[] Statuses);
+    private record KanbanColumnDef(string Id, string Title, string[] Statuses, int? WipLimit = null);
 }

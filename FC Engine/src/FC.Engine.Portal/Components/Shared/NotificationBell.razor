@@ -3,6 +3,7 @@
 @using System.Security.Claims
 @using FC.Engine.Domain.Enums
 @inject NotificationService NotificationSvc
+@inject FC.Engine.Portal.Services.OverdueAlertService OverdueAlertSvc
 @inject NavigationManager Navigation
 @inject IHttpContextAccessor HttpContextAccessor
 @inject IJSRuntime JS
@@ -184,9 +185,10 @@
             {
                 unreadCount = await NotificationSvc.GetUnreadCount(userId, institutionId);
                 var recent = await NotificationSvc.GetRecentUnread(userId, institutionId, 3);
-                hasUrgent = recent.Any(n => n.Priority >= NotificationPriority.High);
+                hasUrgent = OverdueAlertSvc.OverdueCount > 0 || recent.Any(n => n.Priority >= NotificationPriority.High);
             }
 
+            OverdueAlertSvc.OnChange += OnOverdueCountChanged;
             await EnsureSignalRConnected();
         }
         catch { }
@@ -320,6 +322,13 @@
         };
     }
 
+    private void OnOverdueCountChanged()
+    {
+        if (OverdueAlertSvc.OverdueCount > 0)
+            hasUrgent = true;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     private void CloseDropdown() => isOpen = false;
 
     private void HandleKeyDown(KeyboardEventArgs e)
@@ -450,6 +459,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        OverdueAlertSvc.OnChange -= OnOverdueCountChanged;
         if (_hubConnection is not null)
         {
             await _hubConnection.DisposeAsync();

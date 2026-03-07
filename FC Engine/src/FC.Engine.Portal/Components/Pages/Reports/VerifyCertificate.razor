@@ -1,0 +1,205 @@
+@page "/verify/{CertId}"
+@* Public page — no [Authorize] so external parties can verify without login *@
+@layout PublicLayout
+@inject ExportService ExportSvc
+@inject NavigationManager Nav
+
+<PageTitle>Verify Certificate — FC Engine Portal</PageTitle>
+
+<div class="portal-page" style="max-width: 900px; margin: 0 auto;">
+    @if (_loading)
+    {
+        <div class="portal-card" style="padding: 2rem; margin-top: 2rem;">
+            <div class="portal-skeleton portal-skeleton-block" style="height: 480px;"></div>
+        </div>
+    }
+    else if (_cert is null)
+    {
+        <div class="portal-cert-verify-error" style="margin-top: 3rem;">
+            <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+                <line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+            <h2>Certificate Not Found</h2>
+            <p>
+                The certificate <strong>@CertId</strong> could not be verified.<br/>
+                It may be invalid, the certificate number may have been mistyped,<br/>
+                or the submission status may have changed.
+            </p>
+            <p style="margin-top: 1rem; font-size: 0.8125rem; color: #888;">
+                Contact the issuing institution or the Central Bank of Nigeria<br/>
+                Financial Conditions Division for assistance.
+            </p>
+        </div>
+    }
+    else
+    {
+        @* ── Verified banner ── *@
+        <div class="portal-cert-verify-banner" style="margin-top: 1.5rem;">
+            <div class="portal-cert-verify-banner-icon" aria-hidden="true">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polyline points="20 6 9 17 4 12"/>
+                </svg>
+            </div>
+            <div class="portal-cert-verify-banner-text">
+                <h2>Verified ✓ — This certificate is authentic</h2>
+                <p>
+                    Certificate <strong>@_cert.CertificateNumber</strong> is on record and was issued by
+                    the Central Bank of Nigeria Financial Conditions Division on @_cert.AcceptedAt.ToString("MMMM d, yyyy").
+                </p>
+            </div>
+        </div>
+
+        @* ── Certificate document (read-only, no controls) ── *@
+        <div class="portal-cert-v2">
+            <div class="portal-cert-v2-watermark" aria-hidden="true"></div>
+
+            @* Header *@
+            <div class="portal-cert-v2-header">
+                @if (!string.IsNullOrEmpty(_cert.Branding.LogoUrl))
+                {
+                    <img src="@_cert.Branding.LogoUrl" alt="@_cert.InstitutionName logo" class="portal-cert-v2-logo" />
+                }
+                else
+                {
+                    <div class="portal-cert-v2-logo-placeholder">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+                        <span class="portal-cert-v2-logo-placeholder-name">@_cert.InstitutionName</span>
+                    </div>
+                }
+
+                <div class="portal-cert-v2-title-center">
+                    <h2>Federal Republic of Nigeria</h2>
+                    <h1>Certificate of Compliance</h1>
+                </div>
+
+                <div class="portal-cert-v2-regulator">
+                    <div class="portal-cert-v2-regulator-seal" aria-label="Central Bank of Nigeria seal">
+                        CBN<br/>SEAL
+                    </div>
+                    <span class="portal-cert-v2-regulator-name">Central Bank<br/>of Nigeria</span>
+                </div>
+            </div>
+
+            @* Validity badge *@
+            <div class="portal-cert-v2-validity-row">
+                <span class="portal-cert-v2-validity portal-cert-v2-validity--valid">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Valid &middot; Approved by CBN on @_cert.AcceptedAt.ToString("MMMM d, yyyy")
+                </span>
+            </div>
+
+            @* Body *@
+            <div class="portal-cert-v2-body">
+                <p class="portal-cert-v2-certifies-text">This certifies that</p>
+                <h2 class="portal-cert-v2-institution">@_cert.InstitutionName</h2>
+                <p class="portal-cert-v2-inst-sub">@_cert.InstitutionType &middot; Institution Code: <strong>@_cert.InstitutionCode</strong></p>
+
+                <p class="portal-cert-v2-return-text">has successfully submitted the</p>
+                <p class="portal-cert-v2-return-name">@_cert.ReturnCode &mdash; @_cert.Period</p>
+                <p class="portal-cert-v2-compliance-text">
+                    in compliance with the Central Bank of Nigeria's Financial Condition<br/>
+                    reporting requirements under the Banks and Other Financial Institutions Act.
+                </p>
+            </div>
+
+            @* Details grid *@
+            <div class="portal-cert-v2-details">
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Certificate No.</div>
+                    <div class="portal-cert-v2-detail-value portal-cert-v2-detail-value--mono">@_cert.CertificateNumber</div>
+                </div>
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Submission ID</div>
+                    <div class="portal-cert-v2-detail-value">#@_cert.SubmissionId</div>
+                </div>
+                <div class="portal-cert-v2-detail @(_cert.Status == SubmissionStatus.Accepted ? "portal-cert-v2-detail--status-accepted" : "")">
+                    <div class="portal-cert-v2-detail-label">Status</div>
+                    <div class="portal-cert-v2-detail-value">
+                        @(_cert.Status == SubmissionStatus.Accepted ? "Accepted — No Issues" : "Accepted — With Warnings")
+                    </div>
+                </div>
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Return Period</div>
+                    <div class="portal-cert-v2-detail-value">@_cert.Period</div>
+                </div>
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Submitted On</div>
+                    <div class="portal-cert-v2-detail-value">@_cert.SubmittedAt.ToString("dd MMMM yyyy")</div>
+                </div>
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Approved On</div>
+                    <div class="portal-cert-v2-detail-value">@_cert.AcceptedAt.ToString("dd MMMM yyyy")</div>
+                </div>
+            </div>
+
+            @* Approval chain *@
+            <div class="portal-cert-v2-chain-section">
+                <p class="portal-cert-v2-chain-heading">Approval Chain</p>
+                <div class="portal-cert-v2-chain">
+                    <div class="portal-cert-v2-chain-step">
+                        <div class="portal-cert-v2-chain-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        </div>
+                        <span class="portal-cert-v2-chain-role">Submitted by</span>
+                        <span class="portal-cert-v2-chain-name">@(string.IsNullOrEmpty(_cert.SubmittedByName) ? "—" : _cert.SubmittedByName)</span>
+                    </div>
+
+                    <div class="portal-cert-v2-chain-arrow" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </div>
+
+                    <div class="portal-cert-v2-chain-step">
+                        <div class="portal-cert-v2-chain-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        </div>
+                        <span class="portal-cert-v2-chain-role">Approved by</span>
+                        <span class="portal-cert-v2-chain-name">@(string.IsNullOrEmpty(_cert.ApprovedByName) ? "Central Bank of Nigeria" : _cert.ApprovedByName)</span>
+                    </div>
+                </div>
+            </div>
+
+            @* Bottom: cert number only (no QR on verify page to avoid recursion) *@
+            <div class="portal-cert-v2-bottom">
+                <div class="portal-cert-v2-verify-info" style="flex: 1;">
+                    <div class="portal-cert-v2-certnum-label">Certificate Number</div>
+                    <div class="portal-cert-v2-certnum">@_cert.CertificateNumber</div>
+                    <div class="portal-cert-v2-generated">
+                        Verified on @DateTime.UtcNow.ToString("dd MMM yyyy 'at' HH:mm") UTC via FC Engine Portal
+                    </div>
+                </div>
+                <div style="text-align: right; font-size: 0.6875rem; color: #bbb; line-height: 1.5;">
+                    Issued under the authority of the<br/>
+                    Central Bank of Nigeria Act<br/>
+                    Financial Conditions Division
+                </div>
+            </div>
+        </div>
+
+        <p style="text-align:center; font-size: 0.75rem; color: #aaa; margin-top: 1rem;">
+            This verification page is publicly accessible. Certificate data is read-only and cannot be altered.
+            For disputes, contact the Financial Conditions Division, Central Bank of Nigeria.
+        </p>
+    }
+</div>
+
+@code {
+    [Parameter] public string CertId { get; set; } = "";
+
+    private bool _loading = true;
+    private ComplianceCertificateModel? _cert;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _cert = await ExportSvc.VerifyCertificateAsync(CertId);
+        }
+        catch { }
+        finally
+        {
+            _loading = false;
+        }
+    }
+}

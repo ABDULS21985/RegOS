@@ -246,102 +246,88 @@
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // FCDragDrop.kanban — within-column card reorder
+    // FCDragDrop.kanban — cross-column card drag with ghost & drop targets
     // ══════════════════════════════════════════════════════════════════
     function kanban(boardSelector, columnSelector, cardSelector, options) {
-        const opts = Object.assign({
+        var opts = Object.assign({
             storageKey: null,
-            cardClass: 'portal-kanban-card',
+            dotNetRef: null,       // DotNetObjectReference for OnCardMoved callbacks
+            wipLimits: {},         // { columnId: maxCount }
             draggingClass: 'portal-kanban-card-dragging',
-            placeholderClass: 'portal-sortable-placeholder'
+            placeholderClass: 'portal-kanban-placeholder',
+            dropTargetClass: 'portal-kanban-column--drop-target',
+            wipExceededClass: 'portal-kanban-column--wip-exceeded'
         }, options || {});
 
-        const board = document.querySelector(boardSelector);
+        var board = document.querySelector(boardSelector);
         if (!board) return;
 
-        const id = 'kanban||' + boardSelector;
+        var id = 'kanban||' + boardSelector;
         if (registry[id]) { registry[id].destroy(); }
 
-        let dragSrc = null;
-        let srcColumn = null;
-        let placeholder = null;
-        const cleanupFns = [];
+        var dragSrc = null;
+        var srcColumn = null;
+        var placeholder = null;
+        var ghost = null;
+        var cleanupFns = [];
 
-        board.querySelectorAll(columnSelector).forEach(function (col) {
-            const onDragStart = function (e) {
-                dragSrc = this;
-                srcColumn = col;
-                this.classList.add(opts.draggingClass);
-                this.setAttribute('aria-grabbed', 'true');
-                this.style.opacity = '0.5';
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', '');
-                announce('Picked up card. Drag within this column to reorder.');
-            };
-            const onDragEnd = function () {
-                if (dragSrc) {
-                    dragSrc.classList.remove(opts.draggingClass);
-                    dragSrc.setAttribute('aria-grabbed', 'false');
-                    dragSrc.style.opacity = '';
-                }
-                removePlaceholder();
-                dragSrc = null;
-                srcColumn = null;
-            };
-            const onCardDragEnter = function (e) {
-                e.preventDefault();
-                if (!dragSrc || dragSrc === this || srcColumn !== col) return;
-                insertPlaceholderBefore(this);
-            };
-            const onColDragOver = function (e) {
-                e.preventDefault();
-                e.dataTransfer.dropEffect = 'move';
-            };
-            const onColDrop = function (e) {
-                e.preventDefault();
-                if (!dragSrc || srcColumn !== col) return;
-                if (placeholder && placeholder.parentNode) {
-                    placeholder.parentNode.insertBefore(dragSrc, placeholder);
-                }
-                removePlaceholder();
-                if (opts.storageKey) {
-                    const colId = col.dataset.columnId || col.id || '';
-                    const cards = Array.from(col.querySelectorAll(cardSelector));
-                    const order = cards.map(function (c) { return c.dataset.cardId || c.id || ''; });
-                    try { localStorage.setItem(opts.storageKey + '-' + colId, JSON.stringify(order)); } catch (ex) {}
-                }
-            };
+        // ── Helpers ──────────────────────────────────────────────────
+        function getColumns() { return Array.from(board.querySelectorAll(columnSelector)); }
+        function getColId(col) { return col.dataset.columnId || col.id || ''; }
 
-            col.querySelectorAll(cardSelector).forEach(function (card) {
-                card.setAttribute('draggable', 'true');
-                card.setAttribute('aria-roledescription', 'kanban card');
-                card.addEventListener('dragstart', onDragStart);
-                card.addEventListener('dragend', onDragEnd);
-                card.addEventListener('dragenter', onCardDragEnter);
-                cleanupFns.push(function () {
-                    card.removeAttribute('draggable');
-                    card.removeEventListener('dragstart', onDragStart);
-                    card.removeEventListener('dragend', onDragEnd);
-                    card.removeEventListener('dragenter', onCardDragEnter);
-                });
-            });
+        function updateBadge(col) {
+            var badge = col.querySelector('.portal-kanban-col-badge');
+            if (!badge) return;
+            var count = Array.from(col.querySelectorAll(cardSelector))
+                .filter(function (c) { return !c.classList.contains(opts.draggingClass); }).length;
+            badge.textContent = count;
 
-            col.addEventListener('dragover', onColDragOver);
-            col.addEventListener('drop', onColDrop);
-            cleanupFns.push(function () {
-                col.removeEventListener('dragover', onColDragOver);
-                col.removeEventListener('drop', onColDrop);
-            });
-        });
+            var colId = getColId(col);
+            var limit = (opts.wipLimits || {})[colId];
+            var wipLabel = col.querySelector('.portal-kanban-col-wip-label');
+            if (limit != null && count > limit) {
+                col.classList.add(opts.wipExceededClass);
+                if (wipLabel) {
+                    wipLabel.textContent = 'Limit reached (' + count + '/' + limit + ')';
+                    wipLabel.hidden = false;
+                }
+            } else {
+                col.classList.remove(opts.wipExceededClass);
+                if (wipLabel) wipLabel.hidden = true;
+            }
+        }
+
+        function createGhost(card) {
+            var g = card.cloneNode(true);
+            g.style.cssText = [
+                'position:fixed',
+                'top:-2000px',
+                'left:-2000px',
+                'width:' + card.offsetWidth + 'px',
+                'pointer-events:none',
+                'opacity:0.9',
+                'transform:rotate(3deg) scale(1.02)',
+                'box-shadow:0 16px 40px rgba(0,0,0,0.22)',
+                'border-radius:6px',
+                'z-index:9999',
+                'background:#fff'
+            ].join(';');
+            document.body.appendChild(g);
+            return g;
+        }
 
         function insertPlaceholderBefore(target) {
             if (!placeholder) {
                 placeholder = document.createElement('div');
                 placeholder.className = opts.placeholderClass;
                 placeholder.setAttribute('aria-hidden', 'true');
-                if (dragSrc) { placeholder.style.height = dragSrc.offsetHeight + 'px'; }
+                if (dragSrc) {
+                    placeholder.style.height = dragSrc.offsetHeight + 'px';
+                }
             }
-            target.parentNode && target.parentNode.insertBefore(placeholder, target);
+            if (target.parentNode) {
+                target.parentNode.insertBefore(placeholder, target);
+            }
         }
 
         function removePlaceholder() {
@@ -351,12 +337,241 @@
             placeholder = null;
         }
 
+        function clearDropTargets() {
+            getColumns().forEach(function (c) { c.classList.remove(opts.dropTargetClass); });
+        }
+
+        // ── Wire a single card ────────────────────────────────────────
+        function wireCard(card) {
+            if (card._fcKanbanWired) return;
+            card._fcKanbanWired = true;
+            card.setAttribute('draggable', 'true');
+            card.setAttribute('aria-roledescription', 'kanban card');
+
+            function onDragStart(e) {
+                dragSrc = card;
+                srcColumn = card.closest(columnSelector);
+                card.classList.add(opts.draggingClass);
+                card.setAttribute('aria-grabbed', 'true');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', card.dataset.cardId || '');
+                if (!prefersReducedMotion()) {
+                    ghost = createGhost(card);
+                    try { e.dataTransfer.setDragImage(ghost, e.offsetX + 8, e.offsetY + 8); } catch (ex) {}
+                    setTimeout(function () {
+                        if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+                        ghost = null;
+                    }, 100);
+                }
+                card.style.opacity = '0.4';
+                announce('Picked up card. Drag to a column to move it, or press K to use keyboard menu.');
+            }
+
+            function onDragEnd() {
+                card.classList.remove(opts.draggingClass);
+                card.setAttribute('aria-grabbed', 'false');
+                card.style.opacity = '';
+                if (ghost && ghost.parentNode) { ghost.parentNode.removeChild(ghost); ghost = null; }
+                removePlaceholder();
+                clearDropTargets();
+                dragSrc = null;
+                srcColumn = null;
+            }
+
+            function onDragEnter(e) {
+                e.preventDefault();
+                if (!dragSrc || dragSrc === card) return;
+                insertPlaceholderBefore(card);
+            }
+
+            function onKeyDown(e) {
+                if (e.key === 'k' || e.key === 'K') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showMoveMenu(card);
+                }
+            }
+
+            card.addEventListener('dragstart', onDragStart);
+            card.addEventListener('dragend', onDragEnd);
+            card.addEventListener('dragenter', onDragEnter);
+            card.addEventListener('keydown', onKeyDown);
+
+            cleanupFns.push(function () {
+                card.removeAttribute('draggable');
+                card.removeEventListener('dragstart', onDragStart);
+                card.removeEventListener('dragend', onDragEnd);
+                card.removeEventListener('dragenter', onDragEnter);
+                card.removeEventListener('keydown', onKeyDown);
+                delete card._fcKanbanWired;
+            });
+        }
+
+        // ── Wire a column (drop target + existing cards) ──────────────
+        function wireColumn(col) {
+            col.querySelectorAll(cardSelector).forEach(wireCard);
+
+            function onDragOver(e) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+            }
+
+            function onDragEnter(e) {
+                e.preventDefault();
+                if (!dragSrc) return;
+                clearDropTargets();
+                col.classList.add(opts.dropTargetClass);
+            }
+
+            function onDragLeave(e) {
+                if (!col.contains(e.relatedTarget)) {
+                    col.classList.remove(opts.dropTargetClass);
+                }
+            }
+
+            function onDrop(e) {
+                e.preventDefault();
+                col.classList.remove(opts.dropTargetClass);
+                if (!dragSrc) return;
+
+                var fromColId = srcColumn ? getColId(srcColumn) : '';
+                var toColId = getColId(col);
+
+                // Insert card: before placeholder if present, else append
+                if (placeholder && placeholder.parentNode === col) {
+                    col.insertBefore(dragSrc, placeholder);
+                } else {
+                    col.appendChild(dragSrc);
+                }
+                removePlaceholder();
+
+                // Re-wire card in case it's new to this column
+                wireCard(dragSrc);
+
+                // Update live count badges
+                if (srcColumn) updateBadge(srcColumn);
+                updateBadge(col);
+
+                // Persist per-card column override
+                if (opts.storageKey) {
+                    try {
+                        localStorage.setItem(
+                            opts.storageKey + '-card-' + (dragSrc.dataset.cardId || ''),
+                            toColId
+                        );
+                    } catch (ex) {}
+                }
+
+                // Notify .NET when column actually changed
+                if (opts.dotNetRef && fromColId && fromColId !== toColId) {
+                    var cardId = dragSrc.dataset.cardId || '';
+                    opts.dotNetRef.invokeMethodAsync('OnCardMoved', cardId, fromColId, toColId)
+                        .catch(function () {});
+                }
+
+                dragSrc = null;
+                srcColumn = null;
+                announce('Card dropped.');
+            }
+
+            col.addEventListener('dragover', onDragOver);
+            col.addEventListener('dragenter', onDragEnter);
+            col.addEventListener('dragleave', onDragLeave);
+            col.addEventListener('drop', onDrop);
+
+            cleanupFns.push(function () {
+                col.removeEventListener('dragover', onDragOver);
+                col.removeEventListener('dragenter', onDragEnter);
+                col.removeEventListener('dragleave', onDragLeave);
+                col.removeEventListener('drop', onDrop);
+                col.classList.remove(opts.dropTargetClass, opts.wipExceededClass);
+            });
+
+            updateBadge(col);
+        }
+
+        // ── Keyboard move-to-column menu ──────────────────────────────
+        function showMoveMenu(card) {
+            var existing = document.querySelector('.portal-kanban-move-menu');
+            if (existing) existing.remove();
+
+            var currentCol = card.closest(columnSelector);
+            var currentColId = getColId(currentCol);
+            var otherCols = getColumns().filter(function (c) { return getColId(c) !== currentColId; });
+            if (!otherCols.length) return;
+
+            var menu = document.createElement('div');
+            menu.className = 'portal-kanban-move-menu';
+            menu.setAttribute('role', 'dialog');
+            menu.setAttribute('aria-modal', 'true');
+            menu.setAttribute('aria-label', 'Move card to column');
+
+            var title = document.createElement('div');
+            title.className = 'portal-kanban-move-menu-title';
+            title.textContent = 'Move to column';
+            menu.appendChild(title);
+
+            otherCols.forEach(function (col) {
+                var colId = getColId(col);
+                var colTitleEl = col.querySelector('.portal-kanban-column-title');
+                var colTitle = colTitleEl ? colTitleEl.textContent.trim() : colId;
+
+                var btn = document.createElement('button');
+                btn.className = 'portal-kanban-move-menu-item';
+                btn.textContent = colTitle;
+                btn.addEventListener('click', function () {
+                    menu.remove();
+                    var fromColId = getColId(currentCol);
+                    col.appendChild(card);
+                    wireCard(card);
+                    updateBadge(currentCol);
+                    updateBadge(col);
+                    if (opts.dotNetRef && fromColId !== colId) {
+                        opts.dotNetRef.invokeMethodAsync('OnCardMoved', card.dataset.cardId || '', fromColId, colId)
+                            .catch(function () {});
+                    }
+                    card.focus();
+                    announce('Card moved to ' + colTitle);
+                });
+                menu.appendChild(btn);
+            });
+
+            // Keyboard close
+            menu.addEventListener('keydown', function (e) {
+                if (e.key === 'Escape') { menu.remove(); card.focus(); }
+            });
+
+            // Position near the card
+            var rect = card.getBoundingClientRect();
+            menu.style.cssText = 'position:fixed;top:' + (rect.bottom + 4) + 'px;left:' + rect.left + 'px;z-index:10000;';
+            document.body.appendChild(menu);
+
+            // Auto-close on outside click
+            setTimeout(function () {
+                document.addEventListener('click', function closeMenu(ev) {
+                    if (!menu.contains(ev.target)) {
+                        menu.remove();
+                        document.removeEventListener('click', closeMenu);
+                    }
+                });
+            }, 50);
+
+            var firstBtn = menu.querySelector('.portal-kanban-move-menu-item');
+            if (firstBtn) firstBtn.focus();
+        }
+
+        // ── Init all columns ──────────────────────────────────────────
+        getColumns().forEach(wireColumn);
+
         function destroy() {
             cleanupFns.forEach(function (fn) { fn(); });
             removePlaceholder();
+            if (ghost && ghost.parentNode) ghost.parentNode.removeChild(ghost);
+            var menu = document.querySelector('.portal-kanban-move-menu');
+            if (menu) menu.remove();
         }
 
-        registry[id] = { destroy };
+        registry[id] = { destroy: destroy };
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -589,3 +804,88 @@
     window.FCDragDrop = { sortable, kanban, columnReorder, dropZone, getSavedOrder, destroy };
 
 })();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FCDragDrop.initTableRowSort — HTML5 drag-and-drop row reorder for form tables
+//
+// Uses event delegation on the tbody so Blazor re-renders don't break listeners.
+// Drag handles must have class `portal-form-drag-handle` and `draggable="true"`.
+// Calls [JSInvokable] OnRowReordered(fromIdx, toIdx) on the .NET component.
+// ══════════════════════════════════════════════════════════════════════════════
+(function () {
+    'use strict';
+
+    var prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    window.FCDragDrop = window.FCDragDrop || {};
+
+    window.FCDragDrop.initTableRowSort = function (tbodyId, dotNetRef) {
+        var tbody = document.getElementById(tbodyId);
+        if (!tbody || tbody._fcRowSortInit) return;
+        tbody._fcRowSortInit = true;
+
+        var dragSrcRow = null;
+        var overRow = null;
+
+        function getRows() {
+            return Array.from(tbody.querySelectorAll('tr'));
+        }
+
+        function cleanup() {
+            if (dragSrcRow) dragSrcRow.classList.remove('portal-sortable-dragging');
+            if (overRow) overRow.classList.remove('portal-sortable-placeholder');
+            dragSrcRow = null;
+            overRow = null;
+        }
+
+        tbody.addEventListener('dragstart', function (e) {
+            var handle = e.target.closest('.portal-drag-handle');
+            if (!handle) return;
+            dragSrcRow = e.target.closest('tr');
+            if (!dragSrcRow) return;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', '');
+            if (!prefersReducedMotion) dragSrcRow.classList.add('portal-sortable-dragging');
+        });
+
+        tbody.addEventListener('dragover', function (e) {
+            e.preventDefault();
+            if (!dragSrcRow) return;
+            var tr = e.target.closest('tr');
+            if (!tr || tr === dragSrcRow) return;
+            if (overRow && overRow !== tr) overRow.classList.remove('portal-sortable-placeholder');
+            overRow = tr;
+            tr.classList.add('portal-sortable-placeholder');
+        });
+
+        tbody.addEventListener('dragleave', function (e) {
+            if (!e.relatedTarget || !tbody.contains(e.relatedTarget)) {
+                if (overRow) overRow.classList.remove('portal-sortable-placeholder');
+                overRow = null;
+            }
+        });
+
+        tbody.addEventListener('drop', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!dragSrcRow) { cleanup(); return; }
+
+            var dropRow = e.target.closest('tr');
+            if (!dropRow || dropRow === dragSrcRow) { cleanup(); return; }
+
+            var rows = getRows();
+            var fromIdx = rows.indexOf(dragSrcRow);
+            var toIdx = rows.indexOf(dropRow);
+            cleanup();
+
+            if (fromIdx !== -1 && toIdx !== -1 && fromIdx !== toIdx) {
+                dotNetRef.invokeMethodAsync('OnRowReordered', fromIdx, toIdx);
+            }
+        });
+
+        tbody.addEventListener('dragend', function () {
+            cleanup();
+        });
+    };
+
+}());

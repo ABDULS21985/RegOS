@@ -24,6 +24,8 @@ public class PeriodSelectItem
     public int Year { get; set; }
     public int Month { get; set; }
     public bool HasExistingSubmission { get; set; }
+    /// <summary>Effective deadline for this period (override date takes precedence over base deadline).</summary>
+    public DateTime DeadlineDate { get; set; }
 }
 
 /// <summary>

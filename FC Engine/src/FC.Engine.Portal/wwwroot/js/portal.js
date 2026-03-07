@@ -1,5 +1,41 @@
 // FC Engine Portal — JS interop functions
 
+// ── Scroll to first matching element ──────────────────────────────────────────
+window.portalScrollToElement = function (selector) {
+    var el = document.querySelector(selector);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+};
+
+// ── Data Entry Form: Ctrl+Enter keyboard shortcut ─────────────────────────────
+window.portalDataEntryForm = (function () {
+    var _dotNetRef = null;
+    var _handler = null;
+
+    return {
+        init: function (dotNetRef) {
+            _dotNetRef = dotNetRef;
+            _handler = function (e) {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    if (_dotNetRef) {
+                        _dotNetRef.invokeMethodAsync('OnCtrlEnter');
+                    }
+                }
+            };
+            document.addEventListener('keydown', _handler);
+        },
+        dispose: function () {
+            if (_handler) {
+                document.removeEventListener('keydown', _handler);
+                _handler = null;
+            }
+            _dotNetRef = null;
+        }
+    };
+})();
+
 window.portalCopyToClipboard = function (text) {
     return navigator.clipboard.writeText(text);
 };
@@ -88,15 +124,43 @@ window.portalGetFormFieldValues = function (containerId) {
     return values;
 };
 
-window.portalApplyFieldValidation = function (containerId, fieldStatuses) {
-    var container = document.getElementById(containerId);
+// portalApplyFieldValidation has two calling conventions:
+//   Batch:       portalApplyFieldValidation(containerId, fieldStatusesArray)
+//   Single-field: portalApplyFieldValidation(fieldId, 'valid'|'error'|'warning'|'clear')
+window.portalApplyFieldValidation = function (firstArg, secondArg) {
+    // Single-field mode: secondArg is a string status
+    if (typeof secondArg === "string") {
+        var input = document.getElementById(firstArg);
+        if (!input) return;
+        var wrapper = input.closest(".portal-field-wrapper") || input.parentElement;
+        // Remove existing state classes from both input and wrapper
+        [input, wrapper].forEach(function (el) {
+            el.classList.remove("portal-field-valid", "portal-field-error", "portal-field-warning",
+                "portal-field-wrapper--valid", "portal-field-wrapper--error", "portal-field-wrapper--warning");
+        });
+        if (secondArg === "valid") {
+            wrapper.classList.add("portal-field-wrapper--valid");
+        } else if (secondArg === "error") {
+            wrapper.classList.add("portal-field-wrapper--error");
+            // Shake on error for immediate feedback
+            if (window.FCMotion && typeof window.FCMotion.shakeElement === "function") {
+                window.FCMotion.shakeElement(wrapper);
+            }
+        } else if (secondArg === "warning") {
+            wrapper.classList.add("portal-field-wrapper--warning");
+        }
+        return;
+    }
+
+    // Batch mode: firstArg = containerId, secondArg = fieldStatuses array
+    var container = document.getElementById(firstArg);
     if (!container) return;
     container.querySelectorAll(".portal-field-status").forEach(function (el) { el.remove(); });
     container.querySelectorAll(".portal-field-valid, .portal-field-error, .portal-field-warning")
         .forEach(function (el) {
             el.classList.remove("portal-field-valid", "portal-field-error", "portal-field-warning");
         });
-    fieldStatuses.forEach(function (fs) {
+    secondArg.forEach(function (fs) {
         var input = container.querySelector("[data-field='" + fs.fieldName + "']");
         if (!input) return;
         var wrapper = input.closest(".portal-form-group") || input.parentElement;
@@ -195,6 +259,17 @@ window.portalNotifSetSoundPref = function (enabled) {
     } catch (e) { /* storage not available */ }
 };
 
+// Scroll an element into view by ID (used for carry-forward field navigation)
+window.portalScrollIntoView = function (elementId) {
+    var el = document.getElementById(elementId);
+    if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+        // Also focus the first non-checkbox input for keyboard accessibility
+        var input = el.querySelector("input:not([type='checkbox']), select, textarea");
+        if (input) { setTimeout(function () { input.focus(); }, 350); }
+    }
+};
+
 // Guided Tour overlay helpers
 window.portalTour = (function () {
     var activeElement = null;
@@ -235,3 +310,378 @@ window.portalTour = (function () {
         clear: clear
     };
 })();
+
+window.portalScrollToSection = function (elementId) {
+    var el = document.getElementById(elementId);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+};
+
+// ─── Error Summary: Jump-to-Field Navigation ────────────────────────────────
+window.portalScrollToField = function (fieldCode) {
+    var wrapper = document.querySelector('[data-field="' + CSS.escape(fieldCode) + '"]');
+    if (!wrapper) return;
+
+    wrapper.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // Restart highlight animation
+    wrapper.classList.remove('portal-field-highlight');
+    void wrapper.offsetWidth;
+    wrapper.classList.add('portal-field-highlight');
+
+    // Focus the first editable input inside the wrapper
+    var focusable = wrapper.querySelector(
+        'input:not([type="hidden"]):not([readonly]):not([disabled]),' +
+        'select:not([disabled]),' +
+        'textarea:not([readonly]):not([disabled])'
+    );
+    if (focusable) {
+        setTimeout(function () { focusable.focus({ preventScroll: true }); }, 350);
+    }
+
+    // Remove highlight class after animation completes
+    setTimeout(function () { wrapper.classList.remove('portal-field-highlight'); }, 2500);
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+// Bulk Upload — Client-side Pre-validation Helpers
+// ═══════════════════════════════════════════════════════════════════════
+
+window.portalBulkCheckDuplicate = function (hash) {
+    try {
+        var stored = JSON.parse(localStorage.getItem("portal_bulk_hashes") || "[]");
+        var match = stored.find(function (h) { return h.hash === hash; });
+        if (match) return { isDuplicate: true, date: match.date, fileName: match.fileName };
+    } catch (e) { /* storage unavailable */ }
+    return { isDuplicate: false, date: null, fileName: null };
+};
+
+window.portalBulkStoreHash = function (hash, fileName) {
+    try {
+        var stored = JSON.parse(localStorage.getItem("portal_bulk_hashes") || "[]");
+        // Remove existing entry for same hash, then prepend new one
+        stored = stored.filter(function (h) { return h.hash !== hash; });
+        stored.unshift({ hash: hash, fileName: fileName, date: new Date().toISOString() });
+        if (stored.length > 50) stored = stored.slice(0, 50);
+        localStorage.setItem("portal_bulk_hashes", JSON.stringify(stored));
+    } catch (e) { /* storage unavailable */ }
+};
+
+window.portalBulkDownloadCsv = function (csvContent, fileName) {
+    var bom = "\uFEFF"; // UTF-8 BOM for Excel compatibility
+    var blob = new Blob([bom + csvContent], { type: "text/csv;charset=utf-8;" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+};
+
+// ── Bulk selection helpers ────────────────────────────────────────────────────
+
+/** Set the indeterminate property on a checkbox element reference */
+window.portalSetIndeterminate = function (el, value) {
+    try { if (el) el.indeterminate = value; } catch (e) { /* ignore */ }
+};
+
+/** Register a document-level Escape key handler for bulk deselect */
+let _portalEscHandler = null;
+window.portalInitEscHandler = function (dotnetRef) {
+    portalDisposeEscHandler();
+    _portalEscHandler = function (e) {
+        if (e.key === 'Escape') {
+            dotnetRef.invokeMethodAsync('HandleEscapeKey').catch(() => {});
+        }
+    };
+    document.addEventListener('keydown', _portalEscHandler);
+};
+
+window.portalDisposeEscHandler = function () {
+    if (_portalEscHandler) {
+        document.removeEventListener('keydown', _portalEscHandler);
+        _portalEscHandler = null;
+    }
+};
+
+// ── Compliance Certificate V2 helpers ────────────────────────────────────────
+
+/**
+ * Renders a QR-like canvas pattern for the compliance certificate.
+ * Produces proper corner finder patterns and pseudo-random data cells
+ * derived from the text. Not a standards-compliant QR code, but
+ * visually appropriate for print documents.
+ */
+window.portalCertQr = function (canvasId, text) {
+    var canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    var ctx = canvas.getContext('2d');
+    var size = canvas.width;
+    var M = 21; // 21×21 modules (version 1)
+    var cell = Math.floor(size / M);
+
+    // Simple 32-bit hash of text for deterministic pattern
+    var h = 0x12345678;
+    for (var i = 0; i < text.length; i++) {
+        h = (Math.imul(h ^ text.charCodeAt(i), 0x9e3779b9) >>> 0);
+    }
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = '#1a1a1a';
+
+    function fillCell(r, c) {
+        ctx.fillRect(c * cell + 1, r * cell + 1, cell - 1, cell - 1);
+    }
+
+    function finder(dr, dc) {
+        for (var fr = 0; fr < 7; fr++) {
+            for (var fc = 0; fc < 7; fc++) {
+                if (fr === 0 || fr === 6 || fc === 0 || fc === 6 ||
+                    (fr >= 2 && fr <= 4 && fc >= 2 && fc <= 4)) {
+                    fillCell(dr + fr, dc + fc);
+                }
+            }
+        }
+    }
+
+    finder(0, 0);
+    finder(0, M - 7);
+    finder(M - 7, 0);
+
+    for (var t = 8; t < M - 8; t++) {
+        if (t % 2 === 0) { fillCell(6, t); fillCell(t, 6); }
+    }
+
+    for (var r = 0; r < M; r++) {
+        for (var c = 0; c < M; c++) {
+            if ((r < 9 && c < 9) || (r < 9 && c > M - 9) ||
+                (r > M - 9 && c < 9) || r === 6 || c === 6) continue;
+            var s = ((h ^ (r * 31 + c * 37) * 0x9e3779b9) >>> 0);
+            s ^= s >>> 17;
+            s = (Math.imul(s, 0x45d9f3b) >>> 0);
+            s ^= s >>> 16;
+            if (s & 1) fillCell(r, c);
+        }
+    }
+};
+
+/**
+ * Copies the certificate verification URL to the clipboard.
+ * Temporarily updates the button label to confirm the copy.
+ */
+window.portalCertCopyLink = function (url, buttonId) {
+    function doCopy() {
+        var btn = buttonId ? document.getElementById(buttonId) : null;
+        if (btn) {
+            var original = btn.innerHTML;
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+            btn.classList.add('portal-cert-v2-copy-btn--copied');
+            setTimeout(function () {
+                btn.innerHTML = original;
+                btn.classList.remove('portal-cert-v2-copy-btn--copied');
+            }, 2200);
+        }
+    }
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(url).then(doCopy).catch(function () { doCopy(); });
+    }
+    var ta = document.createElement('textarea');
+    ta.value = url;
+    ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    try { document.execCommand('copy'); } catch (e) { /* ignore */ }
+    document.body.removeChild(ta);
+    doCopy();
+};
+
+// ── Sidebar nav: collapsed sections (localStorage) ─────────────────────────
+
+/**
+ * Returns array of section names that are currently collapsed.
+ * @returns {string[]}
+ */
+window.portalNavGetCollapsed = function () {
+    try {
+        const raw = localStorage.getItem('fc_nav_collapsed');
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+};
+
+/**
+ * Persists a section's collapsed state to localStorage.
+ * @param {string} section
+ * @param {boolean} collapsed
+ */
+window.portalNavSetCollapsed = function (section, collapsed) {
+    try {
+        const raw = localStorage.getItem('fc_nav_collapsed');
+        const list = raw ? JSON.parse(raw) : [];
+        const idx = list.indexOf(section);
+        if (collapsed && idx === -1) list.push(section);
+        else if (!collapsed && idx !== -1) list.splice(idx, 1);
+        localStorage.setItem('fc_nav_collapsed', JSON.stringify(list));
+    } catch { /* non-fatal */ }
+};
+
+// ── Sidebar nav: recent pages history (localStorage) ───────────────────────
+
+const FC_NAV_RECENT_KEY = 'fc_nav_recent_pages';
+const FC_NAV_RECENT_MAX = 3;
+
+/**
+ * Returns the last N visited pages as [{href, label}].
+ * @returns {{href:string, label:string}[]}
+ */
+window.portalNavGetRecentPages = function () {
+    try {
+        const raw = localStorage.getItem(FC_NAV_RECENT_KEY);
+        return raw ? JSON.parse(raw) : [];
+    } catch {
+        return [];
+    }
+};
+
+/**
+ * Prepends a page to the recent-pages list, removing duplicates, capping at MAX.
+ * Skips pages with empty labels (e.g. dashboard root is not tracked).
+ * @param {string} href
+ * @param {string} label
+ */
+window.portalNavAddRecentPage = function (href, label) {
+    if (!label) return;
+    try {
+        const raw = localStorage.getItem(FC_NAV_RECENT_KEY);
+        let list = raw ? JSON.parse(raw) : [];
+        // Remove existing entry for same href
+        list = list.filter(p => p.href !== href);
+        // Prepend new entry
+        list.unshift({ href, label });
+        // Cap at max
+        if (list.length > FC_NAV_RECENT_MAX) list = list.slice(0, FC_NAV_RECENT_MAX);
+        localStorage.setItem(FC_NAV_RECENT_KEY, JSON.stringify(list));
+    } catch { /* non-fatal */ }
+};
+
+/**
+ * Removes a specific page from the recent-pages list.
+ * @param {string} href
+ */
+window.portalNavRemovePage = function (href) {
+    try {
+        const raw = localStorage.getItem(FC_NAV_RECENT_KEY);
+        let list = raw ? JSON.parse(raw) : [];
+        list = list.filter(p => p.href !== href);
+        localStorage.setItem(FC_NAV_RECENT_KEY, JSON.stringify(list));
+    } catch { /* non-fatal */ }
+};
+
+// ── Command Palette ───────────────────────────────────────────────────────────
+
+window.portalCommandPalette = (function () {
+    let _ref = null;
+
+    function isEditing() {
+        const el = document.activeElement;
+        return el && (
+            el.tagName === 'INPUT' ||
+            el.tagName === 'TEXTAREA' ||
+            el.tagName === 'SELECT' ||
+            el.isContentEditable
+        );
+    }
+
+    function onKeyDown(e) {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            e.preventDefault();
+            e.stopPropagation();
+            _ref?.invokeMethodAsync('OpenPalette').catch(() => {});
+        }
+    }
+
+    return {
+        init(dotNetRef) {
+            _ref = dotNetRef;
+            document.addEventListener('keydown', onKeyDown, true);
+        },
+
+        dispose() {
+            document.removeEventListener('keydown', onKeyDown, true);
+            _ref = null;
+        },
+
+        /** Focus the search input and install Tab-prevention listener */
+        focusInput(id) {
+            requestAnimationFrame(() => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.focus();
+                el.select();
+                // Prevent Tab from moving focus out of the palette dialog
+                if (!el._cmdTabGuard) {
+                    el._cmdTabGuard = (e) => {
+                        if (e.key === 'Tab') e.preventDefault();
+                    };
+                    el.addEventListener('keydown', el._cmdTabGuard, { capture: true });
+                }
+            });
+        },
+
+        /** Scroll a result item into view without disrupting scroll position */
+        scrollItemIntoView(id) {
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    };
+})();
+
+// ── Shortcuts Overlay ─────────────────────────────────────────────────────────
+
+window.portalShortcutsOverlay = (function () {
+    let _ref = null;
+
+    function isEditing() {
+        const el = document.activeElement;
+        return el && (
+            el.tagName === 'INPUT' ||
+            el.tagName === 'TEXTAREA' ||
+            el.tagName === 'SELECT' ||
+            el.isContentEditable
+        );
+    }
+
+    function onKeyDown(e) {
+        if (e.key === '?' && !isEditing() && !e.ctrlKey && !e.metaKey && !e.altKey) {
+            e.preventDefault();
+            _ref?.invokeMethodAsync('OpenOverlay').catch(() => {});
+        }
+    }
+
+    return {
+        init(dotNetRef) {
+            _ref = dotNetRef;
+            document.addEventListener('keydown', onKeyDown);
+        },
+
+        dispose() {
+            document.removeEventListener('keydown', onKeyDown);
+            _ref = null;
+        }
+    };
+})();
+
+// ── Calendar Reminder Storage ────────────────────────────────
+window.portalCalendar = {
+    loadReminders: function () {
+        return localStorage.getItem('fc_portal_calendar_reminders') || null;
+    },
+    saveReminders: function (json) {
+        localStorage.setItem('fc_portal_calendar_reminders', json);
+    }
+};

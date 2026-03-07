@@ -104,6 +104,89 @@ public class ExportService
         var institution = await _institutionRepo.GetById(institutionId);
         if (institution is null) return null;
 
+        return await BuildCertificateModelAsync(submission, institution);
+    }
+
+    /// <summary>
+    /// Verifies a certificate by its cert number (public — no institution ownership check).
+    /// Returns null if not found, status is not accepted, or cert number is invalid/mismatched.
+    /// </summary>
+    public async Task<ComplianceCertificateModel?> VerifyCertificateAsync(string certId)
+    {
+        if (string.IsNullOrWhiteSpace(certId)) return null;
+
+        // Format: CBN-FCE-{submissionId:D8}-{yyyyMMdd}
+        var parts = certId.Split('-');
+        if (parts.Length < 4) return null;
+        if (!int.TryParse(parts[2], out var submissionId)) return null;
+
+        var submission = await _submissionRepo.GetByIdWithReport(submissionId);
+        if (submission is null) return null;
+        if (submission.Status != SubmissionStatus.Accepted && submission.Status != SubmissionStatus.AcceptedWithWarnings)
+            return null;
+
+        var expectedCertNum = $"CBN-FCE-{submission.Id:D8}-{submission.SubmittedAt:yyyyMMdd}";
+        if (!string.Equals(certId, expectedCertNum, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var institution = await _institutionRepo.GetById(submission.InstitutionId);
+        if (institution is null) return null;
+
+        return await BuildCertificateModelAsync(submission, institution);
+    }
+
+    public async Task SendCertificateEmailAsync(int submissionId, int institutionId, int requestingUserId, string portalBaseUrl, CancellationToken ct = default)
+    {
+        if (_notificationOrchestrator is null) return;
+
+        var model = await BuildComplianceCertificateAsync(submissionId, institutionId);
+        if (model is null) return;
+
+        var institution = await _institutionRepo.GetById(institutionId, ct);
+        if (institution is null) return;
+
+        var verifyUrl = $"{portalBaseUrl.TrimEnd('/')}/verify/{Uri.EscapeDataString(model.CertificateNumber)}";
+
+        await _notificationOrchestrator.Notify(new NotificationRequest
+        {
+            TenantId = institution.TenantId,
+            EventType = NotificationEvents.ExportReady,
+            Title = $"Compliance Certificate — {model.ReturnCode} {model.Period}",
+            Message = $"The Compliance Certificate for {model.InstitutionName} ({model.ReturnCode} — {model.Period}) is ready. Certificate No: {model.CertificateNumber}. Verify at: {verifyUrl}",
+            Priority = NotificationPriority.Normal,
+            ActionUrl = verifyUrl,
+            RecipientUserIds = new List<int> { requestingUserId },
+            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["CertificateNumber"] = model.CertificateNumber,
+                ["VerifyUrl"] = verifyUrl,
+                ["ReturnCode"] = model.ReturnCode,
+                ["Period"] = model.Period
+            }
+        }, ct);
+    }
+
+    private async Task<ComplianceCertificateModel> BuildCertificateModelAsync(Submission submission, Institution institution)
+    {
+        var submittedByName = "Unknown";
+        if (submission.SubmittedByUserId is > 0)
+        {
+            var user = await _userRepo.GetById(submission.SubmittedByUserId.Value);
+            submittedByName = user?.DisplayName ?? "Unknown";
+        }
+
+        var approvedByName = "";
+        var approval = await _approvalRepo.GetBySubmission(submission.Id);
+        if (approval?.ReviewedByUserId is > 0)
+        {
+            var approver = await _userRepo.GetById(approval.ReviewedByUserId.Value);
+            approvedByName = approver?.DisplayName ?? "";
+        }
+        if (string.IsNullOrEmpty(approvedByName) && approval is not null)
+            approvedByName = "Regulatory Officer";
+
+        var certNum = $"CBN-FCE-{submission.Id:D8}-{submission.SubmittedAt:yyyyMMdd}";
+
         return new ComplianceCertificateModel
         {
             Branding = await _brandingService.GetBrandingConfig(submission.TenantId),
@@ -116,8 +199,12 @@ public class ExportService
             Status = submission.Status,
             SubmittedAt = submission.SubmittedAt,
             AcceptedAt = submission.ValidationReport?.FinalizedAt ?? submission.SubmittedAt,
-            CertificateNumber = $"CBN-FCE-{submission.Id:D8}-{submission.SubmittedAt:yyyyMMdd}",
-            GeneratedAt = DateTime.UtcNow
+            CertificateNumber = certNum,
+            VerificationToken = certNum,
+            GeneratedAt = DateTime.UtcNow,
+            SubmittedByName = submittedByName,
+            ApprovedByName = approvedByName,
+            IsSuperseded = false // future: check for amendment submissions
         };
     }
 
@@ -392,6 +479,13 @@ public class ComplianceCertificateModel
     public DateTime AcceptedAt { get; set; }
     public string CertificateNumber { get; set; } = "";
     public DateTime GeneratedAt { get; set; }
+    // Approval chain
+    public string SubmittedByName { get; set; } = "";
+    public string ApprovedByName { get; set; } = "";
+    // Validity
+    public bool IsSuperseded { get; set; }
+    // Verification
+    public string VerificationToken { get; set; } = "";
 }
 
 public class ComplianceReportModel

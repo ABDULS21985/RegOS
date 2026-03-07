@@ -1,10 +1,12 @@
 @page "/calendar"
 @attribute [Authorize(Policy = "InstitutionUser")]
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
+@using Microsoft.AspNetCore.Components.Forms
 
 <PageTitle>Reporting Calendar — FC Engine Portal</PageTitle>
 
-<div class="portal-page">
+<div class="portal-page" id="portal-calendar-print-area">
 
     <!-- ═══════════════════════════════════════════════════════════════
          PAGE HEADER
@@ -15,6 +17,18 @@
             <p class="portal-page-subtitle">Track your reporting obligations and submission deadlines</p>
         </div>
         <div class="portal-page-header-actions">
+            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ExportICS" title="Download ICS file to add deadlines to your calendar app">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                </svg>
+                Export ICS
+            </button>
+            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="PrintCalendar" title="Print calendar">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+                </svg>
+                Print
+            </button>
             <a href="/submit" class="portal-btn portal-btn-primary">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -52,21 +66,58 @@
                 </div>
                 <span class="portal-calendar-summary-label">@calendarData.Summary.CompliancePercentage% Complete</span>
             </div>
+
+            <!-- Deadline Urgency Countdown Ring -->
+            @if (NearestDeadline is not null)
+            {
+                var nd = NearestDeadline;
+                var fillDeg = Math.Clamp(nd.DaysUntilDue / 30.0 * 360.0, 0.0, 360.0);
+                var ringColor = nd.DaysUntilDue < 1
+                    ? "var(--cbn-danger-text)"
+                    : nd.DaysUntilDue <= 3
+                        ? "var(--cbn-danger-text)"
+                        : nd.DaysUntilDue <= 7
+                            ? "var(--cbn-warning-text)"
+                            : "var(--cbn-success-text)";
+                var ringClass = nd.DaysUntilDue < 1
+                    ? "portal-urgency-ring--red portal-urgency-ring--pulse"
+                    : nd.DaysUntilDue <= 3
+                        ? "portal-urgency-ring--red"
+                        : nd.DaysUntilDue <= 7
+                            ? "portal-urgency-ring--amber"
+                            : "portal-urgency-ring--green";
+                var ringStyle = $"background: conic-gradient({ringColor} {fillDeg:F1}deg, var(--cbn-border-subtle) {fillDeg:F1}deg)";
+
+                <div class="portal-calendar-summary-card portal-calendar-summary-urgency">
+                    <div class="portal-urgency-ring @ringClass" style="@ringStyle"
+                         aria-label="@nd.DaysUntilDue days remaining until next deadline">
+                        <div class="portal-urgency-ring-inner">
+                            <span class="portal-urgency-ring-days">@(nd.DaysUntilDue < 1 ? "0" : nd.DaysUntilDue.ToString())</span>
+                            <span class="portal-urgency-ring-unit">days</span>
+                        </div>
+                    </div>
+                    <div class="portal-urgency-meta">
+                        <span class="portal-urgency-label">Next Deadline</span>
+                        <span class="portal-urgency-name" title="@nd.TemplateName">@nd.TemplateName</span>
+                        <span class="portal-urgency-countdown">@FormatCountdown(nd.DueDate)</span>
+                    </div>
+                </div>
+            }
         </div>
     }
 
     <!-- ═══════════════════════════════════════════════════════════════
-         VIEW CONTROLS (Month Navigation + View Toggle + Filters)
+         VIEW CONTROLS
          ═══════════════════════════════════════════════════════════════ -->
     <div class="portal-calendar-controls">
         <div class="portal-calendar-nav">
-            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="PreviousMonth" aria-label="Previous month">
+            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="PreviousPeriod" aria-label="Previous period">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <polyline points="15 18 9 12 15 6"/>
                 </svg>
             </button>
-            <h2 class="portal-calendar-month-label">@currentDate.ToString("MMMM yyyy")</h2>
-            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="NextMonth" aria-label="Next month">
+            <h2 class="portal-calendar-month-label">@NavLabel</h2>
+            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="NextPeriod" aria-label="Next period">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <polyline points="9 18 15 12 9 6"/>
                 </svg>
@@ -75,6 +126,22 @@
         </div>
 
         <div class="portal-calendar-actions">
+            <!-- Color Legend -->
+            <div class="portal-calendar-legend" aria-label="Dot color legend">
+                <span class="portal-calendar-legend-item">
+                    <span class="portal-calendar-dot portal-calendar-dot-success" aria-hidden="true"></span>Submitted
+                </span>
+                <span class="portal-calendar-legend-item">
+                    <span class="portal-calendar-dot portal-calendar-dot-danger" aria-hidden="true"></span>Overdue
+                </span>
+                <span class="portal-calendar-legend-item">
+                    <span class="portal-calendar-dot portal-calendar-dot-warning" aria-hidden="true"></span>Due soon
+                </span>
+                <span class="portal-calendar-legend-item">
+                    <span class="portal-calendar-dot portal-calendar-dot-neutral" aria-hidden="true"></span>Upcoming
+                </span>
+            </div>
+
             <!-- Frequency Filter -->
             <select class="portal-form-select portal-form-select-sm" @bind="frequencyFilter" @bind:after="ReloadData" aria-label="Filter by frequency">
                 <option value="All">All Frequencies</option>
@@ -83,31 +150,14 @@
                 <option value="SemiAnnual">Semi-Annual</option>
             </select>
 
-            <!-- View Toggle -->
-            <div class="portal-calendar-view-toggle" role="tablist" aria-label="Calendar view">
-                <button class="portal-calendar-view-btn @(activeView == "calendar" ? "portal-calendar-view-btn-active" : "")"
-                        role="tab" aria-selected="@(activeView == "calendar")"
-                        @onclick='() => SetView("calendar")' title="Calendar view">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
-                    </svg>
-                </button>
-                <button class="portal-calendar-view-btn @(activeView == "list" ? "portal-calendar-view-btn-active" : "")"
-                        role="tab" aria-selected="@(activeView == "list")"
-                        @onclick='() => SetView("list")' title="List view">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>
-                        <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
-                    </svg>
-                </button>
-                <button class="portal-calendar-view-btn @(activeView == "timeline" ? "portal-calendar-view-btn-active" : "")"
-                        role="tab" aria-selected="@(activeView == "timeline")"
-                        @onclick='() => SetView("timeline")' title="Timeline view">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                    </svg>
-                </button>
-            </div>
+            <!-- View Options Dropdown -->
+            <select class="portal-form-select portal-form-select-sm portal-calendar-view-select" @bind="activeView" aria-label="Select view">
+                <option value="calendar">Month View</option>
+                <option value="week">Week View</option>
+                <option value="list">List View</option>
+                <option value="agenda">Agenda View</option>
+                <option value="timeline">Timeline View</option>
+            </select>
         </div>
     </div>
 
@@ -130,12 +180,11 @@
     else
     {
         <!-- ═══════════════════════════════════════════════════════════
-             VIEW: CALENDAR GRID
+             VIEW: MONTH CALENDAR GRID
              ═══════════════════════════════════════════════════════════ -->
         @if (activeView == "calendar")
         {
             <div class="portal-card portal-card-flush portal-calendar-grid-container">
-                <!-- Day of week headers -->
                 <div class="portal-calendar-grid-header">
                     @foreach (var dayName in new[] { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" })
                     {
@@ -143,19 +192,19 @@
                     }
                 </div>
 
-                <!-- Calendar grid -->
                 <div class="portal-calendar-grid" role="grid" aria-label="@currentDate.ToString("MMMM yyyy") calendar">
                     @foreach (var week in calendarWeeks)
                     {
                         @foreach (var day in week)
                         {
+                            var cellHasOverdue = day.IsCurrentMonth && day.Entries.Any(e => e.Status == CalendarEntryStatus.Overdue);
                             <div class="portal-calendar-cell @GetCellClass(day)"
                                  role="gridcell"
                                  tabindex="@(day.IsCurrentMonth ? 0 : -1)"
                                  @onclick="() => SelectDay(day)"
                                  aria-label="@day.Date.ToString("d MMMM yyyy"), @day.Entries.Count returns due">
 
-                                <span class="portal-calendar-cell-date @(day.IsToday ? "portal-calendar-cell-today" : "")">
+                                <span class="portal-calendar-cell-date @(day.IsToday ? "portal-calendar-cell-today" : "") @(cellHasOverdue ? "portal-calendar-cell-date-overdue" : "")">
                                     @day.Date.Day
                                 </span>
 
@@ -164,8 +213,8 @@
                                     <div class="portal-calendar-cell-dots">
                                         @foreach (var entry in day.Entries.Take(4))
                                         {
-                                            <span class="portal-calendar-dot @GetDotClass(entry.Status)"
-                                                  title="@entry.ReturnCode — @GetStatusText(entry.Status)"
+                                            <span class="portal-calendar-dot @GetDotClass(entry) portal-dot-tooltip"
+                                                  data-tip="@entry.ReturnCode — @entry.TemplateName (@GetStatusText(entry.Status))"
                                                   aria-hidden="true"></span>
                                         }
                                         @if (day.Entries.Count > 4)
@@ -206,7 +255,89 @@
                                         }
                                         else
                                         {
-                                            <a href="/submit?returnCode=@entry.ReturnCode&period=@entry.PeriodValue" class="portal-btn portal-btn-primary portal-btn-xs">Submit</a>
+                                            <a href="/submit/form/@entry.ReturnCode" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now</a>
+                                            <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Extension</button>
+                                        }
+                                        <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenReminderModal(entry)" title="Set reminder">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- ═══════════════════════════════════════════════════════════
+             VIEW: WEEK
+             ═══════════════════════════════════════════════════════════ -->
+        @if (activeView == "week")
+        {
+            <div class="portal-card portal-card-flush portal-calendar-grid-container">
+                <div class="portal-calendar-grid-header portal-calendar-week-header">
+                    @foreach (var day in WeekDays)
+                    {
+                        <div class="portal-calendar-grid-dayname @(day.IsToday ? "portal-calendar-grid-dayname-today" : "")">
+                            <span>@day.Date.ToString("ddd")</span>
+                            <span class="portal-calendar-weekday-num @(day.IsToday ? "portal-calendar-weekday-num-today" : "")">@day.Date.Day</span>
+                        </div>
+                    }
+                </div>
+                <div class="portal-calendar-grid portal-calendar-week-grid" role="grid" aria-label="Week of @WeekDays.First().Date.ToString("d MMM yyyy")">
+                    @foreach (var day in WeekDays)
+                    {
+                        var wkHasOverdue = day.Entries.Any(e => e.Status == CalendarEntryStatus.Overdue);
+                        <div class="portal-calendar-cell portal-calendar-week-cell @(day.IsToday ? "portal-calendar-cell-today-bg" : "") @(wkHasOverdue ? "portal-calendar-cell-overdue" : "")"
+                             role="gridcell"
+                             @onclick="() => SelectDay(day)">
+                            @if (day.Entries.Any())
+                            {
+                                <div class="portal-calendar-week-entries">
+                                    @foreach (var entry in day.Entries)
+                                    {
+                                        <div class="portal-calendar-week-entry portal-calendar-week-entry--@GetEntryColorKey(entry)"
+                                             title="@entry.ReturnCode — @entry.TemplateName">
+                                            <span class="portal-calendar-week-entry-code">@entry.ReturnCode</span>
+                                            <span class="portal-calendar-week-entry-name">@entry.TemplateName</span>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+                @if (selectedDay is not null && selectedDay.Entries.Any())
+                {
+                    <div class="portal-calendar-day-detail" aria-live="polite">
+                        <h3 class="portal-calendar-day-detail-title">
+                            @selectedDay.Date.ToString("dddd, d MMMM yyyy")
+                            <span class="portal-badge portal-badge-neutral">@selectedDay.Entries.Count returns</span>
+                        </h3>
+                        <div class="portal-calendar-day-entries">
+                            @foreach (var entry in selectedDay.Entries)
+                            {
+                                <div class="portal-calendar-entry-card">
+                                    <div class="portal-calendar-entry-main">
+                                        <span class="portal-calendar-entry-code">@entry.ReturnCode</span>
+                                        <span class="portal-calendar-entry-name">@entry.TemplateName</span>
+                                        <div class="portal-calendar-entry-meta">
+                                            <span class="portal-badge @GetFrequencyBadgeClass(entry.Frequency)">@entry.Frequency</span>
+                                            <span class="portal-badge @GetStatusBadgeClass(entry.Status)">@GetStatusText(entry.Status)</span>
+                                        </div>
+                                    </div>
+                                    <div class="portal-calendar-entry-action">
+                                        @if (entry.Status == CalendarEntryStatus.Submitted && entry.SubmissionId.HasValue)
+                                        {
+                                            <a href="/submissions/@entry.SubmissionId" class="portal-btn portal-btn-ghost portal-btn-xs">View</a>
+                                        }
+                                        else
+                                        {
+                                            <a href="/submit/form/@entry.ReturnCode" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now</a>
+                                            <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Extension</button>
                                         }
                                     </div>
                                 </div>
@@ -222,7 +353,7 @@
              ═══════════════════════════════════════════════════════════ -->
         @if (activeView == "list")
         {
-            <div class="portal-calendar-list">
+            <div class="portal-calendar-list portal-hide-mobile">
                 @foreach (var monthGroup in MonthGroupedEntries)
                 {
                     <div class="portal-calendar-list-month">
@@ -237,46 +368,44 @@
                                         <th>Due Date</th>
                                         <th>Days Until Due</th>
                                         <th>Status</th>
-                                        <th class="portal-table-th-actions">Action</th>
+                                        <th class="portal-table-th-actions">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     @foreach (var entry in monthGroup.Value)
                                     {
                                         <tr>
-                                            <td>
-                                                <span class="portal-table-code">@entry.ReturnCode</span>
-                                            </td>
+                                            <td><span class="portal-table-code">@entry.ReturnCode</span></td>
                                             <td class="portal-td-truncate">@entry.TemplateName</td>
-                                            <td>
-                                                <span class="portal-badge @GetFrequencyBadgeClass(entry.Frequency)">@entry.Frequency</span>
-                                            </td>
-                                            <td>
-                                                <span class="portal-td-date">@entry.DueDate.ToString("d MMM yyyy")</span>
-                                            </td>
+                                            <td><span class="portal-badge @GetFrequencyBadgeClass(entry.Frequency)">@entry.Frequency</span></td>
+                                            <td><span class="portal-td-date">@entry.DueDate.ToString("d MMM yyyy")</span></td>
                                             <td>
                                                 <span class="@GetDaysUntilClass(entry.DaysUntilDue)">
                                                     @FormatDaysUntilDue(entry.DaysUntilDue)
                                                 </span>
                                             </td>
-                                            <td>
-                                                <span class="portal-badge @GetStatusBadgeClass(entry.Status)">
-                                                    @GetStatusText(entry.Status)
-                                                </span>
-                                            </td>
+                                            <td><span class="portal-badge @GetStatusBadgeClass(entry.Status)">@GetStatusText(entry.Status)</span></td>
                                             <td class="portal-table-th-actions">
-                                                @if (entry.Status == CalendarEntryStatus.Submitted && entry.SubmissionId.HasValue)
-                                                {
-                                                    <a href="/submissions/@entry.SubmissionId" class="portal-btn portal-btn-ghost portal-btn-xs" title="View submission">
-                                                        View
-                                                    </a>
-                                                }
-                                                else
-                                                {
-                                                    <a href="/submit?returnCode=@entry.ReturnCode&period=@entry.PeriodValue" class="portal-btn portal-btn-primary portal-btn-xs" title="Submit return">
-                                                        Submit
-                                                    </a>
-                                                }
+                                                <div class="portal-list-actions">
+                                                    @if (entry.Status == CalendarEntryStatus.Submitted && entry.SubmissionId.HasValue)
+                                                    {
+                                                        <a href="/submissions/@entry.SubmissionId" class="portal-btn portal-btn-ghost portal-btn-xs">View</a>
+                                                    }
+                                                    else
+                                                    {
+                                                        <a href="/submit/form/@entry.ReturnCode" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now</a>
+                                                        <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Request Extension</button>
+                                                    }
+                                                    <button class="portal-btn portal-btn-ghost portal-btn-xs portal-reminder-btn"
+                                                            @onclick="() => OpenReminderModal(entry)"
+                                                            title="Set reminder"
+                                                            aria-label="Set reminder for @entry.ReturnCode">
+                                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                                                        </svg>
+                                                        @GetReminderLabel(entry.ReturnCode)
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     }
@@ -309,11 +438,112 @@
                             }
                             else
                             {
-                                <a href="/submit?returnCode=@entry.ReturnCode&period=@entry.PeriodValue" class="portal-btn portal-btn-primary portal-btn-xs">Submit</a>
+                                <a href="/submit/form/@entry.ReturnCode" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now</a>
+                                <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Extension</button>
                             }
                         </div>
                     </div>
                 }
+            </div>
+        }
+
+        <!-- ═══════════════════════════════════════════════════════════
+             VIEW: AGENDA (sortable full table)
+             ═══════════════════════════════════════════════════════════ -->
+        @if (activeView == "agenda")
+        {
+            <div class="portal-card portal-card-flush">
+                <div class="portal-agenda-toolbar">
+                    <span class="portal-agenda-count">@visibleEntries.Count returns</span>
+                    <div class="portal-agenda-sort">
+                        <label class="portal-agenda-sort-label">Sort by</label>
+                        <select class="portal-form-select portal-form-select-sm" @bind="_agendaSort">
+                            <option value="date">Due Date</option>
+                            <option value="status">Status</option>
+                            <option value="code">Return Code</option>
+                        </select>
+                    </div>
+                </div>
+                <table class="portal-table portal-agenda-table" aria-label="Agenda — all returns">
+                    <thead>
+                        <tr>
+                            <th class="portal-agenda-th-sortable" @onclick='() => SetAgendaSort("date")'>
+                                Due Date @if (_agendaSort == "date") { <span class="portal-sort-icon" aria-hidden="true">↑</span> }
+                            </th>
+                            <th>Return</th>
+                            <th>Frequency</th>
+                            <th class="portal-agenda-th-sortable" @onclick='() => SetAgendaSort("status")'>
+                                Status @if (_agendaSort == "status") { <span class="portal-sort-icon" aria-hidden="true">↑</span> }
+                            </th>
+                            <th>Urgency</th>
+                            <th class="portal-table-th-actions">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @{
+                            DateTime? lastAgendaDate = null;
+                        }
+                        @foreach (var entry in AgendaSortedEntries)
+                        {
+                            var isNewDate = lastAgendaDate is null || entry.DueDate.Date != lastAgendaDate.Value.Date;
+                            @if (isNewDate && _agendaSort == "date")
+                            {
+                                <tr class="portal-agenda-date-separator">
+                                    <td colspan="6">
+                                        <span class="portal-agenda-date-label @(entry.DueDate.Date == DateTime.UtcNow.Date ? "portal-agenda-date-today" : "")">
+                                            @entry.DueDate.ToString("ddd, d MMMM yyyy")
+                                            @if (entry.DueDate.Date == DateTime.UtcNow.Date)
+                                            {
+                                                <span class="portal-badge portal-badge-sm portal-badge-success">Today</span>
+                                            }
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                            lastAgendaDate = entry.DueDate.Date;
+                            <tr class="portal-agenda-row @(entry.Status == CalendarEntryStatus.Overdue ? "portal-agenda-row-overdue" : "")">
+                                <td>
+                                    <span class="portal-td-date @GetDaysUntilClass(entry.DaysUntilDue)">
+                                        @entry.DueDate.ToString("d MMM yyyy")
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="portal-agenda-entry">
+                                        <span class="portal-table-code">@entry.ReturnCode</span>
+                                        <span class="portal-agenda-entry-name">@entry.TemplateName</span>
+                                    </div>
+                                </td>
+                                <td><span class="portal-badge @GetFrequencyBadgeClass(entry.Frequency)">@entry.Frequency</span></td>
+                                <td><span class="portal-badge @GetStatusBadgeClass(entry.Status)">@GetStatusText(entry.Status)</span></td>
+                                <td>
+                                    <span class="portal-urgency-pill @GetUrgencyPillClass(entry.DaysUntilDue)">
+                                        @FormatDaysUntilDue(entry.DaysUntilDue)
+                                    </span>
+                                </td>
+                                <td class="portal-table-th-actions">
+                                    <div class="portal-list-actions">
+                                        @if (entry.Status == CalendarEntryStatus.Submitted && entry.SubmissionId.HasValue)
+                                        {
+                                            <a href="/submissions/@entry.SubmissionId" class="portal-btn portal-btn-ghost portal-btn-xs">View</a>
+                                        }
+                                        else
+                                        {
+                                            <a href="/submit/form/@entry.ReturnCode" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now</a>
+                                            <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Request Extension</button>
+                                        }
+                                        <button class="portal-btn portal-btn-ghost portal-btn-xs portal-reminder-btn"
+                                                @onclick="() => OpenReminderModal(entry)" title="Set reminder">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                                            </svg>
+                                            @GetReminderLabel(entry.ReturnCode)
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
             </div>
         }
 
@@ -359,9 +589,7 @@
                             <div class="portal-timeline-card">
                                 <div class="portal-timeline-card-header">
                                     <span class="portal-table-code">@entry.ReturnCode</span>
-                                    <span class="portal-badge @GetStatusBadgeClass(entry.Status)">
-                                        @GetStatusText(entry.Status)
-                                    </span>
+                                    <span class="portal-badge @GetStatusBadgeClass(entry.Status)">@GetStatusText(entry.Status)</span>
                                 </div>
                                 <span class="portal-timeline-card-name">@entry.TemplateName</span>
                                 <div class="portal-timeline-card-meta">
@@ -375,7 +603,8 @@
                                     }
                                     else
                                     {
-                                        <a href="/submit?returnCode=@entry.ReturnCode&period=@entry.PeriodValue" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now</a>
+                                        <a href="/submit/form/@entry.ReturnCode" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now</a>
+                                        <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Extension</button>
                                     }
                                 </div>
                             </div>
@@ -387,6 +616,131 @@
     }
 </div>
 
+<!-- ═══════════════════════════════════════════════════════════════
+     EXTENSION REQUEST MODAL
+     ═══════════════════════════════════════════════════════════════ -->
+@if (_extensionModalOpen && _extensionEntry is not null)
+{
+    <div class="portal-cal-modal-overlay" @onclick="CloseExtensionModal" role="dialog" aria-modal="true" aria-labelledby="ext-modal-title">
+        <div class="portal-cal-modal" @onclick:stopPropagation="true">
+            <div class="portal-cal-modal-header">
+                <h2 class="portal-cal-modal-title" id="ext-modal-title">Request Extension</h2>
+                <button class="portal-cal-modal-close" @onclick="CloseExtensionModal" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="portal-cal-modal-body">
+                <div class="portal-extension-return-info">
+                    <span class="portal-table-code">@_extensionEntry.ReturnCode</span>
+                    <span class="portal-extension-return-name">@_extensionEntry.TemplateName</span>
+                    <span class="portal-text-muted" style="font-size: var(--text-caption);">Current deadline: @_extensionEntry.DueDate.ToString("d MMMM yyyy")</span>
+                </div>
+
+                <div class="portal-cal-form-group">
+                    <label class="portal-cal-form-label" for="ext-reason">
+                        Reason for Extension <span style="color:var(--cbn-danger-text)" aria-hidden="true">*</span>
+                    </label>
+                    <textarea id="ext-reason" class="portal-cal-form-textarea" rows="4"
+                              placeholder="Please provide a detailed reason for requesting this extension..."
+                              @bind="_extensionReason" maxlength="1000"></textarea>
+                    <span style="font-size: var(--text-caption); color: var(--cbn-text-muted);">@_extensionReason.Length / 1000 characters</span>
+                </div>
+
+                <div class="portal-cal-form-group">
+                    <label class="portal-cal-form-label" for="ext-date">
+                        Requested Extension Date <span style="color:var(--cbn-danger-text)" aria-hidden="true">*</span>
+                    </label>
+                    <input type="date" id="ext-date" class="portal-form-select"
+                           style="width: 100%;"
+                           min="@(_extensionEntry.DueDate.AddDays(1).ToString("yyyy-MM-dd"))"
+                           max="@(_extensionEntry.DueDate.AddDays(90).ToString("yyyy-MM-dd"))"
+                           @bind="_extensionDate" />
+                </div>
+
+                <div class="portal-cal-form-group">
+                    <label class="portal-cal-form-label">Supporting Documents</label>
+                    <label class="portal-extension-dropzone @(_dropActive ? "portal-extension-dropzone--active" : "")"
+                           for="ext-file-input"
+                           @ondragover:preventDefault @ondragover="() => _dropActive = true"
+                           @ondragleave="() => _dropActive = false">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        <span>Drop files here or <span class="portal-upload-link">browse</span></span>
+                        <span style="font-size: var(--text-caption); color: var(--cbn-text-muted);">PDF, Word, or image files up to 10MB each</span>
+                        <InputFile id="ext-file-input" style="display:none" multiple OnChange="HandleExtensionFileSelect" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" />
+                    </label>
+                    @if (_extensionFiles.Any())
+                    {
+                        <ul class="portal-extension-file-list">
+                            @foreach (var f in _extensionFiles)
+                            {
+                                <li class="portal-extension-file-item">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
+                                    </svg>
+                                    <span>@f.Name</span>
+                                    <span style="color: var(--cbn-text-muted);">(@FormatFileSize(f.Size))</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+            <div class="portal-cal-modal-footer">
+                <button class="portal-btn portal-btn-ghost" @onclick="CloseExtensionModal">Cancel</button>
+                <button class="portal-btn portal-btn-primary" @onclick="SubmitExtensionRequest"
+                        disabled="@(string.IsNullOrWhiteSpace(_extensionReason) || _extensionDate == default)">
+                    Submit Extension Request
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- ═══════════════════════════════════════════════════════════════
+     SET REMINDER MODAL
+     ═══════════════════════════════════════════════════════════════ -->
+@if (_reminderModalOpen && _reminderEntry is not null)
+{
+    <div class="portal-cal-modal-overlay" @onclick="CloseReminderModal" role="dialog" aria-modal="true" aria-labelledby="rem-modal-title">
+        <div class="portal-cal-modal portal-reminder-modal" @onclick:stopPropagation="true">
+            <div class="portal-cal-modal-header">
+                <h2 class="portal-cal-modal-title" id="rem-modal-title">Set Reminder</h2>
+                <button class="portal-cal-modal-close" @onclick="CloseReminderModal" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="portal-cal-modal-body">
+                <p style="font-size: var(--text-body-sm); color: var(--cbn-text-muted);">
+                    Get notified before <strong style="color: var(--cbn-text);">@_reminderEntry.ReturnCode — @_reminderEntry.TemplateName</strong>
+                    is due on <strong style="color: var(--cbn-text);">@_reminderEntry.DueDate.ToString("d MMMM yyyy")</strong>.
+                </p>
+                <div class="portal-reminder-options" role="group" aria-label="Reminder timing options">
+                    @foreach (var day in new[] { 7, 3, 1 })
+                    {
+                        var isActive = _selectedReminderDays.Contains(day);
+                        var reminderDate = _reminderEntry.DueDate.AddDays(-day);
+                        <button class="portal-reminder-option @(isActive ? "portal-reminder-option--active" : "")"
+                                @onclick="() => ToggleReminderDay(day)"
+                                aria-pressed="@isActive.ToString().ToLower()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                            </svg>
+                            <span>@day day@(day > 1 ? "s" : "") before</span>
+                            <span style="font-size: var(--text-caption); color: var(--cbn-text-muted); margin-left: auto;">@reminderDate.ToString("d MMM")</span>
+                        </button>
+                    }
+                </div>
+            </div>
+            <div class="portal-cal-modal-footer">
+                <button class="portal-btn portal-btn-ghost" @onclick="CloseReminderModal">Cancel</button>
+                <button class="portal-btn portal-btn-primary" @onclick="SaveReminders">Save Reminders</button>
+            </div>
+        </div>
+    </div>
+}
+
 @code {
     // ── State ────────────────────────────────────────────────────
     private bool isLoading = true;
@@ -395,6 +749,24 @@
     private string activeView = "calendar";
     private string frequencyFilter = "All";
     private CalendarDay? selectedDay;
+    private DateTime weekStart;
+
+    // ── Agenda ───────────────────────────────────────────────────
+    private string _agendaSort = "date";
+
+    // ── Extension Modal ──────────────────────────────────────────
+    private bool _extensionModalOpen;
+    private CalendarEntry? _extensionEntry;
+    private string _extensionReason = "";
+    private DateTime _extensionDate;
+    private List<IBrowserFile> _extensionFiles = new();
+    private bool _dropActive;
+
+    // ── Reminder Modal ───────────────────────────────────────────
+    private bool _reminderModalOpen;
+    private CalendarEntry? _reminderEntry;
+    private List<int> _selectedReminderDays = new();
+    private Dictionary<string, List<int>> _savedReminders = new();
 
     // ── Calendar Grid Data ───────────────────────────────────────
     private List<List<CalendarDay>> calendarWeeks = new();
@@ -406,7 +778,6 @@
     [Inject] private CalendarService CalendarSvc { get; set; } = default!;
 
     // ── Computed Properties ──────────────────────────────────────
-
     private List<CalendarEntry> visibleEntries =>
         calendarData?.Entries ?? new();
 
@@ -415,10 +786,58 @@
             .GroupBy(e => e.DueDate.ToString("MMMM yyyy"))
             .ToDictionary(g => g.Key, g => g.ToList());
 
+    private IEnumerable<CalendarEntry> AgendaSortedEntries => _agendaSort switch
+    {
+        "status" => visibleEntries.OrderBy(e => (int)e.Status).ThenBy(e => e.DueDate),
+        "code"   => visibleEntries.OrderBy(e => e.ReturnCode).ThenBy(e => e.DueDate),
+        _        => visibleEntries.OrderBy(e => e.DueDate)
+    };
+
+    private CalendarEntry? NearestDeadline =>
+        visibleEntries
+            .Where(e => e.Status != CalendarEntryStatus.Submitted && e.DaysUntilDue >= 0)
+            .OrderBy(e => e.DaysUntilDue)
+            .FirstOrDefault();
+
+    private List<CalendarDay> WeekDays
+    {
+        get
+        {
+            var days = new List<CalendarDay>();
+            var mon = weekStart;
+            while (mon.DayOfWeek != DayOfWeek.Monday)
+                mon = mon.AddDays(-1);
+
+            var entryByDate = calendarData?.Entries
+                .GroupBy(e => e.DueDate.Date)
+                .ToDictionary(g => g.Key, g => g.ToList()) ?? new();
+
+            for (int i = 0; i < 7; i++)
+            {
+                var d = mon.AddDays(i);
+                entryByDate.TryGetValue(d, out var dayEntries);
+                days.Add(new CalendarDay
+                {
+                    Date = d,
+                    IsCurrentMonth = d.Month == currentDate.Month,
+                    IsToday = d.Date == DateTime.UtcNow.Date,
+                    Entries = dayEntries ?? new()
+                });
+            }
+            return days;
+        }
+    }
+
+    private string NavLabel => activeView == "week"
+        ? $"Week of {WeekDays.First().Date:d MMM} – {WeekDays.Last().Date:d MMM yyyy}"
+        : currentDate.ToString("MMMM yyyy");
+
     // ── Lifecycle ────────────────────────────────────────────────
     protected override async Task OnInitializedAsync()
     {
+        weekStart = DateTime.UtcNow.Date;
         await LoadCalendarData();
+        await LoadRemindersFromStorage();
     }
 
     // ── Data Loading ─────────────────────────────────────────────
@@ -433,7 +852,6 @@
             var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
             int.TryParse(instIdStr, out var institutionId);
 
-            // Range: previous month to 2 months ahead
             var rangeStart = new DateTime(currentDate.Year, currentDate.Month, 1).AddMonths(-1);
             var rangeEnd = new DateTime(currentDate.Year, currentDate.Month, 1).AddMonths(3).AddDays(-1);
 
@@ -457,6 +875,17 @@
         }
     }
 
+    private async Task LoadRemindersFromStorage()
+    {
+        try
+        {
+            var json = await JS.InvokeAsync<string?>("portalCalendar.loadReminders");
+            if (!string.IsNullOrEmpty(json))
+                _savedReminders = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, List<int>>>(json) ?? new();
+        }
+        catch { /* storage unavailable */ }
+    }
+
     // ── Calendar Grid Builder ────────────────────────────────────
     private void BuildCalendarGrid()
     {
@@ -466,22 +895,18 @@
         var firstOfMonth = new DateTime(currentDate.Year, currentDate.Month, 1);
         var daysInMonth = DateTime.DaysInMonth(currentDate.Year, currentDate.Month);
 
-        // Start of grid: Monday of the week containing the 1st
         var startDay = firstOfMonth;
         while (startDay.DayOfWeek != DayOfWeek.Monday)
             startDay = startDay.AddDays(-1);
 
-        // End of grid: Sunday of the week containing the last day
         var endDay = new DateTime(currentDate.Year, currentDate.Month, daysInMonth);
         while (endDay.DayOfWeek != DayOfWeek.Sunday)
             endDay = endDay.AddDays(1);
 
-        // Build day lookup from calendar entries
         var entryByDate = calendarData.Entries
             .GroupBy(e => e.DueDate.Date)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // Build weeks
         var currentWeek = new List<CalendarDay>();
         for (var d = startDay; d <= endDay; d = d.AddDays(1))
         {
@@ -507,35 +932,47 @@
     }
 
     // ── Navigation ───────────────────────────────────────────────
-    private async Task PreviousMonth()
+    private async Task PreviousPeriod()
     {
-        currentDate = currentDate.AddMonths(-1);
-        selectedDay = null;
+        if (activeView == "week")
+        {
+            weekStart = weekStart.AddDays(-7);
+            currentDate = weekStart;
+        }
+        else
+        {
+            currentDate = currentDate.AddMonths(-1);
+            selectedDay = null;
+        }
         await LoadCalendarData();
     }
 
-    private async Task NextMonth()
+    private async Task NextPeriod()
     {
-        currentDate = currentDate.AddMonths(1);
-        selectedDay = null;
+        if (activeView == "week")
+        {
+            weekStart = weekStart.AddDays(7);
+            currentDate = weekStart;
+        }
+        else
+        {
+            currentDate = currentDate.AddMonths(1);
+            selectedDay = null;
+        }
         await LoadCalendarData();
     }
 
     private async Task GoToToday()
     {
         currentDate = DateTime.UtcNow;
+        weekStart = DateTime.UtcNow.Date;
         selectedDay = null;
         await LoadCalendarData();
     }
 
-    private void SetView(string view)
-    {
-        activeView = view;
-    }
-
     private void SelectDay(CalendarDay day)
     {
-        if (day.IsCurrentMonth && day.Entries.Any())
+        if (day.Entries.Any())
             selectedDay = day;
         else
             selectedDay = null;
@@ -547,8 +984,137 @@
         await LoadCalendarData();
     }
 
-    // ── Helpers: CSS Classes ─────────────────────────────────────
+    private void SetAgendaSort(string sort) => _agendaSort = sort;
 
+    // ── Extension Modal ──────────────────────────────────────────
+    private void OpenExtensionModal(CalendarEntry entry)
+    {
+        _extensionEntry = entry;
+        _extensionReason = "";
+        _extensionDate = entry.DueDate.AddDays(14);
+        _extensionFiles = new();
+        _dropActive = false;
+        _extensionModalOpen = true;
+    }
+
+    private void CloseExtensionModal()
+    {
+        _extensionModalOpen = false;
+        _extensionEntry = null;
+    }
+
+    private void HandleExtensionFileSelect(InputFileChangeEventArgs e)
+    {
+        _extensionFiles = e.GetMultipleFiles(10).ToList();
+    }
+
+    private async Task SubmitExtensionRequest()
+    {
+        // Production: POST to extension request API
+        CloseExtensionModal();
+        await JS.InvokeVoidAsync("portalAnnounce", "Extension request submitted successfully.");
+    }
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1_048_576) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes / 1_048_576.0:F1} MB";
+    }
+
+    // ── Reminder Modal ───────────────────────────────────────────
+    private void OpenReminderModal(CalendarEntry entry)
+    {
+        _reminderEntry = entry;
+        _selectedReminderDays = _savedReminders.TryGetValue(entry.ReturnCode, out var saved)
+            ? new List<int>(saved) : new List<int>();
+        _reminderModalOpen = true;
+    }
+
+    private void CloseReminderModal()
+    {
+        _reminderModalOpen = false;
+        _reminderEntry = null;
+    }
+
+    private void ToggleReminderDay(int day)
+    {
+        if (_selectedReminderDays.Contains(day))
+            _selectedReminderDays.Remove(day);
+        else
+            _selectedReminderDays.Add(day);
+    }
+
+    private async Task SaveReminders()
+    {
+        if (_reminderEntry is null) return;
+        _savedReminders[_reminderEntry.ReturnCode] = new List<int>(_selectedReminderDays);
+        var json = System.Text.Json.JsonSerializer.Serialize(_savedReminders);
+        await JS.InvokeVoidAsync("portalCalendar.saveReminders", json);
+        CloseReminderModal();
+        await JS.InvokeVoidAsync("portalAnnounce", "Reminders saved.");
+    }
+
+    private string GetReminderLabel(string returnCode)
+    {
+        if (_savedReminders.TryGetValue(returnCode, out var days) && days.Any())
+        {
+            var sorted = days.OrderBy(d => d).Select(d => $"{d}d");
+            return $"Reminded ({string.Join(", ", sorted)})";
+        }
+        return "Remind";
+    }
+
+    // ── Export ───────────────────────────────────────────────────
+    private async Task ExportICS()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("BEGIN:VCALENDAR");
+        sb.AppendLine("VERSION:2.0");
+        sb.AppendLine("PRODID:-//FC Engine Portal//Reporting Calendar//EN");
+        sb.AppendLine("CALSCALE:GREGORIAN");
+        sb.AppendLine("METHOD:PUBLISH");
+
+        foreach (var entry in visibleEntries)
+        {
+            var uid = $"{entry.ReturnCode}-{entry.DueDate:yyyyMMdd}@fcengine";
+            var description = $"Return: {entry.ReturnCode}\\nName: {entry.TemplateName}\\nFrequency: {entry.Frequency}\\nStatus: {GetStatusText(entry.Status)}";
+            sb.AppendLine("BEGIN:VEVENT");
+            sb.AppendLine($"UID:{uid}");
+            sb.AppendLine($"DTSTAMP:{DateTime.UtcNow:yyyyMMddTHHmmssZ}");
+            sb.AppendLine($"DTSTART;VALUE=DATE:{entry.DueDate:yyyyMMdd}");
+            sb.AppendLine($"DTEND;VALUE=DATE:{entry.DueDate.AddDays(1):yyyyMMdd}");
+            sb.AppendLine($"SUMMARY:{entry.ReturnCode} — {entry.TemplateName} Due");
+            sb.AppendLine($"DESCRIPTION:{description}");
+            sb.AppendLine($"STATUS:{(entry.Status == CalendarEntryStatus.Submitted ? "CONFIRMED" : "TENTATIVE")}");
+            sb.AppendLine("END:VEVENT");
+        }
+
+        sb.AppendLine("END:VCALENDAR");
+        var filename = $"reporting-calendar-{currentDate:yyyy-MM}.ics";
+        await JS.InvokeVoidAsync("portalDownloadFile", sb.ToString(), filename, "text/calendar");
+    }
+
+    private async Task PrintCalendar()
+    {
+        await JS.InvokeVoidAsync("portalPrintElement", "portal-calendar-print-area");
+    }
+
+    // ── Countdown Helper ─────────────────────────────────────────
+    private static string FormatCountdown(DateTime dueDate)
+    {
+        var diff = dueDate.Date - DateTime.UtcNow.Date;
+        if (diff.TotalDays < 0) return "Overdue";
+        if (diff.TotalDays == 0) return "Due today";
+        var totalHours = (int)diff.TotalHours;
+        var days = totalHours / 24;
+        var hours = totalHours % 24;
+        if (days == 0) return $"Due in {hours}h";
+        if (hours == 0) return $"Due in {days} day{(days != 1 ? "s" : "")}";
+        return $"Due in {days}d {hours}h";
+    }
+
+    // ── Helpers: CSS Classes ─────────────────────────────────────
     private static string GetCellClass(CalendarDay day)
     {
         if (!day.IsCurrentMonth)
@@ -562,88 +1128,77 @@
         return "";
     }
 
-    private static string GetDotClass(CalendarEntryStatus status)
+    private static string GetDotClass(CalendarEntry entry)
     {
-        if (status == CalendarEntryStatus.Submitted)
-            return "portal-calendar-dot-success";
-        if (status == CalendarEntryStatus.Overdue)
-            return "portal-calendar-dot-danger";
-        if (status == CalendarEntryStatus.Rejected)
-            return "portal-calendar-dot-danger";
-        if (status == CalendarEntryStatus.Draft)
-            return "portal-calendar-dot-warning";
+        if (entry.Status == CalendarEntryStatus.Submitted) return "portal-calendar-dot-success";
+        if (entry.Status is CalendarEntryStatus.Overdue or CalendarEntryStatus.Rejected) return "portal-calendar-dot-danger";
+        if (entry.DaysUntilDue >= 0 && entry.DaysUntilDue <= 7) return "portal-calendar-dot-warning";
         return "portal-calendar-dot-neutral";
     }
 
-    private static string GetStatusBadgeClass(CalendarEntryStatus status)
+    private static string GetEntryColorKey(CalendarEntry entry)
     {
-        if (status == CalendarEntryStatus.Submitted)
-            return "portal-badge-success";
-        if (status == CalendarEntryStatus.Overdue)
-            return "portal-badge-danger";
-        if (status == CalendarEntryStatus.Rejected)
-            return "portal-badge-danger";
-        if (status == CalendarEntryStatus.Draft)
-            return "portal-badge-warning";
-        return "portal-badge-neutral";
+        if (entry.Status == CalendarEntryStatus.Submitted) return "success";
+        if (entry.Status is CalendarEntryStatus.Overdue or CalendarEntryStatus.Rejected) return "danger";
+        if (entry.DaysUntilDue <= 7) return "warning";
+        return "neutral";
     }
 
-    private static string GetStatusText(CalendarEntryStatus status)
+    private static string GetStatusBadgeClass(CalendarEntryStatus status) => status switch
     {
-        if (status == CalendarEntryStatus.Submitted)
-            return "Submitted";
-        if (status == CalendarEntryStatus.Overdue)
-            return "Overdue";
-        if (status == CalendarEntryStatus.Rejected)
-            return "Rejected";
-        if (status == CalendarEntryStatus.Draft)
-            return "In Progress";
-        return "Not Started";
-    }
+        CalendarEntryStatus.Submitted => "portal-badge-success",
+        CalendarEntryStatus.Overdue   => "portal-badge-danger",
+        CalendarEntryStatus.Rejected  => "portal-badge-danger",
+        CalendarEntryStatus.Draft     => "portal-badge-warning",
+        _                             => "portal-badge-neutral"
+    };
 
-    private static string GetFrequencyBadgeClass(string frequency)
+    private static string GetStatusText(CalendarEntryStatus status) => status switch
     {
-        if (frequency.Equals("Monthly", StringComparison.OrdinalIgnoreCase))
-            return "portal-badge-info";
-        if (frequency.Equals("Quarterly", StringComparison.OrdinalIgnoreCase))
-            return "portal-badge-accent";
-        if (frequency.Equals("SemiAnnual", StringComparison.OrdinalIgnoreCase))
-            return "portal-badge-neutral";
-        return "portal-badge-neutral";
-    }
+        CalendarEntryStatus.Submitted => "Submitted",
+        CalendarEntryStatus.Overdue   => "Overdue",
+        CalendarEntryStatus.Rejected  => "Rejected",
+        CalendarEntryStatus.Draft     => "In Progress",
+        _                             => "Not Started"
+    };
 
-    private static string GetTimelineDotClass(CalendarEntryStatus status)
+    private static string GetFrequencyBadgeClass(string frequency) => frequency.ToLowerInvariant() switch
     {
-        if (status == CalendarEntryStatus.Submitted)
-            return "portal-timeline-dot-success";
-        if (status == CalendarEntryStatus.Overdue)
-            return "portal-timeline-dot-danger";
-        if (status == CalendarEntryStatus.Rejected)
-            return "portal-timeline-dot-danger";
-        if (status == CalendarEntryStatus.Draft)
-            return "portal-timeline-dot-warning";
-        return "portal-timeline-dot-neutral";
-    }
+        "monthly"    => "portal-badge-info",
+        "quarterly"  => "portal-badge-accent",
+        "semiannual" => "portal-badge-neutral",
+        _            => "portal-badge-neutral"
+    };
+
+    private static string GetTimelineDotClass(CalendarEntryStatus status) => status switch
+    {
+        CalendarEntryStatus.Submitted => "portal-timeline-dot-success",
+        CalendarEntryStatus.Overdue   => "portal-timeline-dot-danger",
+        CalendarEntryStatus.Rejected  => "portal-timeline-dot-danger",
+        CalendarEntryStatus.Draft     => "portal-timeline-dot-warning",
+        _                             => "portal-timeline-dot-neutral"
+    };
 
     private static string GetDaysUntilClass(int days)
     {
-        if (days < 0)
-            return "portal-text-danger-bold";
-        if (days <= 3)
-            return "portal-text-danger-bold";
-        if (days <= 7)
-            return "portal-text-warning-bold";
+        if (days < 0) return "portal-text-danger-bold";
+        if (days <= 3) return "portal-text-danger-bold";
+        if (days <= 7) return "portal-text-warning-bold";
         return "portal-text-muted";
+    }
+
+    private static string GetUrgencyPillClass(int days)
+    {
+        if (days < 0 || days <= 3) return "portal-urgency-pill--danger";
+        if (days <= 7) return "portal-urgency-pill--warning";
+        return "portal-urgency-pill--neutral";
     }
 
     private static string FormatDaysUntilDue(int days)
     {
-        if (days < 0)
-            return $"{Math.Abs(days)}d overdue";
-        if (days == 0)
-            return "Due today";
-        if (days == 1)
-            return "Due tomorrow";
+        if (days < 0) return $"{Math.Abs(days)}d overdue";
+        if (days == 0) return "Due today";
+        if (days == 1) return "Due tomorrow";
         return $"In {days} days";
     }
 }

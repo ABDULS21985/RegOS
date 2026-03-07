@@ -690,8 +690,90 @@ public class PlatformAdminService
 
     public async Task<PlatformBillingOpsData> GetBillingOps(CancellationToken ct = default)
     {
-        var platform = await _dashboardService.GetPlatformDashboard(ct);
+        // Compute all billing metrics directly from _db to avoid shared-DbContext
+        // threading issues that arise when delegating to DashboardService (which also
+        // uses the same scoped MetadataDbContext via IMemoryCache.GetOrCreateAsync).
 
+        var now = DateTime.UtcNow;
+        var monthStart = new DateTime(now.Year, now.Month, 1);
+        var rollingStart = monthStart.AddMonths(-2);
+
+        // ── Subscriptions for MRR / ARR / revenue breakdown ──────────────────────
+        var subscriptions = await _db.Subscriptions
+            .AsNoTracking()
+            .Include(s => s.Plan)
+            .Include(s => s.Modules)
+            .Where(s => s.Status == SubscriptionStatus.Active
+                     || s.Status == SubscriptionStatus.PastDue
+                     || s.Status == SubscriptionStatus.Suspended)
+            .ToListAsync(ct);
+
+        var moduleMap = await _db.Modules
+            .AsNoTracking()
+            .ToDictionaryAsync(m => m.Id, ct);
+
+        decimal NormalizedMonthly(Subscription s)
+        {
+            var base_ = s.Plan is null ? 0m
+                : s.BillingFrequency == BillingFrequency.Annual
+                    ? s.Plan.BasePriceAnnual / 12m
+                    : s.Plan.BasePriceMonthly;
+            var mods = s.Modules
+                .Where(sm => sm.IsActive)
+                .Sum(sm => s.BillingFrequency == BillingFrequency.Annual
+                    ? sm.PriceAnnual / 12m
+                    : sm.PriceMonthly);
+            return base_ + mods;
+        }
+
+        var mrr = subscriptions.Sum(NormalizedMonthly);
+
+        var revenueByPlan = subscriptions
+            .GroupBy(s => s.Plan?.PlanName ?? "Unknown")
+            .Select(g => new RevenueBreakdownItem
+            {
+                Label = g.Key,
+                Amount = decimal.Round(g.Sum(NormalizedMonthly), 2)
+            })
+            .OrderByDescending(r => r.Amount)
+            .ToList();
+
+        var revenueByModule = subscriptions
+            .SelectMany(s => s.Modules.Where(sm => sm.IsActive)
+                .Select(sm => new
+                {
+                    sm.ModuleId,
+                    Amount = s.BillingFrequency == BillingFrequency.Annual
+                        ? sm.PriceAnnual / 12m
+                        : sm.PriceMonthly
+                }))
+            .GroupBy(x => x.ModuleId)
+            .Select(g => new RevenueBreakdownItem
+            {
+                Label = moduleMap.GetValueOrDefault(g.Key)?.ModuleCode ?? $"Module {g.Key}",
+                Amount = decimal.Round(g.Sum(x => x.Amount), 2)
+            })
+            .OrderByDescending(r => r.Amount)
+            .ToList();
+
+        // ── Tenant counts for ARPU / churn ────────────────────────────────────────
+        var activeTenantCount = Math.Max(1,
+            await _db.Tenants.AsNoTracking()
+                .CountAsync(t => t.Status == TenantStatus.Active, ct));
+
+        var churnNumerator = await _db.Tenants
+            .AsNoTracking()
+            .CountAsync(t => (t.Status == TenantStatus.Deactivated || t.Status == TenantStatus.Archived)
+                             && t.DeactivatedAt != null
+                             && t.DeactivatedAt >= monthStart, ct);
+
+        var churnRolling = await _db.Tenants
+            .AsNoTracking()
+            .CountAsync(t => (t.Status == TenantStatus.Deactivated || t.Status == TenantStatus.Archived)
+                             && t.DeactivatedAt != null
+                             && t.DeactivatedAt >= rollingStart, ct);
+
+        // ── Invoices ──────────────────────────────────────────────────────────────
         var invoices = await _db.Invoices
             .AsNoTracking()
             .OrderByDescending(i => i.CreatedAt)
@@ -702,35 +784,15 @@ public class PlatformAdminService
             .AsNoTracking()
             .ToDictionaryAsync(t => t.TenantId, t => t.TenantName, ct);
 
-        var monthStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
-        var activeTenantCount = Math.Max(1, platform.TenantStats.TotalActiveTenants);
-
-        var churnNumerator = await _db.Tenants
-            .AsNoTracking()
-            .CountAsync(t => (t.Status == TenantStatus.Deactivated || t.Status == TenantStatus.Archived)
-                             && t.DeactivatedAt != null
-                             && t.DeactivatedAt >= monthStart, ct);
-
-        var rollingStart = monthStart.AddMonths(-2);
-        var churnRolling = await _db.Tenants
-            .AsNoTracking()
-            .CountAsync(t => (t.Status == TenantStatus.Deactivated || t.Status == TenantStatus.Archived)
-                             && t.DeactivatedAt != null
-                             && t.DeactivatedAt >= rollingStart, ct);
-
         return new PlatformBillingOpsData
         {
-            Mrr = platform.Revenue.Mrr,
-            Arr = platform.Revenue.Arr,
-            Arpu = decimal.Round(platform.Revenue.Mrr / activeTenantCount, 2),
-            ChurnRatePercent = activeTenantCount > 0
-                ? decimal.Round(churnNumerator * 100m / activeTenantCount, 2)
-                : 0m,
-            ChurnRateTrailing3MonthsPercent = activeTenantCount > 0
-                ? decimal.Round(churnRolling * 100m / (activeTenantCount * 3m), 2)
-                : 0m,
-            RevenueByPlan = platform.Revenue.RevenueByPlan,
-            RevenueByModule = platform.Revenue.RevenueByModule,
+            Mrr = mrr,
+            Arr = mrr * 12m,
+            Arpu = decimal.Round(mrr / activeTenantCount, 2),
+            ChurnRatePercent = decimal.Round(churnNumerator * 100m / activeTenantCount, 2),
+            ChurnRateTrailing3MonthsPercent = decimal.Round(churnRolling * 100m / (activeTenantCount * 3m), 2),
+            RevenueByPlan = revenueByPlan,
+            RevenueByModule = revenueByModule,
             Invoices = invoices.Select(i => new PlatformBillingInvoiceRow
             {
                 InvoiceId = i.Id,

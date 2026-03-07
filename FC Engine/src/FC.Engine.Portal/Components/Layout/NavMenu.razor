@@ -3,10 +3,14 @@
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.ValueObjects
 @inject FC.Engine.Portal.Services.ApprovalService ApprovalSvc
+@inject FC.Engine.Portal.Services.DashboardService DashboardSvc
 @inject IEntitlementService EntitlementSvc
 @inject ITenantContext TenantContext
 @inject ITenantBrandingService BrandingService
 @inject FC.Engine.Portal.Services.PartnerPortalService PartnerPortalService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IDisposable
 
 <AuthorizeView>
     <Authorized Context="navAuth">
@@ -15,10 +19,41 @@
                 <img src="@_branding.LogoSmallUrl" alt="@_branding.CompanyName" class="portal-nav-tenant-logo" />
             </div>
 
+            <!-- RECENT PAGES -->
+            @if (_recentPages.Count > 0)
+            {
+                <div class="portal-nav-recent">
+                    <span class="portal-nav-recent-label">Recent</span>
+                    <ul class="portal-nav-recent-list">
+                        @foreach (var page in _recentPages)
+                        {
+                            var pageRef = page;
+                            <li class="portal-nav-recent-item">
+                                <a href="@pageRef.Href" class="portal-nav-recent-link">
+                                    <svg class="portal-nav-recent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                                        <polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/>
+                                    </svg>
+                                    @pageRef.Label
+                                </a>
+                                <button class="portal-nav-recent-remove" @onclick="() => RemoveRecentPageAsync(pageRef.Href)" aria-label="Remove @pageRef.Label from recent">×</button>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
+
             <!-- SUBMISSIONS -->
             <div class="portal-nav-group">
-                <h3 class="portal-nav-group-label">Submissions</h3>
-                <ul class="portal-nav-group-items">
+                <button class="portal-nav-group-label portal-nav-group-toggle"
+                        @onclick='() => ToggleSectionAsync("Submissions")'
+                        aria-expanded="@(!_collapsedSections.Contains("Submissions"))">
+                    <span>Submissions</span>
+                    <svg class="portal-nav-collapse-icon @(_collapsedSections.Contains("Submissions") ? "is-collapsed" : "")"
+                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+                <ul class="portal-nav-group-items @(_collapsedSections.Contains("Submissions") ? "portal-nav-group-items--collapsed" : "")">
                     <li>
                         <NavLink href="/" Match="NavLinkMatch.All" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -111,6 +146,10 @@
                                     <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
                                 </svg>
                                 <span class="portal-nav-label">My Submissions</span>
+                                @if (_navBadges.OverdueCount > 0)
+                                {
+                                    <span class="portal-nav-badge" title="@_navBadges.OverdueCount overdue submission(s)">@(_navBadges.OverdueCount > 9 ? "9+" : _navBadges.OverdueCount)</span>
+                                }
                             </NavLink>
                         </li>
                         @if (isCheckerOrAdmin)
@@ -122,9 +161,9 @@
                                         <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
                                     </svg>
                                     <span class="portal-nav-label">Pending Approvals</span>
-                                    @if (pendingApprovalCount > 0)
+                                    @if (_navBadges.PendingApprovalCount > 0)
                                     {
-                                        <span class="portal-nav-badge">@pendingApprovalCount</span>
+                                        <span class="portal-nav-badge" title="@_navBadges.PendingApprovalCount pending approval(s)">@(_navBadges.PendingApprovalCount > 9 ? "9+" : _navBadges.PendingApprovalCount)</span>
                                     }
                                 </NavLink>
                             </li>
@@ -139,6 +178,10 @@
                                 <line x1="3" y1="10" x2="21" y2="10"/>
                             </svg>
                             <span class="portal-nav-label">Reporting Calendar</span>
+                            @if (_navBadges.CalendarDue7Days > 0)
+                            {
+                                <span class="portal-nav-badge portal-nav-badge--warning" title="@_navBadges.CalendarDue7Days return(s) due within 7 days">@_navBadges.CalendarDue7Days</span>
+                            }
                         </NavLink>
                     </li>
                 </ul>
@@ -148,8 +191,16 @@
             @if (HasAnyModuleAccess())
             {
                 <div class="portal-nav-group">
-                    <h3 class="portal-nav-group-label">Validation</h3>
-                    <ul class="portal-nav-group-items">
+                    <button class="portal-nav-group-label portal-nav-group-toggle"
+                            @onclick='() => ToggleSectionAsync("Validation")'
+                            aria-expanded="@(!_collapsedSections.Contains("Validation"))">
+                        <span>Validation</span>
+                        <svg class="portal-nav-collapse-icon @(_collapsedSections.Contains("Validation") ? "is-collapsed" : "")"
+                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </button>
+                    <ul class="portal-nav-group-items @(_collapsedSections.Contains("Validation") ? "portal-nav-group-items--collapsed" : "")">
                         <li>
                             <NavLink href="/validation/cross-sheet" class="portal-nav-item">
                                 <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -175,8 +226,16 @@
 
             <!-- REPORTS -->
             <div class="portal-nav-group">
-                <h3 class="portal-nav-group-label">Reports</h3>
-                <ul class="portal-nav-group-items">
+                <button class="portal-nav-group-label portal-nav-group-toggle"
+                        @onclick='() => ToggleSectionAsync("Reports")'
+                        aria-expanded="@(!_collapsedSections.Contains("Reports"))">
+                    <span>Reports</span>
+                    <svg class="portal-nav-collapse-icon @(_collapsedSections.Contains("Reports") ? "is-collapsed" : "")"
+                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+                <ul class="portal-nav-group-items @(_collapsedSections.Contains("Reports") ? "portal-nav-group-items--collapsed" : "")">
                     <li>
                         <NavLink href="/reports/compliance" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -232,8 +291,16 @@
 
             <!-- RESOURCES -->
             <div class="portal-nav-group">
-                <h3 class="portal-nav-group-label">Resources</h3>
-                <ul class="portal-nav-group-items">
+                <button class="portal-nav-group-label portal-nav-group-toggle"
+                        @onclick='() => ToggleSectionAsync("Resources")'
+                        aria-expanded="@(!_collapsedSections.Contains("Resources"))">
+                    <span>Resources</span>
+                    <svg class="portal-nav-collapse-icon @(_collapsedSections.Contains("Resources") ? "is-collapsed" : "")"
+                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+                <ul class="portal-nav-group-items @(_collapsedSections.Contains("Resources") ? "portal-nav-group-items--collapsed" : "")">
                     <li>
                         <NavLink href="/modules" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -319,7 +386,7 @@
                 </ul>
             </div>
 
-            <!-- ACCOUNT — Institution Admin only -->
+            <!-- PARTNER — Partner tenants, Admin only -->
             @if (_isPartnerTenant)
             {
                 <AuthorizeView Roles="Admin">
@@ -448,6 +515,48 @@
                 </Authorized>
             </AuthorizeView>
 
+            <!-- QUICK SUBMIT — pinned above user panel -->
+            @if (HasAnyModuleAccess())
+            {
+                <div class="portal-quick-submit-wrap">
+                    <button class="portal-quick-submit-btn"
+                            @onclick="ToggleQuickSubmit"
+                            aria-expanded="@_quickSubmitOpen"
+                            aria-haspopup="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        New Submission
+                    </button>
+                    @if (_quickSubmitOpen)
+                    {
+                        <div class="portal-quick-submit-dropdown" role="menu">
+                            @if (_navBadges.RecentReturnCodes.Count > 0)
+                            {
+                                <div class="portal-quick-submit-section-label">Recently used</div>
+                                @foreach (var code in _navBadges.RecentReturnCodes)
+                                {
+                                    var c = code;
+                                    <a href="/submit?returnCode=@c" class="portal-quick-submit-item" role="menuitem" @onclick="CloseQuickSubmit">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                                            <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                                        </svg>
+                                        @c
+                                    </a>
+                                }
+                                <div class="portal-quick-submit-divider"></div>
+                            }
+                            <a href="/submit" class="portal-quick-submit-item portal-quick-submit-item--browse" role="menuitem" @onclick="CloseQuickSubmit">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                                    <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                                </svg>
+                                Browse All Returns
+                            </a>
+                        </div>
+                    }
+                </div>
+            }
+
         </nav>
     </Authorized>
 </AuthorizeView>
@@ -458,9 +567,19 @@
 
     private bool isCheckerOrAdmin;
     private bool _isPartnerTenant;
-    private int pendingApprovalCount;
     private HashSet<string> _activeModules = new(StringComparer.OrdinalIgnoreCase);
     private BrandingConfig _branding = BrandingConfig.WithDefaults();
+
+    private NavBadgeCounts _navBadges = NavBadgeCounts.Empty;
+    private int _institutionId;
+    private Timer? _refreshTimer;
+
+    private HashSet<string> _collapsedSections = new(StringComparer.OrdinalIgnoreCase);
+    private List<(string Href, string Label)> _recentPages = new();
+    private bool _quickSubmitOpen;
+    private bool _afterRenderInit;
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
     {
@@ -470,16 +589,13 @@
             var role = state.User.FindFirst(ClaimTypes.Role)?.Value ?? "";
             isCheckerOrAdmin = role == "Checker" || role == "Admin";
 
-            if (isCheckerOrAdmin)
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            if (int.TryParse(instIdStr, out var institutionId) && institutionId > 0)
             {
-                var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
-                if (int.TryParse(instIdStr, out var institutionId) && institutionId > 0)
-                {
-                    pendingApprovalCount = await ApprovalSvc.GetPendingCount(institutionId);
-                }
+                _institutionId = institutionId;
+                _navBadges = await DashboardSvc.GetNavBadgeCountsAsync(institutionId);
             }
 
-            // Resolve module entitlements for navigation
             var tenantId = TenantContext.CurrentTenantId;
             if (tenantId.HasValue)
             {
@@ -490,15 +606,159 @@
                     .Select(m => m.ModuleCode)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
             }
+
+            // 5-minute auto-refresh timer
+            _refreshTimer = new Timer(async _ =>
+            {
+                if (_institutionId > 0)
+                {
+                    _navBadges = await DashboardSvc.GetNavBadgeCountsAsync(_institutionId);
+                    await InvokeAsync(StateHasChanged);
+                }
+            }, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
         }
         catch
         {
-            // Keep nav safe-by-default: module-gated items remain hidden when entitlement lookup fails.
+            // Keep nav safe-by-default when entitlement / badge lookup fails.
         }
     }
 
-    private bool HasAnyModuleAccess() => _activeModules.Count > 0;
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _afterRenderInit) return;
+        _afterRenderInit = true;
 
-    private bool HasModule(string moduleCode) =>
-        _activeModules.Contains(moduleCode);
+        try
+        {
+            // Load persisted section collapse state from localStorage
+            var collapsed = await JS.InvokeAsync<string[]>("portalNavGetCollapsed");
+            if (collapsed?.Length > 0)
+            {
+                _collapsedSections = new HashSet<string>(collapsed, StringComparer.OrdinalIgnoreCase);
+            }
+
+            // Load recent pages history from localStorage
+            var pages = await JS.InvokeAsync<RecentPageDto[]>("portalNavGetRecentPages");
+            if (pages?.Length > 0)
+            {
+                _recentPages = pages.Select(p => (p.Href, p.Label)).ToList();
+            }
+
+            // Track current page and subscribe to future navigations
+            await TrackCurrentPageAsync(Navigation.Uri);
+            Navigation.LocationChanged += OnLocationChanged;
+
+            StateHasChanged();
+        }
+        catch
+        {
+            // Non-fatal — recent pages / collapse state just won't persist.
+        }
+    }
+
+    // ── Navigation tracking ──────────────────────────────────────────────────
+
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _quickSubmitOpen = false;
+        await TrackCurrentPageAsync(e.Location);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task TrackCurrentPageAsync(string uri)
+    {
+        try
+        {
+            var path = new Uri(uri).AbsolutePath;
+            var label = GetPageLabel(path);
+            if (string.IsNullOrEmpty(label)) return;
+
+            await JS.InvokeVoidAsync("portalNavAddRecentPage", path, label);
+
+            // Refresh in-memory list
+            var pages = await JS.InvokeAsync<RecentPageDto[]>("portalNavGetRecentPages");
+            _recentPages = pages?.Select(p => (p.Href, p.Label)).ToList() ?? _recentPages;
+        }
+        catch { /* non-fatal */ }
+    }
+
+    private static string GetPageLabel(string path) => path.TrimStart('/').ToLowerInvariant() switch
+    {
+        "" or "/" => "",   // Don't track dashboard root
+        "dashboard/compliance" => "Compliance Summary",
+        "dashboard/admin" => "Admin Dashboard",
+        "dashboard/consolidation" => "Consolidation",
+        "submit" => "Submit Return",
+        "submit/bulk" => "Bulk Upload",
+        "submissions" => "My Submissions",
+        "approvals" => "Pending Approvals",
+        "calendar" => "Reporting Calendar",
+        "validation/cross-sheet" => "Cross-Sheet Rules",
+        "validate" => "Quick Validate",
+        "reports/compliance" => "Compliance Report",
+        "reports/audit" => "Audit Trail",
+        "reports/builder" => "Report Builder",
+        "reports/saved" => "Saved Reports",
+        "reports/board-pack" => "Board Pack",
+        "modules" => "Modules",
+        "templates" => "Template Browser",
+        "help" => "Help Center",
+        "institution" => "My Institution",
+        "institution/team" => "Team Members",
+        _ => ""
+    };
+
+    // ── Section collapse ─────────────────────────────────────────────────────
+
+    private async Task ToggleSectionAsync(string section)
+    {
+        if (_collapsedSections.Contains(section))
+            _collapsedSections.Remove(section);
+        else
+            _collapsedSections.Add(section);
+
+        try
+        {
+            await JS.InvokeVoidAsync("portalNavSetCollapsed", section, _collapsedSections.Contains(section));
+        }
+        catch { /* non-fatal */ }
+    }
+
+    // ── Recent pages ─────────────────────────────────────────────────────────
+
+    private async Task RemoveRecentPageAsync(string href)
+    {
+        _recentPages.RemoveAll(p => p.Href == href);
+        try
+        {
+            await JS.InvokeVoidAsync("portalNavRemovePage", href);
+        }
+        catch { /* non-fatal */ }
+    }
+
+    // ── Quick Submit ─────────────────────────────────────────────────────────
+
+    private void ToggleQuickSubmit() => _quickSubmitOpen = !_quickSubmitOpen;
+    private void CloseQuickSubmit() => _quickSubmitOpen = false;
+
+    // ── Module access ────────────────────────────────────────────────────────
+
+    private bool HasAnyModuleAccess() => _activeModules.Count > 0;
+    private bool HasModule(string moduleCode) => _activeModules.Contains(moduleCode);
+
+    // ── IDisposable ──────────────────────────────────────────────────────────
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+
+    // ── JS interop DTOs ──────────────────────────────────────────────────────
+
+    private class RecentPageDto
+    {
+        public string Href { get; set; } = "";
+        public string Label { get; set; } = "";
+    }
 }

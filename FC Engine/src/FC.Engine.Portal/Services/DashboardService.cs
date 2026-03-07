@@ -505,4 +505,81 @@ public class DashboardService
         }
         return submission.SubmittedAt.ToString("MMM yyyy");
     }
+
+    // ── Nav Badge Counts ─────────────────────────────────────────
+
+    /// <summary>
+    /// Lightweight method returning sidebar badge counts. Cached for 5 minutes.
+    /// </summary>
+    public async Task<NavBadgeCounts> GetNavBadgeCountsAsync(int institutionId)
+    {
+        var cacheKey = $"nav-badges:{institutionId}";
+        if (_cache.TryGetValue(cacheKey, out NavBadgeCounts? cached) && cached is not null)
+            return cached;
+
+        var submissions = await _submissionRepo.GetByInstitution(institutionId);
+        var now = DateTime.UtcNow;
+        var in7Days = now.AddDays(7);
+
+        var finalStatuses = new HashSet<SubmissionStatus>
+        {
+            SubmissionStatus.Accepted,
+            SubmissionStatus.AcceptedWithWarnings,
+            SubmissionStatus.Historical
+        };
+
+        // Overdue: periods past their effective deadline with no final accepted submission
+        var acceptedPeriods = submissions
+            .Where(s => finalStatuses.Contains(s.Status))
+            .Select(s => s.ReturnPeriodId)
+            .ToHashSet();
+
+        var overdueCount = submissions
+            .Where(s => s.ReturnPeriod is not null
+                        && s.ReturnPeriod.EffectiveDeadline < now
+                        && !acceptedPeriods.Contains(s.ReturnPeriodId)
+                        && !finalStatuses.Contains(s.Status))
+            .Select(s => s.ReturnPeriodId)
+            .Distinct()
+            .Count();
+
+        // Pending approvals awaiting checker action
+        var pendingApprovalCount = submissions
+            .Count(s => s.Status == SubmissionStatus.PendingApproval);
+
+        // Calendar: open return periods with deadline within the next 7 days, not yet accepted
+        var calendarDue7Days = submissions
+            .Where(s => s.ReturnPeriod is not null
+                        && s.ReturnPeriod.EffectiveDeadline >= now
+                        && s.ReturnPeriod.EffectiveDeadline <= in7Days
+                        && !finalStatuses.Contains(s.Status))
+            .Select(s => s.ReturnPeriodId)
+            .Distinct()
+            .Count();
+
+        // 5 most recently submitted return codes (for Quick Submit dropdown)
+        var recentReturnCodes = submissions
+            .Where(s => s.Status != SubmissionStatus.Draft)
+            .OrderByDescending(s => s.SubmittedAt)
+            .Select(s => s.ReturnCode)
+            .Distinct()
+            .Take(5)
+            .ToList();
+
+        var counts = new NavBadgeCounts(overdueCount, pendingApprovalCount, calendarDue7Days, recentReturnCodes);
+        _cache.Set(cacheKey, counts, CacheDuration);
+        return counts;
+    }
+}
+
+/// <summary>Sidebar badge counts returned by a single lightweight query.</summary>
+public record NavBadgeCounts(
+    int OverdueCount,
+    int PendingApprovalCount,
+    int CalendarDue7Days,
+    IReadOnlyList<string> RecentReturnCodes
+)
+{
+    public static readonly NavBadgeCounts Empty =
+        new(0, 0, 0, Array.Empty<string>());
 }

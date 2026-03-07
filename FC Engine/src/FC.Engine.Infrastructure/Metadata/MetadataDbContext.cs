@@ -66,6 +66,7 @@ public class MetadataDbContext : DbContext
     public DbSet<PortalUser> PortalUsers => Set<PortalUser>();
 
     // FI Portal
+    public DbSet<ReturnDraft> ReturnDrafts => Set<ReturnDraft>();
     public DbSet<InstitutionUser> InstitutionUsers => Set<InstitutionUser>();
     public DbSet<SubmissionApproval> SubmissionApprovals => Set<SubmissionApproval>();
     public DbSet<PortalNotification> PortalNotifications => Set<PortalNotification>();

@@ -6,6 +6,7 @@
 @inject DashboardService DashboardService
 @inject ChartJsInterop Charts
 @inject DragDropInterop DragDrop
+@inject FC.Engine.Portal.Services.OverdueAlertService OverdueAlertSvc
 @implements IDisposable
 
 <PageTitle>Dashboard — FC Engine Portal</PageTitle>
@@ -120,6 +121,224 @@ else if (data is not null)
                     <div class="portal-hero-subtitle">vs previous @selectedDays days</div>
                 </div>
             }
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             SECTION 2.5: Upcoming Deadlines — Prominent Widget
+             ═══════════════════════════════════════════════════════════ -->
+        @{
+            var topDeadlines = data.UpcomingDeadlines
+                .OrderBy(d => d.Status == DeadlineStatus.Overdue ? 0 : 1)
+                .ThenBy(d => d.DaysRemaining)
+                .Take(3)
+                .ToList();
+            var noPendingDeadlines = !data.UpcomingDeadlines.Any(d =>
+                d.Status != DeadlineStatus.Submitted);
+            var widgetOverdueCount = data.OverdueCount;
+            var widgetDueThisMonth = data.DueThisMonth;
+        }
+        <section class="portal-deadline-widget" aria-label="Upcoming deadlines and compliance score">
+
+            <!-- Widget Header -->
+            <div class="portal-deadline-widget-header">
+                <div class="portal-deadline-widget-title-group">
+                    <h2 class="portal-deadline-widget-title">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        Upcoming Deadlines
+                    </h2>
+                    <div class="portal-deadline-widget-stats-row">
+                        <span class="portal-deadline-stat-chip">
+                            @widgetDueThisMonth deadline@(widgetDueThisMonth != 1 ? "s" : "") this month
+                        </span>
+                        @if (widgetOverdueCount > 0)
+                        {
+                            <span class="portal-deadline-stat-chip portal-deadline-stat-chip--overdue">
+                                &middot; @widgetOverdueCount overdue
+                            </span>
+                        }
+                    </div>
+                </div>
+                <button class="portal-deadline-toggle-btn @(_showComplianceView ? "portal-deadline-toggle-btn--active" : "")"
+                        @onclick="() => _showComplianceView = !_showComplianceView"
+                        aria-pressed="@_showComplianceView"
+                        title="@(_showComplianceView ? "Show deadlines" : "Show compliance score")">
+                    @if (_showComplianceView)
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        <span>Deadlines</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <circle cx="12" cy="12" r="10"/>
+                            <polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        <span>Compliance: @data.CompliancePercentage%</span>
+                    }
+                </button>
+            </div>
+
+            @if (_showComplianceView)
+            {
+                @{
+                    var cRadius = 45.0;
+                    var cCirc = 2 * Math.PI * cRadius;
+                    var cOffset = cCirc * (1.0 - (double)data.CompliancePercentage / 100.0);
+                    var cRingColor = data.CompliancePercentage >= 90 ? "#059669"
+                                   : data.CompliancePercentage >= 70 ? "#d97706" : "#ef4444";
+                    var cDiff = data.CompliancePercentage - data.PreviousPeriodCompliancePercentage;
+                }
+                <!-- Compliance Score Ring View -->
+                <div class="portal-dl-compliance-view">
+                    <div class="portal-dl-compliance-ring-wrap">
+                        <svg class="portal-dl-compliance-ring-svg" viewBox="0 0 120 120"
+                             role="img" aria-label="Compliance score @data.CompliancePercentage percent">
+                            <circle cx="60" cy="60" r="45" fill="none" stroke="#e5e7eb" stroke-width="10"/>
+                            <circle cx="60" cy="60" r="45" fill="none"
+                                    stroke="@cRingColor" stroke-width="10"
+                                    stroke-dasharray="@cCirc.ToString("F2")"
+                                    stroke-dashoffset="@cOffset.ToString("F2")"
+                                    stroke-linecap="round"
+                                    transform="rotate(-90 60 60)"
+                                    class="portal-dl-compliance-ring-arc"/>
+                            <text x="60" y="55" text-anchor="middle" font-size="22" font-weight="700" fill="@cRingColor">@data.CompliancePercentage%</text>
+                            <text x="60" y="72" text-anchor="middle" font-size="10" fill="#6b7280">Compliance</text>
+                        </svg>
+                    </div>
+                    <div class="portal-dl-compliance-stats">
+                        <div class="portal-dl-compliance-stat">
+                            <span class="portal-dl-compliance-stat-value" style="color:#059669;">@data.TotalReturnsSubmitted</span>
+                            <span class="portal-dl-compliance-stat-label">Submitted</span>
+                        </div>
+                        <div class="portal-dl-compliance-stat">
+                            <span class="portal-dl-compliance-stat-value" style="color:#6b7280;">@data.TotalReturnsDue</span>
+                            <span class="portal-dl-compliance-stat-label">Total Due</span>
+                        </div>
+                        @if (widgetOverdueCount > 0)
+                        {
+                            <div class="portal-dl-compliance-stat">
+                                <span class="portal-dl-compliance-stat-value" style="color:#ef4444;">@widgetOverdueCount</span>
+                                <span class="portal-dl-compliance-stat-label">Overdue</span>
+                            </div>
+                        }
+                        <div class="portal-dl-compliance-stat">
+                            <span class="portal-dl-compliance-stat-value @(cDiff >= 0 ? "portal-dl-trend-green" : "portal-dl-trend-red")">
+                                @(cDiff >= 0 ? "+" : "")@cDiff%
+                            </span>
+                            <span class="portal-dl-compliance-stat-label">vs Last Period</span>
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (noPendingDeadlines)
+            {
+                <!-- All Caught Up Empty State -->
+                <div class="portal-deadline-all-clear">
+                    <div class="portal-deadline-all-clear-icon">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#059669"
+                             stroke-width="1.5" aria-hidden="true">
+                            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                            <polyline points="22 4 12 14.01 9 11.01"/>
+                        </svg>
+                    </div>
+                    <p class="portal-deadline-all-clear-title">All caught up! 🎉</p>
+                    <p class="portal-deadline-all-clear-desc">No pending deadlines. Keep up the great compliance record.</p>
+                    <a href="/calendar" class="portal-btn portal-btn-xs portal-btn-outline">View Calendar</a>
+                </div>
+            }
+            else
+            {
+                <!-- Deadline Bars -->
+                <div class="portal-deadline-bars" role="list">
+                    @{ int _barIdx = 0; }
+                    @foreach (var dl in topDeadlines)
+                    {
+                        var _color = GetDeadlineBarColor(dl.DaysRemaining, dl.Status);
+                        var _prog  = GetDeadlineRingProgress(dl);
+                        var _bCirc = 2.0 * Math.PI * 14.0;
+                        var _bOff  = _bCirc * (1.0 - _prog);
+                        var _idx   = _barIdx++;
+                        <div class="portal-deadline-bar @(dl.Status == DeadlineStatus.Overdue ? "portal-deadline-bar--overdue" : "")"
+                             style="--stagger-i: @_idx; --deadline-color: @_color;"
+                             role="listitem"
+                             aria-label="@dl.ReturnName — @(dl.Status == DeadlineStatus.Overdue ? "Overdue" : FormatRelativeDue(dl.DaysRemaining))">
+
+                            @if (dl.Status == DeadlineStatus.Overdue)
+                            {
+                                <span class="portal-deadline-pulse-dot" aria-hidden="true"></span>
+                            }
+
+                            <!-- Progress Ring -->
+                            <div class="portal-dl-bar-ring-wrap" aria-hidden="true">
+                                <svg class="portal-dl-bar-ring" viewBox="0 0 36 36">
+                                    <circle cx="18" cy="18" r="14" fill="none" stroke="#e5e7eb" stroke-width="3"/>
+                                    <circle cx="18" cy="18" r="14" fill="none"
+                                            stroke="@_color" stroke-width="3"
+                                            stroke-dasharray="@_bCirc.ToString("F2")"
+                                            stroke-dashoffset="@_bOff.ToString("F2")"
+                                            stroke-linecap="round"
+                                            transform="rotate(-90 18 18)"/>
+                                </svg>
+                            </div>
+
+                            <!-- Info -->
+                            <div class="portal-dl-bar-info">
+                                <span class="portal-dl-bar-name">@dl.ReturnCode</span>
+                                <span class="portal-dl-bar-fullname">@dl.ReturnName</span>
+                                <span class="portal-dl-bar-period">@GetDeadlinePeriodLabel(dl) &middot; @dl.Frequency</span>
+                            </div>
+
+                            <!-- Due Date -->
+                            <div class="portal-dl-bar-due">
+                                <span class="portal-dl-bar-date">@dl.DueDate.ToString("d MMM yyyy")</span>
+                                <span class="portal-dl-bar-relative" style="color: @_color;">@FormatRelativeDue(dl.DaysRemaining)</span>
+                            </div>
+
+                            <!-- Status Badge + Action -->
+                            <div class="portal-dl-bar-actions">
+                                @if (dl.Status == DeadlineStatus.Overdue)
+                                {
+                                    <span class="portal-badge portal-badge-danger portal-dl-overdue-badge">OVERDUE</span>
+                                }
+                                else
+                                {
+                                    <span class="portal-badge @GetDeadlineBadgeClass(dl.Status)">@GetDeadlineStatusLabel(dl.Status)</span>
+                                }
+                                @if (dl.Status == DeadlineStatus.Submitted)
+                                {
+                                    <a href="/submissions/@dl.SubmissionId" class="portal-btn portal-btn-xs portal-btn-ghost-green">View</a>
+                                }
+                                else
+                                {
+                                    <a href="/submit" class="portal-btn portal-btn-xs portal-btn-primary">Submit Now</a>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Widget Footer -->
+                <div class="portal-deadline-widget-footer">
+                    <a href="/calendar" class="portal-deadline-calendar-link">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                            <line x1="16" y1="2" x2="16" y2="6"/>
+                            <line x1="8" y1="2" x2="8" y2="6"/>
+                            <line x1="3" y1="10" x2="21" y2="10"/>
+                        </svg>
+                        View Full Calendar
+                    </a>
+                </div>
+            }
+
         </section>
 
         <!-- ═══════════════════════════════════════════════════════════
@@ -434,6 +653,8 @@ else
     private int selectedDays = 30;
     private TemplateHealthItem? selectedTemplate;
 
+    private bool _showComplianceView;
+
     private DotNetObjectReference<Home>? _dotNetRef;
 
     private static readonly (string Label, int Days)[] dateRanges =
@@ -516,6 +737,7 @@ else
         }
         finally
         {
+            OverdueAlertSvc.Update(data?.OverdueCount ?? 0);
             isLoading = false;
             StateHasChanged();
         }
@@ -683,6 +905,44 @@ else
         "draft"   => new MarkupString("""<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>"""),
         _         => new MarkupString("""<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>""")
     };
+
+    // ── Deadline Widget Helpers ───────────────────────────────────
+
+    private static string GetDeadlineBarColor(int daysRemaining, DeadlineStatus status)
+    {
+        if (status == DeadlineStatus.Submitted) return "#059669";
+        if (status == DeadlineStatus.Overdue || daysRemaining <= 0) return "#ef4444";
+        if (daysRemaining <= 3) return "#ef4444";
+        if (daysRemaining <= 7) return "#f59e0b";
+        return "#059669";
+    }
+
+    private static double GetDeadlineRingProgress(DeadlineItem d)
+    {
+        if (d.Status == DeadlineStatus.Submitted) return 1.0;
+        if (d.Status == DeadlineStatus.Overdue)   return 1.0;
+        return Math.Clamp((30.0 - d.DaysRemaining) / 30.0, 0.05, 0.95);
+    }
+
+    private static string FormatRelativeDue(int days)
+    {
+        if (days < 0) return $"{Math.Abs(days)} day{(Math.Abs(days) != 1 ? "s" : "")} overdue";
+        if (days == 0) return "Due today";
+        if (days == 1) return "Tomorrow";
+        return $"in {days} days";
+    }
+
+    private static string GetDeadlinePeriodLabel(DeadlineItem d)
+    {
+        var date = d.DueDate;
+        return d.Frequency.ToLowerInvariant() switch
+        {
+            "quarterly" => $"Q{(date.Month - 1) / 3 + 1} {date.Year}",
+            "monthly"   => date.ToString("MMM yyyy"),
+            "annual" or "annually" or "yearly" => $"FY {date.Year}",
+            _           => date.ToString("MMM yyyy")
+        };
+    }
 
     [JSInvokable]
     public void OnWidgetReordered(int fromIdx, int toIdx)

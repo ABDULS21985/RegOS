@@ -97,7 +97,8 @@ public class SubmissionService
             ReportingDate = p.ReportingDate,
             Year = p.Year,
             Month = p.Month,
-            HasExistingSubmission = existingByPeriod.Contains(p.Id)
+            HasExistingSubmission = existingByPeriod.Contains(p.Id),
+            DeadlineDate = p.EffectiveDeadline
         }).ToList();
     }
 

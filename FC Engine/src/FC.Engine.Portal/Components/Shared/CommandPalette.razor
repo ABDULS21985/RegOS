@@ -1,0 +1,487 @@
+@* FC Engine Portal — Command Palette *@
+@* Trigger: Ctrl+K / Cmd+K → [JSInvokable] OpenPalette() *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthProvider
+@inject ISubmissionRepository SubmissionRepo
+
+@if (_isOpen)
+{
+    <div class="portal-cmd-backdrop" @onclick="Close" aria-hidden="true"></div>
+
+    <div class="portal-cmd-dialog"
+         role="dialog"
+         aria-label="Command palette"
+         aria-modal="true">
+
+        <div class="portal-cmd-header">
+            <span class="portal-cmd-search-icon" aria-hidden="true">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+            </span>
+            <input id="portal-cmd-input"
+                   type="text"
+                   class="portal-cmd-input"
+                   placeholder="Search pages, submissions, actions..."
+                   autocomplete="off"
+                   spellcheck="false"
+                   @bind="_query"
+                   @bind:event="oninput"
+                   @bind:after="OnQueryChanged"
+                   @onkeydown="HandleKeyDown"
+                   aria-label="Command palette search"
+                   aria-autocomplete="list"
+                   aria-controls="portal-cmd-results"
+                   aria-activedescendant="@(_selectedIndex >= 0 && TotalItems > 0 ? $"cmd-item-{_selectedIndex}" : null)" />
+            <button class="portal-cmd-esc-key" @onclick="Close" type="button" aria-label="Close palette">
+                Esc
+            </button>
+        </div>
+
+        <div id="portal-cmd-results"
+             class="portal-cmd-results"
+             role="listbox"
+             aria-label="Results">
+
+            @if (_loading)
+            {
+                <div class="portal-cmd-loading" role="status" aria-label="Loading results">
+                    <svg class="portal-cmd-spinner" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="2.5" stroke-linecap="round"
+                         width="24" height="24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10" stroke-dasharray="50.27"
+                                stroke-dashoffset="37.7" opacity="0.25"/>
+                        <path d="M12 2a10 10 0 0 1 10 10"/>
+                    </svg>
+                </div>
+            }
+            else if (_filteredGroups.Count == 0)
+            {
+                <div class="portal-cmd-empty" role="status">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                         stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <p class="portal-cmd-empty-text">Nothing found for '<strong>@_query</strong>'</p>
+                    <p class="portal-cmd-empty-hint">Try searching by return code or period</p>
+                </div>
+            }
+            else
+            {
+                @{ var flatIdx = 0; }
+                @foreach (var group in _filteredGroups)
+                {
+                    <div class="portal-cmd-group" role="group" aria-label="@GetGroupLabel(group.Key)">
+                        <div class="portal-cmd-group-label" aria-hidden="true">
+                            @GetGroupIconSvg(group.Key)
+                            <span>@GetGroupLabel(group.Key)</span>
+                        </div>
+                        @foreach (var item in group.Items)
+                        {
+                            @{ var capturedIdx = flatIdx; flatIdx++; }
+                            <button id="cmd-item-@capturedIdx"
+                                    class="portal-cmd-item @(capturedIdx == _selectedIndex ? "portal-cmd-item--active" : "")"
+                                    role="option"
+                                    aria-selected="@(capturedIdx == _selectedIndex)"
+                                    @onclick="() => Navigate(item.Route)"
+                                    @onmouseenter="() => _selectedIndex = capturedIdx"
+                                    type="button"
+                                    tabindex="-1">
+                                <span class="portal-cmd-item-icon" aria-hidden="true">
+                                    @GetItemIconSvg(group.Key)
+                                </span>
+                                <span class="portal-cmd-item-body">
+                                    <span class="portal-cmd-item-label">@Highlight(item.Label)</span>
+                                    @if (!string.IsNullOrEmpty(item.Secondary))
+                                    {
+                                        <span class="portal-cmd-item-secondary">@item.Secondary</span>
+                                    }
+                                </span>
+                                <span class="portal-cmd-item-hint" aria-hidden="true">↵</span>
+                            </button>
+                        }
+                    </div>
+                }
+            }
+        </div>
+
+        @if (!_loading && _filteredGroups.Any())
+        {
+            <div class="portal-cmd-footer" aria-hidden="true">
+                <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+                <span><kbd>↵</kbd> Open</span>
+                <span><kbd>Tab</kbd> Switch group</span>
+                <span><kbd>Esc</kbd> Close</span>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    // ── Types ─────────────────────────────────────────────────────────
+    private record CmdItem(string Id, string Label, string? Secondary, string Route, CmdGroup Group, string[] Keywords);
+    private record DisplayGroup(CmdGroup Key, List<CmdItem> Items);
+    private enum CmdGroup { Recent, Pages, Submissions, Actions, Help }
+
+    // ── State ─────────────────────────────────────────────────────────
+    private bool _isOpen;
+    private bool _loading;
+    private string _query = "";
+    private int _selectedIndex;
+    private List<DisplayGroup> _filteredGroups = [];
+    private List<CmdItem> _submissions = [];
+    private readonly List<string> _recentRoutes = [];
+    private bool _subsLoaded;
+    private DotNetObjectReference<CommandPalette>? _dotNetRef;
+
+    // ── Static Page Index (all 57 routes) ────────────────────────────
+    private static readonly CmdItem[] AllPages =
+    [
+        new("page-home",          "Dashboard",                  "/",                        "/",                        CmdGroup.Pages, ["home","dashboard","overview"]),
+        new("page-compliance",    "Compliance Summary",         "/dashboard/compliance",    "/dashboard/compliance",    CmdGroup.Pages, ["compliance","summary"]),
+        new("page-admin-dash",    "Admin Dashboard",            "/dashboard/admin",         "/dashboard/admin",         CmdGroup.Pages, ["admin","dashboard"]),
+        new("page-consolidation", "Consolidation Dashboard",    "/dashboard/consolidation", "/dashboard/consolidation", CmdGroup.Pages, ["consolidation","group"]),
+        new("page-submit",        "Submit Return",              "/submit",                  "/submit",                  CmdGroup.Pages, ["submit","return","file","new"]),
+        new("page-bulk",          "Bulk Upload",                "/submit/bulk",             "/submit/bulk",             CmdGroup.Pages, ["bulk","upload","multiple"]),
+        new("page-submissions",   "My Submissions",             "/submissions",             "/submissions",             CmdGroup.Pages, ["submissions","history","list"]),
+        new("page-calendar",      "Reporting Calendar",         "/calendar",                "/calendar",                CmdGroup.Pages, ["calendar","deadlines","schedule"]),
+        new("page-templates",     "Template Browser",           "/templates",               "/templates",               CmdGroup.Pages, ["templates","returns","forms"]),
+        new("page-schemas",       "Download Schemas",           "/schemas",                 "/schemas",                 CmdGroup.Pages, ["schemas","download","xsd"]),
+        new("page-institution",   "My Institution",             "/institution",             "/institution",             CmdGroup.Pages, ["institution","profile"]),
+        new("page-team",          "Team Members",               "/institution/team",        "/institution/team",        CmdGroup.Pages, ["team","users","members","staff"]),
+        new("page-inst-settings", "Institution Settings",       "/institution/settings",    "/institution/settings",    CmdGroup.Pages, ["institution","settings"]),
+        new("page-approvals",     "Pending Approvals",          "/approvals",               "/approvals",               CmdGroup.Pages, ["approvals","pending","checker"]),
+        new("page-validate",      "Quick Validate",             "/validate",                "/validate",                CmdGroup.Pages, ["validate","check","quick"]),
+        new("page-cross-sheet",   "Cross-Sheet Validation",     "/validation/cross-sheet",  "/validation/cross-sheet",  CmdGroup.Pages, ["cross","sheet","validation"]),
+        new("page-notifications", "Notifications",              "/notifications",           "/notifications",           CmdGroup.Pages, ["notifications","alerts"]),
+        new("page-notif-prefs",   "Notification Preferences",   "/settings/notifications",  "/settings/notifications",  CmdGroup.Pages, ["notification","preferences"]),
+        new("page-settings",      "User Settings",              "/settings",                "/settings",                CmdGroup.Pages, ["settings","profile","account"]),
+        new("page-branding",      "Branding Settings",          "/settings/branding",       "/settings/branding",       CmdGroup.Pages, ["branding","logo","theme"]),
+        new("page-webhooks",      "Webhooks",                   "/settings/webhooks",       "/settings/webhooks",       CmdGroup.Pages, ["webhooks","integrations","api"]),
+        new("page-modules",       "Module Marketplace",         "/modules",                 "/modules",                 CmdGroup.Pages, ["modules","marketplace","addons"]),
+        new("page-migration",     "Migration Home",             "/migration",               "/migration",               CmdGroup.Pages, ["migration","import","data"]),
+        new("page-migr-tracker",  "Migration Tracker",          "/migration/tracker",       "/migration/tracker",       CmdGroup.Pages, ["migration","tracker","progress"]),
+        new("page-report-comp",   "Compliance Report",          "/reports/compliance",      "/reports/compliance",      CmdGroup.Pages, ["compliance","report"]),
+        new("page-report-audit",  "Audit Trail",                "/reports/audit",           "/reports/audit",           CmdGroup.Pages, ["audit","trail","log"]),
+        new("page-report-board",  "Board Pack",                 "/reports/board-pack",      "/reports/board-pack",      CmdGroup.Pages, ["board","pack","report"]),
+        new("page-report-build",  "Report Builder",             "/reports/builder",         "/reports/builder",         CmdGroup.Pages, ["report","builder","custom"]),
+        new("page-saved-reports", "Saved Reports",              "/reports/saved",           "/reports/saved",           CmdGroup.Pages, ["saved","reports"]),
+        new("page-invoices",      "Invoices",                   "/subscription/invoices",   "/subscription/invoices",   CmdGroup.Pages, ["invoices","billing"]),
+        new("page-my-plan",       "My Plan",                    "/subscription/my-plan",    "/subscription/my-plan",    CmdGroup.Pages, ["plan","subscription"]),
+        new("page-payments",      "Payment History",            "/subscription/payments",   "/subscription/payments",   CmdGroup.Pages, ["payments","billing","history"]),
+        new("page-sub-modules",   "Subscription Modules",       "/subscription/modules",    "/subscription/modules",    CmdGroup.Pages, ["subscription","modules"]),
+        new("page-partner",       "Partner Dashboard",          "/partner/dashboard",       "/partner/dashboard",       CmdGroup.Pages, ["partner","dashboard"]),
+        new("page-sub-tenants",   "Sub-Tenants",                "/partner/sub-tenants",     "/partner/sub-tenants",     CmdGroup.Pages, ["subtenants","clients"]),
+        new("page-support-esc",   "Support Escalation",         "/partner/support",         "/partner/support",         CmdGroup.Pages, ["support","escalation","partner"]),
+        new("page-onboarding",    "Onboarding Wizard",          "/onboarding/wizard",       "/onboarding/wizard",       CmdGroup.Pages, ["onboarding","wizard","setup"]),
+        new("page-checklist",     "Onboarding Checklist",       "/onboarding/checklist",    "/onboarding/checklist",    CmdGroup.Pages, ["onboarding","checklist","tasks"]),
+        new("page-sandbox",       "Training Sandbox",           "/onboarding/sandbox",      "/onboarding/sandbox",      CmdGroup.Pages, ["sandbox","training","practice"]),
+        new("page-help",          "Help Center",                "/help",                    "/help",                    CmdGroup.Pages, ["help","support","center"]),
+        new("page-getting-start", "Getting Started",            "/help/getting-started",    "/help/getting-started",    CmdGroup.Pages, ["getting","started","new"]),
+        new("page-sub-guide",     "Submission Guide",           "/help/submission-guide",   "/help/submission-guide",   CmdGroup.Pages, ["submission","guide","how"]),
+        new("page-val-errors",    "Validation Errors Guide",    "/help/validation-errors",  "/help/validation-errors",  CmdGroup.Pages, ["validation","errors","guide"]),
+        new("page-faq",           "FAQ",                        "/help/faq",                "/help/faq",                CmdGroup.Pages, ["faq","questions"]),
+        new("page-contact",       "Contact Support",            "/help/support",            "/help/support",            CmdGroup.Pages, ["contact","support","ticket"]),
+        new("page-kb",            "Knowledge Base",             "/help/knowledge-base",     "/help/knowledge-base",     CmdGroup.Pages, ["knowledge","base","articles"]),
+        new("page-mfa",           "MFA Setup",                  "/account/mfa-setup",       "/account/mfa-setup",       CmdGroup.Pages, ["mfa","two-factor","security"]),
+        new("page-reconsent",     "Privacy Consent",            "/privacy/reconsent",       "/privacy/reconsent",       CmdGroup.Pages, ["privacy","consent"]),
+        new("page-mod-dashboard", "Module Dashboard",           "/dashboard/module/",       "/dashboard/module/",       CmdGroup.Pages, ["module","dashboard"]),
+    ];
+
+    private static readonly CmdItem[] QuickActions =
+    [
+        new("action-submit",      "Submit New Return",          "Start a new regulatory return",              "/submit",       CmdGroup.Actions, ["submit","new","return","file"]),
+        new("action-bulk",        "Bulk Upload Returns",        "Upload multiple returns at once",            "/submit/bulk",  CmdGroup.Actions, ["bulk","upload","multiple"]),
+        new("action-validate",    "Quick Validate",             "Validate data before submitting",            "/validate",     CmdGroup.Actions, ["validate","check","verify"]),
+        new("action-certificate", "Download Certificate",       "Download your submission certificate",       "/submissions",  CmdGroup.Actions, ["download","certificate"]),
+        new("action-extension",   "Request Extension",          "Request a reporting deadline extension",     "/submissions",  CmdGroup.Actions, ["extension","deadline","request"]),
+        new("action-settings",    "Account Settings",           "Manage your profile and preferences",        "/settings",     CmdGroup.Actions, ["settings","account","profile"]),
+    ];
+
+    private static readonly CmdItem[] HelpItems =
+    [
+        new("help-start",   "Getting Started Guide",        "New to FC Engine Portal?",                   "/help/getting-started",   CmdGroup.Help, ["getting","started","guide","new"]),
+        new("help-submit",  "Submission Guide",              "Step-by-step return submission walkthrough", "/help/submission-guide",  CmdGroup.Help, ["submission","guide","how"]),
+        new("help-val",     "Validation Errors Reference",   "Understanding and fixing validation errors", "/help/validation-errors", CmdGroup.Help, ["validation","errors","codes","fix"]),
+        new("help-faq",     "FAQ",                           "Frequently asked questions",                 "/help/faq",               CmdGroup.Help, ["faq","questions","answers"]),
+        new("help-support", "Contact Support",               "Get help from our support team",             "/help/support",           CmdGroup.Help, ["support","contact","ticket"]),
+        new("help-kb",      "Knowledge Base",                "Browse articles and tutorials",              "/help/knowledge-base",    CmdGroup.Help, ["knowledge","base","articles"]),
+    ];
+
+    // ── Lifecycle ─────────────────────────────────────────────────────
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _dotNetRef = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("portalCommandPalette.init", _dotNetRef);
+        Navigation.LocationChanged += OnLocationChanged;
+        // Seed initial page in recent routes
+        _recentRoutes.Add(new Uri(Navigation.Uri).AbsolutePath);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        var route = new Uri(e.Location).AbsolutePath;
+        _recentRoutes.Remove(route);
+        _recentRoutes.Insert(0, route);
+        if (_recentRoutes.Count > 10) _recentRoutes.RemoveAt(_recentRoutes.Count - 1);
+        if (_isOpen) Close();
+    }
+
+    // ── Public API (JS-invokable) ─────────────────────────────────────
+    [JSInvokable]
+    public async Task OpenPalette()
+    {
+        _isOpen = true;
+        _query = "";
+        _selectedIndex = 0;
+        _loading = !_subsLoaded;
+        BuildResults();
+        await InvokeAsync(StateHasChanged);
+        await JS.InvokeVoidAsync("portalCommandPalette.focusInput", "portal-cmd-input");
+        if (!_subsLoaded)
+        {
+            await LoadSubmissionsAsync();
+            _subsLoaded = true;
+            _loading = false;
+            BuildResults();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    // ── Data Loading ──────────────────────────────────────────────────
+    private async Task LoadSubmissionsAsync()
+    {
+        try
+        {
+            var authState = await AuthProvider.GetAuthenticationStateAsync();
+            var instIdStr = authState.User.FindFirst("InstitutionId")?.Value;
+            if (!int.TryParse(instIdStr, out var institutionId)) return;
+
+            var raw = await SubmissionRepo.GetByInstitution(institutionId);
+            _submissions = raw
+                .OrderByDescending(s => s.SubmittedAt)
+                .Take(10)
+                .Select(s => new CmdItem(
+                    Id: $"sub-{s.Id}",
+                    Label: $"{s.ReturnCode} — {(s.ReturnPeriod is not null ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month, 1).ToString("MMM yyyy") : "—")}",
+                    Secondary: $"Submission · {s.Status}",
+                    Route: $"/submissions/{s.Id}",
+                    Group: CmdGroup.Submissions,
+                    Keywords: [s.ReturnCode, s.Status.ToString(), "submission"]
+                ))
+                .ToList();
+        }
+        catch
+        {
+            // Silently handle — submissions section omitted
+        }
+    }
+
+    // ── Filtering & Search ────────────────────────────────────────────
+    private void OnQueryChanged()
+    {
+        _selectedIndex = 0;
+        BuildResults();
+    }
+
+    private void BuildResults()
+    {
+        _filteredGroups.Clear();
+
+        if (string.IsNullOrWhiteSpace(_query))
+        {
+            var recentItems = _recentRoutes
+                .Select(r => AllPages.FirstOrDefault(p => p.Route == r))
+                .OfType<CmdItem>()
+                .Take(5)
+                .ToList();
+            if (recentItems.Count > 0)
+                _filteredGroups.Add(new DisplayGroup(CmdGroup.Recent, recentItems));
+
+            if (_submissions.Count > 0)
+                _filteredGroups.Add(new DisplayGroup(CmdGroup.Submissions, _submissions.Take(5).ToList()));
+
+            _filteredGroups.Add(new DisplayGroup(CmdGroup.Actions, [.. QuickActions]));
+            _filteredGroups.Add(new DisplayGroup(CmdGroup.Help, HelpItems.Take(3).ToList()));
+        }
+        else
+        {
+            var q = _query.Trim();
+            var pageHits = AllPages.Where(p => Matches(p, q)).Take(8).ToList();
+            if (pageHits.Count > 0) _filteredGroups.Add(new DisplayGroup(CmdGroup.Pages, pageHits));
+
+            var subHits = _submissions.Where(p => Matches(p, q)).Take(5).ToList();
+            if (subHits.Count > 0) _filteredGroups.Add(new DisplayGroup(CmdGroup.Submissions, subHits));
+
+            var actionHits = QuickActions.Where(p => Matches(p, q)).ToList();
+            if (actionHits.Count > 0) _filteredGroups.Add(new DisplayGroup(CmdGroup.Actions, actionHits));
+
+            var helpHits = HelpItems.Where(p => Matches(p, q)).ToList();
+            if (helpHits.Count > 0) _filteredGroups.Add(new DisplayGroup(CmdGroup.Help, helpHits));
+        }
+
+        _selectedIndex = TotalItems > 0 ? 0 : -1;
+    }
+
+    private static bool Matches(CmdItem item, string q) =>
+        item.Label.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+        (item.Secondary?.Contains(q, StringComparison.OrdinalIgnoreCase) ?? false) ||
+        item.Keywords.Any(k => k.Contains(q, StringComparison.OrdinalIgnoreCase)) ||
+        item.Route.Contains(q, StringComparison.OrdinalIgnoreCase);
+
+    // ── Highlighting ──────────────────────────────────────────────────
+    private MarkupString Highlight(string text)
+    {
+        if (string.IsNullOrWhiteSpace(_query))
+            return (MarkupString)System.Text.Encodings.Web.HtmlEncoder.Default.Encode(text);
+
+        var q = _query.Trim();
+        var sb = new System.Text.StringBuilder();
+        var enc = System.Text.Encodings.Web.HtmlEncoder.Default;
+        var pos = 0;
+
+        while (pos < text.Length)
+        {
+            var idx = text.IndexOf(q, pos, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0) { sb.Append(enc.Encode(text[pos..])); break; }
+            sb.Append(enc.Encode(text[pos..idx]));
+            sb.Append("<mark class=\"portal-cmd-match\">");
+            sb.Append(enc.Encode(text[idx..(idx + q.Length)]));
+            sb.Append("</mark>");
+            pos = idx + q.Length;
+        }
+        return (MarkupString)sb.ToString();
+    }
+
+    // ── Keyboard Navigation ───────────────────────────────────────────
+    private int TotalItems => _filteredGroups.Sum(g => g.Items.Count);
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowDown":
+                MoveSelection(+1);
+                await ScrollSelectedIntoView();
+                break;
+            case "ArrowUp":
+                MoveSelection(-1);
+                await ScrollSelectedIntoView();
+                break;
+            case "Tab":
+                MoveToGroup(e.ShiftKey ? -1 : +1);
+                await ScrollSelectedIntoView();
+                break;
+            case "Enter":
+                SelectCurrent();
+                break;
+            case "Escape":
+                Close();
+                break;
+        }
+    }
+
+    private void MoveSelection(int delta)
+    {
+        var total = TotalItems;
+        if (total == 0) return;
+        _selectedIndex = (_selectedIndex + delta + total) % total;
+    }
+
+    private void MoveToGroup(int direction)
+    {
+        if (_filteredGroups.Count == 0) return;
+        var flat = GetFlatList();
+        if (_selectedIndex < 0 || _selectedIndex >= flat.Count) return;
+        var currentGroup = flat[_selectedIndex].Group;
+        var groups = _filteredGroups.Select(g => g.Key).ToList();
+        var gIdx = groups.IndexOf(currentGroup);
+        var nextIdx = (gIdx + direction + groups.Count) % groups.Count;
+        var firstOfNext = flat.FindIndex(f => f.Group == groups[nextIdx]);
+        if (firstOfNext >= 0) _selectedIndex = firstOfNext;
+    }
+
+    private void SelectCurrent()
+    {
+        var flat = GetFlatList();
+        if (_selectedIndex >= 0 && _selectedIndex < flat.Count)
+            Navigate(flat[_selectedIndex].Route);
+    }
+
+    private List<CmdItem> GetFlatList() => [.. _filteredGroups.SelectMany(g => g.Items)];
+
+    private async Task ScrollSelectedIntoView() =>
+        await JS.InvokeVoidAsync("portalCommandPalette.scrollItemIntoView", $"cmd-item-{_selectedIndex}");
+
+    // ── Actions ───────────────────────────────────────────────────────
+    private void Navigate(string route)
+    {
+        Close();
+        Navigation.NavigateTo(route);
+    }
+
+    private void Close()
+    {
+        _isOpen = false;
+        _query = "";
+        _selectedIndex = 0;
+        StateHasChanged();
+    }
+
+    // ── Icons ─────────────────────────────────────────────────────────
+    private static string GetGroupLabel(CmdGroup group) => group switch
+    {
+        CmdGroup.Recent      => "Recent",
+        CmdGroup.Pages       => "Pages",
+        CmdGroup.Submissions => "Submissions",
+        CmdGroup.Actions     => "Quick Actions",
+        CmdGroup.Help        => "Help",
+        _                    => group.ToString()
+    };
+
+    private static MarkupString GetGroupIconSvg(CmdGroup group)
+    {
+        var d = group switch
+        {
+            CmdGroup.Recent      => "<circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/>",
+            CmdGroup.Pages       => "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><line x1=\"3\" y1=\"9\" x2=\"21\" y2=\"9\"/><line x1=\"9\" y1=\"21\" x2=\"9\" y2=\"9\"/>",
+            CmdGroup.Submissions => "<path d=\"M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/>",
+            CmdGroup.Actions     => "<polygon points=\"13 2 3 14 12 14 11 22 21 10 12 10 13 2\"/>",
+            CmdGroup.Help        => "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3\"/><line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/>",
+            _                    => ""
+        };
+        return (MarkupString)$"<svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">{d}</svg>";
+    }
+
+    private static MarkupString GetItemIconSvg(CmdGroup group)
+    {
+        var d = group switch
+        {
+            CmdGroup.Recent      => "<circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/>",
+            CmdGroup.Pages       => "<rect x=\"3\" y=\"3\" width=\"18\" height=\"18\" rx=\"2\"/><line x1=\"3\" y1=\"9\" x2=\"21\" y2=\"9\"/><line x1=\"9\" y1=\"21\" x2=\"9\" y2=\"9\"/>",
+            CmdGroup.Submissions => "<path d=\"M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/>",
+            CmdGroup.Actions     => "<polygon points=\"13 2 3 14 12 14 11 22 21 10 12 10 13 2\"/>",
+            CmdGroup.Help        => "<circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3\"/><line x1=\"12\" y1=\"17\" x2=\"12.01\" y2=\"17\"/>",
+            _                    => ""
+        };
+        return (MarkupString)$"<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\">{d}</svg>";
+    }
+
+    // ── Dispose ───────────────────────────────────────────────────────
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+        if (_dotNetRef is not null)
+        {
+            try { await JS.InvokeVoidAsync("portalCommandPalette.dispose"); } catch { }
+            _dotNetRef.Dispose();
+        }
+    }
+}
