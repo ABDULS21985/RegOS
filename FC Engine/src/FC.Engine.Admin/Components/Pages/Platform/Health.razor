@@ -67,30 +67,70 @@
     }
     else if (_data is not null)
     {
+        <!-- System Health Banner -->
+        <div class="fc-health-banner fc-health-banner--@BannerLevel">
+            <span class="fc-health-orb"></span>
+            <div class="fc-health-banner__body">
+                <span class="fc-health-banner__headline">@BannerHeadline</span>
+                <span class="fc-health-banner__ts">Last checked @_lastUpdated.ToString("HH:mm:ss") UTC</span>
+            </div>
+        </div>
+
         <!-- KPI Cards -->
         <div class="fc-grid fc-grid-4 fc-mb-4">
-            <div class="fc-card">
+            <!-- p50 -->
+            <div class="fc-card fc-kpi-card fc-kpi-card--@GetLatencyLevel(_data.ApiLatencyP50Ms, 200, 500)">
                 <div class="fc-card__body">
                     <div class="fc-stat-label">Latency p50</div>
-                    <div class="fc-stat-value">@_data.ApiLatencyP50Ms.ToString("0") ms</div>
+                    <div class="fc-kpi-row">
+                        <div class="fc-stat-value">@_data.ApiLatencyP50Ms.ToString("0") ms</div>
+                        <span class="fc-kpi-trend fc-kpi-trend--@GetTrendClass(_data.ApiLatencyP50Ms, _snapshot?.ApiLatencyP50Ms, higherIsBad: true)">
+                            @GetTrendArrow(_data.ApiLatencyP50Ms, _snapshot?.ApiLatencyP50Ms, higherIsBad: true)
+                        </span>
+                    </div>
+                    <div class="fc-kpi-delta">@GetDelta(_data.ApiLatencyP50Ms, _snapshot?.ApiLatencyP50Ms, "ms")</div>
                 </div>
             </div>
-            <div class="fc-card">
+
+            <!-- p95 -->
+            <div class="fc-card fc-kpi-card fc-kpi-card--@GetLatencyLevel(_data.ApiLatencyP95Ms, 400, 800)">
                 <div class="fc-card__body">
                     <div class="fc-stat-label">Latency p95</div>
-                    <div class="fc-stat-value">@_data.ApiLatencyP95Ms.ToString("0") ms</div>
+                    <div class="fc-kpi-row">
+                        <div class="fc-stat-value">@_data.ApiLatencyP95Ms.ToString("0") ms</div>
+                        <span class="fc-kpi-trend fc-kpi-trend--@GetTrendClass(_data.ApiLatencyP95Ms, _snapshot?.ApiLatencyP95Ms, higherIsBad: true)">
+                            @GetTrendArrow(_data.ApiLatencyP95Ms, _snapshot?.ApiLatencyP95Ms, higherIsBad: true)
+                        </span>
+                    </div>
+                    <div class="fc-kpi-delta">@GetDelta(_data.ApiLatencyP95Ms, _snapshot?.ApiLatencyP95Ms, "ms")</div>
                 </div>
             </div>
-            <div class="fc-card">
+
+            <!-- p99 -->
+            <div class="fc-card fc-kpi-card fc-kpi-card--@GetLatencyLevel(_data.ApiLatencyP99Ms, 500, 1000)">
                 <div class="fc-card__body">
                     <div class="fc-stat-label">Latency p99</div>
-                    <div class="fc-stat-value">@_data.ApiLatencyP99Ms.ToString("0") ms</div>
+                    <div class="fc-kpi-row">
+                        <div class="fc-stat-value">@_data.ApiLatencyP99Ms.ToString("0") ms</div>
+                        <span class="fc-kpi-trend fc-kpi-trend--@GetTrendClass(_data.ApiLatencyP99Ms, _snapshot?.ApiLatencyP99Ms, higherIsBad: true)">
+                            @GetTrendArrow(_data.ApiLatencyP99Ms, _snapshot?.ApiLatencyP99Ms, higherIsBad: true)
+                        </span>
+                    </div>
+                    <div class="fc-kpi-delta">@GetDelta(_data.ApiLatencyP99Ms, _snapshot?.ApiLatencyP99Ms, "ms")</div>
                 </div>
             </div>
-            <div class="fc-card">
+
+            <!-- Error Rate -->
+            <div class="fc-card fc-kpi-card fc-kpi-card--@GetErrorLevel(_data.ErrorRatePercent)">
                 <div class="fc-card__body">
                     <div class="fc-stat-label">Error Rate</div>
-                    <div class="fc-stat-value">@_data.ErrorRatePercent.ToString("0.##")%</div>
+                    <div class="fc-kpi-row">
+                        <div class="fc-stat-value">@_data.ErrorRatePercent.ToString("0.##")%</div>
+                        <span class="fc-kpi-trend fc-kpi-trend--@GetTrendClass(_data.ErrorRatePercent, _snapshot?.ErrorRatePercent, higherIsBad: true)">
+                            @GetTrendArrow(_data.ErrorRatePercent, _snapshot?.ErrorRatePercent, higherIsBad: true)
+                        </span>
+                    </div>
+                    <div class="fc-kpi-delta">@GetDelta(_data.ErrorRatePercent, _snapshot?.ErrorRatePercent, "%")</div>
                 </div>
             </div>
         </div>
@@ -141,6 +181,7 @@
 
 @code {
     private PlatformHealthData? _data;
+    private PlatformHealthData? _snapshot;   // previous poll, used for trend arrows
     private bool _loading = true;
     private string? _error;
     private bool _chartDirty;
@@ -149,6 +190,59 @@
     private readonly Queue<decimal> _errorSamples = new();
     private readonly Queue<string> _errorLabels = new();
 
+    // ── Banner derived properties ─────────────────────────
+    private string BannerLevel => _data is null ? "green" : new[]
+    {
+        GetLatencyLevel(_data.ApiLatencyP50Ms, 200, 500),
+        GetLatencyLevel(_data.ApiLatencyP95Ms, 400, 800),
+        GetLatencyLevel(_data.ApiLatencyP99Ms, 500, 1000),
+        GetErrorLevel(_data.ErrorRatePercent)
+    }.Aggregate(WorstLevel);
+
+    private string BannerHeadline => BannerLevel switch
+    {
+        "red"   => "Incident Detected",
+        "amber" => "Degraded Performance",
+        _       => "All Systems Operational"
+    };
+
+    // ── Threshold helpers ──────────────────────────────────
+    private static string GetLatencyLevel(decimal ms, decimal amber, decimal red) =>
+        ms >= red ? "red" : ms >= amber ? "amber" : "green";
+
+    private static string GetErrorLevel(decimal pct) =>
+        pct >= 5 ? "red" : pct >= 1 ? "amber" : "green";
+
+    private static string WorstLevel(string a, string b) =>
+        a == "red" || b == "red" ? "red" :
+        a == "amber" || b == "amber" ? "amber" : "green";
+
+    // ── Trend helpers ──────────────────────────────────────
+    private static string GetTrendArrow(decimal current, decimal? prev, bool higherIsBad)
+    {
+        if (prev is null) return "→";
+        if (current > prev.Value) return "↑";
+        if (current < prev.Value) return "↓";
+        return "→";
+    }
+
+    private static string GetTrendClass(decimal current, decimal? prev, bool higherIsBad)
+    {
+        if (prev is null) return "neutral";
+        if (current > prev.Value) return higherIsBad ? "up-bad" : "down-good";
+        if (current < prev.Value) return higherIsBad ? "down-good" : "up-bad";
+        return "neutral";
+    }
+
+    private static string GetDelta(decimal current, decimal? prev, string unit)
+    {
+        if (prev is null) return "—";
+        var delta = current - prev.Value;
+        if (delta == 0) return "no change";
+        return (delta > 0 ? "+" : "") + delta.ToString("0.##") + "\u202f" + unit;
+    }
+
+    // ── Lifecycle ──────────────────────────────────────────
     protected override async Task OnInitializedAsync()
     {
         await LoadAsync();
@@ -165,10 +259,7 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_data is null || !_chartDirty)
-        {
-            return;
-        }
+        if (_data is null || !_chartDirty) return;
 
         await Charts.RenderBarChart("healthLatencyChart", BuildLatencyChart(_data));
         await Charts.RenderLineChart("healthErrorTrendChart", BuildErrorTrendChart());
@@ -185,6 +276,9 @@
 
         try
         {
+            // Capture current data as the snapshot before overwriting
+            _snapshot = _data;
+
             _data = await PlatformService.GetPlatformHealth();
             _lastUpdated = DateTime.UtcNow;
 
@@ -199,20 +293,14 @@
         }
         finally
         {
-            if (!silent)
-            {
-                _loading = false;
-            }
+            if (!silent) _loading = false;
         }
     }
 
     private static void EnqueueSample<T>(Queue<T> queue, T value, int max)
     {
         queue.Enqueue(value);
-        while (queue.Count > max)
-        {
-            queue.Dequeue();
-        }
+        while (queue.Count > max) queue.Dequeue();
     }
 
     private static TrendData BuildLatencyChart(PlatformHealthData data)
