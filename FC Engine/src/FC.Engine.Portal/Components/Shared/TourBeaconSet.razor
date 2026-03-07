@@ -1,0 +1,151 @@
+@implements IAsyncDisposable
+@inject TourService TourSvc
+@inject TourStateService TourState
+@inject IJSRuntime JS
+
+@* ─── Tooltip card (shown when a beacon is clicked) ─────────────────────── *@
+@if (_openBeaconIndex >= 0 && _openBeaconIndex < _activeBeacons.Count)
+{
+    var beacon = _activeBeacons[_openBeaconIndex];
+    <div class="portal-tour-tooltip-scrim" @onclick="CloseTooltip" role="presentation" aria-hidden="true"></div>
+    <div class="portal-tour-tooltip portal-tour-tooltip-arrow-@_tooltipArrow"
+         style="top:@(_tooltipTop.ToString("F0"))px;left:@(_tooltipLeft.ToString("F0"))px;"
+         role="dialog" aria-label="@beacon.Title">
+        <button class="portal-tour-tooltip-close" @onclick="CloseTooltip" aria-label="Close tip" type="button">×</button>
+        <h4 class="portal-tour-tooltip-title">@beacon.Title</h4>
+        <p class="portal-tour-tooltip-body">@beacon.Description</p>
+        <div class="portal-tour-tooltip-footer">
+            <button class="portal-btn portal-btn-sm portal-btn-primary" @onclick="GotItAsync" type="button">Got it</button>
+            <a href="/help" class="portal-tour-tooltip-link" @onclick="SeeAllTipsAsync" @onclick:preventDefault="false">See all tips</a>
+        </div>
+    </div>
+}
+
+@* ─── Spotlight overlay tour (triggered by ? button or "See all tips") ──── *@
+@if (_showSpotlight)
+{
+    <GuidedTour Steps="@Steps" IsSpotlight="true"
+                OnCompleted="OnSpotlightCompletedAsync"
+                OnClosed="OnSpotlightClosedAsync" />
+}
+
+@code {
+    /// <summary>Unique key for this page's tour, used as the localStorage seen-key.</summary>
+    [Parameter, EditorRequired] public string TourKey { get; set; } = "";
+
+    /// <summary>3 beacon definitions for first-visit feature discovery.</summary>
+    [Parameter] public IReadOnlyList<TourBeaconDefinition> Beacons { get; set; } = [];
+
+    /// <summary>Steps for the full spotlight page tour (triggered by ? button).</summary>
+    [Parameter] public IReadOnlyList<GuidedTourStepDefinition> Steps { get; set; } = [];
+
+    private List<TourBeaconDefinition> _activeBeacons = [];
+    private int _openBeaconIndex = -1;
+    private double _tooltipTop;
+    private double _tooltipLeft;
+    private string _tooltipArrow = "top";
+    private bool _showSpotlight;
+    private bool _initialized;
+    private DotNetObjectReference<TourBeaconSet>? _ref;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _initialized) return;
+        _initialized = true;
+
+        // Only show beacons on the user's first visit to this page tour
+        if (await TourSvc.HasSeenAsync(TourKey)) return;
+
+        _activeBeacons = [.. Beacons];
+        _ref = DotNetObjectReference.Create(this);
+        var selectors = _activeBeacons.Select(b => b.TargetSelector).ToArray();
+        await JS.InvokeVoidAsync("portalTour.initBeacons", selectors, _ref);
+
+        // Subscribe to the topbar ? button
+        TourState.HelpButtonPressed += OnHelpPressed;
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    /// <summary>Called from JS when a beacon ring is clicked.</summary>
+    [JSInvokable]
+    public async Task OnBeaconClicked(int index)
+    {
+        if (index < 0 || index >= _activeBeacons.Count) return;
+        _openBeaconIndex = index;
+
+        // Smart-position the tooltip near the beacon element
+        var pos = await JS.InvokeAsync<TooltipPos>(
+            "portalTour.getTooltipPosition",
+            _activeBeacons[index].TargetSelector, 280, 160);
+
+        _tooltipTop = pos.Top;
+        _tooltipLeft = pos.Left;
+        _tooltipArrow = pos.ArrowDir;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task GotItAsync()
+    {
+        var idx = _openBeaconIndex;
+        _openBeaconIndex = -1;
+
+        if (idx >= 0 && idx < _activeBeacons.Count)
+        {
+            var selector = _activeBeacons[idx].TargetSelector;
+            _activeBeacons.RemoveAt(idx);
+            await JS.InvokeVoidAsync("portalTour.removeBeacon", selector);
+        }
+
+        if (_activeBeacons.Count == 0)
+            await CompleteBeaconsAsync();
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SeeAllTipsAsync()
+    {
+        _openBeaconIndex = -1;
+        await JS.InvokeVoidAsync("portalTour.clearAllBeacons");
+        _activeBeacons.Clear();
+        _showSpotlight = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseTooltip() => _openBeaconIndex = -1;
+
+    private void OnHelpPressed()
+    {
+        _openBeaconIndex = -1;
+        _showSpotlight = true;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnSpotlightCompletedAsync()
+    {
+        _showSpotlight = false;
+        await CompleteBeaconsAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnSpotlightClosedAsync()
+    {
+        _showSpotlight = false;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task CompleteBeaconsAsync()
+    {
+        await TourSvc.MarkSeenAsync(TourKey);
+        TourState.HelpButtonPressed -= OnHelpPressed;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        TourState.HelpButtonPressed -= OnHelpPressed;
+        _ref?.Dispose();
+        try { await JS.InvokeVoidAsync("portalTour.clearAllBeacons"); } catch { }
+    }
+
+    private record TooltipPos(double Top, double Left, string ArrowDir);
+}

@@ -1,0 +1,61 @@
+@* 60×24px inline SVG sparkline — green if latest >= earliest, red if declining *@
+<svg class="portal-sparkline-svg"
+     viewBox="0 0 60 24"
+     width="60" height="24"
+     preserveAspectRatio="none"
+     role="img"
+     aria-label="@AriaLabel">
+    @if (_hasData)
+    {
+        <defs>
+            <linearGradient id="@_gradId" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="@_color" stop-opacity="0.28" />
+                <stop offset="100%" stop-color="@_color" stop-opacity="0.02" />
+            </linearGradient>
+        </defs>
+        <polygon points="@_areaPoints" fill="url(#@_gradId)" />
+        <polyline points="@_linePoints"
+                  fill="none"
+                  stroke="@_color"
+                  stroke-width="1.75"
+                  stroke-linejoin="round"
+                  stroke-linecap="round" />
+    }
+</svg>
+
+@code {
+    [Parameter] public IReadOnlyList<decimal> Data { get; set; } = Array.Empty<decimal>();
+    [Parameter] public string AriaLabel { get; set; } = "7-day trend sparkline";
+
+    private string _color = "#059669";
+    private string _linePoints = "";
+    private string _areaPoints = "";
+    private bool _hasData;
+    private readonly string _gradId = "sg-" + Guid.NewGuid().ToString("N")[..10];
+
+    protected override void OnParametersSet()
+    {
+        if (Data is null || Data.Count < 2)
+        {
+            _hasData = false;
+            return;
+        }
+
+        _hasData = true;
+        _color = Data.Last() >= Data.First() ? "#059669" : "#ef4444";
+
+        var minVal = Data.Min();
+        var maxVal = Data.Max();
+        var range = maxVal == minVal ? 1m : maxVal - minVal;
+
+        var coords = Data.Select((v, i) =>
+        {
+            var x = i * 60.0 / (Data.Count - 1);
+            var y = 22 - (double)((v - minVal) / range) * 20;
+            return (x, y);
+        }).ToList();
+
+        _linePoints = string.Join(" ", coords.Select(c => $"{c.x:F1},{c.y:F1}"));
+        _areaPoints = $"0,24 {_linePoints} 60,24";
+    }
+}

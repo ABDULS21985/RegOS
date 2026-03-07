@@ -489,6 +489,9 @@
 
 </div>
 
+@* ── Feature-discovery beacons (shown once to new users) ── *@
+<TourBeaconSet TourKey="submissions-v1" Beacons="@_submissionBeacons" Steps="@_submissionTourSteps" />
+
 @code {
     // ── Query params: restores filter state when navigating back from detail page ──
     [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
@@ -922,4 +925,26 @@
     }
 
     private record KanbanColumnDef(string Id, string Title, string[] Statuses, int? WipLimit = null);
+
+    // ── Tour definitions ─────────────────────────────────────────────────────
+
+    private static readonly IReadOnlyList<TourBeaconDefinition> _submissionBeacons =
+    [
+        new(".portal-toolbar",              "Filter & Search",
+            "Narrow submissions by status, template, or date to quickly find what you need.", "bottom"),
+        new("a[href='/submit']",            "New Submission",
+            "Start a fresh regulatory return — select a template and begin data entry.", "bottom"),
+        new(".portal-view-toggle",          "Switch Views",
+            "Toggle between the table list and a kanban board to visualise progress by status.", "bottom"),
+    ];
+
+    private static readonly IReadOnlyList<GuidedTourStepDefinition> _submissionTourSteps =
+    [
+        new() { TargetSelector = ".portal-toolbar",     Title = "Filter & Search",
+                Description = "Use the search bar and filters to locate submissions by status, template, or date range.", Position = "bottom" },
+        new() { TargetSelector = "a[href='/submit']",   Title = "Create a Return",
+                Description = "Start a new submission. You can upload XML or use the guided data-entry form.", Position = "bottom" },
+        new() { TargetSelector = ".portal-view-toggle", Title = "Switch Views",
+                Description = "Use table view for bulk actions or kanban view to track submissions through workflow stages.", Position = "bottom" },
+    ];
 }

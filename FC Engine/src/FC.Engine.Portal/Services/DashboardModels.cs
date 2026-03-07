@@ -169,3 +169,62 @@ public class ActivityFeedItem
     public string? LinkUrl { get; set; }
     public string BadgeClass { get; set; } = "portal-badge-neutral";
 }
+
+// ── Compliance Performance Dashboard (/dashboard/compliance) ──────────
+
+/// <summary>
+/// Full data for the compliance performance dashboard.
+/// </summary>
+public class ComplianceDashboardData
+{
+    public string InstitutionName { get; set; } = "";
+    public string InstitutionCode { get; set; } = "";
+    public DateTime GeneratedAt { get; set; } = DateTime.UtcNow;
+
+    // Hero cards
+    public decimal ComplianceRate { get; set; }   // % of returns filed on time this period
+    public int ReturnsFiled { get; set; }          // distinct accepted return codes this period
+    public int Outstanding { get; set; }           // templates not yet accepted this period
+    public int Overdue { get; set; }               // periods past deadline, no accepted submission
+
+    // Quarter-over-quarter trend
+    public decimal QuarterChange { get; set; }     // +/- percentage points vs last quarter
+    public bool IsTrendImproving { get; set; }
+
+    // Grouped bar chart — last 12 months
+    public List<ComplianceBarMonth> MonthlyBars { get; set; } = new();
+
+    // Per-module breakdown table
+    public List<ComplianceModuleBreakdown> ModuleBreakdowns { get; set; } = new();
+
+    // Filter option lists (always all templates, unfiltered)
+    public List<string> AvailableReturnCodes { get; set; } = new();
+    public List<string> AvailableFrequencies { get; set; } = new();
+}
+
+/// <summary>
+/// One month's on-time / late / missed counts for the bar chart.
+/// </summary>
+public class ComplianceBarMonth
+{
+    public string MonthLabel { get; set; } = "";
+    public int Year { get; set; }
+    public int Month { get; set; }
+    public int OnTime { get; set; }
+    public int Late { get; set; }
+    public int Missed { get; set; }
+}
+
+/// <summary>
+/// One row in the compliance module breakdown table.
+/// </summary>
+public class ComplianceModuleBreakdown
+{
+    public string ReturnCode { get; set; } = "";
+    public string ReturnName { get; set; } = "";
+    public string Frequency { get; set; } = "";
+    public int ReturnsDue { get; set; }            // past periods in last 12 months
+    public int Submitted { get; set; }             // of those, periods with accepted submission
+    public decimal ComplianceRate { get; set; }    // Submitted / ReturnsDue * 100
+    public List<decimal> TrendSparkline { get; set; } = new(); // 6 months, values 0 or 100
+}

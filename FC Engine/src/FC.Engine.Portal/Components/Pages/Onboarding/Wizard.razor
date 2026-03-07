@@ -2,291 +2,594 @@
 @layout LoginLayout
 @inject OnboardingWizardService WizardService
 @inject NavigationManager Navigation
+@inject IJSRuntime JS
 
 <PageTitle>Onboarding Wizard — FC Engine Portal</PageTitle>
 
-<div class="portal-onboarding-shell">
-    <div class="portal-onboarding-header">
-        <h1>Self-Service Onboarding Wizard</h1>
-        <p>Complete the 8-step setup and provision your tenant in under 60 seconds.</p>
+@if (_complete)
+{
+    <div class="portal-wiz-completion" id="wiz-completion">
+        <canvas id="wiz-confetti" class="portal-wiz-confetti-canvas"></canvas>
+        <div class="portal-wiz-completion-card">
+            <div class="portal-wiz-completion-ring">
+                <svg viewBox="0 0 80 80" fill="none" width="80" height="80" aria-hidden="true">
+                    <circle cx="40" cy="40" r="38" stroke="var(--cbn-green-light,#D1FAE5)" stroke-width="4"/>
+                    <circle cx="40" cy="40" r="28" fill="var(--cbn-green-deep,#006B3F)" fill-opacity=".12"/>
+                    <polyline points="24,40 34,51 56,29"
+                              stroke="var(--cbn-green-deep,#006B3F)" stroke-width="4"
+                              stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h1 class="portal-wiz-completion-title">Welcome to FCEngine!</h1>
+            <p class="portal-wiz-completion-subtitle">Your account is ready. Here's how to get started.</p>
+            <div class="portal-wiz-completion-actions">
+                <a href="/submissions/new" class="portal-btn portal-btn-primary portal-wiz-cta">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                        <polyline points="10,3 10,13"/><polyline points="6,7 10,3 14,7"/>
+                        <path d="M3 17h14"/>
+                    </svg>
+                    Make Your First Submission
+                </a>
+                <a href="/" class="portal-btn portal-btn-outline portal-wiz-cta">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="18" height="18" aria-hidden="true">
+                        <rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/>
+                        <rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/>
+                    </svg>
+                    Explore the Dashboard
+                </a>
+                <button class="portal-btn portal-btn-ghost portal-wiz-cta" @onclick="WatchVideo" type="button">
+                    <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="18" height="18" aria-hidden="true">
+                        <circle cx="10" cy="10" r="8"/>
+                        <polygon points="8,7 8,13 14,10" fill="currentColor" stroke="none"/>
+                    </svg>
+                    Watch Getting Started Video
+                </button>
+            </div>
+        </div>
     </div>
+}
+else
+{
+    <div class="portal-wiz-shell">
 
-    @if (!string.IsNullOrWhiteSpace(_error))
-    {
-        <div class="portal-alert portal-alert-danger">@_error</div>
-    }
-
-    @if (_loading)
-    {
-        <div class="portal-card"><div class="portal-card-body">Loading onboarding options...</div></div>
-    }
-    else
-    {
-        <div class="portal-onboarding-steps">
-            @for (var i = 1; i <= TotalSteps; i++)
-            {
-                <div class="portal-onboarding-step @GetStepClass(i)">
-                    <span>@i</span>
-                    <small>@StepLabels[i - 1]</small>
-                </div>
-            }
+        <div class="portal-wiz-header">
+            <div class="portal-wiz-logo-mark" aria-hidden="true">
+                <svg viewBox="0 0 36 36" width="36" height="36">
+                    <rect width="36" height="36" rx="9" fill="var(--cbn-green-deep,#006B3F)"/>
+                    <text x="18" y="24" text-anchor="middle" fill="white" font-size="14" font-weight="700" font-family="sans-serif">FC</text>
+                </svg>
+                <span class="portal-wiz-logo-name">FCEngine</span>
+            </div>
+            <p class="portal-wiz-tagline">Set up your institution in 4 simple steps</p>
         </div>
 
-        <div class="portal-card portal-onboarding-card">
-            <div class="portal-card-body">
-                @if (_step == 1)
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="portal-alert portal-alert-danger portal-wiz-error-banner">@_error</div>
+        }
+
+        @* ── Step indicator ──────────────────────────────── *@
+        <div class="portal-wiz-stepper-wrap">
+            <nav class="portal-wiz-stepper" role="list" aria-label="Onboarding progress">
+                @for (int i = 0; i < _steps.Length; i++)
                 {
-                    <h3>Step 1: Institution Profile</h3>
-                    <div class="portal-grid portal-grid-2">
-                        <div class="portal-form-row"><label>Institution Name</label><input class="portal-input" @bind="_request.Profile.InstitutionName" /></div>
-                        <div class="portal-form-row"><label>Preferred Slug (optional)</label><input class="portal-input" @bind="_request.Profile.TenantSlug" /></div>
-                        <div class="portal-form-row"><label>Contact Email</label><input class="portal-input" @bind="_request.Profile.ContactEmail" /></div>
-                        <div class="portal-form-row"><label>Contact Phone</label><input class="portal-input" @bind="_request.Profile.ContactPhone" /></div>
-                        <div class="portal-form-row"><label>RC Number</label><input class="portal-input" @bind="_request.Profile.RcNumber" /></div>
-                        <div class="portal-form-row"><label>TIN</label><input class="portal-input" @bind="_request.Profile.Tin" /></div>
-                        <div class="portal-form-row portal-form-row-span-2"><label>Address</label><input class="portal-input" @bind="_request.Profile.Address" /></div>
-                    </div>
-                }
-                else if (_step == 2)
-                {
-                    <h3>Step 2: Licence Type</h3>
-                    <div class="portal-onboarding-checklist">
-                        @foreach (var licence in _lookup.LicenceTypes)
-                        {
-                            var selected = _request.LicenceTypeCodes.Contains(licence.Code, StringComparer.OrdinalIgnoreCase);
-                            <label class="portal-onboarding-checkitem">
-                                <input type="checkbox"
-                                       checked="@selected"
-                                       @onchange="(e => ToggleLicence(licence.Code, e.Value))" />
-                                <span>
-                                    <strong>@licence.Name</strong>
-                                    <small>@licence.Regulator — @licence.Description</small>
-                                </span>
-                            </label>
-                        }
-                    </div>
-                }
-                else if (_step == 3)
-                {
-                    <h3>Step 3: Module Selection</h3>
-                    <div class="portal-grid portal-grid-2">
-                        <div>
-                            @if (_eligibleModules.Count == 0)
+                    var stepNum = i + 1;
+                    var info    = _steps[i];
+                    var isActive   = stepNum == _step;
+                    var isComplete = _completedSteps.Contains(stepNum);
+                    var isAnim     = _animatingStep == stepNum;
+                    var stateClass = isComplete ? "portal-wiz-step--complete"
+                                   : isActive   ? "portal-wiz-step--active"
+                                                : "";
+
+                    <div class="portal-wiz-step @stateClass @(isAnim ? "portal-wiz-step--animating" : "")"
+                         role="listitem"
+                         aria-current="@(isActive ? "step" : null)">
+
+                        <button class="portal-wiz-step-node"
+                                @onclick="() => JumpToStep(stepNum)"
+                                disabled="@(!isComplete && !isActive)"
+                                aria-label="Step @stepNum: @info.Label @(isComplete ? "(completed)" : isActive ? "(current)" : "(upcoming)")">
+                            @if (isComplete)
                             {
-                                <p>Select at least one licence type first.</p>
+                                <svg class="portal-wiz-check-svg" viewBox="0 0 16 16" fill="none"
+                                     stroke="currentColor" stroke-width="2.5"
+                                     stroke-linecap="round" stroke-linejoin="round"
+                                     width="16" height="16" aria-hidden="true">
+                                    <polyline points="2,8 6,13 14,3"/>
+                                </svg>
                             }
                             else
                             {
-                                @foreach (var module in _eligibleModules)
-                                {
-                                    var selected = _request.ModuleCodes.Contains(module.ModuleCode, StringComparer.OrdinalIgnoreCase);
-                                    <label class="portal-onboarding-checkitem @(!module.IsAvailableOnPlan ? "disabled" : "")">
-                                        <input type="checkbox"
-                                               checked="@(module.IsRequired || selected)"
-                                               disabled="@(!module.IsAvailableOnPlan || module.IsRequired)"
-                                               @onchange="(e => ToggleModule(module.ModuleCode, e.Value))" />
-                                        <span>
-                                            <strong>@module.ModuleName (@module.ModuleCode)</strong>
-                                            <small>
-                                                @module.RegulatorCode
-                                                @if (module.IsRequired) { <span> • Required</span> }
-                                                @if (!module.IsAvailableOnPlan) { <span> • Not on selected plan</span> }
-                                            </small>
-                                        </span>
-                                    </label>
-                                }
+                                @((MarkupString)info.IconSvg)
                             }
+                        </button>
+
+                        <div class="portal-wiz-step-text">
+                            <span class="portal-wiz-step-num">Step @stepNum</span>
+                            <span class="portal-wiz-step-name">@info.Label</span>
                         </div>
-                        <div class="portal-onboarding-cost">
-                            <h4>Estimated Monthly Cost</h4>
-                            <div class="portal-kv"><span>Base Plan</span><strong>@FormatMoney(_estimate.BasePriceMonthly)</strong></div>
-                            @foreach (var line in _estimate.ModuleLines)
-                            {
-                                <div class="portal-kv">
-                                    <span>@line.Label</span>
-                                    <strong>@(line.IncludedInBase ? "Included" : FormatMoney(line.Amount))</strong>
-                                </div>
-                            }
-                            <div class="portal-kv"><span>Subtotal</span><strong>@FormatMoney(_estimate.Subtotal)</strong></div>
-                            <div class="portal-kv"><span>VAT (7.5%)</span><strong>@FormatMoney(_estimate.VatAmount)</strong></div>
-                            <div class="portal-kv"><span>Total</span><strong>@FormatMoney(_estimate.Total) / month</strong></div>
-                        </div>
-                    </div>
-                }
-                else if (_step == 4)
-                {
-                    <h3>Step 4: Plan Selection</h3>
-                    <div class="portal-onboarding-plan-grid">
-                        @foreach (var plan in _lookup.Plans)
-                        {
-                            var active = string.Equals(_request.PlanCode, plan.PlanCode, StringComparison.OrdinalIgnoreCase);
-                            <button class="portal-onboarding-plan @(active ? "active" : "")" @onclick="@(() => SelectPlan(plan.PlanCode))" type="button">
-                                <strong>@plan.PlanName (@plan.PlanCode)</strong>
-                                <small>@plan.Description</small>
-                                <span>@FormatMoney(plan.BasePriceMonthly) / month</span>
-                            </button>
-                        }
-                    </div>
-                }
-                else if (_step == 5)
-                {
-                    <h3>Step 5: Entity Structure</h3>
-                    <p>Head office is created automatically. Add branches if applicable.</p>
-                    <div class="portal-onboarding-inline">
-                        <input class="portal-input" placeholder="Branch name" @bind="_branchInput" />
-                        <button class="portal-btn portal-btn-outline" @onclick="AddBranch" type="button">Add Branch</button>
-                    </div>
-                    @if (_request.Branches.Count > 0)
-                    {
-                        <ul class="portal-onboarding-pill-list">
-                            @foreach (var branch in _request.Branches)
-                            {
-                                <li>
-                                    <span>@branch</span>
-                                    <button type="button" @onclick="(() => RemoveBranch(branch))">x</button>
-                                </li>
-                            }
-                        </ul>
-                    }
-                }
-                else if (_step == 6)
-                {
-                    <h3>Step 6: User Setup</h3>
-                    <h4>First Admin</h4>
-                    <div class="portal-grid portal-grid-2">
-                        <div class="portal-form-row"><label>Full Name</label><input class="portal-input" @bind="_request.AdminUser.FullName" /></div>
-                        <div class="portal-form-row"><label>Email</label><input class="portal-input" @bind="_request.AdminUser.Email" /></div>
-                        <div class="portal-form-row"><label>Phone</label><input class="portal-input" @bind="_request.AdminUser.Phone" /></div>
+
                     </div>
 
-                    <h4>Additional Users (Maker, Checker, Approver)</h4>
-                    @foreach (var invite in _request.AdditionalUsers.ToList())
+                    @if (i < _steps.Length - 1)
                     {
-                        <div class="portal-grid portal-grid-3 portal-onboarding-user-row">
-                            <input class="portal-input" placeholder="Full name" @bind="invite.FullName" />
-                            <input class="portal-input" placeholder="Email" @bind="invite.Email" />
-                            <div class="portal-onboarding-inline">
+                        <div class="portal-wiz-connector @(isComplete ? "portal-wiz-connector--done" : "")"
+                             aria-hidden="true"></div>
+                    }
+                }
+            </nav>
+
+            @* ── Progress bar ──────────────────────────────── *@
+            <div class="portal-wiz-progress-track"
+                 role="progressbar"
+                 aria-valuenow="@ProgressPct" aria-valuemin="0" aria-valuemax="100"
+                 aria-label="Onboarding @ProgressPct% complete">
+                <div class="portal-wiz-progress-fill" style="width:@(ProgressPct)%"></div>
+            </div>
+        </div>
+
+        @if (_loading)
+        {
+            <div class="portal-wiz-card portal-wiz-card--active portal-wiz-loading">
+                <svg class="portal-spinner" viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="var(--cbn-green-deep,#006B3F)" stroke-width="2">
+                    <circle cx="12" cy="12" r="10" stroke-opacity="0.2"/>
+                    <path d="M12 2a10 10 0 0 1 10 10"/>
+                </svg>
+                <span>Loading onboarding options…</span>
+            </div>
+        }
+        else
+        {
+            @* ════════════════════════════════════════════════
+               STEP 1 — Institution Profile
+               ════════════════════════════════════════════════ *@
+            <div class="portal-wiz-card @(_step == 1 ? "portal-wiz-card--active" : "portal-wiz-card--hidden")"
+                 id="wiz-step-1" aria-hidden="@(_step != 1)">
+
+                <div class="portal-wiz-card-header">
+                    <div class="portal-wiz-card-icon portal-wiz-card-icon--1">
+                        @((MarkupString)_steps[0].IconSvg)
+                    </div>
+                    <div>
+                        <h2 class="portal-wiz-card-title">Institution Profile</h2>
+                        <p class="portal-wiz-card-desc">Tell us about your organisation. This information will appear on all regulatory submissions.</p>
+                    </div>
+                </div>
+
+                <div class="portal-wiz-fields">
+                    <div class="portal-form-row">
+                        <label class="portal-label" for="wiz-inst-name">
+                            Institution Name <span class="portal-wiz-required" aria-label="required">*</span>
+                        </label>
+                        <input id="wiz-inst-name"
+                               class="portal-input @(_v1Name ? "portal-input--error" : "")"
+                               placeholder="e.g. First Continental Bank"
+                               @bind="_request.Profile.InstitutionName"
+                               @oninput="() => _v1Name = false" />
+                        @if (_v1Name) { <span class="portal-field-error" role="alert">Institution name is required</span> }
+                    </div>
+                    <div class="portal-form-row">
+                        <label class="portal-label" for="wiz-contact-email">
+                            Contact Email <span class="portal-wiz-required" aria-label="required">*</span>
+                        </label>
+                        <input id="wiz-contact-email"
+                               class="portal-input @(_v1Email ? "portal-input--error" : "")"
+                               type="email"
+                               placeholder="compliance@institution.com"
+                               @bind="_request.Profile.ContactEmail"
+                               @oninput="() => _v1Email = false" />
+                        @if (_v1Email) { <span class="portal-field-error" role="alert">A valid contact email is required</span> }
+                    </div>
+                    <div class="portal-form-row">
+                        <label class="portal-label" for="wiz-contact-phone">
+                            Contact Phone <span class="portal-wiz-optional">(optional)</span>
+                        </label>
+                        <input id="wiz-contact-phone"
+                               class="portal-input"
+                               placeholder="+234 800 000 0000"
+                               @bind="_request.Profile.ContactPhone" />
+                    </div>
+                </div>
+
+                <div class="portal-wiz-actions">
+                    <button class="portal-btn portal-btn-primary" @onclick="Step1Next" type="button" disabled="@_submitting">
+                        Save &amp; Continue
+                        <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <line x1="3" y1="8" x2="13" y2="8"/><polyline points="9,4 13,8 9,12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            @* ════════════════════════════════════════════════
+               STEP 2 — Regulatory Modules
+               ════════════════════════════════════════════════ *@
+            <div class="portal-wiz-card @(_step == 2 ? "portal-wiz-card--active" : "portal-wiz-card--hidden")"
+                 id="wiz-step-2" aria-hidden="@(_step != 2)">
+
+                <div class="portal-wiz-card-header">
+                    <div class="portal-wiz-card-icon portal-wiz-card-icon--2">
+                        @((MarkupString)_steps[1].IconSvg)
+                    </div>
+                    <div>
+                        <h2 class="portal-wiz-card-title">Regulatory Modules</h2>
+                        <p class="portal-wiz-card-desc">Select your licence type(s) and the reporting modules you need. We'll configure eligibility automatically.</p>
+                    </div>
+                </div>
+
+                <div class="portal-wiz-fields">
+                    <div class="portal-wiz-group-label">
+                        Licence Type(s) <span class="portal-wiz-required" aria-label="required">*</span>
+                    </div>
+                    @if (_v2Licence)
+                    {
+                        <span class="portal-field-error portal-wiz-group-error" role="alert">Select at least one licence type to continue</span>
+                    }
+                    <div class="portal-wiz-check-group">
+                        @foreach (var licence in _lookup.LicenceTypes)
+                        {
+                            var sel = _request.LicenceTypeCodes.Contains(licence.Code, StringComparer.OrdinalIgnoreCase);
+                            <label class="portal-wiz-checkitem @(sel ? "portal-wiz-checkitem--on" : "")">
+                                <input type="checkbox" checked="@sel"
+                                       @onchange="e => ToggleLicence(licence.Code, e.Value)" />
+                                <div class="portal-wiz-checkitem-body">
+                                    <strong>@licence.Name</strong>
+                                    <small>@licence.Regulator@(string.IsNullOrWhiteSpace(licence.Description) ? "" : " — " + licence.Description)</small>
+                                </div>
+                                <div class="portal-wiz-checkmark" aria-hidden="true">
+                                    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5"
+                                         stroke-linecap="round" width="12" height="12">
+                                        <polyline points="1.5,6 4.5,9.5 10.5,2.5"/>
+                                    </svg>
+                                </div>
+                            </label>
+                        }
+                    </div>
+
+                    @if (_eligibleModules.Count > 0)
+                    {
+                        <div class="portal-wiz-group-label portal-wiz-group-label--spaced">
+                            Reporting Modules
+                        </div>
+                        <div class="portal-wiz-check-group">
+                            @foreach (var module in _eligibleModules.Take(8))
+                            {
+                                var msel = _request.ModuleCodes.Contains(module.ModuleCode, StringComparer.OrdinalIgnoreCase);
+                                var on   = module.IsRequired || msel;
+                                <label class="portal-wiz-checkitem @(on ? "portal-wiz-checkitem--on" : "") @(!module.IsAvailableOnPlan ? "portal-wiz-checkitem--locked" : "")">
+                                    <input type="checkbox"
+                                           checked="@on"
+                                           disabled="@(!module.IsAvailableOnPlan || module.IsRequired)"
+                                           @onchange="e => ToggleModule(module.ModuleCode, e.Value)" />
+                                    <div class="portal-wiz-checkitem-body">
+                                        <strong>@module.ModuleName</strong>
+                                        <small>
+                                            @module.ModuleCode
+                                            @if (module.IsRequired) { <span class="portal-wiz-badge">Required</span> }
+                                            @if (!module.IsAvailableOnPlan) { <span class="portal-wiz-badge portal-wiz-badge--locked">Not on plan</span> }
+                                        </small>
+                                    </div>
+                                    <div class="portal-wiz-checkmark" aria-hidden="true">
+                                        <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.5"
+                                             stroke-linecap="round" width="12" height="12">
+                                            <polyline points="1.5,6 4.5,9.5 10.5,2.5"/>
+                                        </svg>
+                                    </div>
+                                </label>
+                            }
+                        </div>
+                    }
+                </div>
+
+                <div class="portal-wiz-actions">
+                    <button class="portal-btn portal-btn-outline" @onclick="GoBack" type="button">Back</button>
+                    <div class="portal-wiz-actions-right">
+                        <button class="portal-wiz-skip-link" @onclick="Step2Skip" type="button">Skip for now</button>
+                        <button class="portal-btn portal-btn-primary" @onclick="Step2Next" type="button">
+                            Save &amp; Continue
+                            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <line x1="3" y1="8" x2="13" y2="8"/><polyline points="9,4 13,8 9,12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            @* ════════════════════════════════════════════════
+               STEP 3 — Team Setup
+               ════════════════════════════════════════════════ *@
+            <div class="portal-wiz-card @(_step == 3 ? "portal-wiz-card--active" : "portal-wiz-card--hidden")"
+                 id="wiz-step-3" aria-hidden="@(_step != 3)">
+
+                <div class="portal-wiz-card-header">
+                    <div class="portal-wiz-card-icon portal-wiz-card-icon--3">
+                        @((MarkupString)_steps[2].IconSvg)
+                    </div>
+                    <div>
+                        <h2 class="portal-wiz-card-title">Your Team</h2>
+                        <p class="portal-wiz-card-desc">Set up the primary administrator account and optionally invite colleagues to collaborate.</p>
+                    </div>
+                </div>
+
+                <div class="portal-wiz-fields">
+                    <div class="portal-wiz-group-label">
+                        Administrator Account <span class="portal-wiz-required" aria-label="required">*</span>
+                    </div>
+                    <div class="portal-wiz-field-grid">
+                        <div class="portal-form-row">
+                            <label class="portal-label" for="wiz-admin-name">Full Name</label>
+                            <input id="wiz-admin-name"
+                                   class="portal-input @(_v3Name ? "portal-input--error" : "")"
+                                   placeholder="Jane Adeyemi"
+                                   @bind="_request.AdminUser.FullName"
+                                   @oninput="() => _v3Name = false" />
+                            @if (_v3Name) { <span class="portal-field-error" role="alert">Administrator name is required</span> }
+                        </div>
+                        <div class="portal-form-row">
+                            <label class="portal-label" for="wiz-admin-email">Email</label>
+                            <input id="wiz-admin-email"
+                                   class="portal-input @(_v3Email ? "portal-input--error" : "")"
+                                   type="email"
+                                   placeholder="jane@institution.com"
+                                   @bind="_request.AdminUser.Email"
+                                   @oninput="() => _v3Email = false" />
+                            @if (_v3Email) { <span class="portal-field-error" role="alert">Administrator email is required</span> }
+                        </div>
+                    </div>
+
+                    @if (_showInviteMore || _request.AdditionalUsers.Count > 0)
+                    {
+                        <div class="portal-wiz-group-label portal-wiz-group-label--spaced">
+                            Additional Team Members <span class="portal-wiz-optional">(optional)</span>
+                        </div>
+                        @foreach (var invite in _request.AdditionalUsers.ToList())
+                        {
+                            <div class="portal-wiz-invite-row">
+                                <input class="portal-input" placeholder="Full name" @bind="invite.FullName" />
+                                <input class="portal-input" type="email" placeholder="Email address" @bind="invite.Email" />
                                 <select class="portal-input" @bind="invite.Role">
                                     <option value="@nameof(InstitutionRole.Maker)">Maker</option>
                                     <option value="@nameof(InstitutionRole.Checker)">Checker</option>
                                     <option value="@nameof(InstitutionRole.Approver)">Approver</option>
                                 </select>
-                                <button class="portal-btn portal-btn-ghost" @onclick="(() => RemoveInvite(invite))" type="button">Remove</button>
+                                <button class="portal-btn portal-btn-ghost portal-wiz-remove-btn"
+                                        @onclick="() => RemoveInvite(invite)"
+                                        type="button" aria-label="Remove team member">
+                                    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                        <line x1="12" y1="4" x2="4" y2="12"/><line x1="4" y1="4" x2="12" y2="12"/>
+                                    </svg>
+                                </button>
                             </div>
-                        </div>
-                    }
-                    <button class="portal-btn portal-btn-outline" @onclick="AddInvite" type="button">Add User</button>
-                }
-                else if (_step == 7)
-                {
-                    <h3>Step 7: Workflow Configuration</h3>
-                    <label class="portal-onboarding-checkitem">
-                        <input type="checkbox" @bind="_request.Workflow.EnableMakerChecker" />
-                        <span><strong>Enable maker-checker workflow</strong><small>Require checker review before final acceptance.</small></span>
-                    </label>
-                    <div class="portal-grid portal-grid-2">
-                        <div class="portal-form-row">
-                            <label>Approval Threshold (NGN)</label>
-                            <input class="portal-input" type="number" step="0.01" @bind="_request.Workflow.ApprovalThreshold" />
-                        </div>
-                        <label class="portal-onboarding-checkitem">
-                            <input type="checkbox" @bind="_request.Workflow.AllowDelegation" />
-                            <span><strong>Allow delegated approvals</strong><small>Enable temporary delegation during absence.</small></span>
-                        </label>
-                    </div>
-                }
-                else if (_step == 8)
-                {
-                    <h3>Step 8: Branding</h3>
-                    <div class="portal-grid portal-grid-2">
-                        <div class="portal-form-row"><label>Primary Color</label><input class="portal-input" type="color" @bind="_request.Branding.PrimaryColor" /></div>
-                        <div class="portal-form-row"><label>Secondary Color</label><input class="portal-input" type="color" @bind="_request.Branding.SecondaryColor" /></div>
-                        <div class="portal-form-row"><label>Accent Color</label><input class="portal-input" type="color" @bind="_request.Branding.AccentColor" /></div>
-                        <div class="portal-form-row">
-                            <label>Logo Upload</label>
-                            <InputFile OnChange="OnLogoSelected" accept=".png,.svg,.jpg,.jpeg" />
-                            @if (!string.IsNullOrWhiteSpace(_logoFileName))
-                            {
-                                <small>Selected: @_logoFileName</small>
-                            }
-                        </div>
-                    </div>
-                    <div class="portal-onboarding-brand-preview"
-                         style="--onb-primary:@(_request.Branding.PrimaryColor ?? "#006B3F");--onb-secondary:@(_request.Branding.SecondaryColor ?? "#E5F4EC");--onb-accent:@(_request.Branding.AccentColor ?? "#0EA5E9");">
-                        <strong>@(_request.Profile.InstitutionName ?? "Institution Name")</strong>
-                        <p>Branding preview for dashboard cards and action buttons.</p>
-                    </div>
-                }
-
-                <div class="portal-onboarding-actions">
-                    <button class="portal-btn portal-btn-outline" @onclick="PreviousStep" disabled="@(_step == 1 || _submitting)" type="button">Back</button>
-                    @if (_step < TotalSteps)
-                    {
-                        <button class="portal-btn portal-btn-primary" @onclick="NextStep" disabled="@_submitting" type="button">Next</button>
+                        }
+                        <button class="portal-btn portal-btn-outline portal-wiz-add-more"
+                                @onclick="AddInvite" type="button">
+                            + Add Another Member
+                        </button>
                     }
                     else
                     {
-                        <button class="portal-btn portal-btn-primary" @onclick="Submit" disabled="@_submitting" type="button">
-                            @(_submitting ? "Provisioning..." : "Complete Onboarding")
+                        <button class="portal-wiz-skip-link portal-wiz-invite-prompt"
+                                @onclick="ShowInviteMore" type="button">
+                            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                                <line x1="8" y1="2" x2="8" y2="14"/><line x1="2" y1="8" x2="14" y2="8"/>
+                            </svg>
+                            Invite team members (optional)
                         </button>
                     }
                 </div>
+
+                <div class="portal-wiz-actions">
+                    <button class="portal-btn portal-btn-outline" @onclick="GoBack" type="button">Back</button>
+                    <div class="portal-wiz-actions-right">
+                        <button class="portal-wiz-skip-link" @onclick="Step3Skip" type="button">Skip for now</button>
+                        <button class="portal-btn portal-btn-primary" @onclick="Step3Next" type="button">
+                            Save &amp; Continue
+                            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <line x1="3" y1="8" x2="13" y2="8"/><polyline points="9,4 13,8 9,12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
             </div>
-        </div>
-    }
-</div>
+
+            @* ════════════════════════════════════════════════
+               STEP 4 — Review & Activate
+               ════════════════════════════════════════════════ *@
+            <div class="portal-wiz-card @(_step == 4 ? "portal-wiz-card--active" : "portal-wiz-card--hidden")"
+                 id="wiz-step-4" aria-hidden="@(_step != 4)">
+
+                <div class="portal-wiz-card-header">
+                    <div class="portal-wiz-card-icon portal-wiz-card-icon--4">
+                        @((MarkupString)_steps[3].IconSvg)
+                    </div>
+                    <div>
+                        <h2 class="portal-wiz-card-title">Review &amp; Activate</h2>
+                        <p class="portal-wiz-card-desc">Confirm your details before we provision your workspace. Everything can be updated after activation.</p>
+                    </div>
+                </div>
+
+                @* ── Summary sections ──────────────────────── *@
+                <div class="portal-wiz-summary">
+
+                    <div class="portal-wiz-summary-section">
+                        <div class="portal-wiz-summary-head">
+                            <div class="portal-wiz-summary-label">
+                                <span class="portal-wiz-summary-icon">@((MarkupString)_steps[0].IconSvg)</span>
+                                Profile
+                            </div>
+                            <button class="portal-wiz-edit-link" @onclick="() => JumpToStep(1)" type="button">Edit</button>
+                        </div>
+                        <div class="portal-wiz-summary-rows">
+                            <div class="portal-wiz-summary-row">
+                                <span>Institution</span>
+                                <strong>@(string.IsNullOrWhiteSpace(_request.Profile.InstitutionName) ? "—" : _request.Profile.InstitutionName)</strong>
+                            </div>
+                            <div class="portal-wiz-summary-row">
+                                <span>Email</span>
+                                <strong>@(string.IsNullOrWhiteSpace(_request.Profile.ContactEmail) ? "—" : _request.Profile.ContactEmail)</strong>
+                            </div>
+                            @if (!string.IsNullOrWhiteSpace(_request.Profile.ContactPhone))
+                            {
+                                <div class="portal-wiz-summary-row">
+                                    <span>Phone</span>
+                                    <strong>@_request.Profile.ContactPhone</strong>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <div class="portal-wiz-summary-section">
+                        <div class="portal-wiz-summary-head">
+                            <div class="portal-wiz-summary-label">
+                                <span class="portal-wiz-summary-icon">@((MarkupString)_steps[1].IconSvg)</span>
+                                Modules
+                            </div>
+                            <button class="portal-wiz-edit-link" @onclick="() => JumpToStep(2)" type="button">Edit</button>
+                        </div>
+                        <div class="portal-wiz-summary-rows">
+                            <div class="portal-wiz-summary-row">
+                                <span>Licences</span>
+                                <strong>
+                                    @if (_request.LicenceTypeCodes.Count == 0)
+                                    {
+                                        <em class="portal-wiz-summary-empty">None selected</em>
+                                    }
+                                    else
+                                    {
+                                        @string.Join(", ", _request.LicenceTypeCodes)
+                                    }
+                                </strong>
+                            </div>
+                            <div class="portal-wiz-summary-row">
+                                <span>Modules</span>
+                                <strong>
+                                    @if (_request.ModuleCodes.Count == 0)
+                                    {
+                                        <em class="portal-wiz-summary-empty">None selected</em>
+                                    }
+                                    else
+                                    {
+                                        @string.Join(", ", _request.ModuleCodes)
+                                    }
+                                </strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="portal-wiz-summary-section">
+                        <div class="portal-wiz-summary-head">
+                            <div class="portal-wiz-summary-label">
+                                <span class="portal-wiz-summary-icon">@((MarkupString)_steps[2].IconSvg)</span>
+                                Team
+                            </div>
+                            <button class="portal-wiz-edit-link" @onclick="() => JumpToStep(3)" type="button">Edit</button>
+                        </div>
+                        <div class="portal-wiz-summary-rows">
+                            <div class="portal-wiz-summary-row">
+                                <span>Administrator</span>
+                                <strong>@(string.IsNullOrWhiteSpace(_request.AdminUser.FullName) ? "—" : _request.AdminUser.FullName)</strong>
+                            </div>
+                            <div class="portal-wiz-summary-row">
+                                <span>Admin email</span>
+                                <strong>@(string.IsNullOrWhiteSpace(_request.AdminUser.Email) ? "—" : _request.AdminUser.Email)</strong>
+                            </div>
+                            @if (_request.AdditionalUsers.Count > 0)
+                            {
+                                <div class="portal-wiz-summary-row">
+                                    <span>Invited</span>
+                                    <strong>@_request.AdditionalUsers.Count additional member@(_request.AdditionalUsers.Count == 1 ? "" : "s")</strong>
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                </div>
+
+                <div class="portal-wiz-actions">
+                    <button class="portal-btn portal-btn-outline" @onclick="GoBack" type="button">Back</button>
+                    <button class="portal-btn portal-btn-primary portal-wiz-submit-btn"
+                            @onclick="Submit" disabled="@_submitting" type="button">
+                        @if (_submitting)
+                        {
+                            <svg class="portal-spinner" viewBox="0 0 24 24" width="16" height="16" fill="none"
+                                 stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <circle cx="12" cy="12" r="10" stroke-opacity="0.25"/>
+                                <path d="M12 2a10 10 0 0 1 10 10"/>
+                            </svg>
+                            <span>Activating your workspace…</span>
+                        }
+                        else
+                        {
+                            <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <polyline points="3,8 8,3 13,8"/><line x1="8" y1="3" x2="8" y2="13"/>
+                            </svg>
+                            <span>Activate Account</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        }
+
+    </div>
+}
 
 @code {
-    private const int TotalSteps = 8;
-    private static readonly string[] StepLabels =
+    // ── Step definitions ──────────────────────────────────────────────────────
+    private sealed record WizardStepDef(string Label, string IconSvg);
+
+    private static readonly WizardStepDef[] _steps =
     [
-        "Profile",
-        "Licence",
-        "Modules",
-        "Plan",
-        "Entities",
-        "Users",
-        "Workflow",
-        "Branding"
+        new("Profile",
+            """<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" aria-hidden="true"><path d="M2 19v-1a8 8 0 0 1 16 0v1"/><path d="M10 3a4 4 0 1 1 0 8 4 4 0 0 1 0-8"/></svg>"""),
+
+        new("Modules",
+            """<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="20" height="20" aria-hidden="true"><rect x="2" y="2" width="7" height="7" rx="1.5"/><rect x="11" y="2" width="7" height="7" rx="1.5"/><rect x="2" y="11" width="7" height="7" rx="1.5"/><rect x="11" y="11" width="7" height="7" rx="1.5"/></svg>"""),
+
+        new("Team",
+            """<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="20" height="20" aria-hidden="true"><circle cx="7" cy="7" r="3"/><path d="M1 18v-1a6 6 0 0 1 9.26-5.04"/><circle cx="15" cy="13" r="3"/><path d="M11 19v-1a4 4 0 0 1 8 0v1"/></svg>"""),
+
+        new("Review",
+            """<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" aria-hidden="true"><polyline points="4,10 10,4 16,10"/><line x1="10" y1="4" x2="10" y2="16"/></svg>"""),
     ];
 
+    // ── Data / state ──────────────────────────────────────────────────────────
     private readonly OnboardingWizardRequest _request = new()
     {
         PlanCode = "STARTER",
-        Workflow = new WorkflowStep
-        {
-            EnableMakerChecker = true,
-            ApprovalThreshold = 0,
-            AllowDelegation = false
-        },
-        Branding = new BrandingStep
-        {
-            PrimaryColor = "#006B3F",
-            SecondaryColor = "#0F172A",
-            AccentColor = "#0891B2"
-        }
+        Workflow = new WorkflowStep { EnableMakerChecker = true, ApprovalThreshold = 0, AllowDelegation = false },
+        Branding = new BrandingStep { PrimaryColor = "#006B3F", SecondaryColor = "#0F172A", AccentColor = "#0891B2" }
     };
 
     private OnboardingLookupData _lookup = new();
     private List<OnboardingModuleOption> _eligibleModules = new();
     private OnboardingCostEstimate _estimate = new();
+
     private int _step = 1;
     private bool _loading = true;
     private bool _submitting;
+    private bool _complete;
     private string? _error;
-    private string _branchInput = string.Empty;
-    private string? _logoFileName;
+    private bool _showInviteMore;
 
+    private int? _animatingStep;
+    private readonly HashSet<int> _completedSteps = [];
+
+    // Validation flags
+    private bool _v1Name, _v1Email;
+    private bool _v2Licence;
+    private bool _v3Name, _v3Email;
+
+    private int ProgressPct => (int)Math.Round(_completedSteps.Count * 100.0 / _steps.Length);
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _lookup = await WizardService.GetLookupData();
-            if (_lookup.Plans.Count > 0 && string.IsNullOrWhiteSpace(_request.PlanCode))
-            {
+            if (_lookup.Plans.Count > 0)
                 _request.PlanCode = _lookup.Plans[0].PlanCode;
-            }
-
             await RefreshEligibilityAndCost();
         }
         catch (Exception ex)
@@ -299,10 +602,82 @@
         }
     }
 
+    // ── Step completion animation ─────────────────────────────────────────────
+    private async Task CompleteStep(int stepNum)
+    {
+        _completedSteps.Add(stepNum);
+        _animatingStep = stepNum;
+        StateHasChanged();
+        await Task.Delay(480); // spring animation duration
+        _animatingStep = null;
+    }
+
+    // ── Step navigation ───────────────────────────────────────────────────────
+    private async Task Step1Next()
+    {
+        _v1Name  = string.IsNullOrWhiteSpace(_request.Profile.InstitutionName);
+        _v1Email = string.IsNullOrWhiteSpace(_request.Profile.ContactEmail);
+        if (_v1Name || _v1Email) return;
+        await CompleteStep(1);
+        _step = 2;
+    }
+
+    private async Task Step2Next()
+    {
+        _v2Licence = _request.LicenceTypeCodes.Count == 0;
+        if (_v2Licence) return;
+        await CompleteStep(2);
+        _step = 3;
+    }
+
+    private async Task Step2Skip()
+    {
+        await CompleteStep(2);
+        _step = 3;
+    }
+
+    private async Task Step3Next()
+    {
+        _v3Name  = string.IsNullOrWhiteSpace(_request.AdminUser.FullName);
+        _v3Email = string.IsNullOrWhiteSpace(_request.AdminUser.Email);
+        if (_v3Name || _v3Email) return;
+        await CompleteStep(3);
+        _step = 4;
+    }
+
+    private async Task Step3Skip()
+    {
+        // Pre-fill admin with profile contact if empty
+        if (string.IsNullOrWhiteSpace(_request.AdminUser.FullName))
+            _request.AdminUser.FullName = "Primary Administrator";
+        if (string.IsNullOrWhiteSpace(_request.AdminUser.Email))
+            _request.AdminUser.Email = _request.Profile.ContactEmail ?? string.Empty;
+        await CompleteStep(3);
+        _step = 4;
+    }
+
+    private void GoBack()
+    {
+        _error = null;
+        if (_step > 1) _step--;
+    }
+
+    private void JumpToStep(int target)
+    {
+        if (_completedSteps.Contains(target) || target == _step) return;
+        _step = target;
+    }
+
+    private void ShowInviteMore()
+    {
+        _showInviteMore = true;
+        AddInvite();
+    }
+
+    // ── Service calls ─────────────────────────────────────────────────────────
     private async Task RefreshEligibilityAndCost()
     {
-        _eligibleModules = (await WizardService.GetEligibleModules(_request.LicenceTypeCodes, _request.PlanCode))
-            .ToList();
+        _eligibleModules = (await WizardService.GetEligibleModules(_request.LicenceTypeCodes, _request.PlanCode)).ToList();
 
         var eligibleSet = _eligibleModules
             .Where(x => x.IsAvailableOnPlan)
@@ -314,18 +689,13 @@
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        foreach (var required in _eligibleModules.Where(x => x.IsRequired && x.IsAvailableOnPlan).Select(x => x.ModuleCode))
+        foreach (var req in _eligibleModules.Where(x => x.IsRequired && x.IsAvailableOnPlan).Select(x => x.ModuleCode))
         {
-            if (!_request.ModuleCodes.Contains(required, StringComparer.OrdinalIgnoreCase))
-            {
-                _request.ModuleCodes.Add(required);
-            }
+            if (!_request.ModuleCodes.Contains(req, StringComparer.OrdinalIgnoreCase))
+                _request.ModuleCodes.Add(req);
         }
 
-        _estimate = await WizardService.EstimateMonthlyCost(
-            _request.PlanCode,
-            _request.LicenceTypeCodes,
-            _request.ModuleCodes);
+        _estimate = await WizardService.EstimateMonthlyCost(_request.PlanCode, _request.LicenceTypeCodes, _request.ModuleCodes);
     }
 
     private async Task ToggleLicence(string code, object? value)
@@ -334,15 +704,13 @@
         if (enabled)
         {
             if (!_request.LicenceTypeCodes.Contains(code, StringComparer.OrdinalIgnoreCase))
-            {
                 _request.LicenceTypeCodes.Add(code);
-            }
         }
         else
         {
             _request.LicenceTypeCodes.RemoveAll(x => string.Equals(x, code, StringComparison.OrdinalIgnoreCase));
         }
-
+        _v2Licence = false;
         await RefreshEligibilityAndCost();
     }
 
@@ -350,59 +718,23 @@
     {
         var enabled = value as bool? == true;
         var module = _eligibleModules.FirstOrDefault(x => string.Equals(x.ModuleCode, code, StringComparison.OrdinalIgnoreCase));
-        if (module is not null && module.IsRequired)
-        {
-            return;
-        }
+        if (module?.IsRequired == true) return;
 
         if (enabled)
         {
             if (!_request.ModuleCodes.Contains(code, StringComparer.OrdinalIgnoreCase))
-            {
                 _request.ModuleCodes.Add(code);
-            }
         }
         else
         {
             _request.ModuleCodes.RemoveAll(x => string.Equals(x, code, StringComparison.OrdinalIgnoreCase));
         }
-
         await RefreshEligibilityAndCost();
-    }
-
-    private async Task SelectPlan(string planCode)
-    {
-        _request.PlanCode = planCode;
-        await RefreshEligibilityAndCost();
-    }
-
-    private void AddBranch()
-    {
-        var name = _branchInput.Trim();
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return;
-        }
-
-        if (!_request.Branches.Contains(name, StringComparer.OrdinalIgnoreCase))
-        {
-            _request.Branches.Add(name);
-        }
-
-        _branchInput = string.Empty;
-    }
-
-    private void RemoveBranch(string name)
-    {
-        _request.Branches.RemoveAll(x => string.Equals(x, name, StringComparison.OrdinalIgnoreCase));
     }
 
     private void AddInvite()
     {
-        _request.AdditionalUsers.Add(new AdditionalUserInvite
-        {
-            Role = nameof(InstitutionRole.Maker)
-        });
+        _request.AdditionalUsers.Add(new AdditionalUserInvite { Role = nameof(InstitutionRole.Maker) });
     }
 
     private void RemoveInvite(AdditionalUserInvite invite)
@@ -410,47 +742,11 @@
         _request.AdditionalUsers.Remove(invite);
     }
 
-    private async Task OnLogoSelected(InputFileChangeEventArgs args)
-    {
-        var file = args.File;
-        if (file is null)
-        {
-            return;
-        }
-
-        await using var stream = file.OpenReadStream(2 * 1024 * 1024);
-        using var ms = new MemoryStream();
-        await stream.CopyToAsync(ms);
-
-        _request.Branding.LogoBytes = ms.ToArray();
-        _request.Branding.LogoFileName = file.Name;
-        _request.Branding.LogoContentType = file.ContentType;
-        _logoFileName = file.Name;
-    }
-
-    private void NextStep()
-    {
-        _error = null;
-        if (_step < TotalSteps)
-        {
-            _step++;
-        }
-    }
-
-    private void PreviousStep()
-    {
-        _error = null;
-        if (_step > 1)
-        {
-            _step--;
-        }
-    }
-
+    // ── Final submission ──────────────────────────────────────────────────────
     private async Task Submit()
     {
         _submitting = true;
         _error = null;
-
         try
         {
             var result = await WizardService.CompleteOnboarding(_request);
@@ -458,13 +754,14 @@
             {
                 _error = result.Errors.Count > 0
                     ? string.Join(" ", result.Errors)
-                    : "Onboarding failed.";
+                    : "Onboarding failed. Please try again.";
                 return;
             }
 
-            var temp = Uri.EscapeDataString(result.AdminTemporaryPassword);
-            var duration = result.ProvisioningDurationMs.ToString();
-            Navigation.NavigateTo($"/onboarding/checklist/{result.TenantId}?temp={temp}&durationMs={duration}", forceLoad: true);
+            await CompleteStep(4);
+            _complete = true;
+            await InvokeAsync(StateHasChanged);
+            await JS.InvokeVoidAsync("portalWizard.launchConfetti");
         }
         catch (Exception ex)
         {
@@ -476,12 +773,8 @@
         }
     }
 
-    private string GetStepClass(int idx)
+    private async Task WatchVideo()
     {
-        if (idx == _step) return "active";
-        if (idx < _step) return "complete";
-        return string.Empty;
+        await JS.InvokeVoidAsync("portalWizard.openVideo");
     }
-
-    private static string FormatMoney(decimal amount) => $"NGN {amount:N2}";
 }

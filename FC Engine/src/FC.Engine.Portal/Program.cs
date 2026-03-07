@@ -59,6 +59,8 @@ builder.Services.AddScoped<FC.Engine.Portal.Services.SandboxService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.KnowledgeBaseService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.OverdueAlertService>();
 builder.Services.AddScoped<FC.Engine.Domain.Abstractions.IFormDataService, FC.Engine.Infrastructure.Services.FormDataService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.TourService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.TourStateService>();
 
 // Caching
 builder.Services.AddMemoryCache();

@@ -30,9 +30,11 @@ public class DashboardService
     /// <summary>
     /// Gets the full dashboard data for an institution, with 5-minute caching.
     /// </summary>
-    public async Task<DashboardData> GetDashboardDataAsync(int institutionId, string institutionName, string institutionCode, int dateRangeDays = 30)
+    public async Task<DashboardData> GetDashboardDataAsync(int institutionId, string institutionName, string institutionCode, int dateRangeDays = 30, bool forceRefresh = false)
     {
         var cacheKey = $"dashboard:{institutionId}:{dateRangeDays}";
+
+        if (forceRefresh) _cache.Remove(cacheKey);
 
         if (_cache.TryGetValue(cacheKey, out DashboardData? cached) && cached is not null)
             return cached;
@@ -504,6 +506,197 @@ public class DashboardService
             return new DateTime(rp.Year, rp.Month, 1).ToString("MMM yyyy");
         }
         return submission.SubmittedAt.ToString("MMM yyyy");
+    }
+
+    // ── Compliance Performance Dashboard ────────────────────────
+
+    /// <summary>
+    /// Builds data for the compliance performance dashboard. Cached 5 min.
+    /// </summary>
+    public async Task<ComplianceDashboardData> GetComplianceDashboardAsync(
+        int institutionId, string institutionName, string institutionCode,
+        string? returnCodeFilter = null, string? frequencyFilter = null)
+    {
+        var cacheKey = $"compliance-dash:{institutionId}:{returnCodeFilter}:{frequencyFilter}";
+        if (_cache.TryGetValue(cacheKey, out ComplianceDashboardData? cached) && cached is not null)
+            return cached;
+
+        var data = await BuildComplianceDashboardAsync(
+            institutionId, institutionName, institutionCode, returnCodeFilter, frequencyFilter);
+
+        _cache.Set(cacheKey, data, CacheDuration);
+        return data;
+    }
+
+    private async Task<ComplianceDashboardData> BuildComplianceDashboardAsync(
+        int institutionId, string institutionName, string institutionCode,
+        string? returnCodeFilter, string? frequencyFilter)
+    {
+        var allTemplates = await _templateCache.GetAllPublishedTemplates();
+        var submissions  = await _submissionRepo.GetByInstitution(institutionId);
+        var now          = DateTime.UtcNow;
+        var currentMonth = new DateTime(now.Year, now.Month, 1);
+
+        var finalStatuses = new HashSet<SubmissionStatus>
+        {
+            SubmissionStatus.Accepted,
+            SubmissionStatus.AcceptedWithWarnings
+        };
+
+        // Apply module/frequency filters
+        var templates = allTemplates
+            .Where(t => string.IsNullOrEmpty(returnCodeFilter)
+                        || t.ReturnCode.Equals(returnCodeFilter, StringComparison.OrdinalIgnoreCase))
+            .Where(t => string.IsNullOrEmpty(frequencyFilter)
+                        || t.Frequency.ToString().Equals(frequencyFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var templateCodes = templates.Select(t => t.ReturnCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var filteredSubs = submissions
+            .Where(s => templateCodes.Contains(s.ReturnCode))
+            .ToList();
+
+        // ── Hero metrics (current calendar month) ─────────────────
+        var periodSubs = filteredSubs
+            .Where(s => s.SubmittedAt >= currentMonth)
+            .ToList();
+
+        var acceptedCodes = periodSubs
+            .Where(s => finalStatuses.Contains(s.Status))
+            .Select(s => s.ReturnCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var complianceRate = templates.Count > 0
+            ? Math.Round(acceptedCodes.Count * 100m / templates.Count, 1)
+            : 100m;
+
+        var returnsFiled = acceptedCodes.Count;
+        var outstanding  = Math.Max(0, templates.Count - acceptedCodes.Count);
+        var overdue = filteredSubs
+            .Where(s => s.ReturnPeriod is not null
+                        && s.ReturnPeriod.EffectiveDeadline < now
+                        && !finalStatuses.Contains(s.Status))
+            .Select(s => s.ReturnPeriodId)
+            .Distinct()
+            .Count();
+
+        // ── Quarter-over-quarter comparison ──────────────────────
+        var currentQStart = new DateTime(now.Year, ((now.Month - 1) / 3) * 3 + 1, 1);
+        var prevQStart    = currentQStart.AddMonths(-3);
+        var prevQEnd      = currentQStart;
+
+        decimal CalcQuarterRate(DateTime start, DateTime end)
+        {
+            var months   = Math.Max(1, (int)Math.Round((end - start).TotalDays / 30.4));
+            var accepted = filteredSubs
+                .Where(s => s.SubmittedAt >= start && s.SubmittedAt < end && finalStatuses.Contains(s.Status))
+                .Select(s => s.ReturnCode)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            var due = templates.Count * months;
+            return due > 0 ? Math.Round(accepted * 100m / due, 1) : 100m;
+        }
+
+        var currentQRate = CalcQuarterRate(currentQStart, now.AddSeconds(1));
+        var prevQRate    = CalcQuarterRate(prevQStart, prevQEnd);
+        var quarterChange = Math.Round(currentQRate - prevQRate, 1);
+
+        // ── 12-month grouped bar chart ────────────────────────────
+        var monthlyBars = new List<ComplianceBarMonth>();
+        for (int i = 11; i >= 0; i--)
+        {
+            var mStart = currentMonth.AddMonths(-i);
+            var mEnd   = mStart.AddMonths(1);
+            int onTime = 0, late = 0, missed = 0;
+
+            foreach (var template in templates)
+            {
+                var acc = filteredSubs.FirstOrDefault(s =>
+                    s.ReturnCode.Equals(template.ReturnCode, StringComparison.OrdinalIgnoreCase)
+                    && s.SubmittedAt >= mStart && s.SubmittedAt < mEnd
+                    && finalStatuses.Contains(s.Status));
+
+                if (acc is not null)
+                {
+                    var deadline = acc.ReturnPeriod?.EffectiveDeadline;
+                    if (deadline.HasValue && acc.SubmittedAt <= deadline.Value)
+                        onTime++;
+                    else
+                        late++;
+                }
+                else if (mEnd <= now)
+                {
+                    missed++;
+                }
+            }
+
+            monthlyBars.Add(new ComplianceBarMonth
+            {
+                MonthLabel = mStart.ToString("MMM yy"),
+                Year  = mStart.Year,
+                Month = mStart.Month,
+                OnTime  = onTime,
+                Late    = late,
+                Missed  = missed
+            });
+        }
+
+        // ── Per-module breakdown ───────────────────────────────────
+        var moduleBreakdowns = templates.Select(template =>
+        {
+            var tSubs = filteredSubs
+                .Where(s => s.ReturnCode.Equals(template.ReturnCode, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            int due = 0, submitted = 0;
+            var sparkline = new List<decimal>();
+
+            for (int i = 11; i >= 0; i--)
+            {
+                var mStart = currentMonth.AddMonths(-i);
+                var mEnd   = mStart.AddMonths(1);
+                if (mEnd > now) continue;   // skip future/current partial month
+
+                due++;
+                var hasAccepted = tSubs.Any(s =>
+                    finalStatuses.Contains(s.Status)
+                    && s.SubmittedAt >= mStart && s.SubmittedAt < mEnd);
+                if (hasAccepted) submitted++;
+                if (i <= 5) sparkline.Add(hasAccepted ? 100m : 0m);
+            }
+
+            return new ComplianceModuleBreakdown
+            {
+                ReturnCode     = template.ReturnCode,
+                ReturnName     = template.Name,
+                Frequency      = template.Frequency.ToString(),
+                ReturnsDue     = due,
+                Submitted      = submitted,
+                ComplianceRate = due > 0 ? Math.Round(submitted * 100m / due, 1) : 0m,
+                TrendSparkline = sparkline
+            };
+        })
+        .OrderByDescending(m => m.ComplianceRate)
+        .ThenBy(m => m.ReturnCode)
+        .ToList();
+
+        return new ComplianceDashboardData
+        {
+            InstitutionName = institutionName,
+            InstitutionCode = institutionCode,
+            GeneratedAt     = now,
+            ComplianceRate  = complianceRate,
+            ReturnsFiled    = returnsFiled,
+            Outstanding     = outstanding,
+            Overdue         = overdue,
+            QuarterChange   = quarterChange,
+            IsTrendImproving = quarterChange >= 0,
+            MonthlyBars       = monthlyBars,
+            ModuleBreakdowns  = moduleBreakdowns,
+            AvailableReturnCodes  = allTemplates.Select(t => t.ReturnCode).Distinct().OrderBy(x => x).ToList(),
+            AvailableFrequencies  = allTemplates.Select(t => t.Frequency.ToString()).Distinct().OrderBy(x => x).ToList()
+        };
     }
 
     // ── Nav Badge Counts ─────────────────────────────────────────

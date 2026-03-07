@@ -311,6 +311,94 @@ window.portalTour = (function () {
     };
 })();
 
+// ── Feature-discovery beacons ─────────────────────────────────────────────────
+// Adds the .portal-tour-beacon pulsing ring to DOM elements and wires click
+// callbacks back into Blazor via DotNetObjectReference.
+
+window.portalTour.initBeacons = function (selectors, dotNetRef) {
+    selectors.forEach(function (selector, idx) {
+        var el = document.querySelector(selector);
+        if (!el) return;
+        el.classList.add('portal-tour-beacon');
+        el._tourClickHandler = function (e) {
+            e.stopPropagation();
+            dotNetRef.invokeMethodAsync('OnBeaconClicked', idx);
+        };
+        el.addEventListener('click', el._tourClickHandler, { capture: true });
+    });
+};
+
+window.portalTour.removeBeacon = function (selector) {
+    var el = document.querySelector(selector);
+    if (!el) return;
+    el.classList.remove('portal-tour-beacon');
+    if (el._tourClickHandler) {
+        el.removeEventListener('click', el._tourClickHandler, { capture: true });
+        delete el._tourClickHandler;
+    }
+};
+
+window.portalTour.clearAllBeacons = function () {
+    document.querySelectorAll('.portal-tour-beacon').forEach(function (el) {
+        el.classList.remove('portal-tour-beacon');
+        if (el._tourClickHandler) {
+            el.removeEventListener('click', el._tourClickHandler, { capture: true });
+            delete el._tourClickHandler;
+        }
+    });
+};
+
+// Smart tooltip positioning: returns { top, left, arrowDir } keeping the card
+// inside the viewport. Called by TourBeaconSet.razor OnBeaconClicked.
+window.portalTour.getTooltipPosition = function (selector, tooltipW, tooltipH) {
+    var el = document.querySelector(selector);
+    if (!el) return { top: 120, left: 120, arrowDir: 'top' };
+
+    var rect = el.getBoundingClientRect();
+    var vw = window.innerWidth;
+    var vh = window.innerHeight;
+    var gap = 14;
+    var scrollY = window.scrollY;
+    var scrollX = window.scrollX;
+
+    function clampLeft(l) { return Math.min(Math.max(l, 8), vw - tooltipW - 8); }
+
+    // Prefer below
+    if (rect.bottom + tooltipH + gap < vh) {
+        return { top: rect.bottom + gap + scrollY, left: clampLeft(rect.left + scrollX), arrowDir: 'top' };
+    }
+    // Try above
+    if (rect.top - tooltipH - gap > 0) {
+        return { top: rect.top - tooltipH - gap + scrollY, left: clampLeft(rect.left + scrollX), arrowDir: 'bottom' };
+    }
+    // Try right
+    if (rect.right + tooltipW + gap < vw) {
+        return { top: rect.top + scrollY, left: rect.right + gap + scrollX, arrowDir: 'left' };
+    }
+    // Fallback left
+    return { top: rect.top + scrollY, left: Math.max(8, rect.left - tooltipW - gap + scrollX), arrowDir: 'right' };
+};
+
+// ── Spotlight highlight (used by GuidedTour IsSpotlight mode) ─────────────────
+// Applies a box-shadow "spotlight" to the target element so the surrounding
+// page appears darkened through the CSS .portal-tour-backdrop-spotlight overlay.
+
+window.portalTour.spotlightOn = function (selector) {
+    window.portalTour.spotlightOff();
+    var el = document.querySelector(selector);
+    if (!el) return null;
+    el.classList.add('portal-tour-spotlight-target');
+    el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+    var rect = el.getBoundingClientRect();
+    return { top: rect.top + window.scrollY, left: rect.left + window.scrollX, width: rect.width, height: rect.height };
+};
+
+window.portalTour.spotlightOff = function () {
+    document.querySelectorAll('.portal-tour-spotlight-target').forEach(function (el) {
+        el.classList.remove('portal-tour-spotlight-target');
+    });
+};
+
 window.portalScrollToSection = function (elementId) {
     var el = document.getElementById(elementId);
     if (el) {
@@ -685,3 +773,91 @@ window.portalCalendar = {
         localStorage.setItem('fc_portal_calendar_reminders', json);
     }
 };
+
+// ── Onboarding Wizard ─────────────────────────────────────────────
+window.portalWizard = (() => {
+    // ── Confetti particle system ─────────────────────────────────
+    function launchConfetti() {
+        const canvas = document.getElementById('wiz-confetti');
+        if (!canvas) return;
+
+        const ctx = canvas.getContext('2d');
+        canvas.width  = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const COLORS = [
+            '#006B3F', '#22c55e', '#C8A415', '#f59e0b',
+            '#3b82f6', '#a855f7', '#ef4444', '#06b6d4',
+        ];
+        const COUNT  = 160;
+        const GRAVITY = 0.35;
+        const DRAG    = 0.97;
+
+        const particles = Array.from({ length: COUNT }, () => ({
+            x:    Math.random() * canvas.width,
+            y:    -Math.random() * canvas.height * 0.4,
+            vx:   (Math.random() - 0.5) * 6,
+            vy:   Math.random() * 4 + 2,
+            w:    Math.random() * 9 + 5,
+            h:    Math.random() * 5 + 3,
+            rot:  Math.random() * Math.PI * 2,
+            rotV: (Math.random() - 0.5) * 0.25,
+            col:  COLORS[Math.floor(Math.random() * COLORS.length)],
+            op:   1,
+        }));
+
+        let frame;
+        let elapsed = 0;
+
+        function tick() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            elapsed++;
+
+            let alive = 0;
+            for (const p of particles) {
+                p.vy  += GRAVITY;
+                p.vx  *= DRAG;
+                p.vy  *= DRAG;
+                p.x   += p.vx;
+                p.y   += p.vy;
+                p.rot += p.rotV;
+                if (elapsed > 100) p.op = Math.max(0, p.op - 0.012);
+
+                if (p.y < canvas.height + 20 && p.op > 0) {
+                    alive++;
+                    ctx.save();
+                    ctx.translate(p.x, p.y);
+                    ctx.rotate(p.rot);
+                    ctx.globalAlpha = p.op;
+                    ctx.fillStyle   = p.col;
+                    ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+                    ctx.restore();
+                }
+            }
+
+            if (alive > 0) {
+                frame = requestAnimationFrame(tick);
+            } else {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+
+        frame = requestAnimationFrame(tick);
+
+        // Auto-cancel after 8s
+        setTimeout(() => {
+            cancelAnimationFrame(frame);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        }, 8000);
+    }
+
+    // ── Video helper ─────────────────────────────────────────────
+    function openVideo() {
+        // Open a getting-started video in a new tab (URL configurable)
+        const videoUrl = document.documentElement.dataset.wizVideoUrl
+            || 'https://www.youtube.com/results?search_query=FCEngine+getting+started';
+        window.open(videoUrl, '_blank', 'noopener,noreferrer');
+    }
+
+    return { launchConfetti, openVideo };
+})();

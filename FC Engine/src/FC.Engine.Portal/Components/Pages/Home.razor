@@ -69,59 +69,91 @@ else if (data is not null)
         <!-- ═══════════════════════════════════════════════════════════
              SECTION 2: Hero Metrics (animated counters + sparklines)
              ═══════════════════════════════════════════════════════════ -->
-        <section class="portal-hero-metrics" aria-label="Key performance indicators">
-            @foreach (var metric in data.HeroMetrics)
-            {
-                <div class="portal-hero-card portal-hero-card-@metric.Id" id="widget-hero-@metric.Id"
-                     style="--hero-color: @metric.Color;">
-                    <div class="portal-hero-card-header">
-                        <span class="portal-hero-label">@metric.Label</span>
-                        <span class="portal-hero-trend @(metric.IsPositiveTrend ? "portal-trend-up" : "portal-trend-down")"
-                              aria-label="@GetTrendAriaLabel(metric)">
-                            @if (metric.IsPositiveTrend)
+        <div class="portal-metrics-section">
+            <div class="portal-metrics-section-header">
+                <span class="portal-metrics-section-label">Key Metrics</span>
+                <button class="portal-metrics-refresh-btn @(_metricsRefreshing ? "portal-metrics-refresh-btn--spinning" : "")"
+                        @onclick="RefreshMetrics"
+                        disabled="@_metricsRefreshing"
+                        title="Refresh metrics"
+                        aria-label="Refresh dashboard metrics">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                         stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                        <path d="M21 3v5h-5"/>
+                        <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/>
+                        <path d="M8 16H3v5"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="portal-hero-metrics" role="group" aria-label="Key performance indicators">
+                @if (_metricsRefreshing)
+                {
+                    @for (int i = 0; i < 4; i++)
+                    {
+                        <div class="portal-hero-card portal-skeleton-card">
+                            <div class="portal-skeleton portal-skeleton-text"></div>
+                            <div class="portal-skeleton portal-skeleton-text portal-skeleton-lg"></div>
+                            <div class="portal-skeleton portal-skeleton-text portal-skeleton-sm"></div>
+                        </div>
+                    }
+                }
+                else
+                {
+                    @foreach (var metric in data.HeroMetrics)
+                    {
+                        <div class="portal-hero-card portal-metric-card--@GetMetricVariant(metric.Id)"
+                             id="widget-hero-@metric.Id"
+                             tabindex="0"
+                             role="button"
+                             aria-label="@metric.Label: @metric.Value@metric.Suffix. @GetTrendAriaLabel(metric). Press Enter to view breakdown."
+                             @onclick="() => OpenMetricModal(metric)"
+                             @onkeydown="(e) => OnMetricKeyDown(e, metric)">
+                            <div class="portal-hero-card-header">
+                                <span class="portal-hero-label">@metric.Label</span>
+                                <span class="portal-hero-trend @(metric.IsPositiveTrend ? "portal-trend-up" : "portal-trend-down")"
+                                      aria-hidden="true">
+                                    @if (metric.IsPositiveTrend)
+                                    {
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+                                            <polyline points="17 6 23 6 23 12"/>
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                            <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/>
+                                            <polyline points="17 18 23 18 23 12"/>
+                                        </svg>
+                                    }
+                                    @(metric.ChangePercent >= 0 ? "+" : "")@metric.ChangePercent@metric.Suffix
+                                </span>
+                            </div>
+                            <div class="portal-hero-value-wrap">
+                                <AnimatedCounter Value="@(double)metric.Value"
+                                                 Suffix="@metric.Suffix"
+                                                 Duration="800"
+                                                 DecimalPlaces="@(metric.Suffix == "%" ? 1 : 0)" />
+                            </div>
+                            @if (metric.SparklineData.Count >= 2)
                             {
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-                                    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
-                                    <polyline points="17 6 23 6 23 12"/>
-                                </svg>
+                                <div class="portal-hero-sparkline-row">
+                                    <Sparkline Data="@metric.SparklineData"
+                                               AriaLabel="@metric.Label 7-day trend" />
+                                </div>
                             }
-                            else
-                            {
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-                                    <polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/>
-                                    <polyline points="17 18 23 18 23 12"/>
-                                </svg>
-                            }
-                            @(metric.ChangePercent >= 0 ? "+" : "")@metric.ChangePercent@metric.Suffix
-                        </span>
-                    </div>
-                    <div class="portal-hero-value-row">
-                        <span class="portal-hero-value" id="counter-@metric.Id" aria-live="polite">
-                            @metric.Value@metric.Suffix
-                        </span>
-                        @if (metric.SparklineData.Count >= 2)
-                        {
-                            <svg class="portal-sparkline" viewBox="0 0 80 30" preserveAspectRatio="none"
-                                 role="img" aria-label="@metric.Label 7-day trend sparkline">
-                                @{
-                                    var pts = metric.SparklineData;
-                                    var maxVal = pts.Max() == 0 ? 1 : pts.Max();
-                                    var sparkPts = pts.Select((v, i) => $"{i * 80.0 / (pts.Count - 1):F1},{30 - v / maxVal * 26:F1}").ToList();
-                                    var polylinePoints = string.Join(" ", sparkPts);
-                                    var areaPoints = $"0,30 {polylinePoints} {80},30";
-                                }
-                                <polygon points="@areaPoints"
-                                         fill="@metric.Color" fill-opacity="0.12" />
-                                <polyline points="@polylinePoints"
-                                          fill="none" stroke="@metric.Color" stroke-width="2"
-                                          stroke-linejoin="round" stroke-linecap="round" />
-                            </svg>
-                        }
-                    </div>
-                    <div class="portal-hero-subtitle">vs previous @selectedDays days</div>
-                </div>
-            }
-        </section>
+                            <div class="portal-metric-trend-indicator @(metric.IsPositiveTrend ? "portal-metric-trend-up" : "portal-metric-trend-down")"
+                                 aria-label="@GetTrendAriaLabel(metric)">
+                                <span aria-hidden="true">@(metric.IsPositiveTrend ? "▲" : "▼")</span>
+                                @(metric.ChangePercent >= 0 ? "+" : "")@metric.ChangePercent@metric.Suffix
+                            </div>
+                            <div class="portal-hero-subtitle">vs previous @selectedDays days</div>
+                        </div>
+                    }
+                }
+            </div>
+        </div>
 
         <!-- ═══════════════════════════════════════════════════════════
              SECTION 2.5: Upcoming Deadlines — Prominent Widget
@@ -625,6 +657,72 @@ else if (data is not null)
         </div>
 
     </div>
+
+    @if (_activeMetric is not null)
+    {
+        @{
+            var sparkMax = _activeMetric.SparklineData.Count > 0 ? _activeMetric.SparklineData.Max() : 1m;
+            if (sparkMax == 0) sparkMax = 1;
+        }
+        <div class="portal-metric-modal-backdrop"
+             @onclick="CloseMetricModal"
+             @onkeydown="HandleModalKeyDown"
+             role="dialog"
+             aria-modal="true"
+             tabindex="-1"
+             aria-label="@_activeMetric.Label breakdown">
+            <div class="portal-modal portal-metric-modal portal-metric-card--@GetMetricVariant(_activeMetric.Id)"
+                 @onclick:stopPropagation="true">
+                <div class="portal-metric-modal-header">
+                    <div class="portal-metric-modal-title-group">
+                        <span class="portal-metric-modal-label">@_activeMetric.Label</span>
+                        <span class="portal-metric-modal-value">@_activeMetric.Value@_activeMetric.Suffix</span>
+                    </div>
+                    <button class="portal-modal-close-btn" @onclick="CloseMetricModal" aria-label="Close breakdown">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="portal-metric-modal-body">
+                    <p class="portal-metric-modal-section-label">7-day trend</p>
+                    <div class="portal-metric-breakdown-bars">
+                        @for (int di = 0; di < _activeMetric.SparklineData.Count; di++)
+                        {
+                            var dayVal = _activeMetric.SparklineData[di];
+                            var dayLabel = DateTime.Now.AddDays(-(_activeMetric.SparklineData.Count - 1 - di)).ToString("ddd");
+                            var pct = (double)(dayVal / sparkMax) * 100;
+                            <div class="portal-metric-breakdown-day">
+                                <div class="portal-metric-breakdown-bar-track">
+                                    <div class="portal-metric-breakdown-bar-fill"
+                                         style="height: @pct.ToString("F0")%;"></div>
+                                </div>
+                                <span class="portal-metric-breakdown-val">@dayVal@_activeMetric.Suffix</span>
+                                <span class="portal-metric-breakdown-label">@dayLabel</span>
+                            </div>
+                        }
+                    </div>
+                    <div class="portal-metric-modal-stats">
+                        <div class="portal-metric-modal-stat">
+                            <span class="portal-metric-modal-stat-label">Current Period</span>
+                            <span class="portal-metric-modal-stat-value">@_activeMetric.Value@_activeMetric.Suffix</span>
+                        </div>
+                        <div class="portal-metric-modal-stat">
+                            <span class="portal-metric-modal-stat-label">Previous Period</span>
+                            <span class="portal-metric-modal-stat-value">@_activeMetric.PreviousValue@_activeMetric.Suffix</span>
+                        </div>
+                        <div class="portal-metric-modal-stat">
+                            <span class="portal-metric-modal-stat-label">Change</span>
+                            <span class="portal-metric-modal-stat-value @(_activeMetric.IsPositiveTrend ? "portal-trend-up" : "portal-trend-down")">
+                                @(_activeMetric.ChangePercent >= 0 ? "+" : "")@_activeMetric.ChangePercent@_activeMetric.Suffix
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
 }
 else
 {
@@ -636,6 +734,9 @@ else
         </div>
     </div>
 }
+
+@* ── Feature-discovery beacons (shown once to new users) ── *@
+<TourBeaconSet TourKey="home-v1" Beacons="@_homeBeacons" Steps="@_homeTourSteps" />
 
 @code {
     [CascadingParameter]
@@ -654,6 +755,8 @@ else
     private TemplateHealthItem? selectedTemplate;
 
     private bool _showComplianceView;
+    private bool _metricsRefreshing;
+    private HeroMetric? _activeMetric;
 
     private DotNetObjectReference<Home>? _dotNetRef;
 
@@ -750,6 +853,50 @@ else
         await LoadDashboard();
     }
 
+    private async Task RefreshMetrics()
+    {
+        if (_metricsRefreshing || isLoading) return;
+        _metricsRefreshing = true;
+        chartsRendered = false;
+        StateHasChanged();
+        try
+        {
+            if (institutionId > 0)
+                data = await DashboardService.GetDashboardDataAsync(institutionId, institutionName, institutionCode, selectedDays, forceRefresh: true);
+        }
+        catch { }
+        finally
+        {
+            _metricsRefreshing = false;
+            OverdueAlertSvc.Update(data?.OverdueCount ?? 0);
+            StateHasChanged();
+        }
+    }
+
+    private void OpenMetricModal(HeroMetric metric) => _activeMetric = metric;
+    private void CloseMetricModal() => _activeMetric = null;
+
+    private void OnMetricKeyDown(KeyboardEventArgs e, HeroMetric metric)
+    {
+        if (e.Key is "Enter" or " ")
+            OpenMetricModal(metric);
+    }
+
+    private void HandleModalKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+            CloseMetricModal();
+    }
+
+    private static string GetMetricVariant(string id) => id switch
+    {
+        "compliance"  => "success",
+        "submissions" => "info",
+        "passrate"    => "primary",
+        "pending"     => "warning",
+        _             => "info"
+    };
+
     // ── Chart Rendering ──────────────────────────────────────────
 
     private async Task RenderAllCharts()
@@ -758,10 +905,6 @@ else
 
         var widgetIds = new[] { "widget-volume", "widget-health", "widget-modules", "widget-heatmap", "widget-deadlines", "widget-activity", "widget-submissions" };
         await Charts.RenderStaggered(widgetIds, 90);
-
-        // Animate hero counters
-        foreach (var m in data.HeroMetrics)
-            await Charts.AnimateCounter($"counter-{m.Id}", m.Value, 900, m.Suffix);
 
         // Area chart
         if (data.SubmissionVolume.Any())
@@ -957,4 +1100,26 @@ else
     {
         _dotNetRef?.Dispose();
     }
+
+    // ── Tour definitions ─────────────────────────────────────────────────────
+
+    private static readonly IReadOnlyList<TourBeaconDefinition> _homeBeacons =
+    [
+        new(".portal-hero-metrics",  "Your Performance Summary",
+            "See filings due, recent submissions, and compliance score at a glance.", "bottom"),
+        new("a[href='/submit']",     "Submit a Return",
+            "Start a new regulatory return — pick a template, enter data, and submit in minutes.", "bottom"),
+        new(".portal-sidebar-nav",   "Quick Navigation",
+            "Jump to Submissions, Calendar, or Approvals directly from the sidebar.", "right"),
+    ];
+
+    private static readonly IReadOnlyList<GuidedTourStepDefinition> _homeTourSteps =
+    [
+        new() { TargetSelector = ".portal-hero-metrics",  Title = "Performance Dashboard",
+                Description = "Your key filing metrics — pending returns, compliance score, and deadline alerts — all at a glance.", Position = "bottom" },
+        new() { TargetSelector = "a[href='/submit']",     Title = "Submit a Return",
+                Description = "Click here to start a new regulatory submission. Choose a template and begin data entry.", Position = "bottom" },
+        new() { TargetSelector = "a[href='/calendar']",   Title = "Filing Calendar",
+                Description = "Review all upcoming reporting periods and due dates across your active modules.", Position = "right" },
+    ];
 }

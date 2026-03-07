@@ -1,156 +1,543 @@
 @page "/dashboard/compliance"
-@attribute [Authorize]
-@using FC.Engine.Domain.Abstractions
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.Models
 @using FC.Engine.Infrastructure.Charts
-@inject IDashboardService DashboardService
-@inject ITenantContext TenantContext
+@inject DashboardService DashboardSvc
+@inject ExportService ExportSvc
 @inject ChartJsInterop Charts
+@inject IJSRuntime JS
 
-<PageTitle>Compliance Summary</PageTitle>
+<PageTitle>Compliance Dashboard — FC Engine Portal</PageTitle>
 
 @if (_loading)
 {
-    <div class="dash17-loading">Loading compliance summary...</div>
-}
-else if (!string.IsNullOrWhiteSpace(_error))
-{
-    <div class="dash17-error">@_error</div>
-}
-else if (_summary is not null)
-{
-    <div class="dash17-compliance">
-        <header class="dash17-header">
-            <div>
-                <h1>Cross-Module Compliance Summary</h1>
-                <p>Overall compliance score: <strong>@_summary.OverallScore.ToString("0.##")%</strong></p>
-            </div>
-            <div class="dash17-score-chip">Generated @_summary.GeneratedAt.ToString("dd MMM yyyy HH:mm")</div>
-        </header>
-
-        <div class="dash17-chart-card dash17-chart-card-wide">
-            <h3>RAG Distribution Across Active Modules</h3>
-            <div class="dash17-chart-wrap"><canvas id="complianceRagChart"></canvas></div>
+    <div class="portal-page">
+        <div class="portal-cdr-heroes">
+            @for (int i = 0; i < 4; i++)
+            {
+                <div class="portal-cdr-hero-card">
+                    <div class="portal-skeleton" style="width:72px;height:72px;border-radius:50%;"></div>
+                    <div style="flex:1">
+                        <div class="portal-skeleton portal-skeleton-text portal-skeleton-lg" style="margin-bottom:.5rem;"></div>
+                        <div class="portal-skeleton portal-skeleton-text portal-skeleton-sm"></div>
+                    </div>
+                </div>
+            }
         </div>
+        <div class="portal-skeleton portal-skeleton-block" style="height:320px;border-radius:var(--radius-xl);"></div>
+    </div>
+}
+else if (_data is not null)
+{
+    <div class="portal-page" id="printable-compliance-dashboard">
 
-        <div class="dash17-table-wrap">
-            <table class="dash17-table" aria-label="Compliance summary table">
-                <thead>
-                    <tr>
-                        <th>Module</th>
-                        <th>Current</th>
-                        <th>Previous</th>
-                        <th>Trend</th>
-                        <th>Score</th>
-                        <th>Timeliness</th>
-                        <th>Data Quality</th>
-                        <th>Validation</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in _summary.Modules)
+        <!-- ════════════════════════════════════════════════════
+             PAGE HEADER
+             ════════════════════════════════════════════════════ -->
+        <PortalPageHeader Breadcrumb="_breadcrumb"
+                          Title="Compliance Dashboard"
+                          Subtitle="@($"{_data.InstitutionName} · {_data.InstitutionCode} · Updated {_data.GeneratedAt:d MMM HH:mm}")">
+            <PrimaryAction>
+                <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="ExportPdf">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Download PDF
+                </button>
+            </PrimaryAction>
+            <SecondaryActions>
+                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="SendEmailAsync"
+                        disabled="@(_sendingEmail || _emailSent)">
+                    @if (_sendingEmail)
                     {
-                        <tr>
-                            <td>
-                                <a href="/dashboard/module/@row.ModuleCode">@row.ModuleName</a>
-                            </td>
-                            <td><span class="dash17-pill @RagClass(row.CurrentRag)">@row.CurrentRag</span></td>
-                            <td><span class="dash17-pill @RagClass(row.PreviousRag)">@row.PreviousRag</span></td>
-                            <td>@TrendLabel(row.Trend)</td>
-                            <td>@row.Score.ToString("0.##")%</td>
-                            <td>@row.TimelinessScore.ToString("0.##")%</td>
-                            <td>@row.DataQualityScore.ToString("0.##")%</td>
-                            <td>@row.ValidationPassRate.ToString("0.##")%</td>
-                        </tr>
+                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                        <span>Sending…</span>
                     }
-                </tbody>
-            </table>
+                    else if (_emailSent)
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span>Sent</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                            <polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                        <span>Send via Email</span>
+                    }
+                </button>
+            </SecondaryActions>
+        </PortalPageHeader>
+
+        <!-- ════════════════════════════════════════════════════
+             FILTER BAR
+             ════════════════════════════════════════════════════ -->
+        <div class="portal-cdr-filters no-print" role="group" aria-label="Compliance filters">
+            <span class="portal-cdr-filter-label">Filter:</span>
+
+            @* Module *@
+            <div class="portal-cdr-filter-field">
+                <label class="portal-sr-only" for="cdr-module-filter">Module</label>
+                <select id="cdr-module-filter" class="portal-form-select portal-form-select-sm"
+                        @bind="_filterReturnCode" @bind:after="RefreshAsync">
+                    <option value="">All Modules</option>
+                    @foreach (var code in _data.AvailableReturnCodes)
+                    {
+                        <option value="@code">@code</option>
+                    }
+                </select>
+            </div>
+
+            @* Frequency *@
+            <div class="portal-cdr-filter-field">
+                <label class="portal-sr-only" for="cdr-freq-filter">Frequency</label>
+                <select id="cdr-freq-filter" class="portal-form-select portal-form-select-sm"
+                        @bind="_filterFrequency" @bind:after="RefreshAsync">
+                    <option value="">All Frequencies</option>
+                    @foreach (var freq in _data.AvailableFrequencies)
+                    {
+                        <option value="@freq">@freq</option>
+                    }
+                </select>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_filterReturnCode) || !string.IsNullOrEmpty(_filterFrequency))
+            {
+                <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="ClearFiltersAsync">
+                    Clear filters
+                </button>
+            }
+
+            <span class="portal-cdr-filter-updated no-print">
+                Generated @_data.GeneratedAt.ToString("HH:mm")
+            </span>
         </div>
+
+        <!-- ════════════════════════════════════════════════════
+             HERO CARDS
+             ════════════════════════════════════════════════════ -->
+        <section class="portal-cdr-heroes" aria-label="Compliance metrics">
+
+            <!-- Compliance Rate — ring chart -->
+            <div class="portal-cdr-hero-card portal-cdr-hero-card--primary">
+                <div class="portal-cdr-ring" style="--pct: @_data.ComplianceRate; --ring-color: @GetRingColor(_data.ComplianceRate);"
+                     role="img" aria-label="Compliance rate: @_data.ComplianceRate%">
+                    <div class="portal-cdr-ring-inner">@_data.ComplianceRate%</div>
+                </div>
+                <div class="portal-cdr-hero-body">
+                    <span class="portal-cdr-hero-label">Compliance Rate</span>
+                    <span class="portal-badge portal-badge-sm @GetBadgeClass(_data.ComplianceRate)" style="margin-top:var(--space-1);">
+                        @GetBadgeLabel(_data.ComplianceRate)
+                    </span>
+                    <span class="portal-cdr-hero-sub">This period</span>
+                </div>
+            </div>
+
+            <!-- Returns Filed -->
+            <div class="portal-cdr-hero-card">
+                <div class="portal-cdr-hero-icon portal-cdr-hero-icon--filed" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <polyline points="9 15 11 17 15 13"/>
+                    </svg>
+                </div>
+                <div class="portal-cdr-hero-body">
+                    <span class="portal-cdr-hero-value">@_data.ReturnsFiled</span>
+                    <span class="portal-cdr-hero-label">Returns Filed</span>
+                    <span class="portal-cdr-hero-sub">This period</span>
+                </div>
+            </div>
+
+            <!-- Outstanding -->
+            <div class="portal-cdr-hero-card">
+                <div class="portal-cdr-hero-icon portal-cdr-hero-icon--outstanding" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                </div>
+                <div class="portal-cdr-hero-body">
+                    <span class="portal-cdr-hero-value">@_data.Outstanding</span>
+                    <span class="portal-cdr-hero-label">Outstanding</span>
+                    <span class="portal-cdr-hero-sub">Pending submission</span>
+                </div>
+            </div>
+
+            <!-- Overdue -->
+            <div class="portal-cdr-hero-card @(_data.Overdue > 0 ? "portal-cdr-hero-card--alert" : "")">
+                <div class="portal-cdr-hero-icon portal-cdr-hero-icon--overdue" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                </div>
+                <div class="portal-cdr-hero-body">
+                    <span class="portal-cdr-hero-value @(_data.Overdue > 0 ? "portal-cdr-value--danger" : "")">@_data.Overdue</span>
+                    <span class="portal-cdr-hero-label">Overdue</span>
+                    <span class="portal-cdr-hero-sub">Past deadline</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════════════════════════════════════════════════════
+             TREND CARD
+             ════════════════════════════════════════════════════ -->
+        <div class="portal-cdr-trend-card @(_data.IsTrendImproving ? "portal-cdr-trend-card--up" : "portal-cdr-trend-card--down")">
+            <div class="portal-cdr-trend-icon" aria-hidden="true">
+                @if (_data.IsTrendImproving)
+                {
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"/>
+                    </svg>
+                }
+                else
+                {
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                }
+            </div>
+            <div class="portal-cdr-trend-body">
+                @if (_data.IsTrendImproving)
+                {
+                    <strong>Your compliance rate is improving — +@Math.Abs(_data.QuarterChange)% vs last quarter</strong>
+                    <p>You're on track. Keep submitting returns on time to maintain your record.</p>
+                }
+                else if (_data.QuarterChange == 0)
+                {
+                    <strong>Compliance rate is holding steady this quarter</strong>
+                    <p>No change vs last quarter. Review outstanding returns to push above targets.</p>
+                }
+                else
+                {
+                    <strong>Compliance is declining — @Math.Abs(_data.QuarterChange)% below last quarter</strong>
+                    <p>Contact your compliance officer for assistance or <a href="/submissions" class="portal-cdr-trend-link">view outstanding returns</a>.</p>
+                }
+            </div>
+            @if (_data.ModuleBreakdowns.Any())
+            {
+                <div class="portal-cdr-trend-best">
+                    @{
+                        var best = _data.ModuleBreakdowns.OrderByDescending(m => m.ComplianceRate).First();
+                        var worst = _data.ModuleBreakdowns.OrderBy(m => m.ComplianceRate).First();
+                    }
+                    <div class="portal-cdr-trend-stat">
+                        <span class="portal-cdr-trend-stat-label">Best performing</span>
+                        <span class="portal-cdr-trend-stat-val portal-cdr-trend-stat-val--good">@best.ReturnCode (@best.ComplianceRate%)</span>
+                    </div>
+                    @if (_data.ModuleBreakdowns.Count > 1)
+                    {
+                        <div class="portal-cdr-trend-stat">
+                            <span class="portal-cdr-trend-stat-label">Needs attention</span>
+                            <span class="portal-cdr-trend-stat-val portal-cdr-trend-stat-val--warn">@worst.ReturnCode (@worst.ComplianceRate%)</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- ════════════════════════════════════════════════════
+             GROUPED BAR CHART — LAST 12 MONTHS
+             ════════════════════════════════════════════════════ -->
+        <div class="portal-card portal-cdr-chart-card">
+            <div class="portal-card-header">
+                <div>
+                    <h2 class="portal-card-title">Monthly Compliance — Last 12 Months</h2>
+                    <p class="portal-card-subtitle">Grouped by submission timeliness</p>
+                </div>
+                <div class="portal-cdr-chart-legend" aria-label="Chart legend">
+                    <span><span class="portal-cdr-legend-dot portal-cdr-legend-dot--on-time" aria-hidden="true"></span>On Time</span>
+                    <span><span class="portal-cdr-legend-dot portal-cdr-legend-dot--late" aria-hidden="true"></span>Late</span>
+                    <span><span class="portal-cdr-legend-dot portal-cdr-legend-dot--missed" aria-hidden="true"></span>Missed</span>
+                </div>
+            </div>
+            <div class="portal-cdr-chart-wrap">
+                <canvas id="complianceBarChart" aria-label="Monthly compliance grouped bar chart" role="img"></canvas>
+            </div>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════
+             BY-MODULE BREAKDOWN TABLE
+             ════════════════════════════════════════════════════ -->
+        <div class="portal-card portal-card-flush portal-cdr-table-card">
+            <div class="portal-card-header">
+                <h2 class="portal-card-title">By-Module Breakdown</h2>
+                <span class="portal-cdr-table-badge">@_data.ModuleBreakdowns.Count module@(_data.ModuleBreakdowns.Count == 1 ? "" : "s")</span>
+            </div>
+
+            @if (_data.ModuleBreakdowns.Any())
+            {
+                <div class="portal-cdr-table-scroll">
+                    <table class="portal-report-table portal-cdr-table" aria-label="Compliance by module">
+                        <thead>
+                            <tr>
+                                <th scope="col">Module Code</th>
+                                <th scope="col">Return Name</th>
+                                <th scope="col">Frequency</th>
+                                <th scope="col" class="portal-th-num">Due</th>
+                                <th scope="col" class="portal-th-num">Submitted</th>
+                                <th scope="col">Compliance Rate</th>
+                                <th scope="col">6-Month Trend</th>
+                                <th scope="col">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _data.ModuleBreakdowns)
+                            {
+                                <tr class="portal-cdr-table-row">
+                                    <td class="portal-td-mono portal-cdr-td-code">@row.ReturnCode</td>
+                                    <td class="portal-cdr-td-name">@row.ReturnName</td>
+                                    <td>
+                                        <span class="portal-badge portal-badge-sm portal-badge-neutral">@row.Frequency</span>
+                                    </td>
+                                    <td class="portal-td-mono portal-th-num">@row.ReturnsDue</td>
+                                    <td class="portal-td-mono portal-th-num">@row.Submitted</td>
+                                    <td>
+                                        <div class="portal-cdr-rate-cell">
+                                            <div class="portal-cdr-rate-bar" aria-hidden="true">
+                                                <div class="portal-cdr-rate-fill @GetRateBarClass(row.ComplianceRate)"
+                                                     style="width: @(Math.Min(row.ComplianceRate, 100))%"></div>
+                                            </div>
+                                            <span class="portal-cdr-rate-value">@row.ComplianceRate%</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (row.TrendSparkline.Count >= 2)
+                                        {
+                                            <svg width="64" height="22" aria-label="6-month trend for @row.ReturnCode" role="img">
+                                                <polyline points="@BuildSparklinePoints(row.TrendSparkline)"
+                                                          fill="none"
+                                                          stroke="@GetSparklineColor(row.ComplianceRate)"
+                                                          stroke-width="1.5"
+                                                          stroke-linecap="round"
+                                                          stroke-linejoin="round" />
+                                            </svg>
+                                        }
+                                        else
+                                        {
+                                            <span class="portal-text-muted" style="font-size:.75rem;">No data</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="portal-badge portal-badge-sm @GetBadgeClass(row.ComplianceRate)">
+                                            @GetBadgeLabel(row.ComplianceRate)
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="portal-empty-state" style="padding: var(--space-8);">
+                    <p class="portal-empty-state-desc">No modules match the current filter.</p>
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ClearFiltersAsync">Clear filters</button>
+                </div>
+            }
+        </div>
+
+        <!-- print footer -->
+        <div class="portal-report-print-footer print-only">
+            Compliance Dashboard · @_data.InstitutionName (@_data.InstitutionCode)
+            · Generated @_data.GeneratedAt.ToString("dd MMM yyyy HH:mm") UTC · FC Engine Portal
+        </div>
+
     </div>
 }
 
 @code {
-    private ComplianceSummaryData? _summary;
-    private bool _loading = true;
-    private bool _chartRendered;
-    private string? _error;
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromQuery(Name = "module")] private string? InitModule { get; set; }
+    [SupplyParameterFromQuery(Name = "freq")]   private string? InitFreq   { get; set; }
+
+    private ComplianceDashboardData? _data;
+    private bool  _loading       = true;
+    private bool  _chartRendered = false;
+    private bool  _sendingEmail  = false;
+    private bool  _emailSent     = false;
+
+    private string _filterReturnCode = "";
+    private string _filterFrequency  = "";
+
+    private int _institutionId;
+    private int _currentUserId;
+    private string _institutionName = "";
+    private string _institutionCode = "";
+
+    private IReadOnlyList<BreadcrumbItem> _breadcrumb = Array.Empty<BreadcrumbItem>();
 
     protected override async Task OnInitializedAsync()
     {
-        _loading = true;
-        _error = null;
+        var state = await AuthState!;
+        int.TryParse(state.User.FindFirst("InstitutionId")?.Value, out _institutionId);
+        int.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out _currentUserId);
+        _institutionName = state.User.FindFirst("InstitutionName")?.Value ?? "";
+        _institutionCode = state.User.FindFirst("InstitutionCode")?.Value ?? "";
 
+        _filterReturnCode = InitModule ?? "";
+        _filterFrequency  = InitFreq  ?? "";
+
+        _breadcrumb = new BreadcrumbItem[]
+        {
+            new("Dashboard", "/",          IsCurrent: false),
+            new("Compliance", null,        IsCurrent: true)
+        };
+
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is null || _chartRendered) return;
+
+        var chartData = BuildBarChartData(_data.MonthlyBars);
+        await Charts.RenderBarChart("complianceBarChart", chartData);
+        _chartRendered = true;
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading       = true;
+        _chartRendered = false;
         try
         {
-            if (TenantContext.CurrentTenantId is not { } tenantId)
-            {
-                _error = "Tenant context is not available for this dashboard.";
-                return;
-            }
-
-            _summary = await DashboardService.GetComplianceSummary(tenantId);
+            _data = await DashboardSvc.GetComplianceDashboardAsync(
+                _institutionId, _institutionName, _institutionCode,
+                string.IsNullOrEmpty(_filterReturnCode) ? null : _filterReturnCode,
+                string.IsNullOrEmpty(_filterFrequency)  ? null : _filterFrequency);
         }
-        catch (Exception ex)
-        {
-            _error = ex.Message;
-        }
+        catch { /* swallow — show empty state */ }
         finally
         {
             _loading = false;
         }
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    private async Task RefreshAsync()
     {
-        if (_summary is null || _chartRendered)
-        {
-            return;
-        }
-
-        await Charts.RenderDoughnutChart("complianceRagChart", BuildRagChart(_summary));
-        _chartRendered = true;
+        await LoadAsync();
+        StateHasChanged();
     }
 
-    private static TrendData BuildRagChart(ComplianceSummaryData data)
+    private async Task ClearFiltersAsync()
     {
-        var green = data.Modules.Count(m => string.Equals(m.CurrentRag, "Green", StringComparison.OrdinalIgnoreCase));
-        var amber = data.Modules.Count(m => string.Equals(m.CurrentRag, "Amber", StringComparison.OrdinalIgnoreCase));
-        var red = data.Modules.Count(m => string.Equals(m.CurrentRag, "Red", StringComparison.OrdinalIgnoreCase));
+        _filterReturnCode = "";
+        _filterFrequency  = "";
+        await RefreshAsync();
+    }
 
+    private async Task ExportPdf()
+        => await JS.InvokeVoidAsync("portalPrintElement", "printable-compliance-dashboard");
+
+    private async Task SendEmailAsync()
+    {
+        if (_sendingEmail || _emailSent || _institutionId == 0 || _currentUserId == 0) return;
+        _sendingEmail = true;
+        try
+        {
+            await ExportSvc.NotifyExportReady(
+                _institutionId, _currentUserId,
+                "Compliance Dashboard", "/dashboard/compliance");
+            _emailSent = true;
+            _ = Task.Delay(4000).ContinueWith(_ =>
+            {
+                _emailSent = false;
+                InvokeAsync(StateHasChanged);
+            });
+        }
+        catch { /* ignore */ }
+        finally { _sendingEmail = false; }
+    }
+
+    // ── Chart builders ───────────────────────────────────────────
+
+    private static TrendData BuildBarChartData(List<ComplianceBarMonth> bars)
+    {
         return new TrendData
         {
-            Title = "RAG Status",
-            Labels = new List<string> { "Green", "Amber", "Red" },
+            Labels = bars.Select(b => b.MonthLabel).ToList(),
             Datasets =
             {
                 new TrendDataset
                 {
-                    Label = "Modules",
-                    Data = new List<decimal> { green, amber, red },
-                    BackgroundColor = "#0f766e",
-                    BorderColor = "#0f766e"
+                    Label           = "On Time",
+                    Data            = bars.Select(b => (decimal)b.OnTime).ToList(),
+                    BackgroundColor = "#006B3F",
+                    BorderColor     = "#006B3F"
+                },
+                new TrendDataset
+                {
+                    Label           = "Late",
+                    Data            = bars.Select(b => (decimal)b.Late).ToList(),
+                    BackgroundColor = "#C8A415",
+                    BorderColor     = "#C8A415"
+                },
+                new TrendDataset
+                {
+                    Label           = "Missed",
+                    Data            = bars.Select(b => (decimal)b.Missed).ToList(),
+                    BackgroundColor = "#DC2626",
+                    BorderColor     = "#DC2626"
                 }
             }
         };
     }
 
-    private static string RagClass(string rag)
+    private static string BuildSparklinePoints(List<decimal> data)
     {
-        return rag.ToLowerInvariant() switch
-        {
-            "red" => "rag-red",
-            "amber" => "rag-amber",
-            _ => "rag-green"
-        };
+        if (data.Count < 2) return "";
+        const double W = 60.0;
+        const double H = 18.0;
+        double step = W / (data.Count - 1);
+        return string.Join(" ", data.Select((v, i) =>
+            $"{(i * step):F1},{(H - (double)v / 100 * H):F1}"));
     }
 
-    private static string TrendLabel(string trend)
+    // ── Style helpers ─────────────────────────────────────────────
+
+    private static string GetRingColor(decimal rate) => rate switch
     {
-        return trend switch
-        {
-            "Up" => "↑ Up",
-            "Down" => "↓ Down",
-            _ => "Stable"
-        };
-    }
+        >= 95 => "#006B3F",
+        >= 80 => "#C8A415",
+        _     => "#DC2626"
+    };
+
+    private static string GetBadgeClass(decimal rate) => rate switch
+    {
+        >= 95 => "portal-badge-success",
+        >= 80 => "portal-badge-warning",
+        _     => "portal-badge-danger"
+    };
+
+    private static string GetBadgeLabel(decimal rate) => rate switch
+    {
+        >= 95 => "Excellent",
+        >= 80 => "Good",
+        _     => "Needs Attention"
+    };
+
+    private static string GetRateBarClass(decimal rate) => rate switch
+    {
+        >= 95 => "portal-cdr-rate-fill--excellent",
+        >= 80 => "portal-cdr-rate-fill--good",
+        _     => "portal-cdr-rate-fill--attention"
+    };
+
+    private static string GetSparklineColor(decimal rate) => rate switch
+    {
+        >= 95 => "#006B3F",
+        >= 80 => "#C8A415",
+        _     => "#DC2626"
+    };
 }
