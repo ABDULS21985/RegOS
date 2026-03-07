@@ -18356,3 +18356,428 @@ img.fc-img-lazyload.fc-img-loaded {
 .fc-kpi-trend--neutral  { color: var(--cbn-text-muted,#9ca3af); }
 .fc-kpi-delta { font-size: 0.75rem; color: var(--cbn-text-muted,#9ca3af); margin-top: 2px; min-height: 1em; }
 .rci-result-actions { margin-top: 1rem; display: flex; gap: 0.75rem; }
+
+/* =========================================================
+   §52  Health — Live Alert Feed
+   ========================================================= */
+
+.fc-alert-feed {
+    position: fixed;
+    bottom: 1.5rem;
+    right: 1.5rem;
+    width: 400px;
+    z-index: 900;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.16), 0 2px 8px rgba(0,0,0,0.08);
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    overflow: hidden;
+}
+
+/* Header toggle */
+.fc-alert-feed__header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.625rem 1rem;
+    background: #f9fafb;
+    border: none;
+    border-bottom: 1px solid #e5e7eb;
+    cursor: pointer;
+    user-select: none;
+    text-align: left;
+}
+.fc-alert-feed__header:hover { background: #f3f4f6; }
+
+.fc-alert-feed__icon { color: #6b7280; flex-shrink: 0; }
+
+.fc-alert-feed__title {
+    flex: 1;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #111827;
+    letter-spacing: -0.01em;
+}
+
+.fc-alert-feed__unread {
+    background: #dc2626;
+    color: #fff;
+    border-radius: 999px;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 5px;
+    line-height: 1;
+}
+
+.fc-alert-feed__chevron {
+    color: #9ca3af;
+    flex-shrink: 0;
+    transition: transform var(--motion-fast,150ms) ease;
+}
+.fc-alert-feed--collapsed .fc-alert-feed__chevron { transform: rotate(180deg); }
+
+/* Body */
+.fc-alert-feed--collapsed .fc-alert-feed__body { display: none; }
+
+.fc-alert-feed__body {
+    max-height: 320px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #d1d5db transparent;
+}
+
+/* Actions bar */
+.fc-alert-feed__actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.375rem 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.fc-alert-feed__clear {
+    font-size: 0.6875rem;
+    color: #9ca3af;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    transition: color var(--motion-fast,150ms) ease, background var(--motion-fast,150ms) ease;
+}
+.fc-alert-feed__clear:hover { color: #374151; background: #f3f4f6; }
+
+/* Alert rows */
+.fc-alert-feed__row {
+    display: grid;
+    grid-template-columns: auto auto 1fr auto;
+    align-items: start;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+    transition: background var(--motion-fast,150ms) ease;
+}
+.fc-alert-feed__row:last-child { border-bottom: none; }
+.fc-alert-feed__row:hover { background: #f9fafb; }
+
+/* Severity badge */
+.fc-alert-feed__severity {
+    font-size: 0.625rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    line-height: 1.5;
+    white-space: nowrap;
+}
+.fc-alert-feed__severity--warning  { background: #fef3c7; color: #92400e; }
+.fc-alert-feed__severity--critical { background: #fee2e2; color: #991b1b; }
+
+/* Metric chip */
+.fc-alert-feed__metric {
+    background: #f3f4f6;
+    color: #6b7280;
+    border-radius: 4px;
+    padding: 2px 6px;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    white-space: nowrap;
+    line-height: 1.5;
+}
+
+.fc-alert-feed__message {
+    color: #374151;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    padding-top: 1px;
+}
+
+.fc-alert-feed__time {
+    color: #9ca3af;
+    font-size: 0.6875rem;
+    white-space: nowrap;
+    padding-top: 3px;
+}
+
+/* Empty state */
+.fc-alert-feed__empty {
+    padding: 2rem 1rem;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 0.8125rem;
+}
+
+/* New-alert flash */
+@keyframes fc-alert-new-flash {
+    0%   { background: #fef9c3; }
+    100% { background: transparent; }
+}
+.fc-alert-new { animation: fc-alert-new-flash 2.5s ease-out forwards; }
+
+/* Responsive */
+@media (max-width: 640px) {
+    .fc-alert-feed {
+        right: 0.75rem;
+        left: 0.75rem;
+        width: auto;
+        bottom: 1rem;
+    }
+}
+
+/* =========================================================
+   §52  Health Page — Operational Summary Cards
+   ========================================================= */
+
+/* ── SLO Bar ──────────────────────────────────────────── */
+.fc-slo-bar {
+    position: relative; height: 8px; border-radius: 4px;
+    background: var(--cbn-border,#e5e7eb); overflow: visible;
+    margin: 0.375rem 0 0.25rem;
+}
+.fc-slo-bar__fill {
+    height: 100%; border-radius: 4px; transition: width 0.6s ease;
+}
+.fc-slo-bar__fill--green { background: #16a34a; }
+.fc-slo-bar__fill--amber { background: #d97706; }
+.fc-slo-bar__fill--red   { background: #dc2626; }
+.fc-slo-bar__target {
+    position: absolute; top: -4px; bottom: -4px;
+    left: 99.9%; width: 2px; background: #374151; border-radius: 1px;
+    transform: translateX(-50%);
+}
+.fc-slo-bar__target::after {
+    content: ''; position: absolute; bottom: 100%; left: 50%;
+    transform: translateX(-50%); border: 4px solid transparent;
+    border-bottom-color: #374151;
+}
+
+/* ── SLO label row ────────────────────────────────────── */
+.fc-slo-label-row { display: flex; justify-content: space-between; align-items: baseline; }
+.fc-slo-value { font-weight: 700; font-size: 0.875rem; }
+.fc-slo-value--green { color: #16a34a; }
+.fc-slo-value--amber { color: #d97706; }
+.fc-slo-value--red   { color: #dc2626; }
+.fc-slo-section { margin-top: 1rem; }
+.fc-slo-target-label { font-size: 0.6875rem; color: var(--cbn-text-muted,#9ca3af); text-align: right; margin-top: 2px; }
+
+/* ── Uptime counter ───────────────────────────────────── */
+.fc-uptime-counter {
+    font-size: 2rem; font-weight: 800; letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums; color: var(--cbn-text,#1f2937); line-height: 1;
+}
+.fc-uptime-since { font-size: 0.75rem; color: var(--cbn-text-muted,#9ca3af); margin-top: 0.25rem; }
+
+/* ── Queue Breakdown ──────────────────────────────────── */
+.fc-queue-row {
+    display: grid; grid-template-columns: 90px 1fr auto auto;
+    align-items: center; gap: 0.625rem; padding: 0.5rem 0;
+    border-bottom: 1px solid var(--cbn-border,#e5e7eb);
+}
+.fc-queue-row:last-child { border-bottom: none; }
+.fc-queue-label { font-size: 0.8125rem; color: var(--cbn-text-muted,#6b7280); }
+.fc-queue-spark {
+    height: 6px; border-radius: 3px; background: var(--cbn-border,#e5e7eb); overflow: hidden;
+}
+.fc-queue-spark__fill {
+    height: 100%; border-radius: 3px; transition: width 0.5s ease; min-width: 4px;
+}
+.fc-queue-spark__fill--green { background: #16a34a; }
+.fc-queue-spark__fill--amber { background: #d97706; }
+.fc-queue-spark__fill--red   { background: #dc2626; }
+.fc-queue-count { font-size: 0.875rem; font-weight: 700; min-width: 28px; text-align: right; }
+.fc-queue-chip {
+    font-size: 0.6875rem; font-weight: 600; padding: 2px 8px;
+    border-radius: 10px; text-transform: uppercase; letter-spacing: 0.03em; flex-shrink: 0;
+}
+.fc-queue-chip--green { background: #dcfce7; color: #166534; }
+.fc-queue-chip--amber { background: #fef3c7; color: #92400e; }
+.fc-queue-chip--red   { background: #fee2e2; color: #991b1b; }
+
+/* ── Traffic card ─────────────────────────────────────── */
+.fc-traffic-big {
+    font-size: 2rem; font-weight: 800; line-height: 1;
+    color: var(--cbn-text,#1f2937); margin-bottom: 0.875rem;
+}
+.fc-traffic-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.5rem 0; border-top: 1px solid var(--cbn-border,#e5e7eb);
+    flex-wrap: wrap;
+}
+.fc-traffic-peak { font-size: 0.875rem; font-weight: 600; color: var(--cbn-text,#1f2937); }
+
+/* =========================================================
+   §53  Health — Services & Dependencies Grid
+   ========================================================= */
+
+/* 5-col responsive grid */
+.fc-services-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 0.75rem;
+}
+@media (max-width: 960px) { .fc-services-grid { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 580px) { .fc-services-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* Service mini-card */
+.fc-svc-card {
+    all: unset;
+    cursor: pointer;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.875rem 0.875rem 0.75rem;
+    border-radius: 8px;
+    border: 1.5px solid var(--cbn-border, #e5e7eb);
+    background: var(--cbn-surface, #fff);
+    transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+    text-align: left;
+    width: 100%;
+}
+.fc-svc-card:hover { border-color: var(--cbn-primary, #006B3F); box-shadow: 0 0 0 3px rgba(0,107,63,0.08); }
+.fc-svc-card:focus-visible { outline: 2px solid var(--cbn-primary, #006B3F); outline-offset: 2px; }
+.fc-svc-card--open {
+    border-color: var(--cbn-primary, #006B3F);
+    background: #f0faf5;
+    box-shadow: 0 0 0 3px rgba(0,107,63,0.06);
+}
+.fc-svc-card--degraded { border-left-color: #d97706; }
+.fc-svc-card--down     { border-left-color: #dc2626; }
+
+.fc-svc-card__top  { display: flex; align-items: center; gap: 0.45rem; overflow: hidden; }
+.fc-svc-card__name { font-size: 0.8125rem; font-weight: 600; color: var(--cbn-text, #111); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fc-svc-card__ms   { font-size: 1.375rem; font-weight: 700; color: var(--cbn-text, #111); line-height: 1.1; }
+.fc-svc-unit       { font-size: 0.75rem; font-weight: 400; color: var(--cbn-text-muted, #9ca3af); }
+.fc-svc-card__uptime { font-size: 0.75rem; color: var(--cbn-text-muted, #6b7280); }
+.fc-svc-card__ts   { font-size: 0.6875rem; color: var(--cbn-text-muted, #9ca3af); }
+
+/* Status pulsing dots */
+.fc-svc-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: inline-block;
+}
+.fc-svc-dot--healthy  { background: #16a34a; animation: fc-svc-pulse-green 2.4s ease-in-out infinite; }
+.fc-svc-dot--degraded { background: #d97706; animation: fc-svc-pulse-amber 2.4s ease-in-out infinite; }
+.fc-svc-dot--down     { background: #dc2626; animation: fc-svc-pulse-red   1.4s ease-in-out infinite; }
+
+@keyframes fc-svc-pulse-green  {
+    0%,100% { box-shadow: 0 0 0 0   rgba(22,163,74,0.6);  }
+    60%     { box-shadow: 0 0 0 5px rgba(22,163,74,0);    }
+}
+@keyframes fc-svc-pulse-amber  {
+    0%,100% { box-shadow: 0 0 0 0   rgba(217,119,6,0.6);  }
+    60%     { box-shadow: 0 0 0 5px rgba(217,119,6,0);    }
+}
+@keyframes fc-svc-pulse-red    {
+    0%,100% { box-shadow: 0 0 0 0   rgba(220,38,38,0.7);  }
+    50%     { box-shadow: 0 0 0 6px rgba(220,38,38,0);    }
+}
+
+/* Inline probe history panel */
+.fc-svc-history {
+    margin-top: 0.875rem;
+    padding: 0.875rem 1rem;
+    border-radius: 8px;
+    background: var(--cbn-surface-alt, #f8fafc);
+    border: 1px solid var(--cbn-border, #e5e7eb);
+    animation: fc-svc-hist-in 180ms ease both;
+}
+@keyframes fc-svc-hist-in { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+
+.fc-svc-history__header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.625rem; flex-wrap: wrap; gap: 0.25rem; }
+.fc-svc-history__title  { font-size: 0.8125rem; font-weight: 600; color: var(--cbn-text, #111); }
+.fc-svc-history__count  { font-size: 0.75rem; color: var(--cbn-text-muted, #9ca3af); }
+.fc-svc-history__empty  { font-size: 0.8125rem; color: var(--cbn-text-muted, #9ca3af); margin: 0; }
+
+.fc-svc-history__timeline {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+/* Individual probe result chip */
+.fc-svc-probe {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    min-width: 56px;
+    padding: 0.4rem 0.5rem;
+    border-radius: 6px;
+    background: var(--cbn-surface, #fff);
+    border: 1px solid var(--cbn-border, #e5e7eb);
+    transition: box-shadow 100ms ease;
+}
+.fc-svc-probe:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.1); }
+
+.fc-svc-probe__dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.fc-svc-probe__ms  { font-size: 0.6875rem; font-weight: 600; color: var(--cbn-text, #111); }
+.fc-svc-probe__ts  { font-size: 0.625rem; color: var(--cbn-text-muted, #9ca3af); }
+
+.fc-svc-probe--healthy  .fc-svc-probe__dot { background: #16a34a; }
+.fc-svc-probe--degraded .fc-svc-probe__dot { background: #d97706; }
+.fc-svc-probe--down     .fc-svc-probe__dot { background: #dc2626; }
+
+/* Card subtitle */
+.fc-card__subtitle { font-size: 0.8rem; color: var(--cbn-text-muted, #9ca3af); }
+
+/* ── Platform Health — chart chip + range pills ─────────────────────────── */
+.fc-chart-chip {
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--cbn-text-secondary, #64748b);
+    background: color-mix(in srgb, var(--cbn-border, #e2e8f0) 50%, transparent);
+    border-radius: 999px;
+    padding: 2px 8px;
+    letter-spacing: 0.015em;
+    white-space: nowrap;
+}
+
+.fc-ph-range-pills {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+}
+
+.fc-ph-range-pill {
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--cbn-border, #e2e8f0);
+    background: transparent;
+    color: var(--cbn-text-secondary, #64748b);
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--motion-fast, 120ms) var(--ease-out, ease),
+                color var(--motion-fast, 120ms) var(--ease-out, ease),
+                border-color var(--motion-fast, 120ms) var(--ease-out, ease);
+}
+
+.fc-ph-range-pill:hover {
+    background: var(--cbn-surface-raised, #f1f5f9);
+    color: var(--cbn-text-primary, #1e293b);
+    border-color: var(--cbn-border-strong, #cbd5e1);
+}
+
+.fc-ph-range-pill--active {
+    background: var(--cbn-primary, #006B3F);
+    border-color: var(--cbn-primary, #006B3F);
+    color: #fff;
+}
+
+.fc-ph-range-pill--active:hover {
+    background: var(--cbn-primary-dark, #005530);
+    border-color: var(--cbn-primary-dark, #005530);
+    color: #fff;
+}

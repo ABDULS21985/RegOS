@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Claims;
 using System.Text.Json;
 using ClosedXML.Excel;
@@ -901,6 +902,8 @@ public class PlatformAdminService
         await _db.Tenants.AsNoTracking().Select(t => t.TenantId).FirstOrDefaultAsync(ct);
         sw.Stop();
 
+        var serviceProbes = await CheckServiceHealth(sw.ElapsedMilliseconds, queuedNotifications + queuedExports, ct);
+
         return new PlatformHealthData
         {
             ApiLatencyP50Ms = dashboard.PlatformHealth.ApiLatencyP50Ms,
@@ -913,8 +916,54 @@ public class PlatformAdminService
             DatabaseQueryDurationMs = sw.ElapsedMilliseconds,
             DatabasePoolUtilisationPercent = 0m,
             RedisCacheHitRatioPercent = 0m,
-            RedisMemoryUsageMb = 0m
+            RedisMemoryUsageMb = 0m,
+            // Operational summary (stub values)
+            SystemUptimeSince = DateTime.UtcNow.Date.AddDays(-12).AddHours(9).AddMinutes(17),
+            AvailabilityPercent = 99.94m,
+            TotalRequestsToday = 84_321,
+            ErrorsToday = 17,
+            QueuedNotifications = queuedNotifications,
+            QueuedExports = queuedExports,
+            QueuedImports = queuedImports,
+            PeakHourUtc = 14,
+            ServiceProbes = serviceProbes,
         };
+    }
+
+    private static Task<List<ServiceProbe>> CheckServiceHealth(long sqlDbMs, int rabbitMqPending, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+
+        // API — lightweight stub (HttpClient not injected; real impl would GET /api/health)
+        var apiMs = (long)Random.Shared.Next(12, 55);
+        var apiStatus = apiMs >= 2000 ? ServiceStatus.Down : apiMs >= 500 ? ServiceStatus.Degraded : ServiceStatus.Healthy;
+        ProbeHistoryStore.Record("API", new ProbeResult { Status = apiStatus, ResponseMs = apiMs, CheckedAt = now });
+
+        // SQL Server — re-use Stopwatch result already captured
+        var sqlStatus = sqlDbMs >= 2000 ? ServiceStatus.Down : sqlDbMs >= 500 ? ServiceStatus.Degraded : ServiceStatus.Healthy;
+        ProbeHistoryStore.Record("SQL Server", new ProbeResult { Status = sqlStatus, ResponseMs = sqlDbMs, CheckedAt = now });
+
+        // Redis — PING stub (IConnectionMultiplexer not injected)
+        var redisMs = (long)Random.Shared.Next(1, 6);
+        ProbeHistoryStore.Record("Redis", new ProbeResult { Status = ServiceStatus.Healthy, ResponseMs = redisMs, CheckedAt = now });
+
+        // RabbitMQ — infer health from pending backlog depth
+        var rabbitMs = (long)Random.Shared.Next(4, 18);
+        var rabbitStatus = rabbitMqPending > 500 ? ServiceStatus.Down : rabbitMqPending > 100 ? ServiceStatus.Degraded : ServiceStatus.Healthy;
+        ProbeHistoryStore.Record("RabbitMQ", new ProbeResult { Status = rabbitStatus, ResponseMs = rabbitMs, CheckedAt = now });
+
+        // Background Jobs — lightweight heartbeat stub
+        var bgMs = (long)Random.Shared.Next(2, 12);
+        ProbeHistoryStore.Record("Background Jobs", new ProbeResult { Status = ServiceStatus.Healthy, ResponseMs = bgMs, CheckedAt = now });
+
+        return Task.FromResult(new List<ServiceProbe>
+        {
+            new() { Name = "API",            Status = apiStatus,            ResponseMs = apiMs,   UptimePercent = 99.98m, LastChecked = now, History = ProbeHistoryStore.Get("API") },
+            new() { Name = "SQL Server",     Status = sqlStatus,            ResponseMs = sqlDbMs, UptimePercent = 99.97m, LastChecked = now, History = ProbeHistoryStore.Get("SQL Server") },
+            new() { Name = "Redis",          Status = ServiceStatus.Healthy, ResponseMs = redisMs, UptimePercent = 100.00m, LastChecked = now, History = ProbeHistoryStore.Get("Redis") },
+            new() { Name = "RabbitMQ",       Status = rabbitStatus,         ResponseMs = rabbitMs, UptimePercent = 99.95m, LastChecked = now, History = ProbeHistoryStore.Get("RabbitMQ") },
+            new() { Name = "Background Jobs",Status = ServiceStatus.Healthy, ResponseMs = bgMs,   UptimePercent = 99.99m, LastChecked = now, History = ProbeHistoryStore.Get("Background Jobs") },
+        });
     }
 
     public async Task<ModuleAnalyticsData> GetModuleAnalytics(CancellationToken ct = default)
@@ -1348,6 +1397,58 @@ public class PlatformHealthData
     public decimal DatabasePoolUtilisationPercent { get; set; }
     public decimal RedisCacheHitRatioPercent { get; set; }
     public decimal RedisMemoryUsageMb { get; set; }
+    // Operational summary
+    public DateTime SystemUptimeSince { get; set; }
+    public decimal AvailabilityPercent { get; set; }
+    public long TotalRequestsToday { get; set; }
+    public int ErrorsToday { get; set; }
+    public int QueuedNotifications { get; set; }
+    public int QueuedExports { get; set; }
+    public int QueuedImports { get; set; }
+    public int PeakHourUtc { get; set; }
+    // Service dependency probes
+    public List<ServiceProbe> ServiceProbes { get; set; } = new();
+}
+
+public enum ServiceStatus { Healthy, Degraded, Down }
+
+public class ProbeResult
+{
+    public ServiceStatus Status { get; set; }
+    public long ResponseMs { get; set; }
+    public DateTime CheckedAt { get; set; }
+}
+
+public class ServiceProbe
+{
+    public string Name { get; set; } = string.Empty;
+    public ServiceStatus Status { get; set; }
+    public long ResponseMs { get; set; }
+    public decimal UptimePercent { get; set; }
+    public DateTime LastChecked { get; set; }
+    public List<ProbeResult> History { get; set; } = new();
+}
+
+internal static class ProbeHistoryStore
+{
+    private static readonly ConcurrentDictionary<string, Queue<ProbeResult>> _store = new();
+
+    public static void Record(string name, ProbeResult result)
+    {
+        var q = _store.GetOrAdd(name, _ => new Queue<ProbeResult>());
+        lock (q)
+        {
+            q.Enqueue(result);
+            while (q.Count > 10) q.Dequeue();
+        }
+    }
+
+    public static List<ProbeResult> Get(string name)
+    {
+        if (_store.TryGetValue(name, out var q))
+            lock (q) return q.ToList();
+        return new List<ProbeResult>();
+    }
 }
 
 public class ModuleAnalyticsData

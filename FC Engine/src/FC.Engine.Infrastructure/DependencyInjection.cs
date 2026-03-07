@@ -99,6 +99,7 @@ public static class DependencyInjection
         services.AddScoped<IReturnLockService, ReturnLockService>();
         services.AddScoped<IDataFeedService, DataFeedService>();
         services.AddScoped<IDraftDataService, DraftDataService>();
+        services.AddScoped<IFormDataService, FormDataService>();
         services.AddScoped<IConsentService, ConsentService>();
         services.AddScoped<IDsarService, DsarService>();
         services.AddScoped<IDataBreachService, DataBreachService>();

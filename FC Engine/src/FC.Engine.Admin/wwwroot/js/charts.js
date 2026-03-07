@@ -71,22 +71,25 @@
     /* ── Dataset builders ──────────────────────────────────────────── */
     function _areaDs(ds, color) {
         const c40 = color + '40', c05 = color + '05';
+        const useFill = ds.fill !== false;
         return {
             label            : ds.label || '',
             data             : ds.data  || [],
             borderColor      : color,
-            backgroundColor  : function (ctx) {
-                const chart = ctx.chart;
-                if (!chart.chartArea) return c40;
-                const g = chart.ctx.createLinearGradient(
-                    0, chart.chartArea.top, 0, chart.chartArea.bottom);
-                g.addColorStop(0, c40);
-                g.addColorStop(1, c05);
-                return g;
-            },
+            backgroundColor  : useFill
+                ? function (ctx) {
+                    const chart = ctx.chart;
+                    if (!chart.chartArea) return c40;
+                    const g = chart.ctx.createLinearGradient(
+                        0, chart.chartArea.top, 0, chart.chartArea.bottom);
+                    g.addColorStop(0, c40);
+                    g.addColorStop(1, c05);
+                    return g;
+                }
+                : 'transparent',
             borderWidth          : 2,
             tension              : 0.4,
-            fill                 : true,
+            fill                 : useFill,
             pointRadius          : 4,
             pointHoverRadius     : 6,
             pointBackgroundColor : color,
@@ -231,6 +234,11 @@
                         : undefined,
                 },
             };
+        }
+
+        if (scales && spec.stacked) {
+            scales.x.stacked = true;
+            scales.y.stacked = true;
         }
 
         return {

@@ -1,4 +1,5 @@
-using FC.Engine.Domain.Abstractions;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore;
 
 namespace FC.Engine.Admin.Services;
 
@@ -37,14 +38,8 @@ public class ImportResult
 /// Expected CSV format (with header): ReturnCode,Period,Deadline
 /// Example row: BSL001,2025-03,2025-04-07
 /// </summary>
-public class RegulatoryCalendarImportService
+public class RegulatoryCalendarImportService(IServiceProvider serviceProvider)
 {
-    private readonly IReturnPeriodRepository _returnPeriodRepo;
-
-    public RegulatoryCalendarImportService(IReturnPeriodRepository returnPeriodRepo)
-    {
-        _returnPeriodRepo = returnPeriodRepo;
-    }
 
     /// <summary>
     /// Parses the CSV stream into a list of calendar rows for preview.
@@ -95,8 +90,10 @@ public class RegulatoryCalendarImportService
         CancellationToken ct = default)
     {
         var result = new ImportResult();
-
         var validRows = rows.Where(r => r.IsValid).ToList();
+
+        using var scope = serviceProvider.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
 
         foreach (var row in validRows)
         {
@@ -109,8 +106,9 @@ public class RegulatoryCalendarImportService
 
             try
             {
-                var periods = await _returnPeriodRepo.FindByReturnCodeAndPeriodAsync(
-                    row.ReturnCode, year, month, ct);
+                var periods = await db.ReturnPeriods
+                    .Where(p => p.Year == year && p.Month == month)
+                    .ToListAsync(ct);
 
                 if (!periods.Any())
                 {
@@ -121,16 +119,13 @@ public class RegulatoryCalendarImportService
                 foreach (var period in periods)
                 {
                     bool isNew = period.DeadlineOverrideDate is null;
-
-                    period.DeadlineOverrideDate  = row.Deadline;
-                    period.DeadlineOverrideBy    = importedByUserId;
+                    period.DeadlineOverrideDate   = row.Deadline;
                     period.DeadlineOverrideReason = "CBN regulatory calendar import";
-
-                    await _returnPeriodRepo.UpdateAsync(period, ct);
-
                     if (isNew) result.Created++;
                     else       result.Updated++;
                 }
+
+                await db.SaveChangesAsync(ct);
             }
             catch (Exception ex)
             {

@@ -39,6 +39,9 @@ public class ChartJsInterop
     public Task InitDragDrop(DotNetObjectReference<object> dotNetRef)
         => _js.InvokeVoidAsync("initDragDrop", dotNetRef).AsTask();
 
+    public Task InitChart(string canvasId, object spec)
+        => _js.InvokeVoidAsync("fcCharts.init", canvasId, spec).AsTask();
+
     public Task RenderStaggered(string[] widgetIds, int delayMs = 100)
         => _js.InvokeVoidAsync("renderStaggered", widgetIds, delayMs).AsTask();
 
