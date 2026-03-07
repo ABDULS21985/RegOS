@@ -117,9 +117,29 @@
                             @fieldErrors.Count error@(fieldErrors.Count == 1 ? "" : "s")
                         </span>
                     }
+                    @if (CarryForwardTotal > 0 && !string.IsNullOrWhiteSpace(carryForwardSourcePeriod))
+                    {
+                        <button class="portal-cf-chip @(_highlightAllCarried ? "portal-cf-chip--active" : "")"
+                                type="button"
+                                @onclick="ToggleHighlightAllCarried"
+                                aria-pressed="@(_highlightAllCarried.ToString().ToLowerInvariant())"
+                                title="Click to highlight all carry-forward fields">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 17 4 12 9 7"/><line x1="20" y1="12" x2="4" y2="12"/></svg>
+                            &#x21A9; @CarryForwardTotal carried forward
+                        </button>
+                    }
                 </div>
             </div>
             <div class="portal-detail-hero-actions">
+                @if (carryForwardKeys.Any())
+                {
+                    <button class="portal-btn portal-btn-sm portal-cf-accept-all-btn"
+                            type="button"
+                            @onclick="AcceptAllCarryForward">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                        Accept All Carry-Forward
+                    </button>
+                }
                 @if (selectedPeriodId > 0)
                 {
                     <span class="portal-autosave-indicator portal-autosave-@_saveState" role="status" aria-live="polite">
@@ -131,6 +151,11 @@
                         else if (_saveState == "saved")
                         {
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                            <span>@_saveLabel</span>
+                        }
+                        else if (_saveState == "dirty")
+                        {
+                            <span class="portal-autosave-dot" aria-hidden="true"></span>
                             <span>@_saveLabel</span>
                         }
                         else if (_saveState == "error")
@@ -154,13 +179,27 @@
                     <div class="portal-form-progress-fill" style="--pct: @_completionPct.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)"></div>
                 </div>
                 <div class="portal-form-progress-text">
-                    <span>Section @(_currentSectionIndex + 1) of @(Math.Max(1, _sectionNames.Count))</span>
+                    @{
+                        var _phComputed = sumFormulas.Select(sf => sf.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var _phFields = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+                        int _phTotal = 0, _phFilled = 0;
+                        foreach (var _phF in _phFields)
+                        {
+                            if (_phF.DataType == "Boolean" || _phComputed.Contains(_phF.FieldName) || !_phF.IsRequired) continue;
+                            for (int _phRi = 0; _phRi < Math.Max(1, formRows.Count); _phRi++)
+                            {
+                                _phTotal++;
+                                if (!string.IsNullOrWhiteSpace(GetFieldValue(_phRi, _phF.FieldName))) _phFilled++;
+                            }
+                        }
+                    }
+                    <span>@_phFilled / @_phTotal required fields</span>
                     <span>·</span>
-                    <span>@((int)_completionPct)% complete</span>
+                    <span>Section @(_currentSectionIndex + 1) of @(Math.Max(1, _sectionNames.Count))</span>
                     @if (_errorCount > 0)
                     {
                         <span>·</span>
-                        <span>@_errorCount error@(_errorCount == 1 ? "" : "s") remaining</span>
+                        <span class="portal-progress-text-errors">@_errorCount error@(_errorCount == 1 ? "" : "s")</span>
                     }
                 </div>
             </div>
@@ -373,13 +412,28 @@
                 var secName = _sectionNames[secIdx];
                 if (!fieldGroups.TryGetValue(secName, out var secFields)) continue;
                 var isLastSec = sIdx == _sectionNames.Count - 1;
-
+                var _secStatus = GetSectionStatus(secName);
+                var (_secFilled, _secTotal) = GetSectionFieldCounts(secName);
+                var _secErrCount = GetSectionErrorCount(secName);
                 <div id="@GetSectionId(secName)"
-                     class="portal-card portal-form-section @(_animatingSectionIndex == sIdx ? "portal-section-checked" : "")">
-                    <div class="portal-form-section-header">
-                        <h3 class="portal-form-section-title">@secName</h3>
-                        <span class="portal-form-section-status-icon @GetStatusIconClass(secName)" aria-label="Section status">@GetStatusIcon(secName)</span>
+                     class="portal-card portal-form-section @(_animatingSectionIndex == sIdx ? "portal-section-checked" : "") @(!_expandedSections.Contains(secName) ? "portal-section-collapsed" : "")">
+                    <div class="portal-form-section-header portal-form-section-header--accordion"
+                         @onclick="() => ToggleSection(secName)"
+                         role="button" tabindex="0" aria-expanded="@_expandedSections.Contains(secName)"
+                         @onkeydown:preventDefault="false">
+                        <div class="portal-form-section-header-left">
+                            <span class="portal-fps-dot @GetStatusDotClass(_secStatus)" aria-hidden="true"></span>
+                            <h3 class="portal-form-section-title">@secName</h3>
+                        </div>
+                        <div class="portal-form-section-header-right">
+                            <span class="portal-form-section-status-icon @GetStatusIconClass(secName)" aria-label="Section status">@GetStatusIcon(secName)</span>
+                            @if (_secTotal > 0) { <span class="portal-fps-count-badge">@_secFilled/@_secTotal</span> }
+                            @if (_secErrCount > 0) { <span class="portal-fps-err-badge">@_secErrCount</span> }
+                            <svg class="portal-form-section-chevron @(_expandedSections.Contains(secName) ? "open" : "")" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                        </div>
                     </div>
+                    @if (_expandedSections.Contains(secName))
+                    {
                     <div class="portal-form-grid">
                         @foreach (var field in secFields)
                         {
@@ -417,6 +471,7 @@
                             </button>
                         </div>
                     }
+                    } @* /accordion-if *@
                 </div>
             }
         }
@@ -456,6 +511,8 @@
                     </div>
                 </div>
 
+                <div role="status" aria-live="polite" aria-atomic="true" class="portal-drag-live-region">@_dragAriaMessage</div>
+
                 @if (!formRows.Any())
                 {
                     <div class="portal-empty-state" style="padding: 2rem;">
@@ -489,7 +546,7 @@
                                 @for (int rowIdx = 0; rowIdx < formRows.Count; rowIdx++)
                                 {
                                     var idx = rowIdx;
-                                    <tr class="@(RowHasError(idx) ? "portal-form-row-error" : "")" data-row-index="@idx">
+                                    <tr class="@(RowHasError(idx) ? "portal-form-row-error" : "") @(_newRowIndex == idx ? "portal-form-table-row-new" : "")" data-row-index="@idx">
                                         <td class="portal-form-table-rownum portal-text-muted" data-label="">
                                             @if (!isReadOnlyLocked)
                                             {
@@ -509,7 +566,8 @@
                                         @foreach (var field in nonKeyFields)
                                         {
                                             var fld = field;
-                                            <td data-label="@fld.DisplayName" data-field="@fld.FieldName">
+                                            <td data-label="@fld.DisplayName" data-field="@fld.FieldName"
+                                                class="@(CellHasError(idx, fld.FieldName) ? "portal-field-error" : "")">
                                                 @RenderInput(fld, idx)
                                                 @RenderFieldError(fld, idx)
                                             </td>
@@ -545,8 +603,43 @@
                                     </tr>
                                 }
                             </tbody>
+                            @if (formRows.Any() && nonKeyFields.Any(IsNumericField))
+                            {
+                                <tfoot>
+                                    <tr>
+                                        <td class="portal-form-table-rownum">
+                                            <span class="portal-form-table-summary-label">Total</span>
+                                        </td>
+                                        @foreach (var field in nonKeyFields)
+                                        {
+                                            var sfld = field;
+                                            <td>
+                                                @if (IsNumericField(sfld))
+                                                {
+                                                    <span class="portal-form-table-summary-value">@GetColumnTotal(sfld.FieldName)</span>
+                                                }
+                                            </td>
+                                        }
+                                        <td class="portal-form-table-actions-cell"></td>
+                                    </tr>
+                                </tfoot>
+                            }
                         </table>
                     </div>
+                    @if (!isReadOnlyLocked)
+                    {
+                        <div class="portal-form-table-footer-add">
+                            <button class="portal-btn portal-btn-ghost portal-btn-sm portal-form-add-row-btn"
+                                    @onclick="AddRow"
+                                    type="button"
+                                    aria-label="Add a new row">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                                </svg>
+                                Add Row
+                            </button>
+                        </div>
+                    }
                     <p class="portal-form-table-hint">
                         <kbd>Tab</kbd> next cell &nbsp;·&nbsp;
                         <kbd>Enter</kbd> add row &nbsp;·&nbsp;
@@ -618,7 +711,8 @@
                                     @foreach (var field in nonKeyFields)
                                     {
                                         var fld = field;
-                                        <td data-label="@fld.DisplayName" data-field="@fld.FieldName">
+                                        <td data-label="@fld.DisplayName" data-field="@fld.FieldName"
+                                            class="@(CellHasError(idx, fld.FieldName) ? "portal-field-error" : "")">
                                             @RenderInput(fld, idx)
                                             @RenderFieldError(fld, idx)
                                         </td>
@@ -626,6 +720,26 @@
                                 </tr>
                             }
                         </tbody>
+                        @if (formRows.Any() && nonKeyFields.Any(IsNumericField))
+                        {
+                            <tfoot>
+                                <tr>
+                                    <td class="portal-form-table-itemcode">
+                                        <span class="portal-form-table-summary-label">Totals</span>
+                                    </td>
+                                    @foreach (var field in nonKeyFields)
+                                    {
+                                        var sfld = field;
+                                        <td>
+                                            @if (IsNumericField(sfld))
+                                            {
+                                                <span class="portal-form-table-summary-value">@GetColumnTotal(sfld.FieldName)</span>
+                                            }
+                                        </td>
+                                    }
+                                </tr>
+                            </tfoot>
+                        }
                     </table>
                 </div>
             </div>
@@ -666,6 +780,11 @@
                             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                             <span>@_saveLabel</span>
                         }
+                        else if (_saveState == "dirty")
+                        {
+                            <span class="portal-autosave-dot" aria-hidden="true"></span>
+                            <span>@_saveLabel</span>
+                        }
                         else if (_saveState == "error")
                         {
                             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -681,7 +800,132 @@
         </div>
 
             </div><!-- /portal-form-main -->
+
+            <!-- RIGHT PROGRESS SIDEBAR -->
+            @if (_sectionNames.Count > 0 && selectedPeriodId > 0)
+            {
+                <aside class="portal-form-progress-sidebar @(_progressSidebarExpanded ? "" : "collapsed")"
+                       aria-label="Form progress">
+                    <div class="portal-fps-header">
+                        <span class="portal-fps-title">Progress</span>
+                        <button class="portal-fps-toggle" type="button"
+                                @onclick="() => _progressSidebarExpanded = !_progressSidebarExpanded"
+                                aria-label="@(_progressSidebarExpanded ? "Collapse" : "Expand") progress panel">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                @if (_progressSidebarExpanded) { <polyline points="9 18 15 12 9 6"/> } else { <polyline points="15 18 9 12 15 6"/> }
+                            </svg>
+                        </button>
+                    </div>
+                    @if (_progressSidebarExpanded)
+                    {
+                        var (fpsPct, _fpsErrs) = ComputeCompletionStats();
+                        var fpsComputed = sumFormulas.Select(sf => sf.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var fpsFields = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+                        int fpsTotalReq = 0, fpsFilled = 0;
+                        foreach (var fpsF in fpsFields)
+                        {
+                            if (fpsF.DataType == "Boolean" || fpsComputed.Contains(fpsF.FieldName) || !fpsF.IsRequired) continue;
+                            for (int fpsRi = 0; fpsRi < Math.Max(1, formRows.Count); fpsRi++)
+                            {
+                                fpsTotalReq++;
+                                if (!string.IsNullOrWhiteSpace(GetFieldValue(fpsRi, fpsF.FieldName))) fpsFilled++;
+                            }
+                        }
+                        var fpsDashOffset = 99.9 * (1.0 - fpsPct / 100.0);
+                        <div class="portal-fps-overview">
+                            <svg class="portal-fps-ring" viewBox="0 0 36 36" aria-hidden="true">
+                                <circle class="portal-fps-ring-bg" cx="18" cy="18" r="15.9"/>
+                                <circle class="portal-fps-ring-fill @(fpsPct == 100 ? "complete" : fpsPct > 0 ? "partial" : "")"
+                                        cx="18" cy="18" r="15.9"
+                                        style="stroke-dashoffset: @fpsDashOffset.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)"/>
+                            </svg>
+                            <div class="portal-fps-overview-text">
+                                <span class="portal-fps-pct">@fpsPct%</span>
+                                <span class="portal-fps-req-label">@fpsFilled / @fpsTotalReq required</span>
+                            </div>
+                        </div>
+                        <nav class="portal-fps-section-list" aria-label="Section progress">
+                            @for (int fpsI = 0; fpsI < _sectionNames.Count; fpsI++)
+                            {
+                                var fpsSn = _sectionNames[fpsI];
+                                var fpsIdx = fpsI;
+                                var fpsSt = GetSectionStatus(fpsSn);
+                                var fpsErr = GetSectionErrorCount(fpsSn);
+                                var (fpsF2, fpsT2) = GetSectionFieldCounts(fpsSn);
+                                <button class="portal-fps-item @(fpsIdx == _currentSectionIndex ? "active" : "")"
+                                        type="button"
+                                        @onclick="@(async () => await ScrollToAndExpandSection(fpsSn, fpsIdx))"
+                                        title="@fpsSn — @fpsF2 of @fpsT2 fields filled">
+                                    <span class="portal-fps-dot @GetStatusDotClass(fpsSt)" aria-hidden="true"></span>
+                                    <span class="portal-fps-item-name">@fpsSn</span>
+                                    <span class="portal-fps-item-count">@fpsF2/@fpsT2</span>
+                                    @if (fpsErr > 0)
+                                    {
+                                        <span class="portal-fps-item-errors" aria-label="@fpsErr errors">@fpsErr</span>
+                                    }
+                                </button>
+                            }
+                        </nav>
+                        @if (!isReadOnlyLocked)
+                        {
+                            <div class="portal-fps-footer">
+                                <button class="portal-btn portal-btn-outline portal-btn-xs portal-fps-jump-btn"
+                                        type="button"
+                                        @onclick="JumpToNextEmptyField">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                                    </svg>
+                                    Next empty field
+                                </button>
+                            </div>
+                        }
+                    }
+                </aside>
+            }
         </div><!-- /portal-form-layout -->
+
+        <!-- MOBILE BOTTOM PROGRESS DRAWER -->
+        @if (selectedPeriodId > 0 && _sectionNames.Count > 0)
+        {
+            var (mbPct, _mbErrs) = ComputeCompletionStats();
+            <div class="portal-bpd @(_mobileDrawerOpen ? "open" : "")" aria-label="Form progress">
+                <button class="portal-bpd-handle" type="button" @onclick="() => _mobileDrawerOpen = !_mobileDrawerOpen"
+                        aria-expanded="@_mobileDrawerOpen" aria-controls="portal-bpd-content">
+                    <span class="portal-bpd-handle-pill"></span>
+                    <div class="portal-bpd-handle-info">
+                        <span class="portal-bpd-handle-pct">@mbPct% complete</span>
+                        <span class="portal-bpd-handle-sub">@_sectionNames.Count section@(_sectionNames.Count == 1 ? "" : "s") · tap to view</span>
+                    </div>
+                    <div class="portal-bpd-handle-mini-bar">
+                        <div class="portal-bpd-handle-mini-fill" style="width: @mbPct%"></div>
+                    </div>
+                </button>
+                @if (_mobileDrawerOpen)
+                {
+                    <div class="portal-bpd-content" id="portal-bpd-content">
+                        @for (int mbI = 0; mbI < _sectionNames.Count; mbI++)
+                        {
+                            var mbSn = _sectionNames[mbI];
+                            var mbIdx = mbI;
+                            var mbSt = GetSectionStatus(mbSn);
+                            var mbErr = GetSectionErrorCount(mbSn);
+                            var (mbF, mbT) = GetSectionFieldCounts(mbSn);
+                            <button class="portal-fps-item @(mbIdx == _currentSectionIndex ? "active" : "")"
+                                    type="button"
+                                    @onclick="@(async () => { _mobileDrawerOpen = false; await ScrollToAndExpandSection(mbSn, mbIdx); })">
+                                <span class="portal-fps-dot @GetStatusDotClass(mbSt)" aria-hidden="true"></span>
+                                <span class="portal-fps-item-name">@mbSn</span>
+                                <span class="portal-fps-item-count">@mbF/@mbT</span>
+                                @if (mbErr > 0)
+                                {
+                                    <span class="portal-fps-item-errors">@mbErr</span>
+                                }
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        }
 
         <!-- STICKY SUBMIT (visible after 50% completion) -->
         @if (_completionPct >= 50 && selectedPeriodId > 0 && !isReadOnlyLocked)
@@ -849,6 +1093,56 @@
 </div>
 
 
+@* ── Navigation guard dialog ── *@
+@if (_showNavGuard)
+{
+    <div class="portal-modal-backdrop portal-modal-backdrop-active" role="presentation">
+        <div class="portal-modal portal-modal-sm portal-modal-active portal-navguard-dialog"
+             role="alertdialog"
+             aria-modal="true"
+             aria-labelledby="navguard-title"
+             aria-describedby="navguard-desc">
+            <div class="portal-confirm-body">
+                <div class="portal-confirm-icon portal-confirm-icon-primary" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                </div>
+                <h3 id="navguard-title" class="portal-confirm-title">Unsaved changes</h3>
+                <p id="navguard-desc" class="portal-confirm-message">
+                    You have unsaved changes in this form.
+                    @if (_draftInfo is not null)
+                    {
+                        <span> Your draft was last saved at <strong>@_draftInfo.LastSavedAt.ToLocalTime().ToString("HH:mm")</strong>.</span>
+                    }
+                    else if (_saveState == "saved")
+                    {
+                        <span> Your changes were <strong>auto-saved @_saveLabel.ToLowerInvariant()</strong>.</span>
+                    }
+                </p>
+                <div class="portal-navguard-actions">
+                    <button class="portal-btn portal-btn-primary" @onclick="NavGuardStay" type="button">
+                        Stay on page
+                    </button>
+                    <button class="portal-btn portal-btn-outline" @onclick="NavGuardSaveAndLeave" type="button">
+                        @if (_saveState == "saving")
+                        {
+                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                        }
+                        Save draft &amp; leave
+                    </button>
+                    <button class="portal-btn portal-btn-ghost portal-btn-danger-text" @onclick="NavGuardDiscard" type="button">
+                        Leave without saving
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
 @* ── Feature-discovery beacons (shown once to new users) ── *@
 <TourBeaconSet TourKey="data-entry-v1" Beacons="@_dataEntryBeacons" Steps="@_dataEntryTourSteps" />
 
@@ -924,6 +1218,8 @@
     private HashSet<string> carryForwardReviewedKeys = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> carryForwardModifiedKeys = new(StringComparer.OrdinalIgnoreCase);
     private int _carryReviewCursor = -1;
+    private string? _openPopoverKey;
+    private bool _highlightAllCarried;
     private int CarryForwardTotal => carryForwardOriginalValues.Count;
     private int CarryForwardReviewedCount => carryForwardReviewedKeys.Count + carryForwardModifiedKeys.Count;
     private string saveStatus = "Saved";
@@ -949,6 +1245,13 @@
     private DotNetObjectReference<DataEntryForm>? _dotNetRef;
     private int _lastEditedRowIndex = -1;
     private bool _dragSortInitialized;
+    private int _newRowIndex = -1;
+    private string _dragAriaMessage = "";
+
+    // ── Navigation Guard ───────────────────────────────────────────
+    private IDisposable? _locationChangingRegistration;
+    private bool _showNavGuard;
+    private string? _pendingNavUri;
 
     // ── Progress & Navigation ──────────────────────────────────────
     private int _totalFields;
@@ -956,6 +1259,9 @@
     private double _completionPct;
     private int _currentSectionIndex;
     private bool _navigatorExpanded = true;
+    private bool _progressSidebarExpanded = true;
+    private bool _mobileDrawerOpen = false;
+    private HashSet<string> _expandedSections = new();
     private List<string> _sectionNames = new();
     private int _animatingSectionIndex = -1;
     private int _errorCount => fieldErrors.Count + serverErrors.Count(e => e.Severity == "Error");
@@ -1047,6 +1353,7 @@
         {
             _dotNetRef = DotNetObjectReference.Create(this);
             await JS.InvokeVoidAsync("portalDataEntryForm.init", _dotNetRef);
+            _locationChangingRegistration = Navigation.RegisterLocationChangingHandler(OnLocationChanging);
         }
 
         // Init row drag-sort once when MultiRow table first appears
@@ -1464,13 +1771,11 @@
 
     private void AddRow()
     {
-        if (isReadOnlyLocked)
-        {
-            return;
-        }
-
+        if (isReadOnlyLocked) return;
         formRows.Add(CreateEmptyRow());
+        _newRowIndex = formRows.Count - 1;
         MarkDirtyAndDebounce();
+        _ = ClearNewRowAnimationAsync();
     }
 
     private void RemoveRow(int index)
@@ -1496,7 +1801,9 @@
         if (index >= 0 && index < formRows.Count)
         {
             formRows.Insert(index + 1, CreateEmptyRow());
+            _newRowIndex = index + 1;
             MarkDirtyAndDebounce();
+            _ = ClearNewRowAnimationAsync();
         }
     }
 
@@ -1595,6 +1902,7 @@
         formRows.Insert(toIdx, row);
         fieldErrors.Clear();
         _inlineState.Clear();
+        _dragAriaMessage = $"Row {fromIdx + 1} moved to position {toIdx + 1}.";
         MarkDirtyAndDebounce();
         StateHasChanged();
     }
@@ -1688,7 +1996,7 @@
 
         isDirty = true;
         saveStatus = "Unsaved changes...";
-        _saveState = "idle";
+        _saveState = "dirty";
         _saveLabel = "Unsaved changes";
         autoSaveCts?.Cancel();
         autoSaveCts?.Dispose();
@@ -1707,6 +2015,39 @@
                 // ignored
             }
         }, token);
+    }
+
+    private async ValueTask OnLocationChanging(LocationChangingContext context)
+    {
+        if (!isDirty || isReadOnlyLocked || selectedPeriodId == 0) return;
+        context.PreventNavigation();
+        _pendingNavUri = context.TargetLocation;
+        _showNavGuard = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void NavGuardStay()
+    {
+        _showNavGuard = false;
+        _pendingNavUri = null;
+    }
+
+    private async Task NavGuardSaveAndLeave()
+    {
+        _showNavGuard = false;
+        if (isDirty) await AutoSave();
+        var target = _pendingNavUri!;
+        _pendingNavUri = null;
+        Navigation.NavigateTo(target);
+    }
+
+    private void NavGuardDiscard()
+    {
+        _showNavGuard = false;
+        var target = _pendingNavUri!;
+        _pendingNavUri = null;
+        isDirty = false;
+        Navigation.NavigateTo(target);
     }
 
     private async Task AutoSave()
@@ -2357,6 +2698,48 @@
         await JS.InvokeVoidAsync("portalScrollIntoView", $"carry-{unreviewed[_carryReviewCursor]}");
     }
 
+    private void AcceptAllCarryForward()
+    {
+        foreach (var key in carryForwardKeys.ToList())
+        {
+            carryForwardKeys.Remove(key);
+            carryForwardReviewedKeys.Add(key);
+        }
+        _highlightAllCarried = false;
+        _openPopoverKey = null;
+        StateHasChanged();
+    }
+
+    private void ToggleHighlightAllCarried()
+    {
+        _highlightAllCarried = !_highlightAllCarried;
+        StateHasChanged();
+    }
+
+    private void ToggleCarryForwardPopover(string errorKey)
+    {
+        _openPopoverKey = _openPopoverKey == errorKey ? null : errorKey;
+        StateHasChanged();
+    }
+
+    private static string FormatCarryValue(string rawValue, string dataType)
+    {
+        if (string.IsNullOrEmpty(rawValue)) return "—";
+        return dataType switch
+        {
+            "Money" when decimal.TryParse(rawValue, NumberStyles.Any, CultureInfo.InvariantCulture, out var m) =>
+                m.ToString("N2", CultureInfo.InvariantCulture),
+            "Decimal" or "Percentage" when decimal.TryParse(rawValue, NumberStyles.Any, CultureInfo.InvariantCulture, out var d) =>
+                d.ToString("N2", CultureInfo.InvariantCulture),
+            "Integer" when long.TryParse(rawValue, out var i) =>
+                i.ToString("N0", CultureInfo.InvariantCulture),
+            "Date" when DateTime.TryParse(rawValue, out var dt) =>
+                dt.ToString("d MMM yyyy"),
+            "Boolean" => rawValue == "true" ? "Yes" : "No",
+            _ => rawValue
+        };
+    }
+
     // ── Render Helpers ────────────────────────────────────────────
 
     private RenderFragment RenderInput(FieldDisplayItem field, int rowIdx) => __builder =>
@@ -2400,7 +2783,20 @@
 
         if (isCarried || isModified)
         {
-            <div class="@(isCarried ? "portal-field-carried" : "")" id="carry-@errorKey">
+            var cfWrapCss = "portal-field-cf-wrap" +
+                (isModified ? " portal-field-cf-wrap--modified" : "") +
+                (_highlightAllCarried && isCarried ? " portal-field-cf-wrap--highlighted" : "");
+            var cfOriginal = carryForwardOriginalValues.TryGetValue(errorKey, out var cfOrig) ? cfOrig : "";
+            var cfFormatted = FormatCarryValue(cfOriginal, dt);
+            var cfTooltip = isModified
+                ? $"Modified from prior: {cfFormatted}"
+                : $"Carried from: {carryForwardSourcePeriod} · Value: {cfFormatted} · Click to accept or clear";
+
+            <div class="@cfWrapCss" id="carry-@errorKey">
+                @* Mobile strip — visible only on narrow screens via CSS *@
+                <div class="portal-field-cf-mobile-strip" aria-hidden="true">
+                    Prior period value: @cfFormatted
+                </div>
                 @if (dt == "Boolean")
                 {
                     <label class="portal-form-checkbox">
@@ -2414,7 +2810,7 @@
                 }
                 else
                 {
-                    <div class="@wrapperCss">
+                    <div class="@wrapperCss portal-field-wrapper--cf">
                         <input type="@inputType"
                                id="@fieldId"
                                class="@inputCss"
@@ -2427,37 +2823,89 @@
                                aria-invalid="@(hasError ? "true" : null)"
                                @oninput="@(e => OnFieldInput(rowIdx, field.FieldName, e.Value?.ToString() ?? ""))"
                                @onblur="@(async e => await OnFieldBlurAsync(rowIdx, field.FieldName))" />
-                        @if (isValid)
-                        {
-                            <svg class="portal-field-valid-icon" width="14" height="14" viewBox="0 0 24 24"
-                                 fill="none" stroke="var(--cbn-success-text,#16a34a)" stroke-width="2.5"
-                                 aria-hidden="true" focusable="false">
-                                <polyline points="20 6 9 17 4 12"/>
-                            </svg>
-                        }
+                        @* Carry-forward badge — trailing position *@
+                        <div class="portal-field-cf-badge-wrap">
+                            <button class="portal-field-cf-badge @(isModified ? "portal-field-cf-badge--modified" : "")"
+                                    type="button"
+                                    @onclick:stopPropagation="true"
+                                    @onclick="() => ToggleCarryForwardPopover(errorKey)"
+                                    aria-label="@cfTooltip">
+                                @if (isModified)
+                                {
+                                    <span class="portal-field-cf-badge__asterisk" aria-hidden="true">✱</span>
+                                }
+                                else
+                                {
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 17 4 12 9 7"/><line x1="20" y1="12" x2="4" y2="12"/></svg>
+                                }
+                                <span class="portal-field-cf-badge__tooltip" role="tooltip">@cfTooltip</span>
+                            </button>
+                            @if (_openPopoverKey == errorKey)
+                            {
+                                <div class="portal-field-cf-popover" role="dialog" aria-label="Carry-forward details" aria-modal="true">
+                                    <div class="portal-field-cf-popover-header">
+                                        <span class="portal-field-cf-popover-title">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 17 4 12 9 7"/><line x1="20" y1="12" x2="4" y2="12"/></svg>
+                                            Prior Period Value
+                                        </span>
+                                        <button class="portal-field-cf-popover-close"
+                                                type="button"
+                                                @onclick:stopPropagation="true"
+                                                @onclick="() => _openPopoverKey = null"
+                                                aria-label="Close">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                        </button>
+                                    </div>
+                                    <div class="portal-field-cf-popover-body">
+                                        <div class="portal-field-cf-popover-row">
+                                            <span class="portal-field-cf-popover-label">Carried from</span>
+                                            <span class="portal-field-cf-popover-val portal-field-cf-popover-val--period">@carryForwardSourcePeriod</span>
+                                        </div>
+                                        <div class="portal-field-cf-popover-row">
+                                            <span class="portal-field-cf-popover-label">Prior value</span>
+                                            <span class="portal-field-cf-popover-val">@cfFormatted</span>
+                                        </div>
+                                        <div class="portal-field-cf-popover-row">
+                                            <span class="portal-field-cf-popover-label">Current value</span>
+                                            <span class="portal-field-cf-popover-val @(isModified ? "portal-field-cf-popover-val--changed" : "")">@(string.IsNullOrEmpty(val) ? "—" : val)</span>
+                                        </div>
+                                        @if (isModified)
+                                        {
+                                            <button class="portal-field-cf-popover-reset"
+                                                    type="button"
+                                                    @onclick:stopPropagation="true"
+                                                    @onclick="() => { UndoCarryForwardChange(rowIdx, field.FieldName); _openPopoverKey = null; }">
+                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 17 4 12 9 7"/><line x1="20" y1="12" x2="4" y2="12"/></svg>
+                                                Reset to Prior Value
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <div class="portal-field-cf-popover-actions">
+                                                <button class="portal-field-cf-popover-accept"
+                                                        type="button"
+                                                        @onclick:stopPropagation="true"
+                                                        @onclick="() => { MarkCarriedFieldReviewed(rowIdx, field.FieldName); _openPopoverKey = null; }">
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                                    Accept this value
+                                                </button>
+                                                <button class="portal-field-cf-popover-clear"
+                                                        type="button"
+                                                        @onclick:stopPropagation="true"
+                                                        @onclick="() => { OnFieldInput(rowIdx, field.FieldName, string.Empty); _openPopoverKey = null; }">
+                                                    Clear value
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                                <div class="portal-field-cf-popover-backdrop"
+                                     @onclick="() => _openPopoverKey = null"
+                                     aria-hidden="true"></div>
+                            }
+                        </div>
                     </div>
                 }
-                <div class="portal-field-carried-footer">
-                    @if (isCarried)
-                    {
-                        <span class="portal-field-carried-label">↑ Carried from @carryForwardSourcePeriod</span>
-                        <span class="portal-field-carried-hint">This value was carried from the previous period. Verify it is still correct.</span>
-                        <label class="portal-field-carried-review">
-                            <input type="checkbox" @onchange="@(() => MarkCarriedFieldReviewed(rowIdx, field.FieldName))" />
-                            <span>Mark reviewed</span>
-                        </label>
-                    }
-                    @if (isModified)
-                    {
-                        <span class="portal-field-carried-label portal-field-carried-label--modified">✎ Modified from carried value</span>
-                        <button class="portal-btn portal-btn-xs portal-btn-ghost portal-cf-undo-btn"
-                                type="button"
-                                title="Restore original carry-forward value"
-                                @onclick="@(() => UndoCarryForwardChange(rowIdx, field.FieldName))">
-                            ↩ Undo
-                        </button>
-                    }
-                </div>
             </div>
         }
         else
@@ -2558,6 +3006,43 @@
 
     private static string GetFieldErrorKey(int rowIdx, string fieldName) => rowIdx + "_" + fieldName;
 
+    private bool CellHasError(int rowIdx, string fieldName)
+    {
+        var key = GetFieldErrorKey(rowIdx, fieldName);
+        return fieldErrors.ContainsKey(key) ||
+               (_inlineState.TryGetValue(key, out var s) && s.Status == "error");
+    }
+
+    private static bool IsNumericField(FieldDisplayItem field) =>
+        field.DataType is "Decimal" or "Money" or "Integer" or "Percentage";
+
+    private string GetColumnTotal(string fieldName)
+    {
+        decimal total = 0m;
+        foreach (var row in formRows)
+        {
+            if (row.TryGetValue(fieldName, out var val) &&
+                decimal.TryParse(val, System.Globalization.NumberStyles.Any,
+                    CultureInfo.InvariantCulture, out var d))
+                total += d;
+        }
+        var field = nonKeyFields.FirstOrDefault(f => f.FieldName == fieldName);
+        return field?.DataType switch
+        {
+            "Money"      => total.ToString("N2", CultureInfo.InvariantCulture),
+            "Percentage" => total.ToString("N4", CultureInfo.InvariantCulture),
+            "Integer"    => ((long)total).ToString("N0", CultureInfo.InvariantCulture),
+            _            => total.ToString("N2", CultureInfo.InvariantCulture)
+        };
+    }
+
+    private async Task ClearNewRowAnimationAsync()
+    {
+        await Task.Delay(400);
+        _newRowIndex = -1;
+        await InvokeAsync(StateHasChanged);
+    }
+
     // ── Error Summary Helpers ─────────────────────────────────────
 
     private async Task ScrollToField(string fieldCode)
@@ -2586,6 +3071,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _locationChangingRegistration?.Dispose();
         autoSaveCts?.Cancel();
         autoSaveCts?.Dispose();
         foreach (var cts in _fieldValidateCts.Values) { cts.Cancel(); cts.Dispose(); }
@@ -2606,6 +3092,10 @@
             ? fieldGroups.Keys.ToList()
             : new List<string> { "Return Data" };
         _currentSectionIndex = 0;
+        // Accordion: expand the first section by default
+        _expandedSections.Clear();
+        if (_sectionNames.Count > 0)
+            _expandedSections.Add(_sectionNames[0]);
     }
 
     private void ComputeProgress()
@@ -2706,10 +3196,98 @@
         if (nextIndex < _sectionNames.Count)
         {
             _currentSectionIndex = nextIndex;
+            _expandedSections.Add(_sectionNames[nextIndex]);
             await JS.InvokeVoidAsync("portalScrollToSection", GetSectionId(_sectionNames[nextIndex]));
         }
 
         StateHasChanged();
+    }
+
+    private void ToggleSection(string sectionName)
+    {
+        if (!_expandedSections.Remove(sectionName))
+            _expandedSections.Add(sectionName);
+    }
+
+    private async Task ScrollToAndExpandSection(string sectionName, int index)
+    {
+        _expandedSections.Add(sectionName);
+        await ScrollToSection(sectionName, index);
+    }
+
+    private (int filled, int total) GetSectionFieldCounts(string sectionName)
+    {
+        var fields = structuralCategory == "FixedRow"
+            ? fieldGroups.GetValueOrDefault(sectionName, new List<FieldDisplayItem>())
+            : nonKeyFields;
+        var computed = sumFormulas.Select(f => f.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int total = 0, filled = 0;
+        int rowCount = Math.Max(1, formRows.Count);
+        foreach (var f in fields)
+        {
+            if (f.DataType == "Boolean" || computed.Contains(f.FieldName)) continue;
+            for (int ri = 0; ri < rowCount; ri++)
+            {
+                total++;
+                if (!string.IsNullOrWhiteSpace(GetFieldValue(ri, f.FieldName))) filled++;
+            }
+        }
+        return (filled, total);
+    }
+
+    private int GetSectionErrorCount(string sectionName)
+    {
+        var fields = structuralCategory == "FixedRow"
+            ? fieldGroups.GetValueOrDefault(sectionName, new List<FieldDisplayItem>())
+            : nonKeyFields;
+        var fieldNames = fields.Select(f => f.FieldName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        int count = 0;
+        for (int ri = 0; ri < formRows.Count; ri++)
+        {
+            foreach (var f in fields)
+            {
+                var key = GetFieldErrorKey(ri, f.FieldName);
+                if (fieldErrors.ContainsKey(key)) count++;
+                if (_inlineState.TryGetValue(key, out var s) && s.Status == "error") count++;
+            }
+        }
+        count += serverErrors.Count(e => fieldNames.Contains(e.Field ?? "") && e.Severity == "Error");
+        return count;
+    }
+
+    private static string GetStatusDotClass(SectionStatus status) => status switch
+    {
+        SectionStatus.Complete => "portal-fps-dot-complete",
+        SectionStatus.Error    => "portal-fps-dot-error",
+        SectionStatus.Warning  => "portal-fps-dot-warning",
+        _                      => "portal-fps-dot-muted"
+    };
+
+    private async Task JumpToNextEmptyField()
+    {
+        var fieldsToCheck = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+        var computed = sumFormulas.Select(f => f.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var section in _sectionNames)
+        {
+            var sectionFields = structuralCategory == "FixedRow"
+                ? fieldGroups.GetValueOrDefault(section, new List<FieldDisplayItem>())
+                : fieldsToCheck;
+            foreach (var f in sectionFields)
+            {
+                if (!f.IsRequired || computed.Contains(f.FieldName)) continue;
+                for (int ri = 0; ri < Math.Max(1, formRows.Count); ri++)
+                {
+                    if (string.IsNullOrWhiteSpace(GetFieldValue(ri, f.FieldName)))
+                    {
+                        _expandedSections.Add(section);
+                        StateHasChanged();
+                        await Task.Delay(50);
+                        await JS.InvokeVoidAsync("portalScrollToField", f.FieldName);
+                        return;
+                    }
+                }
+            }
+        }
     }
 
     // ── Draft Recovery Helpers ────────────────────────────────────

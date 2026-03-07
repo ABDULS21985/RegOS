@@ -35,4 +35,12 @@ public interface IFormDataService
         string returnCode,
         string period,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns all active drafts for the given tenant, ordered by most-recently-saved first.
+    /// Used by platform administrators to monitor in-progress returns.
+    /// </summary>
+    Task<List<ReturnDraft>> GetAllDraftsForTenantAsync(
+        Guid tenantId,
+        CancellationToken ct = default);
 }

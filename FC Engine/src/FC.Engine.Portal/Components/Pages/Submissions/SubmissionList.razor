@@ -177,85 +177,170 @@
     }
     else if (viewMode == "kanban")
     {
-        <!-- ── Kanban Board ── -->
-        <div class="portal-kanban-board" id="submissions-kanban" role="region" aria-label="Submissions kanban board">
+        <!-- ── Kanban Board v2 ── -->
+        <div class="portal-kanban-v2" id="submissions-kanban" role="region" aria-label="Submissions kanban board">
             @foreach (var col in kanbanColumns)
             {
-                var colCards = filteredSubmissions.Where(s => col.Statuses.Contains(s.Status)).ToList();
-                var wipExceeded = col.WipLimit.HasValue && colCards.Count > col.WipLimit.Value;
-                <div class="portal-kanban-column @(wipExceeded ? "portal-kanban-column--wip-exceeded" : "")"
-                     data-column-id="@col.Id" role="group" aria-label="@col.Title column">
-                    <div class="portal-kanban-column-header">
-                        <span class="portal-kanban-column-title">@col.Title</span>
-                        <span class="portal-badge portal-badge-neutral portal-badge-sm portal-kanban-col-badge">@colCards.Count</span>
-                        @if (wipExceeded)
-                        {
-                            <span class="portal-kanban-col-wip-label" hidden="@(!wipExceeded)">
-                                Limit reached (@colCards.Count/@col.WipLimit)
-                            </span>
-                        }
-                        else if (col.WipLimit.HasValue)
-                        {
-                            <span class="portal-kanban-col-wip-label" hidden="true"></span>
-                        }
-                    </div>
-                    @if (!colCards.Any())
+                var allColCards = filteredSubmissions.Where(s => col.Statuses.Contains(s.Status)).ToList();
+                var colSearch = _columnSearch.GetValueOrDefault(col.Id, "");
+                var colCards = string.IsNullOrEmpty(colSearch)
+                    ? allColCards
+                    : allColCards.Where(s =>
+                        s.ReturnCode.Contains(colSearch, StringComparison.OrdinalIgnoreCase) ||
+                        (s.TemplateName?.Contains(colSearch, StringComparison.OrdinalIgnoreCase) ?? false)).ToList();
+                var isCollapsed = _collapsedColumns.Contains(col.Id);
+                var wipNear = col.WipLimit.HasValue && allColCards.Count >= (int)(col.WipLimit.Value * 0.8);
+                var wipExceeded = col.WipLimit.HasValue && allColCards.Count > col.WipLimit.Value;
+                var wipCls = wipExceeded ? "portal-kanban-wip--exceeded" : (wipNear ? "portal-kanban-wip--near" : "");
+
+                <div class="portal-kanban-col portal-kanban-col--@col.Color @(isCollapsed ? "portal-kanban-col--collapsed" : "") @(wipExceeded ? "portal-kanban-col--wip-exceeded" : "")"
+                     data-column-id="@col.Id" role="group" aria-label="@col.Title, @allColCards.Count items">
+
+                    @if (isCollapsed)
                     {
-                        <div class="portal-kanban-empty" aria-label="No submissions in @col.Title">Drop cards here</div>
+                        <!-- Collapsed strip -->
+                        <div class="portal-kanban-col-collapsed-inner">
+                            <span class="portal-kanban-col-count-pill @wipCls">@allColCards.Count</span>
+                            <span class="portal-kanban-col-title-vertical">@col.Title</span>
+                            <button class="portal-kanban-col-expand-btn" @onclick="() => ToggleCollapseColumn(col.Id)"
+                                    aria-label="Expand @col.Title column">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                            </button>
+                        </div>
                     }
-                    @foreach (var sub in colCards)
+                    else
                     {
-                        <div class="portal-kanban-card @GetCardAccentClass(sub.Status)"
-                             data-card-id="@sub.Id"
-                             role="button" tabindex="0"
-                             @onclick="() => ViewDetail(sub.Id)"
-                             @onkeydown="e => OnKanbanCardKey(e, sub.Id)"
-                             aria-label="@sub.ReturnCode — @sub.TemplateName, @GetStatusLabel(sub.Status). Press K to move columns.">
-                            <div class="portal-kanban-card-header">
-                                <span class="portal-kanban-card-code">@sub.ReturnCode</span>
-                                <span class="portal-badge @GetStatusBadgeClass(sub.Status) portal-badge-xs">@GetStatusIcon(sub.Status)@GetStatusLabel(sub.Status)</span>
+                        <!-- Column Header -->
+                        <div class="portal-kanban-col-header">
+                            <div class="portal-kanban-col-title-row">
+                                <span class="portal-kanban-col-dot"></span>
+                                <span class="portal-kanban-col-title">@col.Title</span>
+                                <span class="portal-kanban-col-count @wipCls">
+                                    @if (col.WipLimit.HasValue) { <text>@allColCards.Count/@col.WipLimit</text> }
+                                    else { <text>@allColCards.Count</text> }
+                                </span>
                             </div>
-                            <div class="portal-kanban-card-name" title="@sub.TemplateName">@sub.TemplateName</div>
-                            <div class="portal-kanban-card-meta">
-                                <span>@sub.PeriodLabel</span>
-                                <span aria-hidden="true">·</span>
-                                <span title="@sub.SubmittedAt.ToString("d MMM yyyy HH:mm")">@RelativeTime(sub.SubmittedAt)</span>
+                            <div class="portal-kanban-col-header-btns">
+                                <button class="portal-kanban-col-icon-btn @(_columnSearchOpen.Contains(col.Id) ? "portal-kanban-col-icon-btn--active" : "")"
+                                        title="Search this column" @onclick="() => ToggleColumnSearch(col.Id)"
+                                        aria-label="Search @col.Title column" aria-pressed="@_columnSearchOpen.Contains(col.Id).ToString().ToLowerInvariant()">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                                    </svg>
+                                </button>
+                                <button class="portal-kanban-col-icon-btn" title="Collapse column"
+                                        @onclick="() => ToggleCollapseColumn(col.Id)"
+                                        aria-label="Collapse @col.Title column">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+                                </button>
                             </div>
-                            @if (sub.ErrorCount > 0 || sub.WarningCount > 0)
+                        </div>
+
+                        @if (_columnSearchOpen.Contains(col.Id))
+                        {
+                            <div class="portal-kanban-col-search-bar">
+                                <input type="search" class="portal-kanban-col-search-input"
+                                       placeholder="Search @col.Title…"
+                                       value="@colSearch"
+                                       @oninput="e => SetColumnSearch(col.Id, e.Value?.ToString() ?? string.Empty)"
+                                       aria-label="Filter @col.Title column" />
+                            </div>
+                        }
+
+                        <!-- Cards -->
+                        <div class="portal-kanban-col-cards" role="list">
+                            @if (!colCards.Any())
                             {
-                                <div class="portal-kanban-card-counts">
-                                    @if (sub.ErrorCount > 0)
+                                <div class="portal-kanban-col-empty">
+                                    @if (!string.IsNullOrEmpty(colSearch))
                                     {
-                                        <span class="portal-kanban-card-count-badge portal-kanban-card-count-badge--error">
-                                            ✕ @sub.ErrorCount @(sub.ErrorCount == 1 ? "error" : "errors")
-                                        </span>
+                                        <span>No results for "@colSearch"</span>
                                     }
-                                    @if (sub.WarningCount > 0)
+                                    else
                                     {
-                                        <span class="portal-kanban-card-count-badge portal-kanban-card-count-badge--warn">
-                                            ⚠ @sub.WarningCount @(sub.WarningCount == 1 ? "warning" : "warnings")
-                                        </span>
+                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                            <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="9"/><line x1="9" y1="13" x2="13" y2="13"/>
+                                        </svg>
+                                        <span>No submissions</span>
                                     }
                                 </div>
                             }
-                            <!-- Quick actions (slide-up on hover) -->
-                            <div class="portal-kanban-card-actions" @onclick:stopPropagation>
-                                <a href="@DetailUrl(sub.Id)" class="portal-kanban-card-action-btn" title="View details">
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                                    View
-                                </a>
-                                @if (sub.Status == "PendingApproval")
-                                {
-                                    <button class="portal-kanban-card-action-btn" title="Approve">
-                                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
-                                        Approve
-                                    </button>
-                                }
-                                <button class="portal-kanban-card-action-btn" title="Download report">
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                                    Download
-                                </button>
-                            </div>
+                            @foreach (var sub in colCards)
+                            {
+                                var overdue = sub.DeadlineDate.HasValue && sub.DeadlineDate.Value < DateTime.Today
+                                              && sub.Status is not ("Accepted" or "AcceptedWithWarnings" or "Historical");
+                                <div class="portal-kanban-card-v2 @GetCardAccentClass(sub.Status)"
+                                     data-card-id="@sub.Id"
+                                     role="listitem" tabindex="0"
+                                     @onclick="() => ViewDetail(sub.Id)"
+                                     @onkeydown="e => OnKanbanCardKey(e, sub.Id)"
+                                     aria-label="@sub.ReturnCode — @sub.TemplateName. @GetStatusLabel(sub.Status).@(overdue ? " Overdue." : "")">
+                                    <!-- Return code + overdue badge -->
+                                    <div class="portal-kanban-card-v2-top">
+                                        <span class="portal-kanban-card-v2-code">@sub.ReturnCode</span>
+                                        @if (overdue)
+                                        {
+                                            <span class="portal-kanban-card-v2-overdue">OVERDUE</span>
+                                        }
+                                    </div>
+                                    <!-- Institution / template name -->
+                                    <div class="portal-kanban-card-v2-name" title="@sub.TemplateName">@sub.TemplateName</div>
+                                    <!-- Deadline -->
+                                    @if (sub.DeadlineDate.HasValue)
+                                    {
+                                        <div class="portal-kanban-card-v2-deadline @(overdue ? "portal-kanban-card-v2-deadline--overdue" : "")">
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/>
+                                                <line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                                            </svg>
+                                            @sub.DeadlineDate.Value.ToString("d MMM yyyy")
+                                        </div>
+                                    }
+                                    <!-- Footer: error/warning badges · assignee avatar · time -->
+                                    <div class="portal-kanban-card-v2-footer">
+                                        <div class="portal-kanban-card-v2-badges">
+                                            @if (sub.ErrorCount > 0)
+                                            {
+                                                <span class="portal-kanban-v2-badge portal-kanban-v2-badge--err" title="@sub.ErrorCount errors">
+                                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                    @sub.ErrorCount
+                                                </span>
+                                            }
+                                            @if (sub.WarningCount > 0)
+                                            {
+                                                <span class="portal-kanban-v2-badge portal-kanban-v2-badge--warn" title="@sub.WarningCount warnings">
+                                                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+                                                    @sub.WarningCount
+                                                </span>
+                                            }
+                                        </div>
+                                        <div class="portal-kanban-card-v2-right-meta">
+                                            <span class="portal-kanban-card-v2-avatar @(sub.IsCurrentUser ? "portal-kanban-card-v2-avatar--self" : "")"
+                                                  title="@sub.AssigneeInitials" aria-hidden="true">@sub.AssigneeInitials</span>
+                                            <span class="portal-kanban-card-v2-time"
+                                                  title="@sub.SubmittedAt.ToString("d MMM yyyy HH:mm")">@RelativeTime(sub.SubmittedAt)</span>
+                                        </div>
+                                    </div>
+                                    <!-- Quick actions (slide-up on hover) -->
+                                    <div class="portal-kanban-card-v2-actions" @onclick:stopPropagation>
+                                        <a href="@DetailUrl(sub.Id)" class="portal-kanban-card-v2-action">
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                            View
+                                        </a>
+                                        @if (sub.Status == "PendingApproval")
+                                        {
+                                            <button class="portal-kanban-card-v2-action portal-kanban-card-v2-action--approve">
+                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                                Approve
+                                            </button>
+                                            <button class="portal-kanban-card-v2-action portal-kanban-card-v2-action--changes">
+                                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                                Request Changes
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            }
                         </div>
                     }
                 </div>
@@ -533,12 +618,42 @@
 
     private static readonly KanbanColumnDef[] kanbanColumns =
     [
-        new("draft",      "Draft",          ["Draft"],                                    WipLimit: 10),
-        new("processing", "Processing",     ["Parsing", "Validating"],                    WipLimit: null),
-        new("review",     "Pending Review", ["PendingApproval"],                          WipLimit: 5),
-        new("accepted",   "Accepted",       ["Accepted", "AcceptedWithWarnings"],         WipLimit: null),
-        new("rejected",   "Rejected",       ["Rejected", "ApprovalRejected", "Historical"], WipLimit: null)
+        new("draft",      "Draft",        ["Draft"],                                      WipLimit: 10,  Color: "gray"),
+        new("submitted",  "Submitted",    ["Parsing", "Validating"],                      WipLimit: null, Color: "blue"),
+        new("review",     "Under Review", ["PendingApproval"],                            WipLimit: 5,   Color: "amber"),
+        new("approved",   "Approved",     ["Accepted", "AcceptedWithWarnings"],           WipLimit: null, Color: "green"),
+        new("published",  "Published",    ["Rejected", "ApprovalRejected", "Historical"], WipLimit: null, Color: "dark-green"),
     ];
+
+    // Column collapse / per-column search
+    private readonly HashSet<string> _collapsedColumns = new();
+    private readonly HashSet<string> _columnSearchOpen = new();
+    private readonly Dictionary<string, string> _columnSearch = new();
+
+    private void ToggleCollapseColumn(string colId)
+    {
+        if (_collapsedColumns.Contains(colId)) _collapsedColumns.Remove(colId);
+        else _collapsedColumns.Add(colId);
+    }
+
+    private void ToggleColumnSearch(string colId)
+    {
+        if (_columnSearchOpen.Contains(colId))
+        {
+            _columnSearchOpen.Remove(colId);
+            _columnSearch.Remove(colId);
+        }
+        else
+        {
+            _columnSearchOpen.Add(colId);
+        }
+    }
+
+    private void SetColumnSearch(string colId, string value)
+    {
+        if (string.IsNullOrEmpty(value)) _columnSearch.Remove(colId);
+        else _columnSearch[colId] = value;
+    }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
@@ -589,12 +704,15 @@
             var wipLimitsObj = kanbanColumns
                 .Where(c => c.WipLimit.HasValue)
                 .ToDictionary(c => c.Id, c => c.WipLimit!.Value);
-            await DragDrop.InitKanban("#submissions-kanban", ".portal-kanban-column",
-                ".portal-kanban-card", new
+            await DragDrop.InitKanban("#submissions-kanban", ".portal-kanban-col",
+                ".portal-kanban-card-v2", new
                 {
                     storageKey = "fc-kanban-submissions",
                     dotNetRef = _dotNetRef,
-                    wipLimits = wipLimitsObj
+                    wipLimits = wipLimitsObj,
+                    draggingClass = "portal-kanban-card-v2--dragging",
+                    dropTargetClass = "portal-kanban-col--over",
+                    placeholderClass = "portal-kanban-placeholder"
                 });
         }
     }
@@ -671,7 +789,15 @@
                 Status = s.Status.ToString(),
                 ErrorCount = s.ValidationReport?.ErrorCount ?? 0,
                 WarningCount = s.ValidationReport?.WarningCount ?? 0,
-                ProcessingDurationMs = s.ProcessingDurationMs
+                ProcessingDurationMs = s.ProcessingDurationMs,
+                // Derive initials from return code (first 2 alpha chars)
+                AssigneeInitials = new string(s.ReturnCode.Where(char.IsLetter).Take(2).ToArray()).ToUpperInvariant() is { Length: > 0 } ini ? ini : "ME",
+                IsCurrentUser = true,
+                // Deadline: use period end-of-month + 15 days if available, else null
+                DeadlineDate = s.ReturnPeriod is not null
+                    ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month,
+                        DateTime.DaysInMonth(s.ReturnPeriod.Year, s.ReturnPeriod.Month)).AddDays(15)
+                    : null
             }).OrderByDescending(s => s.SubmittedAt).ToList();
 
             availableReturnCodes = submissions
@@ -922,9 +1048,13 @@
         public int ErrorCount { get; set; }
         public int WarningCount { get; set; }
         public int? ProcessingDurationMs { get; set; }
+        // Kanban card v2 fields
+        public DateTime? DeadlineDate { get; set; }
+        public string AssigneeInitials { get; set; } = "ME";
+        public bool IsCurrentUser { get; set; } = true;
     }
 
-    private record KanbanColumnDef(string Id, string Title, string[] Statuses, int? WipLimit = null);
+    private record KanbanColumnDef(string Id, string Title, string[] Statuses, int? WipLimit = null, string Color = "gray");
 
     // ── Tour definitions ─────────────────────────────────────────────────────
 

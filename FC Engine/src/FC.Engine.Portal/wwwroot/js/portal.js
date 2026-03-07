@@ -861,3 +861,309 @@ window.portalWizard = (() => {
 
     return { launchConfetti, openVideo };
 })();
+
+// ── Reporting Calendar helpers ──────────────────────────────────────
+
+/**
+ * Download a text file (used for iCal export).
+ * Called from ReportingCalendar.razor via JS.InvokeVoidAsync("portalDownloadText", ...)
+ */
+window.portalDownloadText = function (fileName, content, mimeType) {
+    const blob = new Blob([content], { type: mimeType || 'text/plain' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// §63 — Notification Intelligence Hub
+// Bell swing, badge bounce, 30s polling, IntersectionObserver mark-as-read,
+// snooze context menu, keyboard shortcuts for filter tabs.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+window.portalNotifHub = (function () {
+    'use strict';
+
+    var _pollTimer = null;
+    var _snoozeBackdrop = null;
+    var _snoozeMenu = null;
+    var _readTimers = {};
+    var _intersectionObservers = [];
+    var _kbHandler = null;
+
+    // ── Bell Swing ──────────────────────────────────────────────────────────
+    function animateBell() {
+        var wrapper = document.querySelector('.portal-notif-bell-wrapper');
+        if (!wrapper) return;
+        var icon = wrapper.querySelector('.portal-notif-bell-icon');
+        if (!icon) return;
+        icon.classList.remove('portal-notif-bell-swinging');
+        void icon.offsetWidth; // force reflow to restart animation
+        icon.classList.add('portal-notif-bell-swinging');
+        icon.addEventListener('animationend', function handler() {
+            icon.classList.remove('portal-notif-bell-swinging');
+            icon.removeEventListener('animationend', handler);
+        }, { once: true });
+    }
+
+    // ── Badge Bounce ────────────────────────────────────────────────────────
+    function animateBadge() {
+        var wrapper = document.querySelector('.portal-notif-bell-wrapper');
+        if (!wrapper) return;
+        var badge = wrapper.querySelector('.portal-notif-bell-badge');
+        if (!badge) return;
+        badge.classList.remove('portal-notif-badge-bouncing');
+        void badge.offsetWidth;
+        badge.classList.add('portal-notif-badge-bouncing');
+        badge.addEventListener('animationend', function handler() {
+            badge.classList.remove('portal-notif-badge-bouncing');
+            badge.removeEventListener('animationend', handler);
+        }, { once: true });
+    }
+
+    // ── Poll Dot Flash ──────────────────────────────────────────────────────
+    function flashPollDot() {
+        var dot = document.querySelector('.portal-notif-poll-dot');
+        if (!dot) return;
+        dot.classList.remove('portal-notif-poll-dot--active');
+        void dot.offsetWidth;
+        dot.classList.add('portal-notif-poll-dot--active');
+        setTimeout(function () {
+            dot.classList.remove('portal-notif-poll-dot--active');
+        }, 1200);
+    }
+
+    // ── 30s Polling ─────────────────────────────────────────────────────────
+    function startPolling(dotnetRef, intervalMs) {
+        stopPolling();
+        var ms = intervalMs || 30000;
+        _pollTimer = setInterval(function () {
+            flashPollDot();
+            try { dotnetRef.invokeMethodAsync('PollForUpdates'); } catch (e) { /* non-fatal */ }
+        }, ms);
+    }
+
+    function stopPolling() {
+        if (_pollTimer !== null) {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+        }
+    }
+
+    // ── IntersectionObserver: Mark-as-Read on Scroll ────────────────────────
+    // observeAllUnreadCards — bulk observe after page render
+    function observeAllUnreadCards(dotnetRef) {
+        disposeObservers();
+        document.querySelectorAll('[data-notif-id][data-is-read="false"]').forEach(function (el) {
+            observeNotifCard(el, dotnetRef);
+        });
+    }
+
+    function observeNotifCard(el, dotnetRef) {
+        // Accept either a DOM element or a CSS selector string
+        if (typeof el === 'string') { el = document.querySelector(el); }
+        if (!el) return;
+        var notifId = parseInt(el.getAttribute('data-notif-id'), 10);
+        if (!notifId || isNaN(notifId)) return;
+        if (el.getAttribute('data-is-read') === 'true') return;
+
+        var obs = new IntersectionObserver(function (entries) {
+            entries.forEach(function (entry) {
+                if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+                    if (!_readTimers[notifId]) {
+                        _readTimers[notifId] = setTimeout(function () {
+                            delete _readTimers[notifId];
+                            obs.disconnect();
+                            try { dotnetRef.invokeMethodAsync('OnScrollRead', notifId); } catch (e) { }
+                        }, 2000);
+                    }
+                } else {
+                    if (_readTimers[notifId]) {
+                        clearTimeout(_readTimers[notifId]);
+                        delete _readTimers[notifId];
+                    }
+                }
+            });
+        }, { threshold: 0.5 });
+
+        obs.observe(el);
+        _intersectionObservers.push(obs);
+    }
+
+    function disposeObservers() {
+        _intersectionObservers.forEach(function (obs) { try { obs.disconnect(); } catch (e) { } });
+        _intersectionObservers = [];
+        Object.keys(_readTimers).forEach(function (k) { clearTimeout(_readTimers[k]); });
+        _readTimers = {};
+    }
+
+    // ── Snooze Context Menu ─────────────────────────────────────────────────
+    function showSnoozeMenu(notifId, x, y, dotnetRef) {
+        hideSnoozeMenu();
+
+        _snoozeBackdrop = document.createElement('div');
+        _snoozeBackdrop.style.cssText = 'position:fixed;inset:0;z-index:9998;';
+        _snoozeBackdrop.addEventListener('click', hideSnoozeMenu);
+        _snoozeBackdrop.addEventListener('contextmenu', function (e) { e.preventDefault(); hideSnoozeMenu(); });
+        document.body.appendChild(_snoozeBackdrop);
+
+        var menuLeft = Math.min(x, window.innerWidth - 210);
+        var menuTop = Math.min(y, window.innerHeight - 220);
+
+        _snoozeMenu = document.createElement('div');
+        _snoozeMenu.className = 'portal-notif-snooze-menu';
+        _snoozeMenu.style.left = menuLeft + 'px';
+        _snoozeMenu.style.top = menuTop + 'px';
+
+        var items = [
+            { isHeader: true, label: 'Snooze Options' },
+            { icon: '⏰', label: 'Snooze for 1 hour',       action: 'snooze_1h' },
+            { icon: '🌙', label: 'Snooze until tomorrow',    action: 'snooze_tomorrow' },
+            { isDivider: true },
+            { icon: '🔇', label: 'Mute this type',          action: 'mute_type',   danger: true },
+            { icon: '✓',  label: 'Mark as read',            action: 'mark_read' },
+            { icon: '✕',  label: 'Dismiss',                 action: 'dismiss',     danger: true },
+        ];
+
+        items.forEach(function (item) {
+            if (item.isHeader) {
+                var lbl = document.createElement('div');
+                lbl.className = 'portal-notif-snooze-label';
+                lbl.textContent = item.label;
+                _snoozeMenu.appendChild(lbl);
+            } else if (item.isDivider) {
+                var div = document.createElement('div');
+                div.className = 'portal-notif-snooze-divider';
+                _snoozeMenu.appendChild(div);
+            } else {
+                var btn = document.createElement('button');
+                btn.className = 'portal-notif-snooze-item' + (item.danger ? ' portal-notif-snooze-item--danger' : '');
+                btn.innerHTML = '<span style="font-size:0.875rem;width:1.25em;text-align:center">' + item.icon + '</span><span>' + item.label + '</span>';
+                (function (action) {
+                    btn.addEventListener('click', function () {
+                        hideSnoozeMenu();
+                        try { dotnetRef.invokeMethodAsync('OnSnoozeAction', notifId, action); } catch (e) { }
+                    });
+                })(item.action);
+                _snoozeMenu.appendChild(btn);
+            }
+        });
+
+        document.body.appendChild(_snoozeMenu);
+    }
+
+    function hideSnoozeMenu() {
+        if (_snoozeMenu) { _snoozeMenu.remove(); _snoozeMenu = null; }
+        if (_snoozeBackdrop) { _snoozeBackdrop.remove(); _snoozeBackdrop = null; }
+    }
+
+    // ── Snooze Persistence (localStorage) ──────────────────────────────────
+    function setSnooze(notifId, untilIso) {
+        try {
+            if (untilIso) {
+                localStorage.setItem('notifSnooze_' + notifId, untilIso);
+            } else {
+                localStorage.removeItem('notifSnooze_' + notifId);
+            }
+        } catch (e) { }
+    }
+
+    function isSnoozed(notifId) {
+        try {
+            var val = localStorage.getItem('notifSnooze_' + notifId);
+            if (!val) return false;
+            return new Date(val) > new Date();
+        } catch (e) { return false; }
+    }
+
+    function getMutedTypes() {
+        try {
+            var val = localStorage.getItem('notifMutedTypes');
+            return val ? JSON.parse(val) : [];
+        } catch (e) { return []; }
+    }
+
+    function muteType(typeName) {
+        try {
+            var muted = getMutedTypes();
+            if (muted.indexOf(typeName) === -1) {
+                muted.push(typeName);
+                localStorage.setItem('notifMutedTypes', JSON.stringify(muted));
+            }
+        } catch (e) { }
+    }
+
+    function isTypeMuted(typeName) {
+        return getMutedTypes().indexOf(typeName) !== -1;
+    }
+
+    // ── Keyboard Shortcuts for Notifications Page ────────────────────────────
+    function initKeyboardShortcuts(dotnetRef) {
+        disposeKeyboardShortcuts();
+        _kbHandler = function (e) {
+            // Skip if user is typing
+            var tag = (document.activeElement || {}).tagName || '';
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+            if ((document.activeElement || {}).isContentEditable) return;
+
+            var key = e.key;
+            if (key === 's' || key === 'S') { e.preventDefault(); try { dotnetRef.invokeMethodAsync('OnKeyboardFilter', 'submissions'); } catch (ex) { } }
+            else if (key === 'a' || key === 'A') { e.preventDefault(); try { dotnetRef.invokeMethodAsync('OnKeyboardFilter', 'approvals'); } catch (ex) { } }
+            else if (key === 'd' || key === 'D') { e.preventDefault(); try { dotnetRef.invokeMethodAsync('OnKeyboardFilter', 'deadlines'); } catch (ex) { } }
+        };
+        document.addEventListener('keydown', _kbHandler);
+    }
+
+    function disposeKeyboardShortcuts() {
+        if (_kbHandler) {
+            document.removeEventListener('keydown', _kbHandler);
+            _kbHandler = null;
+        }
+    }
+
+    // ── Long-press detection for mobile snooze ──────────────────────────────
+    var _lpTimers = {};
+    function initLongPress(el, notifId, dotnetRef) {
+        if (!el) return;
+        var started = null;
+        el.addEventListener('touchstart', function (e) {
+            started = Date.now();
+            _lpTimers[notifId] = setTimeout(function () {
+                var t = e.touches[0];
+                if (t) showSnoozeMenu(notifId, t.clientX, t.clientY, dotnetRef);
+            }, 600);
+        }, { passive: true });
+        el.addEventListener('touchend', function () {
+            if (_lpTimers[notifId]) { clearTimeout(_lpTimers[notifId]); delete _lpTimers[notifId]; }
+        });
+        el.addEventListener('touchcancel', function () {
+            if (_lpTimers[notifId]) { clearTimeout(_lpTimers[notifId]); delete _lpTimers[notifId]; }
+        });
+    }
+
+    return {
+        animateBell:               animateBell,
+        animateBadge:              animateBadge,
+        flashPollDot:              flashPollDot,
+        startPolling:              startPolling,
+        stopPolling:               stopPolling,
+        observeNotifCard:          observeNotifCard,
+        observeAllUnreadCards:     observeAllUnreadCards,
+        disposeObservers:          disposeObservers,
+        showSnoozeMenu:            showSnoozeMenu,
+        hideSnoozeMenu:            hideSnoozeMenu,
+        setSnooze:                 setSnooze,
+        isSnoozed:                 isSnoozed,
+        getMutedTypes:             getMutedTypes,
+        muteType:                  muteType,
+        isTypeMuted:               isTypeMuted,
+        initKeyboardShortcuts:     initKeyboardShortcuts,
+        disposeKeyboardShortcuts:  disposeKeyboardShortcuts,
+        initLongPress:             initLongPress,
+    };
+})();

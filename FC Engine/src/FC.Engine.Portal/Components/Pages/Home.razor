@@ -749,6 +749,73 @@ else if (data is not null)
 
     </div>
 
+    @if (_drilldownOpen)
+    {
+        <div class="portal-chart-drilldown-overlay" @onclick="() => _drilldownOpen = false" aria-hidden="true"></div>
+        <div class="portal-chart-drilldown-modal" role="dialog" aria-modal="true"
+             aria-label="Submissions for @_drilldownTitle">
+            <div class="portal-drilldown-header">
+                <div>
+                    <h3 class="portal-drilldown-title">@_drilldownTitle</h3>
+                    @if (_drilldownReturnName != _drilldownTitle)
+                    {
+                        <p class="portal-drilldown-subtitle">@_drilldownReturnName</p>
+                    }
+                </div>
+                <button class="portal-drilldown-close" @onclick="() => _drilldownOpen = false"
+                        aria-label="Close drill-down">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            @if (_drilldownItems.Any())
+            {
+                <div class="portal-drilldown-body">
+                    <table class="portal-table portal-drilldown-table" aria-label="Submissions for @_drilldownTitle">
+                        <thead>
+                            <tr>
+                                <th scope="col">Period</th>
+                                <th scope="col">Submitted</th>
+                                <th scope="col">Status</th>
+                                <th scope="col">Errors</th>
+                                <th scope="col">Warnings</th>
+                                <th scope="col"><span class="portal-sr-only">Actions</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var item in _drilldownItems)
+                            {
+                                <tr>
+                                    <td>@item.Period</td>
+                                    <td>@item.SubmittedDate.ToString("d MMM yyyy")</td>
+                                    <td><span class="portal-badge @GetStatusBadgeClass(item.Status)">@GetStatusLabel(item.Status)</span></td>
+                                    <td>@(item.ErrorCount > 0 ? item.ErrorCount.ToString() : "—")</td>
+                                    <td>@(item.WarningCount > 0 ? item.WarningCount.ToString() : "—")</td>
+                                    <td>
+                                        <a href="/submissions/@item.SubmissionId" class="portal-table-link"
+                                           aria-label="View submission">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <polyline points="9 18 15 12 9 6"/>
+                                            </svg>
+                                        </a>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="portal-drilldown-empty">
+                    <p>No submissions found for <strong>@_drilldownTitle</strong> in this period.</p>
+                </div>
+            }
+        </div>
+    }
+
     @if (_activeMetric is not null)
     {
         @{
@@ -902,12 +969,16 @@ else
         if (chartsRendered && !firstRender) return;
 
         chartsRendered = true;
+
+        // Ensure _dotNetRef exists before rendering charts (needed for click handlers)
+        if (_dotNetRef is null)
+            _dotNetRef = DotNetObjectReference.Create(this);
+
         await RenderAllCharts();
 
         if (!dragInitialized)
         {
             dragInitialized = true;
-            _dotNetRef = DotNetObjectReference.Create(this);
             var grids = new[] { "#portal-widget-grid", "#portal-widget-grid-2", "#portal-widget-grid-3" };
             foreach (var grid in grids)
             {

@@ -1,0 +1,209 @@
+@page "/submissions/drafts"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Entities
+@inject IFormDataService FormDataSvc
+@inject ITenantContext TenantContext
+@inject NavigationManager Nav
+
+<PageHeader Title="In-Progress Drafts"
+            Subtitle="Institutions currently filling out returns — not yet submitted"
+            BackUrl="/submissions">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="Refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                <polyline points="23 4 23 10 17 10"/>
+                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            Refresh
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-list-page">
+
+    @if (_loading)
+    {
+        <div class="fc-list-card">
+            @for (int i = 0; i < 6; i++)
+            {
+                <div class="fc-skel-row" aria-hidden="true">
+                    <div class="fc-skel fc-skel-text" style="--skel-w: @(60 + (i % 3) * 30)px"></div>
+                </div>
+            }
+        </div>
+    }
+    else if (_error is not null)
+    {
+        <div class="fc-page-error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+            </svg>
+            <p>@_error</p>
+            <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="Refresh">Retry</button>
+        </div>
+    }
+    else
+    {
+        <!-- ── Summary bar ── -->
+        <div class="fc-stat-bar" style="margin-bottom:var(--space-4);">
+            <div class="fc-stat-bar-item">
+                <span class="fc-stat-bar-value">@_drafts.Count</span>
+                <span class="fc-stat-bar-label">Active drafts</span>
+            </div>
+            <div class="fc-stat-bar-item">
+                <span class="fc-stat-bar-value">@_drafts.Select(d => d.InstitutionId).Distinct().Count()</span>
+                <span class="fc-stat-bar-label">Institutions</span>
+            </div>
+            @if (_staleDrafts > 0)
+            {
+                <div class="fc-stat-bar-item">
+                    <span class="fc-stat-bar-value" style="color:var(--fc-warning,#b45309)">@_staleDrafts</span>
+                    <span class="fc-stat-bar-label">Stale (&gt; 24 h)</span>
+                </div>
+            }
+        </div>
+
+        <div class="fc-list-card">
+            <div class="fc-list-toolbar">
+                <div class="fc-list-toolbar-filters">
+                    <div class="fc-list-search-wrap">
+                        <svg class="fc-list-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                        <input class="fc-list-search-input"
+                               placeholder="Filter by return code, period or user…"
+                               @bind="_search" @bind:event="oninput" />
+                    </div>
+                    <select class="fc-list-filter-select" @bind="_ageFilter">
+                        <option value="">All ages</option>
+                        <option value="1">Within 1 hour</option>
+                        <option value="24">Within 24 hours</option>
+                        <option value="stale">Stale (&gt; 24 h)</option>
+                    </select>
+                </div>
+            </div>
+
+            <DataTable TItem="ReturnDraft"
+                       Items="@_filtered"
+                       Loading="_loading"
+                       PageSize="25"
+                       ShowPagination="true"
+                       Sortable="true"
+                       EmptyTitle="No in-progress drafts"
+                       EmptyText="No institutions are currently filling out returns.">
+                <ToolbarContent>
+                </ToolbarContent>
+                <ChildContent>
+                    <DataColumn TItem="ReturnDraft" Title="Institution ID" SortKey="x => x.InstitutionId">
+                        <CellTemplate>
+                            <span class="fc-table-mono">@context.InstitutionId</span>
+                        </CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ReturnDraft" Title="Return Code" SortKey="x => x.ReturnCode">
+                        <CellTemplate>
+                            <span class="fc-table-mono">@context.ReturnCode</span>
+                        </CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ReturnDraft" Title="Period" SortKey="x => x.Period">
+                        <CellTemplate>@context.Period</CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ReturnDraft" Title="Last Saved" SortKey="x => x.LastSavedAt">
+                        <CellTemplate>
+                            <span class="fc-list-cell-muted" title="@context.LastSavedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm:ss")">
+                                @GetRelativeTime(context.LastSavedAt)
+                            </span>
+                            @if (IsStale(context.LastSavedAt))
+                            {
+                                <span class="fc-badge fc-badge--xs fc-badge--warning" style="margin-left:.5rem">Stale</span>
+                            }
+                        </CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ReturnDraft" Title="Saved By" SortKey="x => x.SavedBy">
+                        <CellTemplate>@context.SavedBy</CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ReturnDraft" Title="Fields filled" SortKey="x => CountFields(x)">
+                        <CellTemplate>
+                            <span class="fc-list-cell-muted">@CountFields(context) field@(CountFields(context) == 1 ? "" : "s")</span>
+                        </CellTemplate>
+                    </DataColumn>
+                </ChildContent>
+            </DataTable>
+        </div>
+    }
+</div>
+
+@code {
+    private List<ReturnDraft> _drafts = new();
+    private bool _loading = true;
+    private string? _error;
+    private string _search = "";
+    private string _ageFilter = "";
+    private int _staleDrafts;
+
+    private List<ReturnDraft> _filtered => _drafts
+        .Where(d =>
+            (string.IsNullOrWhiteSpace(_search) ||
+             d.ReturnCode.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+             d.Period.Contains(_search, StringComparison.OrdinalIgnoreCase) ||
+             d.SavedBy.Contains(_search, StringComparison.OrdinalIgnoreCase)) &&
+            (_ageFilter switch
+            {
+                "1"     => d.LastSavedAt >= DateTime.UtcNow.AddHours(-1),
+                "24"    => d.LastSavedAt >= DateTime.UtcNow.AddHours(-24),
+                "stale" => IsStale(d.LastSavedAt),
+                _       => true
+            }))
+        .ToList();
+
+    protected override async Task OnInitializedAsync() => await Refresh();
+
+    private async Task Refresh()
+    {
+        _loading = true;
+        _error = null;
+        _drafts = new();
+        StateHasChanged();
+
+        try
+        {
+            var tenantId = TenantContext.CurrentTenantId;
+            if (!tenantId.HasValue)
+            {
+                _error = "No tenant context available.";
+                return;
+            }
+            _drafts = await FormDataSvc.GetAllDraftsForTenantAsync(tenantId.Value);
+            _staleDrafts = _drafts.Count(d => IsStale(d.LastSavedAt));
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load drafts: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static bool IsStale(DateTime lastSavedAt) =>
+        DateTime.UtcNow - lastSavedAt > TimeSpan.FromHours(24);
+
+    private static string GetRelativeTime(DateTime utcTime)
+    {
+        var elapsed = DateTime.UtcNow - utcTime;
+        if (elapsed.TotalMinutes < 1) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    private static int CountFields(ReturnDraft draft)
+    {
+        try
+        {
+            var rows = System.Text.Json.JsonSerializer.Deserialize<List<Dictionary<string, string>>>(draft.DataJson);
+            return rows?.Sum(r => r.Values.Count(v => !string.IsNullOrWhiteSpace(v))) ?? 0;
+        }
+        catch { return 0; }
+    }
+}

@@ -2,6 +2,10 @@
 @attribute [Authorize(Policy = "InstitutionUser")]
 @using Microsoft.AspNetCore.Components.Authorization
 @using System.Security.Claims
+@using FC.Engine.Domain.Enums
+@inject NotificationService NotifSvc
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 <PageTitle>Notifications — FC Engine Portal</PageTitle>
 
@@ -15,10 +19,7 @@
             @if (model is not null && model.UnreadCount > 0)
             {
                 <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="MarkAllRead" disabled="@isMarkingAll">
-                    @if (isMarkingAll)
-                    {
-                        <span class="portal-btn-spinner" aria-hidden="true"></span>
-                    }
+                    @if (isMarkingAll) { <span class="portal-btn-spinner" aria-hidden="true"></span> }
                     Mark all as read
                 </button>
             }
@@ -29,10 +30,10 @@
         </div>
     </div>
 
-    <!-- Filter Tabs -->
-    <div class="portal-notif-filter-tabs" role="tablist">
+    <!-- Filter Tabs with keyboard shortcut hints -->
+    <div class="portal-notif-filter-tabs" role="tablist" aria-label="Filter notifications">
         <button class="portal-notif-filter-tab @(activeFilter == null ? "active" : "")"
-                @onclick="() => SetFilter(null)" role="tab">
+                @onclick="() => SetFilter(null)" role="tab" aria-selected="@(activeFilter == null)">
             All
             @if (model is not null && model.UnreadCount > 0)
             {
@@ -40,36 +41,45 @@
             }
         </button>
         <button class="portal-notif-filter-tab @(activeFilter == NotificationType.SubmissionResult ? "active" : "")"
-                @onclick="() => SetFilter(NotificationType.SubmissionResult)" role="tab">
+                @onclick="() => SetFilter(NotificationType.SubmissionResult)" role="tab"
+                aria-selected="@(activeFilter == NotificationType.SubmissionResult)">
             Submissions
+            <span class="portal-notif-filter-tab-key" title="Press S to filter">S</span>
         </button>
         <button class="portal-notif-filter-tab @(activeFilter == NotificationType.ApprovalRequest ? "active" : "")"
-                @onclick="() => SetFilter(NotificationType.ApprovalRequest)" role="tab">
+                @onclick="() => SetFilter(NotificationType.ApprovalRequest)" role="tab"
+                aria-selected="@(activeFilter == NotificationType.ApprovalRequest)">
             Approvals
+            <span class="portal-notif-filter-tab-key" title="Press A to filter">A</span>
         </button>
         <button class="portal-notif-filter-tab @(activeFilter == NotificationType.DeadlineApproaching ? "active" : "")"
-                @onclick="() => SetFilter(NotificationType.DeadlineApproaching)" role="tab">
+                @onclick="() => SetFilter(NotificationType.DeadlineApproaching)" role="tab"
+                aria-selected="@(activeFilter == NotificationType.DeadlineApproaching)">
             Deadlines
+            <span class="portal-notif-filter-tab-key" title="Press D to filter">D</span>
         </button>
         <button class="portal-notif-filter-tab @(activeFilter == NotificationType.SystemAnnouncement ? "active" : "")"
-                @onclick="() => SetFilter(NotificationType.SystemAnnouncement)" role="tab">
+                @onclick="() => SetFilter(NotificationType.SystemAnnouncement)" role="tab"
+                aria-selected="@(activeFilter == NotificationType.SystemAnnouncement)">
             System
         </button>
         <button class="portal-notif-filter-tab @(activeFilter == NotificationType.AuditEvent ? "active" : "")"
-                @onclick="() => SetFilter(NotificationType.AuditEvent)" role="tab">
+                @onclick="() => SetFilter(NotificationType.AuditEvent)" role="tab"
+                aria-selected="@(activeFilter == NotificationType.AuditEvent)">
             Audit
         </button>
     </div>
 
     @if (isLoading)
     {
-        <div class="portal-card" style="padding: 2rem;">
-            <div class="portal-skeleton portal-skeleton-block" style="height: 80px; margin-bottom: 0.75rem;"></div>
-            <div class="portal-skeleton portal-skeleton-block" style="height: 80px; margin-bottom: 0.75rem;"></div>
-            <div class="portal-skeleton portal-skeleton-block" style="height: 80px;"></div>
+        <div class="portal-card" style="padding: 2rem; display:flex; flex-direction:column; gap:0.75rem;">
+            @for (int i = 0; i < 4; i++)
+            {
+                <div class="portal-skeleton portal-skeleton-block" style="height: 96px; border-radius:10px;"></div>
+            }
         </div>
     }
-    else if (filteredNotifications.Count == 0)
+    else if (groupedNotifications.Count == 0)
     {
         <div class="portal-empty-state portal-card" style="padding: 3rem;">
             <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5" aria-hidden="true">
@@ -91,41 +101,52 @@
     }
     else
     {
-        <div class="portal-notif-list">
-            @foreach (var notif in filteredNotifications)
+        <div class="portal-notif-list" id="notif-page-list">
+            @foreach (var group in groupedNotifications)
             {
-                <div class="portal-notif-card @(notif.IsRead ? "portal-notif-card-read" : "")">
-                    <div class="portal-notif-card-icon @GetNotifTypeClass(notif.Type)">
-                        @GetNotifTypeIcon(notif.Type)
-                    </div>
-                    <div class="portal-notif-card-body">
-                        <div class="portal-notif-card-header">
-                            <span class="portal-notif-card-title">@notif.Title</span>
-                            <span class="portal-notif-card-time">@notif.TimeAgo</span>
+                @if (group.IsGroupCard)
+                {
+                    <div class="portal-notif-group">
+                        <div class="portal-notif-group-header"
+                             @onclick="() => TogglePageGroup(group.Key)"
+                             @oncontextmenu="(e) => OpenSnoozeMenu(group.Items[0].Id, e)"
+                             @oncontextmenu:preventDefault="true">
+                            <div class="portal-notif-group-avatar" style="background:@group.AvatarColor;">
+                                @group.Initials
+                            </div>
+                            <div class="portal-notif-group-info">
+                                <div class="portal-notif-group-summary">@group.Summary</div>
+                                <div class="portal-notif-group-meta">@group.MetaLine</div>
+                            </div>
+                            <button class="portal-notif-group-expand-btn" type="button"
+                                    aria-expanded="@group.IsExpanded">
+                                @if (group.IsExpanded)
+                                {
+                                    <span>Collapse</span>
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+                                }
+                                else
+                                {
+                                    <span>@group.Items.Count items</span>
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                                }
+                            </button>
                         </div>
-                        <p class="portal-notif-card-message">@notif.Message</p>
-                        <div class="portal-notif-card-actions">
-                            @if (!string.IsNullOrEmpty(notif.Link))
-                            {
-                                <a href="@notif.Link" class="portal-btn portal-btn-outline portal-btn-xs"
-                                   @onclick="() => MarkRead(notif)">
-                                    View Details
-                                </a>
-                            }
-                            @if (!notif.IsRead)
-                            {
-                                <button class="portal-btn portal-btn-ghost portal-btn-xs"
-                                        @onclick="() => MarkRead(notif)">
-                                    Mark read
-                                </button>
-                            }
-                        </div>
+                        @if (group.IsExpanded)
+                        {
+                            <div class="portal-notif-group-items">
+                                @foreach (var n in group.Items)
+                                {
+                                    @RichPageCard(n)
+                                }
+                            </div>
+                        }
                     </div>
-                    @if (!notif.IsRead)
-                    {
-                        <span class="portal-notif-card-unread-dot" aria-label="Unread"></span>
-                    }
-                </div>
+                }
+                else
+                {
+                    @RichPageCard(group.Items[0])
+                }
             }
         </div>
 
@@ -133,10 +154,7 @@
         {
             <div style="display: flex; justify-content: center; margin-top: 1.5rem;">
                 <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="LoadMore" disabled="@isLoadingMore">
-                    @if (isLoadingMore)
-                    {
-                        <span class="portal-btn-spinner" aria-hidden="true"></span>
-                    }
+                    @if (isLoadingMore) { <span class="portal-btn-spinner" aria-hidden="true"></span> }
                     Load more
                 </button>
             </div>
@@ -145,6 +163,118 @@
 </div>
 
 @code {
+
+    // ── Rich card render fragment (full page version) ────────────────────
+
+    private RenderFragment RichPageCard(NotificationModel n) => __builder =>
+    {
+        var isSnoozed = _snoozedIds.Contains(n.Id);
+        var ctaLabel = GetCtaLabel(n.Type);
+        var avatarColor = GetTypeColor(n.Type);
+        var initials = GetInitials(n.Title);
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class",
+            "portal-notif-card portal-notif-rich-card" +
+            (n.IsRead ? " portal-notif-card-read portal-notif-rich-card--read" : "") +
+            (isSnoozed ? " portal-notif-rich-card--snoozed" : ""));
+        __builder.AddAttribute(2, "data-notif-id", n.Id.ToString());
+        __builder.AddAttribute(3, "data-is-read", n.IsRead ? "true" : "false");
+        __builder.AddAttribute(4, "oncontextmenu",
+            EventCallback.Factory.Create<MouseEventArgs>(this, (MouseEventArgs e) => OpenSnoozeMenu(n.Id, e)));
+        __builder.AddAttribute(5, "oncontextmenu:preventDefault", true);
+
+        // Avatar
+        __builder.OpenElement(10, "div");
+        __builder.AddAttribute(11, "class", "portal-notif-avatar portal-notif-card-icon");
+        __builder.AddAttribute(12, "style", $"background:{avatarColor};color:#fff;width:40px;height:40px;font-size:0.875rem;");
+        __builder.AddContent(13, initials);
+        __builder.CloseElement();
+
+        // Body
+        __builder.OpenElement(20, "div");
+        __builder.AddAttribute(21, "class", "portal-notif-card-body portal-notif-rich-body");
+
+        // Header: title + time
+        __builder.OpenElement(30, "div");
+        __builder.AddAttribute(31, "class", "portal-notif-card-header portal-notif-rich-header");
+
+        __builder.OpenElement(32, "span");
+        __builder.AddAttribute(33, "class", "portal-notif-card-title portal-notif-rich-title");
+        __builder.AddContent(34, n.Title);
+        __builder.CloseElement();
+
+        __builder.OpenElement(35, "span");
+        __builder.AddAttribute(36, "class", "portal-notif-card-time portal-notif-rich-time");
+        __builder.AddAttribute(37, "title", n.CreatedAt.ToString("dddd, d MMMM yyyy 'at' HH:mm"));
+        __builder.AddContent(38, n.TimeAgo);
+        __builder.CloseElement();
+
+        __builder.CloseElement(); // header
+
+        // Message
+        __builder.OpenElement(40, "p");
+        __builder.AddAttribute(41, "class", "portal-notif-card-message portal-notif-rich-msg");
+        __builder.AddContent(42, n.Message);
+        __builder.CloseElement();
+
+        // Actions
+        __builder.OpenElement(50, "div");
+        __builder.AddAttribute(51, "class", "portal-notif-card-actions portal-notif-rich-actions");
+
+        if (!string.IsNullOrEmpty(n.Link))
+        {
+            __builder.OpenElement(52, "a");
+            __builder.AddAttribute(53, "href", n.Link);
+            __builder.AddAttribute(54, "class", "portal-notif-rich-cta");
+            __builder.AddAttribute(55, "onclick",
+                EventCallback.Factory.Create<MouseEventArgs>(this, (MouseEventArgs _) => MarkRead(n)));
+            __builder.AddContent(56, ctaLabel);
+            __builder.CloseElement();
+        }
+
+        if (!n.IsRead)
+        {
+            __builder.OpenElement(60, "button");
+            __builder.AddAttribute(61, "class", "portal-btn portal-btn-ghost portal-btn-xs");
+            __builder.AddAttribute(62, "type", "button");
+            __builder.AddAttribute(63, "onclick",
+                EventCallback.Factory.Create<MouseEventArgs>(this, (MouseEventArgs _) => MarkRead(n)));
+            __builder.AddContent(64, "Mark read");
+            __builder.CloseElement();
+        }
+
+        // Dismiss ×
+        __builder.OpenElement(70, "button");
+        __builder.AddAttribute(71, "class", "portal-notif-dismiss-btn");
+        __builder.AddAttribute(72, "title", "Dismiss");
+        __builder.AddAttribute(73, "aria-label", "Dismiss notification");
+        __builder.AddAttribute(74, "type", "button");
+        __builder.AddAttribute(75, "onclick",
+            EventCallback.Factory.Create<MouseEventArgs>(this, (MouseEventArgs _) => DismissPageNotif(n.Id)));
+        __builder.AddAttribute(76, "onclick:stopPropagation", true);
+        __builder.AddMarkupContent(77,
+            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\">" +
+            "<line x1=\"18\" y1=\"6\" x2=\"6\" y2=\"18\"/><line x1=\"6\" y1=\"6\" x2=\"18\" y2=\"18\"/></svg>");
+        __builder.CloseElement();
+
+        __builder.CloseElement(); // actions
+        __builder.CloseElement(); // body
+
+        // Unread dot
+        if (!n.IsRead)
+        {
+            __builder.OpenElement(80, "span");
+            __builder.AddAttribute(81, "class", "portal-notif-card-unread-dot");
+            __builder.AddAttribute(82, "aria-label", "Unread");
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // card
+    };
+
+    // ── State ─────────────────────────────────────────────────────────────
+
     private bool isLoading = true;
     private bool isLoadingMore;
     private bool isMarkingAll;
@@ -155,10 +285,26 @@
     private NotificationType? activeFilter;
     private NotificationListModel? model;
     private List<NotificationModel> allNotifications = new();
-    private List<NotificationModel> filteredNotifications = new();
+    private List<NotifPageGroup> groupedNotifications = new();
+    private HashSet<int> _snoozedIds = new();
+    private HashSet<string> _expandedPageGroups = new();
+    private DotNetObjectReference<Notifications>? _selfRef;
 
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-    [Inject] private NotificationService NotifSvc { get; set; } = default!;
+
+    private class NotifPageGroup
+    {
+        public string Key { get; set; } = "";
+        public string Summary { get; set; } = "";
+        public string MetaLine { get; set; } = "";
+        public string Initials { get; set; } = "";
+        public string AvatarColor { get; set; } = "#1a6b3c";
+        public List<NotificationModel> Items { get; set; } = new();
+        public bool IsGroupCard { get; set; }
+        public bool IsExpanded { get; set; }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
     {
@@ -169,47 +315,224 @@
             var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
             int.TryParse(userIdStr, out userId);
             int.TryParse(instIdStr, out institutionId);
-
             await LoadNotifications();
         }
         catch { }
         finally { isLoading = false; }
     }
 
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            try { await JS.InvokeVoidAsync("portalNotifHub.initKeyboardShortcuts", _selfRef); }
+            catch { }
+
+            // Refresh snooze state from localStorage after JS is ready
+            if (!isLoading) await RefreshSnoozeAndObserve();
+        }
+        else if (!isLoading)
+        {
+            // Re-observe unread cards after any re-render (load more, filter change, etc.)
+            try { await JS.InvokeVoidAsync("portalNotifHub.observeAllUnreadCards", _selfRef); }
+            catch { }
+        }
+    }
+
+    private async Task RefreshSnoozeAndObserve()
+    {
+        await RefreshSnoozeIds();
+        BuildPageGroups();
+        StateHasChanged();
+        try { await JS.InvokeVoidAsync("portalNotifHub.observeAllUnreadCards", _selfRef); }
+        catch { }
+    }
+
+    // ── [JSInvokable] handlers ────────────────────────────────────────────
+
+    [JSInvokable]
+    public void OnKeyboardFilter(string filter)
+    {
+        activeFilter = filter switch
+        {
+            "submissions" => NotificationType.SubmissionResult,
+            "approvals"   => NotificationType.ApprovalRequest,
+            "deadlines"   => NotificationType.DeadlineApproaching,
+            _             => (NotificationType?)null
+        };
+        BuildPageGroups();
+        InvokeAsync(StateHasChanged);
+    }
+
+    [JSInvokable]
+    public async Task OnScrollRead(int notifId)
+    {
+        var notif = allNotifications.FirstOrDefault(n => n.Id == notifId);
+        if (notif == null || notif.IsRead) return;
+        await MarkRead(notif);
+    }
+
+    [JSInvokable]
+    public async Task OnSnoozeAction(int notifId, string action)
+    {
+        switch (action)
+        {
+            case "snooze_1h":
+                var until1h = DateTimeOffset.UtcNow.AddHours(1).ToString("O");
+                await JS.InvokeVoidAsync("portalNotifHub.setSnooze", notifId, until1h);
+                _snoozedIds.Add(notifId);
+                break;
+
+            case "snooze_tomorrow":
+                var tomorrow = DateTimeOffset.UtcNow.Date.AddDays(1).ToString("O");
+                await JS.InvokeVoidAsync("portalNotifHub.setSnooze", notifId, tomorrow);
+                _snoozedIds.Add(notifId);
+                break;
+
+            case "mute_type":
+                var notif = allNotifications.FirstOrDefault(n => n.Id == notifId);
+                if (notif != null)
+                {
+                    await JS.InvokeVoidAsync("portalNotifHub.muteType", notif.Type.ToString());
+                    allNotifications.RemoveAll(n => n.Type == notif.Type);
+                    BuildPageGroups();
+                }
+                break;
+
+            case "mark_read":
+                var n2 = allNotifications.FirstOrDefault(n => n.Id == notifId);
+                if (n2 != null) await MarkRead(n2);
+                break;
+
+            case "dismiss":
+                await DismissPageNotif(notifId);
+                break;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    // ── Data Loading ──────────────────────────────────────────────────────
+
     private async Task LoadNotifications()
     {
         model = await NotifSvc.GetNotifications(userId, institutionId, currentPage);
         allNotifications = model.Notifications;
-        ApplyFilter();
+        BuildPageGroups();
+    }
+
+    private async Task RefreshSnoozeIds()
+    {
+        _snoozedIds.Clear();
+        foreach (var n in allNotifications)
+        {
+            try
+            {
+                var snoozed = await JS.InvokeAsync<bool>("portalNotifHub.isSnoozed", n.Id);
+                if (snoozed) _snoozedIds.Add(n.Id);
+            }
+            catch { }
+        }
     }
 
     private void SetFilter(NotificationType? type)
     {
         activeFilter = type;
-        ApplyFilter();
+        BuildPageGroups();
     }
 
-    private void ApplyFilter()
+    private void BuildPageGroups()
     {
-        filteredNotifications = activeFilter.HasValue
+        var filtered = activeFilter.HasValue
             ? allNotifications.Where(n => n.Type == activeFilter.Value
                 || (activeFilter.Value == NotificationType.ApprovalRequest && n.Type == NotificationType.ApprovalResult))
                 .ToList()
             : allNotifications.ToList();
+
+        groupedNotifications = new List<NotifPageGroup>();
+        var processed = new HashSet<int>();
+
+        for (int i = 0; i < filtered.Count; i++)
+        {
+            if (processed.Contains(filtered[i].Id)) continue;
+            var n = filtered[i];
+            var similar = new List<NotificationModel> { n };
+
+            for (int j = i + 1; j < filtered.Count && similar.Count < 5; j++)
+            {
+                if (!processed.Contains(filtered[j].Id) && filtered[j].Type == n.Type)
+                {
+                    similar.Add(filtered[j]);
+                    processed.Add(filtered[j].Id);
+                }
+            }
+            processed.Add(n.Id);
+
+            var key = $"{n.Type}_{i}";
+            var isExpanded = _expandedPageGroups.Contains(key);
+
+            if (similar.Count >= 3)
+            {
+                groupedNotifications.Add(new NotifPageGroup
+                {
+                    Key = key,
+                    Summary = $"{similar.Count} {GetTypePluralLabel(n.Type)}",
+                    MetaLine = $"Latest: {similar[0].TimeAgo} · Click to expand",
+                    Initials = GetTypeInitials(n.Type),
+                    AvatarColor = GetTypeColor(n.Type),
+                    Items = similar,
+                    IsGroupCard = true,
+                    IsExpanded = isExpanded
+                });
+            }
+            else
+            {
+                foreach (var s in similar)
+                {
+                    groupedNotifications.Add(new NotifPageGroup
+                    {
+                        Key = $"{s.Type}_{s.Id}",
+                        Initials = GetInitials(s.Title),
+                        AvatarColor = GetTypeColor(s.Type),
+                        Items = new List<NotificationModel> { s },
+                        IsGroupCard = false
+                    });
+                }
+            }
+        }
     }
+
+    private void TogglePageGroup(string key)
+    {
+        var group = groupedNotifications.Find(g => g.Key == key);
+        if (group == null) return;
+        group.IsExpanded = !group.IsExpanded;
+        if (group.IsExpanded) _expandedPageGroups.Add(key);
+        else _expandedPageGroups.Remove(key);
+    }
+
+    // ── Snooze ───────────────────────────────────────────────────────────
+
+    private async Task OpenSnoozeMenu(int notifId, MouseEventArgs e)
+    {
+        try { await JS.InvokeVoidAsync("portalNotifHub.showSnoozeMenu", notifId, e.ClientX, e.ClientY, _selfRef); }
+        catch { }
+    }
+
+    // ── Actions ───────────────────────────────────────────────────────────
 
     private async Task LoadMore()
     {
         isLoadingMore = true;
         StateHasChanged();
-
         try
         {
             currentPage++;
             var next = await NotifSvc.GetNotifications(userId, institutionId, currentPage);
             allNotifications.AddRange(next.Notifications);
             model = next;
-            ApplyFilter();
+            await RefreshSnoozeIds();
+            BuildPageGroups();
         }
         catch { currentPage--; }
         finally { isLoadingMore = false; StateHasChanged(); }
@@ -226,16 +549,29 @@
         }
     }
 
+    private async Task DismissPageNotif(int notifId)
+    {
+        var notif = allNotifications.FirstOrDefault(n => n.Id == notifId);
+        if (notif != null)
+        {
+            if (!notif.IsRead) await MarkRead(notif);
+            allNotifications.RemoveAll(n => n.Id == notifId);
+            _snoozedIds.Remove(notifId);
+            BuildPageGroups();
+            StateHasChanged();
+        }
+    }
+
     private async Task MarkAllRead()
     {
         isMarkingAll = true;
         StateHasChanged();
-
         try
         {
             await NotifSvc.MarkAllAsRead(userId, institutionId);
             foreach (var n in allNotifications) n.IsRead = true;
             if (model is not null) model.UnreadCount = 0;
+            BuildPageGroups();
         }
         catch { }
         finally { isMarkingAll = false; StateHasChanged(); }
@@ -245,7 +581,6 @@
     {
         isClearing = true;
         StateHasChanged();
-
         try
         {
             await NotifSvc.ClearOldRead(userId, institutionId);
@@ -256,31 +591,69 @@
         finally { isClearing = false; StateHasChanged(); }
     }
 
-    private static string GetNotifTypeClass(NotificationType type) => type switch
+    // ── Disposal ─────────────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
     {
-        NotificationType.SubmissionResult => "portal-notif-icon-submission",
-        NotificationType.DeadlineApproaching => "portal-notif-icon-deadline",
-        NotificationType.ApprovalRequest or NotificationType.ApprovalResult => "portal-notif-icon-approval",
-        NotificationType.SystemAnnouncement => "portal-notif-icon-system",
-        NotificationType.TeamUpdate => "portal-notif-icon-team",
-        NotificationType.AuditEvent => "portal-notif-icon-audit",
-        _ => "portal-notif-icon-system"
+        try { await JS.InvokeVoidAsync("portalNotifHub.disposeKeyboardShortcuts"); } catch { }
+        try { await JS.InvokeVoidAsync("portalNotifHub.disposeObservers"); } catch { }
+        _selfRef?.Dispose();
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
+    private static string GetTypeColor(NotificationType type) => type switch
+    {
+        NotificationType.SubmissionResult    => "#dc2626",
+        NotificationType.DeadlineApproaching => "#d97706",
+        NotificationType.ApprovalRequest or
+        NotificationType.ApprovalResult      => "#b45309",
+        NotificationType.SystemAnnouncement  => "#2563eb",
+        NotificationType.TeamUpdate          => "#7c3aed",
+        NotificationType.AuditEvent          => "#6b7280",
+        _                                    => "#1a6b3c"
     };
 
-    private static MarkupString GetNotifTypeIcon(NotificationType type) => type switch
+    private static string GetTypePluralLabel(NotificationType type) => type switch
     {
-        NotificationType.SubmissionResult => new(
-            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/></svg>"),
-        NotificationType.DeadlineApproaching => new(
-            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>"),
-        NotificationType.ApprovalRequest or NotificationType.ApprovalResult => new(
-            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"/></svg>"),
-        NotificationType.SystemAnnouncement => new(
-            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" y1=\"16\" x2=\"12\" y2=\"12\"/><line x1=\"12\" y1=\"8\" x2=\"12.01\" y2=\"8\"/></svg>"),
-        NotificationType.TeamUpdate => new(
-            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M23 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/></svg>"),
-        NotificationType.AuditEvent => new(
-            "<svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 20h9\"/><path d=\"M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z\"/></svg>"),
-        _ => new("")
+        NotificationType.SubmissionResult    => "submission results",
+        NotificationType.DeadlineApproaching => "deadline alerts",
+        NotificationType.ApprovalRequest     => "approval requests",
+        NotificationType.ApprovalResult      => "approval results",
+        NotificationType.SystemAnnouncement  => "system announcements",
+        NotificationType.TeamUpdate          => "team updates",
+        NotificationType.AuditEvent          => "audit events",
+        _                                    => "notifications"
     };
+
+    private static string GetTypeInitials(NotificationType type) => type switch
+    {
+        NotificationType.SubmissionResult    => "SR",
+        NotificationType.DeadlineApproaching => "DL",
+        NotificationType.ApprovalRequest     => "AR",
+        NotificationType.ApprovalResult      => "AP",
+        NotificationType.SystemAnnouncement  => "SY",
+        NotificationType.TeamUpdate          => "TU",
+        NotificationType.AuditEvent          => "AU",
+        _                                    => "NT"
+    };
+
+    private static string GetCtaLabel(NotificationType type) => type switch
+    {
+        NotificationType.SubmissionResult    => "Review Submission",
+        NotificationType.DeadlineApproaching => "View Calendar",
+        NotificationType.ApprovalRequest     => "Review Now",
+        NotificationType.ApprovalResult      => "View Return",
+        NotificationType.SystemAnnouncement  => "Read More",
+        NotificationType.AuditEvent          => "View Audit Log",
+        _                                    => "View Details"
+    };
+
+    private static string GetInitials(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return "N";
+        var words = title.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 1) return words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant();
+        return (words[0][0].ToString() + words[1][0].ToString()).ToUpperInvariant();
+    }
 }

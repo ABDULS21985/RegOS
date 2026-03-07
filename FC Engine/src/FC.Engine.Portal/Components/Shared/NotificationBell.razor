@@ -11,15 +11,17 @@
 
 <div class="portal-notif-bell-wrapper" @onkeydown="HandleKeyDown">
     <button class="portal-topbar-notification"
-            @onclick="ToggleDropdown"
+            @onclick="ToggleDrawer"
             aria-label="Notifications (@unreadCount unread)"
             aria-expanded="@isOpen"
-            aria-haspopup="true">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-             stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-            <path d="M13.73 21a2 2 0 01-3.46 0"/>
-        </svg>
+            aria-haspopup="dialog">
+        <span class="portal-notif-bell-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 01-3.46 0"/>
+            </svg>
+        </span>
         @if (hasUrgent && unreadCount > 0)
         {
             <span class="portal-notif-bell-badge portal-notif-bell-badge-urgent" aria-hidden="true">
@@ -36,11 +38,24 @@
 
     @if (isOpen)
     {
-        <div class="portal-notif-backdrop" @onclick="CloseDropdown" role="presentation" aria-hidden="true"></div>
-        <div class="portal-notif-dropdown" role="region" aria-label="Recent notifications">
-            <div class="portal-notif-dropdown-header">
-                <span class="portal-notif-dropdown-title">Notifications</span>
-                <div class="portal-notif-dropdown-header-actions">
+        <div class="portal-notif-drawer-overlay"
+             @onclick="CloseDrawer"
+             role="presentation"
+             aria-hidden="true">
+        </div>
+
+        <div class="portal-notif-drawer" role="dialog" aria-label="Notification center" aria-modal="true">
+
+            <div class="portal-notif-drawer-header">
+                <div class="portal-notif-drawer-title-row">
+                    <span class="portal-notif-drawer-title">Notifications</span>
+                    @if (unreadCount > 0)
+                    {
+                        <span class="portal-notif-drawer-badge">@(unreadCount > 99 ? "99+" : unreadCount.ToString())</span>
+                    }
+                    <span class="portal-notif-poll-dot" title="Auto-refreshing every 30 s"></span>
+                </div>
+                <div class="portal-notif-drawer-header-actions">
                     <button class="portal-notif-sound-toggle"
                             @onclick="ToggleSound"
                             @onclick:stopPropagation="true"
@@ -63,113 +78,281 @@
                             </svg>
                         }
                     </button>
-                    @if (unreadCount > 0)
+                    <button class="portal-notif-drawer-close"
+                            @onclick="CloseDrawer"
+                            aria-label="Close notification panel">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"/>
+                            <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="portal-notif-drawer-tabs" role="tablist">
+                <button class="portal-notif-drawer-tab @(drawerTab == DrawerTab.All ? "active" : "")"
+                        @onclick="() => SetDrawerTab(DrawerTab.All)" role="tab">All</button>
+                <button class="portal-notif-drawer-tab @(drawerTab == DrawerTab.Alerts ? "active" : "")"
+                        @onclick="() => SetDrawerTab(DrawerTab.Alerts)" role="tab">Alerts</button>
+                <button class="portal-notif-drawer-tab @(drawerTab == DrawerTab.System ? "active" : "")"
+                        @onclick="() => SetDrawerTab(DrawerTab.System)" role="tab">System</button>
+                <button class="portal-notif-drawer-tab @(drawerTab == DrawerTab.Audit ? "active" : "")"
+                        @onclick="() => SetDrawerTab(DrawerTab.Audit)" role="tab">Audit</button>
+            </div>
+
+            <div class="portal-notif-drawer-toolbar">
+                <span style="font-size:0.75rem;color:var(--cbn-text-muted);">
+                    @if (isLoadingDrawer)
                     {
-                        <button class="portal-notif-dropdown-action" @onclick="MarkAllRead">
-                            Mark all read
-                        </button>
+                        <span>Loading…</span>
                     }
-                </div>
+                    else
+                    {
+                        <span>Showing @Math.Min(filteredDrawerNotifs.Count, 10) of @filteredDrawerNotifs.Count</span>
+                    }
+                </span>
+                @if (unreadCount > 0)
+                {
+                    <button class="portal-notif-dropdown-action" @onclick="MarkAllRead">Mark all read</button>
+                }
             </div>
 
-            <!-- Dropdown Tabs -->
-            <div class="portal-notif-dropdown-tabs" role="tablist">
-                <button class="portal-notif-dropdown-tab @(dropdownTab == DropdownTab.All ? "active" : "")"
-                        @onclick="() => SetDropdownTab(DropdownTab.All)" role="tab">
-                    All
-                </button>
-                <button class="portal-notif-dropdown-tab @(dropdownTab == DropdownTab.Alerts ? "active" : "")"
-                        @onclick="() => SetDropdownTab(DropdownTab.Alerts)" role="tab">
-                    Alerts
-                </button>
-                <button class="portal-notif-dropdown-tab @(dropdownTab == DropdownTab.System ? "active" : "")"
-                        @onclick="() => SetDropdownTab(DropdownTab.System)" role="tab">
-                    System
-                </button>
-                <button class="portal-notif-dropdown-tab @(dropdownTab == DropdownTab.Audit ? "active" : "")"
-                        @onclick="() => SetDropdownTab(DropdownTab.Audit)" role="tab">
-                    Audit
-                </button>
-            </div>
-
-            @if (isLoadingDropdown)
-            {
-                <div class="portal-notif-dropdown-loading">
-                    <div class="portal-skeleton portal-skeleton-block" style="height: 60px; margin: 0.5rem;"></div>
-                    <div class="portal-skeleton portal-skeleton-block" style="height: 60px; margin: 0.5rem;"></div>
-                </div>
-            }
-            else if (filteredDropdownNotifications.Count == 0)
-            {
-                <div class="portal-notif-dropdown-empty">
-                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#22c55e"
-                         stroke-width="1.5" aria-hidden="true">
-                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-                        <polyline points="22 4 12 14.01 9 11.01"/>
-                    </svg>
-                    <span class="portal-notif-dropdown-empty-title">You're all caught up!</span>
-                    <span class="portal-notif-dropdown-empty-desc">
-                        @if (dropdownTab != DropdownTab.All)
+            <div class="portal-notif-drawer-body">
+                @if (isLoadingDrawer)
+                {
+                    <div class="portal-notif-drawer-loading">
+                        @for (int s = 0; s < 4; s++)
                         {
-                            @:No notifications in this category.
+                            <div class="portal-skeleton portal-skeleton-block" style="height:72px;border-radius:10px;"></div>
+                        }
+                    </div>
+                }
+                else if (drawerGroups.Count == 0)
+                {
+                    <div class="portal-notif-drawer-empty">
+                        <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#22c55e"
+                             stroke-width="1.5" aria-hidden="true">
+                            <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                            <polyline points="22 4 12 14.01 9 11.01"/>
+                        </svg>
+                        <span class="portal-notif-drawer-empty-title">You're all caught up!</span>
+                        <span class="portal-notif-drawer-empty-desc">
+                            @if (drawerTab != DrawerTab.All)
+                            {
+                                @:No notifications in this category.
+                            }
+                            else
+                            {
+                                @:No new notifications right now.
+                            }
+                        </span>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var group in drawerGroups)
+                    {
+                        @if (group.IsGroupCard)
+                        {
+                            <div class="portal-notif-group">
+                                <div class="portal-notif-group-header"
+                                     @onclick="() => ToggleGroup(group.Key)"
+                                     @oncontextmenu="(e) => OpenSnoozeMenu(group.Items[0].Id, e)"
+                                     @oncontextmenu:preventDefault="true">
+                                    <div class="portal-notif-group-avatar"
+                                         style="background:@group.AvatarColor;">
+                                        @group.Initials
+                                    </div>
+                                    <div class="portal-notif-group-info">
+                                        <div class="portal-notif-group-summary">@group.Summary</div>
+                                        <div class="portal-notif-group-meta">@group.MetaLine</div>
+                                    </div>
+                                    <button class="portal-notif-group-expand-btn" type="button"
+                                            aria-expanded="@group.IsExpanded">
+                                        @if (group.IsExpanded)
+                                        {
+                                            <span>Collapse</span>
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+                                        }
+                                        else
+                                        {
+                                            <span>@group.Items.Count items</span>
+                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                                        }
+                                    </button>
+                                </div>
+                                @if (group.IsExpanded)
+                                {
+                                    <div class="portal-notif-group-items">
+                                        @foreach (var n in group.Items)
+                                        {
+                                            @RichCard(n, inGroup: true)
+                                        }
+                                    </div>
+                                }
+                            </div>
                         }
                         else
                         {
-                            @:No new notifications right now.
+                            @RichCard(group.Items[0], inGroup: false)
                         }
-                    </span>
-                </div>
-            }
-            else
-            {
-                <div class="portal-notif-dropdown-list">
-                    @foreach (var notif in filteredDropdownNotifications)
-                    {
-                        <a href="@(notif.Link ?? "/notifications")"
-                           class="portal-notif-dropdown-item @(notif.IsRead ? "" : "portal-notif-dropdown-item-unread")"
-                           @onclick="() => HandleNotifClick(notif)">
-                            <div class="portal-notif-dropdown-item-icon @GetNotifTypeIconClass(notif.Type)">
-                                @GetNotifTypeIcon(notif.Type)
-                            </div>
-                            <div class="portal-notif-dropdown-item-content">
-                                <span class="portal-notif-dropdown-item-title">@notif.Title</span>
-                                <span class="portal-notif-dropdown-item-msg">@TruncateMessage(notif.Message, 80)</span>
-                                <span class="portal-notif-dropdown-item-time">@notif.TimeAgo</span>
-                            </div>
-                            @if (!notif.IsRead)
-                            {
-                                <span class="portal-notif-dropdown-item-dot @GetPriorityDotClass(notif.Priority)" aria-hidden="true"></span>
-                            }
-                        </a>
                     }
-                </div>
-            }
+                }
+            </div>
 
-            <a href="/notifications" class="portal-notif-dropdown-footer" @onclick="CloseDropdown">
+            <a href="/notifications" class="portal-notif-drawer-footer" @onclick="CloseDrawer">
                 View all notifications
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                    <polyline points="12 5 19 12 12 19"/>
+                </svg>
             </a>
         </div>
     }
 </div>
 
 @code {
+
+    // ── Render Fragment: Rich Notification Card ───────────────────────────
+
+    private RenderFragment RichCard(NotificationModel n, bool inGroup) => __builder =>
+    {
+        var isSnoozed = _snoozedIds.Contains(n.Id);
+        var ctaLabel = GetCtaLabel(n.Type);
+        var avatarColor = GetTypeColor(n.Type);
+        var initials = GetInitials(n.Title);
+
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class",
+            "portal-notif-rich-card" +
+            (n.IsRead ? " portal-notif-rich-card--read" : "") +
+            (isSnoozed ? " portal-notif-rich-card--snoozed" : ""));
+        __builder.AddAttribute(2, "data-notif-id", n.Id.ToString());
+        __builder.AddAttribute(3, "data-is-read", n.IsRead ? "true" : "false");
+        __builder.AddAttribute(4, "oncontextmenu",
+            EventCallback.Factory.Create<MouseEventArgs>(this, (MouseEventArgs e) => OpenSnoozeMenu(n.Id, e)));
+        __builder.AddAttribute(5, "oncontextmenu:preventDefault", true);
+
+        // Avatar
+        __builder.OpenElement(10, "div");
+        __builder.AddAttribute(11, "class", "portal-notif-avatar");
+        __builder.AddAttribute(12, "style", $"background:{avatarColor};");
+        __builder.AddContent(13, initials);
+        __builder.CloseElement();
+
+        // Body
+        __builder.OpenElement(20, "div");
+        __builder.AddAttribute(21, "class", "portal-notif-rich-body");
+
+        // Header row: title + time
+        __builder.OpenElement(30, "div");
+        __builder.AddAttribute(31, "class", "portal-notif-rich-header");
+
+        __builder.OpenElement(32, "span");
+        __builder.AddAttribute(33, "class", "portal-notif-rich-title");
+        __builder.AddContent(34, n.Title);
+        __builder.CloseElement();
+
+        __builder.OpenElement(35, "span");
+        __builder.AddAttribute(36, "class", "portal-notif-rich-time");
+        __builder.AddAttribute(37, "title", n.CreatedAt.ToString("ddd d MMM yyyy HH:mm"));
+        __builder.AddContent(38, n.TimeAgo);
+        __builder.CloseElement();
+
+        __builder.CloseElement(); // header row
+
+        // Message
+        __builder.OpenElement(40, "p");
+        __builder.AddAttribute(41, "class", "portal-notif-rich-msg");
+        __builder.AddContent(42, TruncateMessage(n.Message, 120));
+        __builder.CloseElement();
+
+        // Actions row
+        __builder.OpenElement(50, "div");
+        __builder.AddAttribute(51, "class", "portal-notif-rich-actions");
+
+        if (!string.IsNullOrEmpty(n.Link))
+        {
+            __builder.OpenElement(52, "a");
+            __builder.AddAttribute(53, "href", n.Link);
+            __builder.AddAttribute(54, "class", "portal-notif-rich-cta");
+            __builder.AddAttribute(55, "onclick",
+                EventCallback.Factory.Create<MouseEventArgs>(this, (MouseEventArgs _) => HandleDrawerNotifClick(n)));
+            __builder.AddContent(56, ctaLabel);
+            __builder.CloseElement();
+        }
+
+        // Unread dot
+        if (!n.IsRead)
+        {
+            __builder.OpenElement(60, "span");
+            __builder.AddAttribute(61, "class",
+                "portal-notif-unread-dot" +
+                (n.Priority >= NotificationPriority.High ? " portal-notif-unread-dot--urgent" : ""));
+            __builder.AddAttribute(62, "aria-label", "Unread");
+            __builder.CloseElement();
+        }
+
+        // Dismiss ×
+        __builder.OpenElement(70, "button");
+        __builder.AddAttribute(71, "class", "portal-notif-dismiss-btn");
+        __builder.AddAttribute(72, "title", "Dismiss");
+        __builder.AddAttribute(73, "aria-label", "Dismiss notification");
+        __builder.AddAttribute(74, "type", "button");
+        __builder.AddAttribute(75, "onclick",
+            EventCallback.Factory.Create<MouseEventArgs>(this, (MouseEventArgs _) => DismissNotif(n.Id)));
+        __builder.AddAttribute(76, "onclick:stopPropagation", true);
+        __builder.AddMarkupContent(77,
+            "<svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\">" +
+            "<line x1=\"18\" y1=\"6\" x2=\"6\" y2=\"18\"/><line x1=\"6\" y1=\"6\" x2=\"18\" y2=\"18\"/></svg>");
+        __builder.CloseElement();
+
+        __builder.CloseElement(); // actions
+        __builder.CloseElement(); // body
+        __builder.CloseElement(); // card
+    };
+
+    // ── State ─────────────────────────────────────────────────────────────
+
     private bool isOpen;
-    private bool isLoadingDropdown;
+    private bool isLoadingDrawer;
     private int unreadCount;
     private bool hasUrgent;
     private bool soundEnabled;
-    private DropdownTab dropdownTab = DropdownTab.All;
-    private List<NotificationModel> recentNotifications = new();
-    private List<NotificationModel> filteredDropdownNotifications = new();
+    private DrawerTab drawerTab = DrawerTab.All;
+    private List<NotificationModel> drawerNotifs = new();
+    private List<NotificationModel> filteredDrawerNotifs = new();
+    private List<NotifGroup> drawerGroups = new();
+    private HashSet<int> _snoozedIds = new();
+    private HashSet<string> _expandedGroupKeys = new();
     private HubConnection? _hubConnection;
+    private PeriodicTimer? _pollTimer;
+    private CancellationTokenSource? _pollCts;
+    private DotNetObjectReference<NotificationBell>? _selfRef;
 
     private int userId;
     private int institutionId;
 
-    private enum DropdownTab { All, Alerts, System, Audit }
+    private enum DrawerTab { All, Alerts, System, Audit }
 
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
+
+    // ── Notification Group model ─────────────────────────────────────────
+
+    private class NotifGroup
+    {
+        public string Key { get; set; } = "";
+        public string Summary { get; set; } = "";
+        public string MetaLine { get; set; } = "";
+        public string Initials { get; set; } = "";
+        public string AvatarColor { get; set; } = "#1a6b3c";
+        public List<NotificationModel> Items { get; set; } = new();
+        public bool IsGroupCard { get; set; }
+        public bool IsExpanded { get; set; }
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
 
     protected override async Task OnInitializedAsync()
     {
@@ -198,23 +381,81 @@
     {
         if (firstRender)
         {
-            try
-            {
-                soundEnabled = await JS.InvokeAsync<bool>("portalNotifGetSoundPref");
-            }
+            try { soundEnabled = await JS.InvokeAsync<bool>("portalNotifGetSoundPref"); }
             catch { soundEnabled = false; }
+
+            _selfRef = DotNetObjectReference.Create(this);
+            StartBackgroundPolling();
         }
     }
+
+    // ── 30-second background polling ─────────────────────────────────────
+
+    private void StartBackgroundPolling()
+    {
+        _pollCts = new CancellationTokenSource();
+        _pollTimer = new PeriodicTimer(TimeSpan.FromSeconds(30));
+        _ = PollLoop(_pollCts.Token);
+    }
+
+    private async Task PollLoop(CancellationToken ct)
+    {
+        try
+        {
+            while (await _pollTimer!.WaitForNextTickAsync(ct))
+                await PollSilently();
+        }
+        catch (OperationCanceledException) { }
+        catch { }
+    }
+
+    [JSInvokable]
+    public async Task PollForUpdates() => await PollSilently();
+
+    private async Task PollSilently()
+    {
+        try
+        {
+            if (userId <= 0 || institutionId <= 0) return;
+            var newCount = await NotificationSvc.GetUnreadCount(userId, institutionId);
+            if (newCount != unreadCount)
+            {
+                var prev = unreadCount;
+                unreadCount = newCount;
+                hasUrgent = newCount > 0;
+                if (newCount > prev)
+                {
+                    // Animate bell + badge on new notifications
+                    await InvokeAsync(async () =>
+                    {
+                        StateHasChanged();
+                        try
+                        {
+                            await JS.InvokeVoidAsync("portalNotifHub.animateBell");
+                            await JS.InvokeVoidAsync("portalNotifHub.animateBadge");
+                            if (soundEnabled) await JS.InvokeVoidAsync("portalNotifPlaySound");
+                        }
+                        catch { }
+                    });
+                }
+                else
+                {
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+        }
+        catch { }
+    }
+
+    // ── SignalR ──────────────────────────────────────────────────────────
 
     private async Task EnsureSignalRConnected()
     {
         if (_hubConnection is not null) return;
-
         try
         {
             var hubUrl = Navigation.ToAbsoluteUri("/hubs/notifications");
             var authCookie = HttpContextAccessor.HttpContext?.Request.Cookies["FC.Portal.Auth"];
-
             _hubConnection = new HubConnectionBuilder()
                 .WithUrl(hubUrl, options =>
                 {
@@ -229,123 +470,264 @@
 
             _hubConnection.On<NotificationPayload>("ReceiveNotification", async payload =>
             {
-                var updated = ApplyRealtimePayload(unreadCount, recentNotifications, payload);
+                var updated = ApplyRealtimePayload(unreadCount, drawerNotifs, payload);
                 unreadCount = updated.UnreadCount;
-                recentNotifications = updated.RecentNotifications;
-                hasUrgent = recentNotifications.Any(n => n.Priority >= NotificationPriority.High);
-                ApplyDropdownFilter();
+                drawerNotifs = updated.Recent;
+                hasUrgent = drawerNotifs.Any(n => n.Priority >= NotificationPriority.High);
+                ApplyDrawerFilter();
+                BuildDrawerGroups();
 
-                await InvokeAsync(StateHasChanged);
-
-                if (soundEnabled)
+                await InvokeAsync(async () =>
                 {
-                    try { await JS.InvokeVoidAsync("portalNotifPlaySound"); }
-                    catch { /* non-fatal */ }
-                }
+                    StateHasChanged();
+                    try
+                    {
+                        await JS.InvokeVoidAsync("portalNotifHub.animateBell");
+                        await JS.InvokeVoidAsync("portalNotifHub.animateBadge");
+                        if (soundEnabled) await JS.InvokeVoidAsync("portalNotifPlaySound");
+                    }
+                    catch { }
+                });
             });
 
             await _hubConnection.StartAsync();
         }
-        catch
-        {
-            // Non-fatal fallback: UI still works with normal refresh/loading flow.
-        }
+        catch { }
     }
 
-    private async Task ToggleDropdown()
+    // ── Drawer ───────────────────────────────────────────────────────────
+
+    private async Task ToggleDrawer()
     {
-        if (isOpen)
-        {
-            isOpen = false;
-            return;
-        }
+        if (isOpen) { isOpen = false; return; }
 
         isOpen = true;
-        isLoadingDropdown = true;
-        dropdownTab = DropdownTab.All;
+        isLoadingDrawer = true;
+        drawerTab = DrawerTab.All;
         StateHasChanged();
 
         try
         {
             if (userId > 0 && institutionId > 0)
             {
-                recentNotifications = await NotificationSvc.GetRecentUnread(userId, institutionId, 5);
-
-                // If fewer than 7 unread, pad with recent ones
-                if (recentNotifications.Count < 7)
+                var recent = await NotificationSvc.GetRecentUnread(userId, institutionId, 5);
+                if (recent.Count < 10)
                 {
-                    var all = await NotificationSvc.GetNotifications(userId, institutionId, 1, 7);
+                    var all = await NotificationSvc.GetNotifications(userId, institutionId, 1, 10);
                     foreach (var n in all.Notifications)
                     {
-                        if (recentNotifications.All(r => r.Id != n.Id))
+                        if (recent.All(r => r.Id != n.Id))
                         {
-                            recentNotifications.Add(n);
-                            if (recentNotifications.Count >= 7) break;
+                            recent.Add(n);
+                            if (recent.Count >= 10) break;
                         }
                     }
                 }
-
-                ApplyDropdownFilter();
+                drawerNotifs = recent;
+                // Load snooze state
+                await RefreshSnoozeState();
+                ApplyDrawerFilter();
+                BuildDrawerGroups();
             }
         }
         catch { }
         finally
         {
-            isLoadingDropdown = false;
+            isLoadingDrawer = false;
             StateHasChanged();
         }
     }
 
-    private void SetDropdownTab(DropdownTab tab)
+    private void CloseDrawer() { isOpen = false; }
+
+    private void SetDrawerTab(DrawerTab tab)
     {
-        dropdownTab = tab;
-        ApplyDropdownFilter();
+        drawerTab = tab;
+        ApplyDrawerFilter();
+        BuildDrawerGroups();
     }
 
-    private void ApplyDropdownFilter()
+    private void ApplyDrawerFilter()
     {
-        filteredDropdownNotifications = dropdownTab switch
+        filteredDrawerNotifs = drawerTab switch
         {
-            DropdownTab.Alerts => recentNotifications
+            DrawerTab.Alerts => drawerNotifs
                 .Where(n => n.Type is NotificationType.SubmissionResult
                     or NotificationType.DeadlineApproaching
                     or NotificationType.ApprovalRequest
                     or NotificationType.ApprovalResult)
                 .ToList(),
-            DropdownTab.System => recentNotifications
+            DrawerTab.System => drawerNotifs
                 .Where(n => n.Type is NotificationType.SystemAnnouncement or NotificationType.TeamUpdate)
                 .ToList(),
-            DropdownTab.Audit => recentNotifications
+            DrawerTab.Audit => drawerNotifs
                 .Where(n => n.Type == NotificationType.AuditEvent)
                 .ToList(),
-            _ => recentNotifications.ToList()
+            _ => drawerNotifs.ToList()
         };
     }
 
-    private void OnOverdueCountChanged()
+    private void BuildDrawerGroups()
     {
-        if (OverdueAlertSvc.OverdueCount > 0)
-            hasUrgent = true;
-        _ = InvokeAsync(StateHasChanged);
+        var list = filteredDrawerNotifs.Take(10).ToList();
+        drawerGroups = new List<NotifGroup>();
+        var processed = new HashSet<int>();
+
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (processed.Contains(list[i].Id)) continue;
+
+            var n = list[i];
+            var similar = new List<NotificationModel> { n };
+
+            for (int j = i + 1; j < list.Count && similar.Count < 6; j++)
+            {
+                if (!processed.Contains(list[j].Id) && list[j].Type == n.Type)
+                {
+                    similar.Add(list[j]);
+                    processed.Add(list[j].Id);
+                }
+            }
+            processed.Add(n.Id);
+
+            var groupKey = $"{n.Type}_{i}";
+            var isExpanded = _expandedGroupKeys.Contains(groupKey);
+
+            if (similar.Count >= 3)
+            {
+                drawerGroups.Add(new NotifGroup
+                {
+                    Key = groupKey,
+                    Summary = $"{similar.Count} {GetTypePluralLabel(n.Type)}",
+                    MetaLine = $"Latest: {similar[0].TimeAgo}",
+                    Initials = GetTypeInitials(n.Type),
+                    AvatarColor = GetTypeColor(n.Type),
+                    Items = similar,
+                    IsGroupCard = true,
+                    IsExpanded = isExpanded
+                });
+            }
+            else
+            {
+                foreach (var s in similar)
+                {
+                    drawerGroups.Add(new NotifGroup
+                    {
+                        Key = $"{s.Type}_{s.Id}",
+                        Summary = s.Title,
+                        Initials = GetInitials(s.Title),
+                        AvatarColor = GetTypeColor(s.Type),
+                        Items = new List<NotificationModel> { s },
+                        IsGroupCard = false,
+                        IsExpanded = false
+                    });
+                }
+            }
+        }
     }
 
-    private void CloseDropdown() => isOpen = false;
-
-    private void HandleKeyDown(KeyboardEventArgs e)
+    private void ToggleGroup(string key)
     {
-        if (e.Key == "Escape" && isOpen)
-            isOpen = false;
+        var group = drawerGroups.Find(g => g.Key == key);
+        if (group == null) return;
+        group.IsExpanded = !group.IsExpanded;
+        if (group.IsExpanded) _expandedGroupKeys.Add(key);
+        else _expandedGroupKeys.Remove(key);
     }
 
-    private async Task HandleNotifClick(NotificationModel notif)
+    // ── Snooze ───────────────────────────────────────────────────────────
+
+    private async Task RefreshSnoozeState()
+    {
+        _snoozedIds.Clear();
+        foreach (var n in drawerNotifs)
+        {
+            try
+            {
+                var snoozed = await JS.InvokeAsync<bool>("portalNotifHub.isSnoozed", n.Id);
+                if (snoozed) _snoozedIds.Add(n.Id);
+            }
+            catch { }
+        }
+    }
+
+    private async Task OpenSnoozeMenu(int notifId, MouseEventArgs e)
+    {
+        try { await JS.InvokeVoidAsync("portalNotifHub.showSnoozeMenu", notifId, e.ClientX, e.ClientY, _selfRef); }
+        catch { }
+    }
+
+    [JSInvokable]
+    public async Task OnSnoozeAction(int notifId, string action)
+    {
+        switch (action)
+        {
+            case "snooze_1h":
+                var until1h = DateTimeOffset.UtcNow.AddHours(1).ToString("O");
+                await JS.InvokeVoidAsync("portalNotifHub.setSnooze", notifId, until1h);
+                _snoozedIds.Add(notifId);
+                break;
+
+            case "snooze_tomorrow":
+                var tomorrow = DateTimeOffset.UtcNow.Date.AddDays(1).ToString("O");
+                await JS.InvokeVoidAsync("portalNotifHub.setSnooze", notifId, tomorrow);
+                _snoozedIds.Add(notifId);
+                break;
+
+            case "mute_type":
+                var type = drawerNotifs.FirstOrDefault(n => n.Id == notifId)?.Type.ToString() ?? "";
+                if (!string.IsNullOrEmpty(type))
+                    await JS.InvokeVoidAsync("portalNotifHub.muteType", type);
+                drawerNotifs.RemoveAll(n => n.Type.ToString() == type);
+                ApplyDrawerFilter();
+                BuildDrawerGroups();
+                break;
+
+            case "mark_read":
+                await HandleDrawerNotifClickById(notifId);
+                break;
+
+            case "dismiss":
+                await DismissNotif(notifId);
+                break;
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task DismissNotif(int notifId)
+    {
+        try
+        {
+            if (notifId > 0) await NotificationSvc.MarkAsRead(notifId);
+            drawerNotifs.RemoveAll(n => n.Id == notifId);
+            _snoozedIds.Remove(notifId);
+            ApplyDrawerFilter();
+            BuildDrawerGroups();
+        }
+        catch { }
+    }
+
+    // ── Notification Interactions ─────────────────────────────────────────
+
+    private async Task HandleDrawerNotifClick(NotificationModel notif)
     {
         if (!notif.IsRead)
         {
-            await NotificationSvc.MarkAsRead(notif.Id);
-            notif.IsRead = true;
-            unreadCount = Math.Max(0, unreadCount - 1);
+            try
+            {
+                await NotificationSvc.MarkAsRead(notif.Id);
+                notif.IsRead = true;
+                unreadCount = Math.Max(0, unreadCount - 1);
+            }
+            catch { }
         }
         isOpen = false;
+    }
+
+    private async Task HandleDrawerNotifClickById(int notifId)
+    {
+        var notif = drawerNotifs.FirstOrDefault(n => n.Id == notifId);
+        if (notif != null) await HandleDrawerNotifClick(notif);
     }
 
     private async Task MarkAllRead()
@@ -355,7 +737,7 @@
             await NotificationSvc.MarkAllAsRead(userId, institutionId);
             unreadCount = 0;
             hasUrgent = false;
-            foreach (var n in recentNotifications) n.IsRead = true;
+            foreach (var n in drawerNotifs) n.IsRead = true;
             StateHasChanged();
         }
         catch { }
@@ -368,76 +750,119 @@
         catch { }
     }
 
+    private void OnOverdueCountChanged()
+    {
+        if (OverdueAlertSvc.OverdueCount > 0) hasUrgent = true;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape" && isOpen) isOpen = false;
+    }
+
+    // ── Disposal ─────────────────────────────────────────────────────────
+
+    public async ValueTask DisposeAsync()
+    {
+        OverdueAlertSvc.OnChange -= OnOverdueCountChanged;
+        _selfRef?.Dispose();
+        try { _pollCts?.Cancel(); } catch { }
+        _pollTimer?.Dispose();
+
+        if (_hubConnection is not null)
+        {
+            await _hubConnection.DisposeAsync();
+            _hubConnection = null;
+        }
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
     private static string TruncateMessage(string msg, int maxLen)
     {
         if (string.IsNullOrEmpty(msg) || msg.Length <= maxLen) return msg;
-        return msg[..maxLen] + "...";
+        return msg[..maxLen] + "…";
     }
 
-    private static string GetNotifTypeIconClass(NotificationType type) => type switch
+    private static string GetTypeColor(NotificationType type) => type switch
     {
-        NotificationType.SubmissionResult => "portal-notif-icon-submission",
-        NotificationType.DeadlineApproaching => "portal-notif-icon-deadline",
-        NotificationType.ApprovalRequest or NotificationType.ApprovalResult => "portal-notif-icon-approval",
-        NotificationType.SystemAnnouncement => "portal-notif-icon-system",
-        NotificationType.TeamUpdate => "portal-notif-icon-team",
-        NotificationType.AuditEvent => "portal-notif-icon-audit",
-        _ => "portal-notif-icon-system"
+        NotificationType.SubmissionResult    => "#dc2626",
+        NotificationType.DeadlineApproaching => "#d97706",
+        NotificationType.ApprovalRequest or
+        NotificationType.ApprovalResult      => "#b45309",
+        NotificationType.SystemAnnouncement  => "#2563eb",
+        NotificationType.TeamUpdate          => "#7c3aed",
+        NotificationType.AuditEvent          => "#6b7280",
+        _                                    => "#1a6b3c"
     };
 
-    private static string GetPriorityDotClass(NotificationPriority priority) => priority switch
+    private static string GetTypePluralLabel(NotificationType type) => type switch
     {
-        NotificationPriority.Critical or NotificationPriority.High => "portal-notif-dot-urgent",
-        _ => ""
+        NotificationType.SubmissionResult    => "submission results",
+        NotificationType.DeadlineApproaching => "deadline alerts",
+        NotificationType.ApprovalRequest     => "approval requests",
+        NotificationType.ApprovalResult      => "approval results",
+        NotificationType.SystemAnnouncement  => "system announcements",
+        NotificationType.TeamUpdate          => "team updates",
+        NotificationType.AuditEvent          => "audit events",
+        _                                    => "notifications"
     };
 
-    private static MarkupString GetNotifTypeIcon(NotificationType type) => type switch
+    private static string GetTypeInitials(NotificationType type) => type switch
     {
-        NotificationType.SubmissionResult => new(
-            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z\"/><polyline points=\"14 2 14 8 20 8\"/></svg>"),
-        NotificationType.DeadlineApproaching => new(
-            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><polyline points=\"12 6 12 12 16 14\"/></svg>"),
-        NotificationType.ApprovalRequest or NotificationType.ApprovalResult => new(
-            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z\"/></svg>"),
-        NotificationType.SystemAnnouncement => new(
-            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" y1=\"16\" x2=\"12\" y2=\"12\"/><line x1=\"12\" y1=\"8\" x2=\"12.01\" y2=\"8\"/></svg>"),
-        NotificationType.TeamUpdate => new(
-            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2\"/><circle cx=\"9\" cy=\"7\" r=\"4\"/><path d=\"M23 21v-2a4 4 0 0 0-3-3.87\"/><path d=\"M16 3.13a4 4 0 0 1 0 7.75\"/></svg>"),
-        NotificationType.AuditEvent => new(
-            "<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><path d=\"M12 20h9\"/><path d=\"M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z\"/></svg>"),
-        _ => new("")
+        NotificationType.SubmissionResult    => "SR",
+        NotificationType.DeadlineApproaching => "DL",
+        NotificationType.ApprovalRequest     => "AR",
+        NotificationType.ApprovalResult      => "AP",
+        NotificationType.SystemAnnouncement  => "SY",
+        NotificationType.TeamUpdate          => "TU",
+        NotificationType.AuditEvent          => "AU",
+        _                                    => "NT"
     };
+
+    private static string GetCtaLabel(NotificationType type) => type switch
+    {
+        NotificationType.SubmissionResult    => "Review Submission",
+        NotificationType.DeadlineApproaching => "View Calendar",
+        NotificationType.ApprovalRequest     => "Review Now",
+        NotificationType.ApprovalResult      => "View Return",
+        NotificationType.SystemAnnouncement  => "Read More",
+        NotificationType.AuditEvent          => "View Audit Log",
+        _                                    => "View Details"
+    };
+
+    private static string GetInitials(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return "N";
+        var words = title.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length == 1) return words[0][..Math.Min(2, words[0].Length)].ToUpperInvariant();
+        return (words[0][0].ToString() + words[1][0].ToString()).ToUpperInvariant();
+    }
 
     private static NotificationType MapPayloadType(string eventType)
     {
         if (eventType.StartsWith("deadline.", StringComparison.OrdinalIgnoreCase))
             return NotificationType.DeadlineApproaching;
-
-        if (string.Equals(eventType, "return.submitted_for_review", StringComparison.OrdinalIgnoreCase))
+        if (eventType.Equals("return.submitted_for_review", StringComparison.OrdinalIgnoreCase))
             return NotificationType.ApprovalRequest;
-
-        if (string.Equals(eventType, "return.approved", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(eventType, "return.rejected", StringComparison.OrdinalIgnoreCase))
+        if (eventType.Equals("return.approved", StringComparison.OrdinalIgnoreCase) ||
+            eventType.Equals("return.rejected", StringComparison.OrdinalIgnoreCase))
             return NotificationType.ApprovalResult;
-
         if (eventType.StartsWith("subscription.", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(eventType, "system.announcement", StringComparison.OrdinalIgnoreCase))
+            eventType.Equals("system.announcement", StringComparison.OrdinalIgnoreCase))
             return NotificationType.SystemAnnouncement;
-
         if (eventType.StartsWith("breach.", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(eventType, "user.provisioned", StringComparison.OrdinalIgnoreCase))
+            eventType.Equals("user.provisioned", StringComparison.OrdinalIgnoreCase))
             return NotificationType.AuditEvent;
-
         return NotificationType.SubmissionResult;
     }
 
-    private static (int UnreadCount, List<NotificationModel> RecentNotifications) ApplyRealtimePayload(
-        int currentUnreadCount,
-        IReadOnlyList<NotificationModel> currentNotifications,
-        NotificationPayload payload)
+    private static (int UnreadCount, List<NotificationModel> Recent) ApplyRealtimePayload(
+        int currentCount, IReadOnlyList<NotificationModel> current, NotificationPayload payload)
     {
-        var notifications = currentNotifications.ToList();
-        notifications.Insert(0, new NotificationModel
+        var list = current.ToList();
+        list.Insert(0, new NotificationModel
         {
             Id = 0,
             Type = MapPayloadType(payload.EventType),
@@ -450,20 +875,7 @@
             CreatedAt = payload.Timestamp,
             TimeAgo = "Just now"
         });
-
-        if (notifications.Count > 10)
-            notifications.RemoveAt(10);
-
-        return (currentUnreadCount + 1, notifications);
-    }
-
-    public async ValueTask DisposeAsync()
-    {
-        OverdueAlertSvc.OnChange -= OnOverdueCountChanged;
-        if (_hubConnection is not null)
-        {
-            await _hubConnection.DisposeAsync();
-            _hubConnection = null;
-        }
+        if (list.Count > 10) list.RemoveAt(10);
+        return (currentCount + 1, list);
     }
 }

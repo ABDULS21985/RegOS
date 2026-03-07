@@ -1,5 +1,6 @@
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Models
+@using FC.Engine.Domain.Entities
 @inject IReturnTimelineService TimelineService
 
 <div class="timeline-container">
@@ -7,12 +8,46 @@
     {
         <p class="portal-text-muted">Loading timeline...</p>
     }
-    else if (_events.Count == 0)
+    else if (_events.Count == 0 && DraftInfo is null)
     {
         <p class="portal-text-muted">No events recorded for this submission.</p>
     }
     else
     {
+        @* ── Draft in progress synthetic step ── *@
+        @if (DraftInfo is not null)
+        {
+            <div class="timeline-date-group">
+                <div class="timeline-date-label">@DraftInfo.LastSavedAt.ToLocalTime().ToString("dd MMM yyyy")</div>
+                <div class="timeline-item timeline-item-draft">
+                    <div class="timeline-marker timeline-marker-draft"></div>
+                    <div class="timeline-content">
+                        <div class="timeline-header">
+                            <span class="timeline-event-type">
+                                <span class="timeline-draft-dot" aria-hidden="true"></span>
+                                Draft in progress
+                            </span>
+                            <span class="timeline-time">@DraftInfo.LastSavedAt.ToLocalTime().ToString("HH:mm:ss")</span>
+                        </div>
+                        <div class="timeline-description">
+                            Auto-saved draft — @DraftInfo.Period period
+                        </div>
+                        @if (CompletionPct.HasValue)
+                        {
+                            <div class="timeline-draft-progress" aria-label="Form @CompletionPct% complete">
+                                <div class="timeline-draft-progress-bar">
+                                    <div class="timeline-draft-progress-fill @(CompletionPct.Value == 100 ? "complete" : "")"
+                                         style="width: @CompletionPct.Value%"></div>
+                                </div>
+                                <span class="timeline-draft-progress-label">Form: @CompletionPct.Value% complete</span>
+                            </div>
+                        }
+                        <div class="timeline-performer">by @DraftInfo.SavedBy</div>
+                    </div>
+                </div>
+            </div>
+        }
+
         @foreach (var group in _events.GroupBy(e => e.Timestamp.Date).OrderByDescending(g => g.Key))
         {
             <div class="timeline-date-group">
@@ -65,6 +100,18 @@
 @code {
     [Parameter, EditorRequired]
     public int SubmissionId { get; set; }
+
+    /// <summary>
+    /// When set, renders a "Draft in progress" synthetic step at the top of the timeline.
+    /// Pass the ReturnDraft from IFormDataService.GetDraftAsync.
+    /// </summary>
+    [Parameter] public ReturnDraft? DraftInfo { get; set; }
+
+    /// <summary>
+    /// Form completion percentage (0–100). When set, shown as a progress bar inside the
+    /// draft-in-progress step so reviewers can see "Form: 67% complete".
+    /// </summary>
+    [Parameter] public int? CompletionPct { get; set; }
 
     private List<TimelineEvent> _events = new();
     private bool _loading = true;

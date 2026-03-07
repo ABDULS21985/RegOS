@@ -17,11 +17,11 @@
             <p class="portal-page-subtitle">Track your reporting obligations and submission deadlines</p>
         </div>
         <div class="portal-page-header-actions">
-            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ExportICS" title="Download ICS file to add deadlines to your calendar app">
+            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ExportICS" title="Export as .ics to add deadlines to Google Calendar, Outlook, or Apple Calendar">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
                 </svg>
-                Export ICS
+                Add to Calendar
             </button>
             <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="PrintCalendar" title="Print calendar">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -60,11 +60,35 @@
                 <span class="portal-calendar-summary-count">@calendarData.Summary.OverdueThisMonth</span>
                 <span class="portal-calendar-summary-label">Overdue</span>
             </div>
-            <div class="portal-calendar-summary-card portal-calendar-summary-progress">
-                <div class="portal-calendar-progress-bar">
-                    <div class="portal-calendar-progress-fill" style="width: @(calendarData.Summary.CompliancePercentage)%;"></div>
+            @{
+                var _cpct = calendarData.Summary.CompliancePercentage;
+                var _cringStroke = _cpct >= 80
+                    ? "var(--cbn-success-text, #16a34a)"
+                    : _cpct >= 50
+                        ? "var(--cbn-warning-text, #d97706)"
+                        : "var(--cbn-danger-text, #dc2626)";
+            }
+            <div class="portal-calendar-summary-card portal-compliance-ring-card"
+                 aria-label="Compliance score: @_cpct%">
+                <div class="portal-compliance-ring">
+                    <svg viewBox="0 0 36 36" class="portal-compliance-ring-svg" aria-hidden="true">
+                        <circle cx="18" cy="18" r="15.915" fill="none"
+                                stroke="var(--cbn-border-subtle, #e2e8f0)"
+                                stroke-width="2.8" />
+                        <circle cx="18" cy="18" r="15.915" fill="none"
+                                stroke="@_cringStroke"
+                                stroke-width="2.8"
+                                stroke-dasharray="@_cpct 100"
+                                pathLength="100"
+                                stroke-linecap="round"
+                                transform="rotate(-90 18 18)"
+                                class="portal-compliance-ring-arc" />
+                    </svg>
+                    <div class="portal-compliance-ring-label">
+                        <span class="portal-compliance-ring-pct">@_cpct%</span>
+                    </div>
                 </div>
-                <span class="portal-calendar-summary-label">@calendarData.Summary.CompliancePercentage% Complete</span>
+                <span class="portal-calendar-summary-label">Compliance</span>
             </div>
 
             <!-- Deadline Urgency Countdown Ring -->
@@ -151,7 +175,7 @@
             </select>
 
             <!-- View Options Dropdown -->
-            <select class="portal-form-select portal-form-select-sm portal-calendar-view-select" @bind="activeView" aria-label="Select view">
+            <select class="portal-form-select portal-form-select-sm portal-calendar-view-select" @bind="activeView" @bind:after="UpdateUrl" aria-label="Select view">
                 <option value="calendar">Month View</option>
                 <option value="week">Week View</option>
                 <option value="list">List View</option>
@@ -222,6 +246,28 @@
                                             <span class="portal-calendar-dot-more">+@(day.Entries.Count - 4)</span>
                                         }
                                     </div>
+
+                                    @if (day.IsCurrentMonth)
+                                    {
+                                        <div class="portal-cal-hover-card" role="tooltip" aria-hidden="true">
+                                            <div class="portal-cal-hover-card-date">
+                                                @day.Date.ToString("ddd d MMM")
+                                                <span class="portal-badge portal-badge-neutral" style="font-size:10px;padding:1px 5px;">@day.Entries.Count</span>
+                                            </div>
+                                            @foreach (var hEntry in day.Entries)
+                                            {
+                                                <div class="portal-cal-hover-card-row">
+                                                    <span class="portal-calendar-dot @GetDotClass(hEntry)" aria-hidden="true"></span>
+                                                    <span class="portal-cal-hover-card-code">@hEntry.ReturnCode</span>
+                                                    <span class="portal-badge @GetStatusBadgeClass(hEntry.Status)" style="font-size:10px;padding:1px 5px;">@GetStatusText(hEntry.Status)</span>
+                                                    @if (hEntry.Status != CalendarEntryStatus.Submitted)
+                                                    {
+                                                        <a href="/submit/form/@hEntry.ReturnCode" class="portal-cal-hover-card-submit" @onclick:stopPropagation="true">Submit →</a>
+                                                    }
+                                                </div>
+                                            }
+                                        </div>
+                                    }
                                 }
                             </div>
                         }
@@ -380,8 +426,8 @@
                                             <td><span class="portal-badge @GetFrequencyBadgeClass(entry.Frequency)">@entry.Frequency</span></td>
                                             <td><span class="portal-td-date">@entry.DueDate.ToString("d MMM yyyy")</span></td>
                                             <td>
-                                                <span class="@GetDaysUntilClass(entry.DaysUntilDue)">
-                                                    @FormatDaysUntilDue(entry.DaysUntilDue)
+                                                <span class="portal-urgency-pill @GetEntryUrgencyPillClass(entry) @(entry.DaysUntilDue == 0 && entry.Status != CalendarEntryStatus.Submitted ? "portal-urgency-pill--pulse" : "")">
+                                                    @FormatUrgencyChip(entry)
                                                 </span>
                                             </td>
                                             <td><span class="portal-badge @GetStatusBadgeClass(entry.Status)">@GetStatusText(entry.Status)</span></td>
@@ -393,8 +439,15 @@
                                                     }
                                                     else
                                                     {
-                                                        <a href="/submit/form/@entry.ReturnCode" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now</a>
-                                                        <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Request Extension</button>
+                                                        <a href="/submit/form/@entry.ReturnCode" class="portal-btn portal-btn-primary portal-btn-xs">Submit Now →</a>
+                                                        @if (entry.Status == CalendarEntryStatus.Overdue)
+                                                        {
+                                                            <button class="portal-btn portal-btn-danger portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Request Extension</button>
+                                                        }
+                                                        else
+                                                        {
+                                                            <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="() => OpenExtensionModal(entry)">Request Extension</button>
+                                                        }
                                                     }
                                                     <button class="portal-btn portal-btn-ghost portal-btn-xs portal-reminder-btn"
                                                             @onclick="() => OpenReminderModal(entry)"
@@ -742,6 +795,13 @@
 }
 
 @code {
+    // ── URL Query Params ─────────────────────────────────────────
+    [SupplyParameterFromQuery(Name = "view")]  private string? _qView  { get; set; }
+    [SupplyParameterFromQuery(Name = "freq")]  private string? _qFreq  { get; set; }
+    [SupplyParameterFromQuery(Name = "y")]     private int?    _qYear  { get; set; }
+    [SupplyParameterFromQuery(Name = "m")]     private int?    _qMonth { get; set; }
+    private bool _paramsApplied;
+
     // ── State ────────────────────────────────────────────────────
     private bool isLoading = true;
     private CalendarData? calendarData;
@@ -835,9 +895,31 @@
     // ── Lifecycle ────────────────────────────────────────────────
     protected override async Task OnInitializedAsync()
     {
-        weekStart = DateTime.UtcNow.Date;
+        if (!_paramsApplied)
+        {
+            _paramsApplied = true;
+            if (!string.IsNullOrEmpty(_qView)) activeView = _qView;
+            if (!string.IsNullOrEmpty(_qFreq)) frequencyFilter = _qFreq;
+            if (_qYear.HasValue && _qMonth.HasValue)
+                currentDate = new DateTime(_qYear.Value, Math.Clamp(_qMonth.Value, 1, 12), 1);
+        }
+        weekStart = currentDate.Date;
         await LoadCalendarData();
         await LoadRemindersFromStorage();
+    }
+
+    private void UpdateUrl()
+    {
+        var now = DateTime.UtcNow;
+        var isCurrent = currentDate.Year == now.Year && currentDate.Month == now.Month;
+        var url = Navigation.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["view"] = activeView == "calendar" ? null : (object?)activeView,
+            ["freq"] = frequencyFilter == "All"  ? null : (object?)frequencyFilter,
+            ["y"]    = isCurrent ? null : (object?)currentDate.Year,
+            ["m"]    = isCurrent ? null : (object?)currentDate.Month,
+        });
+        Navigation.NavigateTo(url, replace: true);
     }
 
     // ── Data Loading ─────────────────────────────────────────────
@@ -944,6 +1026,7 @@
             currentDate = currentDate.AddMonths(-1);
             selectedDay = null;
         }
+        UpdateUrl();
         await LoadCalendarData();
     }
 
@@ -959,6 +1042,7 @@
             currentDate = currentDate.AddMonths(1);
             selectedDay = null;
         }
+        UpdateUrl();
         await LoadCalendarData();
     }
 
@@ -967,6 +1051,7 @@
         currentDate = DateTime.UtcNow;
         weekStart = DateTime.UtcNow.Date;
         selectedDay = null;
+        UpdateUrl();
         await LoadCalendarData();
     }
 
@@ -981,6 +1066,7 @@
     private async Task ReloadData()
     {
         selectedDay = null;
+        UpdateUrl();
         await LoadCalendarData();
     }
 
@@ -1200,5 +1286,21 @@
         if (days == 0) return "Due today";
         if (days == 1) return "Due tomorrow";
         return $"In {days} days";
+    }
+
+    private static string GetEntryUrgencyPillClass(CalendarEntry entry)
+    {
+        if (entry.Status == CalendarEntryStatus.Submitted) return "portal-urgency-pill--success";
+        return GetUrgencyPillClass(entry.DaysUntilDue);
+    }
+
+    private static string FormatUrgencyChip(CalendarEntry entry)
+    {
+        if (entry.Status == CalendarEntryStatus.Submitted) return "Submitted ✓";
+        if (entry.DaysUntilDue < 0)  return $"Overdue {Math.Abs(entry.DaysUntilDue)}d";
+        if (entry.DaysUntilDue == 0) return "Due today";
+        if (entry.DaysUntilDue == 1) return "Due tomorrow";
+        if (entry.DaysUntilDue <= 7) return $"Due in {entry.DaysUntilDue} days";
+        return $"In {entry.DaysUntilDue} days";
     }
 }

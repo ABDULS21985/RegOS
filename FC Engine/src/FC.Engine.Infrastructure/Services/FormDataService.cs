@@ -92,4 +92,15 @@ public class FormDataService : IFormDataService
             await _db.SaveChangesAsync(ct);
         }
     }
+
+    public Task<List<ReturnDraft>> GetAllDraftsForTenantAsync(
+        Guid tenantId,
+        CancellationToken ct = default)
+    {
+        return _db.ReturnDrafts
+            .AsNoTracking()
+            .Where(d => d.TenantId == tenantId)
+            .OrderByDescending(d => d.LastSavedAt)
+            .ToListAsync(ct);
+    }
 }
