@@ -10,8 +10,8 @@
 @{
     var _bcItems = new List<BreadcrumbItem>
     {
-        new() { Label = "Submissions", Url = "/submissions" },
-        new() { Label = "Reporting Calendar", IsCurrent = true }
+        new("Submissions", Url: "/submissions"),
+        new("Reporting Calendar", IsCurrent: true)
     };
 }
 
@@ -149,7 +149,15 @@
 }
 else if (_error is not null)
 {
-    <SectionErrorBoundary Title="Couldn't load reporting calendar" ExternalError="_error" OnRetry="LoadAsync" />
+    <div class="portal-alert portal-alert-error" role="alert">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="10" y1="6" x2="10" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <circle cx="10" cy="14" r="0.75" fill="currentColor" stroke="none"/>
+        </svg>
+        <span>Couldn't load reporting calendar.</span>
+        <button class="portal-btn portal-btn--ghost portal-btn--sm" @onclick="LoadAsync">Retry</button>
+    </div>
 }
 else if (_data is not null)
 {
@@ -199,7 +207,7 @@ else if (_data is not null)
                                  @onblur="() => { _hoveredDate = null; }"
                                  tabindex="@(day.Entries.Any() ? "0" : "-1")"
                                  role="gridcell"
-                                 aria-label="@day.Date.ToString("d MMMM yyyy")@(day.Entries.Any() ? $": {day.Entries.Count} deadline(s)" : "")">
+                                 aria-label="@(day.Date.ToString("d MMMM yyyy") + (day.Entries.Any() ? $": {day.Entries.Count} deadline(s)" : ""))">
 
                                 <span class="portal-cal-day-num">@day.Date.Day</span>
 
@@ -734,28 +742,25 @@ else if (_data is not null)
         var pending = entries.Where(e => e.Status != CalendarEntryStatus.Submitted).ToList();
         if (!pending.Any()) return "";
         var minDays = pending.Min(e => e.DaysUntilDue);
-        return minDays switch
-        {
-            < 0  => "portal-cal-day--heat-overdue",
-            0    => "portal-cal-day--heat-today",
-            <= 3 => "portal-cal-day--heat-3",
-            <= 7 => "portal-cal-day--heat-7",
-            <= 30 => "portal-cal-day--heat-30",
-            _    => ""
-        };
+        if (minDays < 0)  return "portal-cal-day--heat-overdue";
+        if (minDays == 0) return "portal-cal-day--heat-today";
+        if (minDays <= 3) return "portal-cal-day--heat-3";
+        if (minDays <= 7) return "portal-cal-day--heat-7";
+        if (minDays <= 30) return "portal-cal-day--heat-30";
+        return "";
     }
 
     // ── CSS / Label Helpers ────────────────────────────────────────
 
-    private static string DotClass(CalendarEntry entry) => entry.Status switch
+    private static string DotClass(CalendarEntry entry)
     {
-        CalendarEntryStatus.Overdue   => "red",
-        CalendarEntryStatus.Rejected  => "red",
-        CalendarEntryStatus.Submitted => "green",
-        CalendarEntryStatus.Draft     => "amber",
-        CalendarEntryStatus.NotStarted when entry.DaysUntilDue <= 7 => "amber",
-        _ => "blue"
-    };
+        if (entry.Status == CalendarEntryStatus.Overdue)   return "red";
+        if (entry.Status == CalendarEntryStatus.Rejected)  return "red";
+        if (entry.Status == CalendarEntryStatus.Submitted) return "green";
+        if (entry.Status == CalendarEntryStatus.Draft)     return "amber";
+        if (entry.Status == CalendarEntryStatus.NotStarted && entry.DaysUntilDue <= 7) return "amber";
+        return "blue";
+    }
 
     private static string StatusLabel(CalendarEntryStatus s) => s switch
     {
@@ -781,7 +786,7 @@ else if (_data is not null)
         if (entry.DaysUntilDue == 0)
             return ("Due today", "red");
 
-        if (entry.DaysUntilDue <= 7)
+        if (entry.DaysUntilDue > 0 && entry.DaysUntilDue <= 7)
             return ($"Due in {entry.DaysUntilDue} day{(entry.DaysUntilDue == 1 ? "" : "s")}", "amber");
 
         return ($"Due in {entry.DaysUntilDue} days", "blue");

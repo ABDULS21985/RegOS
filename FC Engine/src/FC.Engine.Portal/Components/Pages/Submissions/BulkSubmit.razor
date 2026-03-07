@@ -11,15 +11,19 @@
 
 <PageTitle>Bulk Upload — FC Engine Portal</PageTitle>
 
+@{
+    var _breadcrumb = new BreadcrumbItem[]
+    {
+        new BreadcrumbItem("Home", "/"),
+        new BreadcrumbItem("Submissions", "/submissions"),
+        new BreadcrumbItem("Submit Return", "/submit"),
+        new BreadcrumbItem("Bulk Upload", IsCurrent: true)
+    };
+}
 <div class="portal-bulk-page">
     <PortalPageHeader Title="Bulk Upload"
                       Subtitle="Upload XML, Excel, or CSV return files for batch validation and submission"
-                      Breadcrumb="@(new[] {
-                          new BreadcrumbItem(\"Home\", \"/\"),
-                          new BreadcrumbItem(\"Submissions\", \"/submissions\"),
-                          new BreadcrumbItem(\"Submit Return\", \"/submit\"),
-                          new BreadcrumbItem(\"Bulk Upload\", IsCurrent: true)
-                      })">
+                      Breadcrumb="_breadcrumb">
         <PrimaryAction>
             @if (_files.Count > 0 && !_isProcessing)
             {
@@ -641,11 +645,9 @@
         <!-- ═══════════════════════════════════════════════════════════════
              PRE-FLIGHT VALIDATION PREVIEW
              ═══════════════════════════════════════════════════════════════ -->
-        @{
-            var preflightFiles = _files.Where(f => f.Status == BulkFileStatus.Pending
-                && f.PreValidation is { DataRowCount: > 0 }
-                && !f.IsUploading).ToList();
-        }
+        var preflightFiles = _files.Where(f => f.Status == BulkFileStatus.Pending
+            && f.PreValidation is { DataRowCount: > 0 }
+            && !f.IsUploading).ToList();
         @if (preflightFiles.Count > 0 && !_isProcessing && !_batchComplete)
         {
             <section class="portal-bulk-section portal-bulk-preflight" aria-label="Pre-flight validation">

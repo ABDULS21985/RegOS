@@ -13,10 +13,7 @@
 <div class="portal-page">
     <PortalPageHeader Title="My Submissions"
                       Subtitle="View and track all your institution's return submissions"
-                      Breadcrumb="@(new[] {
-                          new BreadcrumbItem(\"Home\", \"/\"),
-                          new BreadcrumbItem(\"My Submissions\", IsCurrent: true)
-                      })">
+                      Breadcrumb="@_breadcrumb">
         <SecondaryActions>
             <div class="portal-view-toggle" role="group" aria-label="View mode">
                 <button class="portal-view-toggle-btn @(viewMode == "table" ? "portal-view-toggle-btn-active" : "")"
@@ -593,6 +590,12 @@
 <TourBeaconSet TourKey="submissions-v1" Beacons="@_submissionBeacons" Steps="@_submissionTourSteps" />
 
 @code {
+    private static readonly IReadOnlyList<BreadcrumbItem> _breadcrumb =
+    [
+        new BreadcrumbItem("Home", "/"),
+        new BreadcrumbItem("My Submissions", IsCurrent: true)
+    ];
+
     // ── URL query params — full filter state is encoded so every filtered view is bookmarkable ──
     [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
     [SupplyParameterFromQuery(Name = "status")] public string? StatusParam { get; set; }

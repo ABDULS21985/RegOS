@@ -16,7 +16,10 @@
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                 Updated March 2026
             </span>
-            <span class="fc-ha-meta-item fc-ha-progress-badge @(_completedCount == _totalSteps ? "fc-ha-progress-badge--done" : "")">
+            @{
+                string progressBadgeClass = _completedCount == _totalSteps ? "fc-ha-progress-badge fc-ha-progress-badge--done" : "fc-ha-progress-badge";
+            }
+            <span class="fc-ha-meta-item @progressBadgeClass">
                 @_completedCount / @_totalSteps steps complete
             </span>
         </div>
@@ -33,9 +36,12 @@
                 @for (int si = 0; si < _totalSteps; si++)
                 {
                     int idx = si;
-                    <button class="fc-gp-step-dot @(_completedSteps.Contains(idx) ? "fc-gp-step-dot--done" : "") @(_currentHighlight == idx ? "fc-gp-step-dot--active" : "")"
+                    string dotClass = _completedSteps.Contains(idx) ? "fc-gp-step-dot--done" : "";
+                    string activeClass = _currentHighlight == idx ? "fc-gp-step-dot--active" : "";
+                    string dotLabel = "Step " + (idx + 1) + (_completedSteps.Contains(idx) ? " (completed)" : "");
+                    <button class="fc-gp-step-dot @dotClass @activeClass"
                             @onclick="() => ScrollToStep(idx)"
-                            aria-label="Step @(idx + 1)@(_completedSteps.Contains(idx) ? " (completed)" : "")"
+                            aria-label="@dotLabel"
                             type="button">
                         @if (_completedSteps.Contains(idx))
                         {
@@ -48,11 +54,15 @@
                     </button>
                     @if (idx < _totalSteps - 1)
                     {
-                        <div class="fc-gp-step-line @(_completedSteps.Contains(idx) ? "fc-gp-step-line--done" : "")"></div>
+                        string lineClass = _completedSteps.Contains(idx) ? "fc-gp-step-line--done" : "";
+                        <div class="fc-gp-step-line @lineClass"></div>
                     }
                 }
             </div>
-            <div class="fc-gp-progress-fill" style="width: @((_completedCount * 100 / _totalSteps))%"></div>
+            @{
+                int progressPct = _totalSteps > 0 ? (_completedCount * 100 / _totalSteps) : 0;
+            }
+            <div class="fc-gp-progress-fill" style="width: @(progressPct)%"></div>
         </div>
 
         @if (_completedCount == _totalSteps)
@@ -71,7 +81,7 @@
             <div class="fc-hv-poster" id="vid-overview-poster">
                 <div class="fc-hv-poster-bg" style="background: linear-gradient(135deg, #006B3F 0%, #004D2C 100%)"></div>
                 <div class="fc-hv-poster-content">
-                    <button class="fc-hv-play-btn" @onclick='() => PlayVideo("vid-overview")' aria-label="Play portal overview video" type="button">
+                    <button class="fc-hv-play-btn" @onclick="PlayOverviewVideo" aria-label="Play portal overview video" type="button">
                         <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
                     </button>
                     <p class="fc-hv-caption">FC Engine Portal — 3-min overview</p>
@@ -86,14 +96,21 @@
 
         <!-- Step-by-step guide -->
         <div class="help-steps">
-            @for (int si = 0; si < _steps.Count; si++)
+            @for (int si = 0; si < _stepIds.Length; si++)
             {
                 int stepIdx = si;
-                var step = _steps[si];
+                string stepId = _stepIds[si];
+                string stepTitle = _stepTitles[si];
                 bool done = _completedSteps.Contains(stepIdx);
-                <div id="@step.Id" class="help-step fc-gs-step @(done ? "fc-gs-step--done" : "")">
+                string stepClass = done ? "help-step fc-gs-step fc-gs-step--done" : "help-step fc-gs-step";
+                string stepNumClass = done ? "help-step-number fc-gs-step-num fc-gs-step-num--done" : "help-step-number fc-gs-step-num";
+                string checkBtnClass = done ? "fc-gs-check-btn fc-gs-check-btn--done" : "fc-gs-check-btn";
+                string checkLabel = done
+                    ? "Mark step " + (stepIdx + 1) + " as incomplete"
+                    : "Mark step " + (stepIdx + 1) + " as complete";
+                <div id="@stepId" class="@stepClass">
                     <div class="fc-gs-step-left">
-                        <div class="help-step-number fc-gs-step-num @(done ? "fc-gs-step-num--done" : "")" aria-hidden="true">
+                        <div class="@stepNumClass" aria-hidden="true">
                             @if (done)
                             {
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
@@ -103,17 +120,18 @@
                                 @(stepIdx + 1)
                             }
                         </div>
-                        @if (stepIdx < _steps.Count - 1)
+                        @if (stepIdx < _stepIds.Length - 1)
                         {
-                            <div class="fc-gs-connector @(done ? "fc-gs-connector--done" : "")"></div>
+                            string connectorClass = done ? "fc-gs-connector fc-gs-connector--done" : "fc-gs-connector";
+                            <div class="@connectorClass"></div>
                         }
                     </div>
                     <div class="help-step-content">
                         <div class="fc-gs-step-header">
-                            <h3 class="help-step-title">@step.Title</h3>
-                            <button class="fc-gs-check-btn @(done ? "fc-gs-check-btn--done" : "")"
+                            <h3 class="help-step-title">@stepTitle</h3>
+                            <button class="@checkBtnClass"
                                     @onclick="() => ToggleStep(stepIdx)"
-                                    aria-label="@(done ? "Mark step " + (stepIdx + 1) + " as incomplete" : "Mark step " + (stepIdx + 1) + " as complete")"
+                                    aria-label="@checkLabel"
                                     type="button">
                                 @if (done)
                                 {
@@ -127,7 +145,93 @@
                                 }
                             </button>
                         </div>
-                        @step.Content
+                        @if (stepId == "step-account")
+                        {
+                            <p>Your institution administrator will create your user account and assign you a role. There are four roles in the portal:</p>
+                            <ul>
+                                <li><strong>Admin</strong> — Full access including user management and institution settings</li>
+                                <li><strong>Maker</strong> — Can prepare and submit returns for approval</li>
+                                <li><strong>Checker</strong> — Reviews and approves/rejects submitted returns</li>
+                                <li><strong>Viewer</strong> — Read-only access to submissions and reports</li>
+                            </ul>
+                            <p>On first login, you'll be prompted to change your temporary password. Choose a strong password with at least 8 characters including uppercase, lowercase, numbers, and symbols.</p>
+                        }
+                        else if (stepId == "step-schema")
+                        {
+                            <p>Before preparing your return data, download the XSD schema for the return template you need to submit.</p>
+                            <ol>
+                                <li>Navigate to <a href="/schemas">Download Schemas</a> from the sidebar</li>
+                                <li>Find the return template (e.g., MFCR 300 — Statement of Assets and Liabilities)</li>
+                                <li>Click <strong>Download XSD</strong> to get the schema file</li>
+                                <li>Use this schema to validate your XML before submission</li>
+                            </ol>
+                            <div class="help-tip">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                <span><strong>Tip:</strong> Browse template structures in the <a href="/templates">Template Browser</a> to understand the required fields and data types.</span>
+                            </div>
+                        }
+                        else if (stepId == "step-prepare")
+                        {
+                            <p>Your return data must be formatted as an XML file that conforms to the template's XSD schema. The XML structure depends on the return's structural category:</p>
+                            <div class="help-code-block">
+                                <div class="help-code-header">FixedRow Template — Single row of data</div>
+                                <pre><code>&lt;Return xmlns="urn:cbn:dfis:fc:MFCR300"&gt;
+  &lt;Row&gt;
+    &lt;CashInHand&gt;1500000.00&lt;/CashInHand&gt;
+    &lt;BalWithCBN&gt;3200000.00&lt;/BalWithCBN&gt;
+  &lt;/Row&gt;
+&lt;/Return&gt;</code></pre>
+                            </div>
+                            <div class="help-code-block">
+                                <div class="help-code-header">MultiRow Template — Multiple rows with serial numbers</div>
+                                <pre><code>&lt;Return xmlns="urn:cbn:dfis:fc:MFCR900"&gt;
+  &lt;Row&gt;
+    &lt;SerialNo&gt;1&lt;/SerialNo&gt;
+    &lt;BorrowerName&gt;Example Corp&lt;/BorrowerName&gt;
+    &lt;LoanAmount&gt;5000000.00&lt;/LoanAmount&gt;
+  &lt;/Row&gt;
+&lt;/Return&gt;</code></pre>
+                            </div>
+                            <p>See the <a href="/help/submission-guide">Submission Guide</a> for detailed format requirements.</p>
+                        }
+                        else if (stepId == "step-upload")
+                        {
+                            <ol>
+                                <li>Go to <a href="/submit">Submit Return</a></li>
+                                <li>Select the return template from the list</li>
+                                <li>Choose the reporting period</li>
+                                <li>Upload your XML file or fill in the online form</li>
+                                <li>Review the pre-submission preview</li>
+                                <li>Click <strong>Submit</strong></li>
+                            </ol>
+                        }
+                        else if (stepId == "step-validate")
+                        {
+                            <p>After submission, the system automatically validates your data through multiple stages:</p>
+                            <ol>
+                                <li><strong>Schema Validation</strong> — Checks XML structure against the XSD</li>
+                                <li><strong>Type &amp; Range Checks</strong> — Verifies data types and value ranges</li>
+                                <li><strong>Intra-Sheet Formulas</strong> — Validates arithmetic relationships within the return</li>
+                                <li><strong>Cross-Sheet Rules</strong> — Checks consistency across related returns</li>
+                                <li><strong>Business Rules</strong> — Applies regulatory business logic</li>
+                            </ol>
+                            <p>If validation passes (no errors), your return is accepted. Warnings don't prevent acceptance but should be reviewed. If there are errors, you'll need to correct and re-submit.</p>
+                            <p>See <a href="/help/validation-errors">Validation Error Guide</a> for details on each error type.</p>
+                        }
+                        else if (stepId == "step-approve")
+                        {
+                            <p>If your institution has <strong>Maker-Checker</strong> enabled, submitted returns require approval from a Checker or Admin before being finalized.</p>
+                            <ul>
+                                <li>After submission, the return enters <strong>Pending Approval</strong> status</li>
+                                <li>Checkers receive a notification and can review the submission</li>
+                                <li>The Checker can <strong>Approve</strong> (finalizes) or <strong>Reject</strong> (with comments)</li>
+                                <li>If rejected, you can correct and re-submit as a linked re-submission</li>
+                            </ul>
+                            <div class="help-tip">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                                <span><strong>Note:</strong> A user cannot approve their own submission. The Maker and Checker must be different people.</span>
+                            </div>
+                        }
                     </div>
                 </div>
             }
@@ -154,97 +258,21 @@
     private int _completedCount => _completedSteps.Count;
     private int _currentHighlight = -1;
 
-    private record StepDef(string Id, string Title, RenderFragment Content);
-    private List<StepDef> _steps = new();
-
-    protected override void OnInitialized()
+    private static readonly string[] _stepIds = new[]
     {
-        _steps = new List<StepDef>
-        {
-            new("step-account", "Set Up Your Account", @<text>
-                <p>Your institution administrator will create your user account and assign you a role. There are four roles in the portal:</p>
-                <ul>
-                    <li><strong>Admin</strong> — Full access including user management and institution settings</li>
-                    <li><strong>Maker</strong> — Can prepare and submit returns for approval</li>
-                    <li><strong>Checker</strong> — Reviews and approves/rejects submitted returns</li>
-                    <li><strong>Viewer</strong> — Read-only access to submissions and reports</li>
-                </ul>
-                <p>On first login, you'll be prompted to change your temporary password. Choose a strong password with at least 8 characters including uppercase, lowercase, numbers, and symbols.</p>
-            </text>),
-            new("step-schema", "Download the XML Schema", @<text>
-                <p>Before preparing your return data, download the XSD schema for the return template you need to submit.</p>
-                <ol>
-                    <li>Navigate to <a href="/schemas">Download Schemas</a> from the sidebar</li>
-                    <li>Find the return template (e.g., MFCR 300 — Statement of Assets and Liabilities)</li>
-                    <li>Click <strong>Download XSD</strong> to get the schema file</li>
-                    <li>Use this schema to validate your XML before submission</li>
-                </ol>
-                <div class="help-tip">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    <span><strong>Tip:</strong> Browse template structures in the <a href="/templates">Template Browser</a> to understand the required fields and data types.</span>
-                </div>
-            </text>),
-            new("step-prepare", "Prepare Your XML File", @<text>
-                <p>Your return data must be formatted as an XML file that conforms to the template's XSD schema. The XML structure depends on the return's structural category:</p>
-                <div class="help-code-block">
-                    <div class="help-code-header">FixedRow Template — Single row of data</div>
-                    <pre><code>&lt;Return xmlns="urn:cbn:dfis:fc:MFCR300"&gt;
-  &lt;Row&gt;
-    &lt;CashInHand&gt;1500000.00&lt;/CashInHand&gt;
-    &lt;BalWithCBN&gt;3200000.00&lt;/BalWithCBN&gt;
-  &lt;/Row&gt;
-&lt;/Return&gt;</code></pre>
-                </div>
-                <div class="help-code-block">
-                    <div class="help-code-header">MultiRow Template — Multiple rows with serial numbers</div>
-                    <pre><code>&lt;Return xmlns="urn:cbn:dfis:fc:MFCR900"&gt;
-  &lt;Row&gt;
-    &lt;SerialNo&gt;1&lt;/SerialNo&gt;
-    &lt;BorrowerName&gt;Example Corp&lt;/BorrowerName&gt;
-    &lt;LoanAmount&gt;5000000.00&lt;/LoanAmount&gt;
-  &lt;/Row&gt;
-&lt;/Return&gt;</code></pre>
-                </div>
-                <p>See the <a href="/help/submission-guide">Submission Guide</a> for detailed format requirements.</p>
-            </text>),
-            new("step-upload", "Upload Your Return", @<text>
-                <ol>
-                    <li>Go to <a href="/submit">Submit Return</a></li>
-                    <li>Select the return template from the list</li>
-                    <li>Choose the reporting period</li>
-                    <li>Upload your XML file or fill in the online form</li>
-                    <li>Review the pre-submission preview</li>
-                    <li>Click <strong>Submit</strong></li>
-                </ol>
-            </text>),
-            new("step-validate", "Review Validation Results", @<text>
-                <p>After submission, the system automatically validates your data through multiple stages:</p>
-                <ol>
-                    <li><strong>Schema Validation</strong> — Checks XML structure against the XSD</li>
-                    <li><strong>Type &amp; Range Checks</strong> — Verifies data types and value ranges</li>
-                    <li><strong>Intra-Sheet Formulas</strong> — Validates arithmetic relationships within the return</li>
-                    <li><strong>Cross-Sheet Rules</strong> — Checks consistency across related returns</li>
-                    <li><strong>Business Rules</strong> — Applies regulatory business logic</li>
-                </ol>
-                <p>If validation passes (no errors), your return is accepted. Warnings don't prevent acceptance but should be reviewed. If there are errors, you'll need to correct and re-submit.</p>
-                <p>See <a href="/help/validation-errors">Validation Error Guide</a> for details on each error type.</p>
-            </text>),
-            new("step-approve", "Approval Process (if applicable)", @<text>
-                <p>If your institution has <strong>Maker-Checker</strong> enabled, submitted returns require approval from a Checker or Admin before being finalized.</p>
-                <ul>
-                    <li>After submission, the return enters <strong>Pending Approval</strong> status</li>
-                    <li>Checkers receive a notification and can review the submission</li>
-                    <li>The Checker can <strong>Approve</strong> (finalizes) or <strong>Reject</strong> (with comments)</li>
-                    <li>If rejected, you can correct and re-submit as a linked re-submission</li>
-                </ul>
-                <div class="help-tip">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                    <span><strong>Note:</strong> A user cannot approve their own submission. The Maker and Checker must be different people.</span>
-                </div>
-            </text>),
-        };
-        _totalSteps = _steps.Count;
-    }
+        "step-account", "step-schema", "step-prepare",
+        "step-upload", "step-validate", "step-approve"
+    };
+
+    private static readonly string[] _stepTitles = new[]
+    {
+        "Set Up Your Account",
+        "Download the XML Schema",
+        "Prepare Your XML File",
+        "Upload Your Return",
+        "Review Validation Results",
+        "Approval Process (if applicable)"
+    };
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -265,7 +293,6 @@
         try
         {
             var result = await JS.InvokeAsync<System.Text.Json.JsonElement>("fcHelp.toggleStepComplete", GuideId, stepIndex);
-            // Rebuild from JS result
             _completedSteps = new HashSet<int>();
             foreach (var prop in result.EnumerateObject())
             {
@@ -275,7 +302,6 @@
         }
         catch
         {
-            // Toggle locally on JS failure
             if (!_completedSteps.Remove(stepIndex)) _completedSteps.Add(stepIndex);
         }
     }
@@ -283,13 +309,13 @@
     private async Task ScrollToStep(int stepIndex)
     {
         _currentHighlight = stepIndex;
-        var stepId = _steps[stepIndex].Id;
+        string stepId = _stepIds[stepIndex];
         try { await JS.InvokeVoidAsync("portalScrollToSection", stepId); } catch { }
         StateHasChanged();
     }
 
-    private async Task PlayVideo(string id)
+    private async Task PlayOverviewVideo()
     {
-        try { await JS.InvokeVoidAsync("fcHelp.playVideo", id); } catch { }
+        try { await JS.InvokeVoidAsync("fcHelp.playVideo", "vid-overview"); } catch { }
     }
 }
