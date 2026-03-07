@@ -252,9 +252,10 @@
                                             {
                                                 var cell = row.Returns.FirstOrDefault(r => r.ReturnCode == col);
                                                 var status = cell?.Status ?? ConsolidationSubmissionStatus.Missing;
+                                                var cellTitle = GetStatusLabel(status) + (cell?.SubmittedAt != null ? $" \u2014 {cell.SubmittedAt:d MMM yyyy}" : "");
                                                 <td class="consol-matrix-cell">
                                                     <span class="consol-status-dot consol-status-dot--@status.ToString().ToLowerInvariant()"
-                                                          title="@GetStatusLabel(status)@(cell?.SubmittedAt != null ? $" — {cell.SubmittedAt:d MMM yyyy}" : "")">
+                                                          title="@cellTitle">
                                                         @GetStatusIcon(status)
                                                     </span>
                                                 </td>
@@ -453,7 +454,7 @@
 @code {
 
     @* ── Render helper for the tree (declared outside lifecycle methods to work in Blazor) ── *@
-    private void RenderTreeNode(EntityNode node, int depth) => __builder.AddContent(0, RenderTreeNodeFragment(node, depth));
+    private RenderFragment RenderTreeNode(EntityNode node, int depth) => RenderTreeNodeFragment(node, depth);
 
     private RenderFragment RenderTreeNodeFragment(EntityNode node, int depth) => __builder =>
     {

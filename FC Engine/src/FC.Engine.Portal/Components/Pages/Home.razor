@@ -124,7 +124,7 @@ else if (data is not null)
                              id="widget-hero-@metric.Id"
                              tabindex="0"
                              role="button"
-                             aria-label="@metric.Label: @metric.Value@metric.Suffix. @GetTrendAriaLabel(metric). Press Enter to view breakdown."
+                             aria-label="@($"{metric.Label}: {metric.Value}{metric.Suffix}. {GetTrendAriaLabel(metric)}. Press Enter to view breakdown.")"
                              @onclick="() => OpenMetricModal(metric)"
                              @onkeydown="(e) => OnMetricKeyDown(e, metric)">
                             <div class="portal-hero-card-header">
@@ -149,7 +149,7 @@ else if (data is not null)
                                 </span>
                             </div>
                             <div class="portal-hero-value-wrap">
-                                <AnimatedCounter Value="@(double)metric.Value"
+                                <AnimatedCounter Value="@((double)metric.Value)"
                                                  Suffix="@metric.Suffix"
                                                  Duration="800"
                                                  DecimalPlaces="@(metric.Suffix == "%" ? 1 : 0)" />
@@ -158,7 +158,7 @@ else if (data is not null)
                             {
                                 <div class="portal-hero-sparkline-row">
                                     <Sparkline Data="@metric.SparklineData"
-                                               AriaLabel="@metric.Label 7-day trend" />
+                                               AriaLabel="@($"{metric.Label} 7-day trend")" />
                                 </div>
                             }
                             <div class="portal-metric-trend-indicator @(metric.IsPositiveTrend ? "portal-metric-trend-up" : "portal-metric-trend-down")"
@@ -237,14 +237,12 @@ else if (data is not null)
 
             @if (_showComplianceView)
             {
-                @{
-                    var cRadius = 45.0;
-                    var cCirc = 2 * Math.PI * cRadius;
-                    var cOffset = cCirc * (1.0 - (double)data.CompliancePercentage / 100.0);
-                    var cRingColor = data.CompliancePercentage >= 90 ? "#059669"
-                                   : data.CompliancePercentage >= 70 ? "#d97706" : "#ef4444";
-                    var cDiff = data.CompliancePercentage - data.PreviousPeriodCompliancePercentage;
-                }
+                var cRadius = 45.0;
+                var cCirc = 2 * Math.PI * cRadius;
+                var cOffset = cCirc * (1.0 - (double)data.CompliancePercentage / 100.0);
+                var cRingColor = data.CompliancePercentage >= 90 ? "#059669"
+                               : data.CompliancePercentage >= 70 ? "#d97706" : "#ef4444";
+                var cDiff = data.CompliancePercentage - data.PreviousPeriodCompliancePercentage;
                 <!-- Compliance Score Ring View -->
                 <div class="portal-dl-compliance-view">
                     <div class="portal-dl-compliance-ring-wrap">
@@ -818,10 +816,8 @@ else if (data is not null)
 
     @if (_activeMetric is not null)
     {
-        @{
-            var sparkMax = _activeMetric.SparklineData.Count > 0 ? _activeMetric.SparklineData.Max() : 1m;
-            if (sparkMax == 0) sparkMax = 1;
-        }
+        var sparkMax = _activeMetric.SparklineData.Count > 0 ? _activeMetric.SparklineData.Max() : 1m;
+        if (sparkMax == 0) sparkMax = 1;
         <div class="portal-metric-modal-backdrop"
              @onclick="CloseMetricModal"
              @onkeydown="HandleModalKeyDown"

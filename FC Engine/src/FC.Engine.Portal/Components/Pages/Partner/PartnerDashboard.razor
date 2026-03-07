@@ -655,7 +655,10 @@ else
         var hash = Math.Abs(s.TenantId.GetHashCode() * 31 + monthIndex * 7919) % 101;
         // Current month biased by actual submissions
         if (monthIndex == 5) hash = s.ReturnsSubmittedThisMonth > 0 ? 75 + (hash % 25) : (int)(hash * 0.3);
-        return hash switch { < 25 => 1, < 55 => 2, < 80 => 3, _ => 4 };
+        if (hash < 25) return 1;
+        if (hash < 55) return 2;
+        if (hash < 80) return 3;
+        return 4;
     }
 
     private static int GetHeatmapPct(PartnerSubTenantSummary s, int monthIndex)
@@ -667,7 +670,7 @@ else
     }
 
     // ── Sorting & filtering ───────────────────────────────────────────────────
-    private IEnumerable<SubTenantHealthRow> GetFilteredRows()
+    private System.Collections.Generic.IEnumerable<SubTenantHealthRow> GetFilteredRows()
     {
         if (string.IsNullOrWhiteSpace(_search)) return _rows;
         var q = _search.Trim().ToLowerInvariant();
@@ -676,7 +679,7 @@ else
             r.Summary.TenantSlug.Contains(q, StringComparison.OrdinalIgnoreCase));
     }
 
-    private IEnumerable<SubTenantHealthRow> GetSortedFilteredRows()
+    private System.Collections.Generic.IEnumerable<SubTenantHealthRow> GetSortedFilteredRows()
     {
         var filtered = GetFilteredRows();
         return _sortColumn switch
@@ -797,19 +800,19 @@ else
     }
 
     // ── CSS helpers ───────────────────────────────────────────────────────────
-    private static string ComplianceFillClass(decimal pct) => pct switch
+    private static string ComplianceFillClass(decimal pct)
     {
-        < 50 => "pd-compliance-fill--low",
-        < 80 => "pd-compliance-fill--mid",
-        _    => "pd-compliance-fill--high"
-    };
+        if (pct < 50) return "pd-compliance-fill--low";
+        if (pct < 80) return "pd-compliance-fill--mid";
+        return "pd-compliance-fill--high";
+    }
 
-    private static string CompliancePctClass(decimal pct) => pct switch
+    private static string CompliancePctClass(decimal pct)
     {
-        < 50 => "pd-pct--low",
-        < 80 => "pd-pct--mid",
-        _    => "pd-pct--high"
-    };
+        if (pct < 50) return "pd-pct--low";
+        if (pct < 80) return "pd-pct--mid";
+        return "pd-pct--high";
+    }
 
     private static string GetSubStatusClass(string status) => status switch
     {
@@ -822,11 +825,11 @@ else
     private static string TruncateName(string name, int max) =>
         name.Length <= max ? name : name[..(max - 1)] + "…";
 
-    private static string FormatCurrencyShort(decimal v) => v switch
+    private static string FormatCurrencyShort(decimal v)
     {
-        >= 1_000_000 => $"₦{v / 1_000_000:0.0}M",
-        >= 1_000     => $"₦{v / 1_000:0.0}K",
-        _            => $"₦{v:N0}"
-    };
+        if (v >= 1_000_000) return $"₦{v / 1_000_000:0.0}M";
+        if (v >= 1_000) return $"₦{v / 1_000:0.0}K";
+        return $"₦{v:N0}";
+    }
 }
 
