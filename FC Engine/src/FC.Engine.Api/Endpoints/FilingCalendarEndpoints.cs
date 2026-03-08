@@ -17,7 +17,7 @@ public static class FilingCalendarEndpoints
         {
             if (!tenantContext.CurrentTenantId.HasValue)
             {
-                return Results.Unauthorized();
+                return Results.Forbid();
             }
 
             var items = await filingCalendarService.GetRagStatus(tenantContext.CurrentTenantId.Value, ct);
@@ -36,7 +36,7 @@ public static class FilingCalendarEndpoints
         {
             if (!tenantContext.CurrentTenantId.HasValue)
             {
-                return Results.Unauthorized();
+                return Results.Forbid();
             }
 
             if (request.PeriodId <= 0)
@@ -49,13 +49,23 @@ public static class FilingCalendarEndpoints
                 return Results.BadRequest(new { error = "Override reason is required." });
             }
 
+            if (request.NewDeadline.Date < DateTime.UtcNow.Date)
+            {
+                return Results.BadRequest(new { error = "New deadline cannot be in the past." });
+            }
+
             var overrideByUserId = ResolveUserId(principal);
+            if (overrideByUserId is null)
+            {
+                return Results.Forbid();
+            }
+
             await filingCalendarService.OverrideDeadline(
                 tenantContext.CurrentTenantId.Value,
                 request.PeriodId,
                 request.NewDeadline.Date,
                 request.Reason.Trim(),
-                overrideByUserId,
+                overrideByUserId.Value,
                 ct);
 
             return Results.Ok(new
@@ -70,11 +80,11 @@ public static class FilingCalendarEndpoints
         .WithSummary("Override a filing deadline for a tenant period");
     }
 
-    private static int ResolveUserId(ClaimsPrincipal principal)
+    private static int? ResolveUserId(ClaimsPrincipal principal)
     {
         var candidate = principal.FindFirstValue(ClaimTypes.NameIdentifier)
                        ?? principal.FindFirstValue("sub");
-        return int.TryParse(candidate, out var userId) ? userId : 0;
+        return int.TryParse(candidate, out var userId) ? userId : null;
     }
 }
 

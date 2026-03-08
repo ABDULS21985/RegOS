@@ -63,7 +63,7 @@ public static class DataFeedEndpoints
                 ct);
             return Results.Ok(mappings);
         })
-        .RequireAuthorization("CanCreateSubmission")
+        .RequireAuthorization("CanViewSubmissions")
         .WithSummary("Get tenant field mappings for an integration/return.");
 
         group.MapPut("/{returnCode}/mappings/{integrationName}", async (

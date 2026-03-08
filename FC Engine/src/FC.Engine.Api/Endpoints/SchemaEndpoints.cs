@@ -19,6 +19,7 @@ public static class SchemaEndpoints
             return Results.Content(xml, "application/xml");
         })
         .Produces<string>(contentType: "application/xml")
+        .RequireAuthorization("CanReadTemplates")
         .WithName($"GetXsdSchema{suffix}")
         .WithSummary("Get the XSD schema for a return template");
 
@@ -38,6 +39,7 @@ public static class SchemaEndpoints
                 details = result
             });
         })
+        .RequireAuthorization("PlatformAdmin")
         .WithName($"SeedTemplates{suffix}")
         .WithSummary("Seed templates from schema.sql file (run once)");
 
@@ -59,6 +61,7 @@ public static class SchemaEndpoints
                 formulaResult.Errors
             });
         })
+        .RequireAuthorization("PlatformAdmin")
         .WithName($"SeedFormulas{suffix}")
         .WithSummary("Seed intra-sheet formulas and cross-sheet rules");
 
@@ -73,10 +76,11 @@ public static class SchemaEndpoints
                 t.Name,
                 t.StructuralCategory,
                 t.PhysicalTableName,
-                FieldCount = t.CurrentVersion.Fields.Count,
-                FormulaCount = t.CurrentVersion.IntraSheetFormulas.Count
+                FieldCount = t.CurrentVersion?.Fields.Count ?? 0,
+                FormulaCount = t.CurrentVersion?.IntraSheetFormulas.Count ?? 0
             }));
         })
+        .RequireAuthorization("CanReadTemplates")
         .WithName($"GetPublishedTemplates{suffix}")
         .WithSummary("Get all published templates from cache");
     }

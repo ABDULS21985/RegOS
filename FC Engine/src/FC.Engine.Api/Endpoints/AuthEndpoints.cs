@@ -18,6 +18,11 @@ public static class AuthEndpoints
             IEntitlementService entitlementService,
             CancellationToken ct) =>
         {
+            if (string.IsNullOrWhiteSpace(request.Email) || string.IsNullOrWhiteSpace(request.Password))
+            {
+                return Results.BadRequest(new { error = "Email and password are required." });
+            }
+
             var (success, user, _) = await authService.ValidateCredentials(request.Email, request.Password, ct);
             if (!success || user is null)
             {
@@ -37,7 +42,9 @@ public static class AuthEndpoints
                 if (string.IsNullOrWhiteSpace(request.MfaCode) && string.IsNullOrWhiteSpace(request.BackupCode))
                 {
                     await mfaService.SendMfaCodeSms(user.UserId, user.UserType, ct);
-                    return Results.Json(new { requiresMfa = true, mfaChallenge = "totp" });
+                    return Results.Json(
+                        new { requiresMfa = true, mfaChallenge = "totp" },
+                        statusCode: StatusCodes.Status401Unauthorized);
                 }
 
                 var verified = false;
@@ -66,6 +73,11 @@ public static class AuthEndpoints
             IJwtTokenService jwtService,
             HttpContext httpContext) =>
         {
+            if (string.IsNullOrWhiteSpace(request.RefreshToken))
+            {
+                return Results.BadRequest(new { error = "RefreshToken is required." });
+            }
+
             try
             {
                 var tokens = await jwtService.RefreshToken(
@@ -85,6 +97,11 @@ public static class AuthEndpoints
             IJwtTokenService jwtService,
             HttpContext httpContext) =>
         {
+            if (string.IsNullOrWhiteSpace(request.RefreshToken))
+            {
+                return Results.BadRequest(new { error = "RefreshToken is required." });
+            }
+
             await jwtService.RevokeToken(
                 request.RefreshToken,
                 httpContext.Connection.RemoteIpAddress?.ToString());

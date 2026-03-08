@@ -200,10 +200,12 @@ public static class HistoricalMigrationEndpoints
                 return Results.Forbid();
             }
 
+            if (take <= 0) take = 200;
+            if (take > 1000) take = 1000;
             var staged = await migrationService.GetStagedReview(
                 tenantContext.CurrentTenantId.Value,
                 importJobId,
-                take <= 0 ? 200 : take,
+                take,
                 ct);
             return Results.Ok(staged);
         })

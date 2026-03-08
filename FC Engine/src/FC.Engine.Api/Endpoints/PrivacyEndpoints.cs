@@ -40,7 +40,7 @@ public static class PrivacyEndpoints
                 userType,
                 request.Description,
                 ct);
-            return Results.Ok(dsar);
+            return Results.Created($"/api/v1/privacy/dsar", dsar);
         })
         .RequireAuthorization("CanCreateSubmission")
         .WithSummary("Create a DSAR request.");
@@ -64,9 +64,15 @@ public static class PrivacyEndpoints
         group.MapPost("/dsar/{dsarId:int}/access-package", async (
             int dsarId,
             IDsarService dsarService,
+            ITenantContext tenantContext,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
+            if (!tenantContext.CurrentTenantId.HasValue)
+            {
+                return Results.Forbid();
+            }
+
             var userIdClaim = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (!int.TryParse(userIdClaim, out var userId))
             {
@@ -82,9 +88,15 @@ public static class PrivacyEndpoints
         group.MapPost("/dsar/{dsarId:int}/erasure", async (
             int dsarId,
             IDsarService dsarService,
+            ITenantContext tenantContext,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
+            if (!tenantContext.CurrentTenantId.HasValue)
+            {
+                return Results.Forbid();
+            }
+
             var userIdClaim = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (!int.TryParse(userIdClaim, out var userId))
             {
@@ -103,9 +115,15 @@ public static class PrivacyEndpoints
             ITenantContext tenantContext,
             CancellationToken ct) =>
         {
-            report.TenantId ??= tenantContext.CurrentTenantId;
+            if (!tenantContext.CurrentTenantId.HasValue)
+            {
+                return Results.Forbid();
+            }
+
+            // Always use server-side tenant context, never trust client-supplied TenantId
+            report.TenantId = tenantContext.CurrentTenantId;
             var incident = await breachService.ReportBreach(report, ct);
-            return Results.Ok(incident);
+            return Results.Created($"/api/v1/privacy/breaches", incident);
         })
         .RequireAuthorization("CanApproveSubmissions")
         .WithSummary("Report a data breach incident.");
@@ -114,9 +132,15 @@ public static class PrivacyEndpoints
             int incidentId,
             [FromBody] NitdaNotificationRequest request,
             IDataBreachService breachService,
+            ITenantContext tenantContext,
             HttpContext httpContext,
             CancellationToken ct) =>
         {
+            if (!tenantContext.CurrentTenantId.HasValue)
+            {
+                return Results.Forbid();
+            }
+
             var userIdClaim = httpContext.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
             if (!int.TryParse(userIdClaim, out var userId))
             {

@@ -1,6 +1,7 @@
 using FC.Engine.Application.DTOs;
 using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
+using Microsoft.Extensions.Logging;
 
 namespace FC.Engine.Api.Endpoints;
 
@@ -18,10 +19,17 @@ public static class SubmissionEndpoints
             int returnPeriodId,
             IngestionOrchestrator orchestrator,
             IFilingCalendarService filingCalendarService,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             if (request.ContentType == null || !request.ContentType.Contains("xml", StringComparison.OrdinalIgnoreCase))
                 return Results.BadRequest("Content-Type must be application/xml or text/xml");
+
+            if (institutionId <= 0)
+                return Results.BadRequest(new { error = "institutionId query parameter is required." });
+
+            if (returnPeriodId <= 0)
+                return Results.BadRequest(new { error = "returnPeriodId query parameter is required." });
 
             var result = await orchestrator.Process(
                 request.Body, returnCode, institutionId, returnPeriodId, ct);
@@ -32,9 +40,10 @@ public static class SubmissionEndpoints
                 {
                     await filingCalendarService.RecordSla(returnPeriodId, result.SubmissionId, ct);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // SLA tracking should not block API submissions.
+                    var logger = loggerFactory.CreateLogger("SubmissionEndpoints");
+                    logger.LogWarning(ex, "SLA tracking failed for submission {SubmissionId}", result.SubmissionId);
                 }
             }
 
@@ -55,6 +64,7 @@ public static class SubmissionEndpoints
         group.MapGet("/{id:int}", async (
             int id,
             ISubmissionRepository repo,
+            ITenantContext tenantContext,
             CancellationToken ct) =>
         {
             var submission = await repo.GetByIdWithReport(id, ct);
@@ -86,12 +96,14 @@ public static class SubmissionEndpoints
             });
         })
         .Produces<SubmissionResultDto>()
+        .RequireAuthorization("CanViewSubmissions")
         .WithName($"GetSubmission{suffix}")
         .WithSummary("Get submission details with validation report");
 
         group.MapGet("/institution/{institutionId:int}", async (
             int institutionId,
             ISubmissionRepository repo,
+            ITenantContext tenantContext,
             CancellationToken ct) =>
         {
             var submissions = await repo.GetByInstitution(institutionId, ct);
@@ -103,6 +115,7 @@ public static class SubmissionEndpoints
                 ProcessingDurationMs = s.ProcessingDurationMs
             }));
         })
+        .RequireAuthorization("CanViewSubmissions")
         .WithName($"GetInstitutionSubmissions{suffix}")
         .WithSummary("Get all submissions for an institution");
     }

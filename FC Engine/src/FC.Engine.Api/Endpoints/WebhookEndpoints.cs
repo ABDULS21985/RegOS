@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 
@@ -18,7 +19,7 @@ public static class WebhookEndpoints
         {
             var tenantId = tenantContext.CurrentTenantId ?? Guid.Empty;
             if (tenantId == Guid.Empty)
-                return Results.BadRequest("Tenant context required.");
+                return Results.Forbid();
 
             var endpoints = await webhookService.GetEndpointsAsync(tenantId, ct);
             return Results.Ok(endpoints.Select(e => new
@@ -41,15 +42,19 @@ public static class WebhookEndpoints
             CreateWebhookRequest request,
             ITenantContext tenantContext,
             IWebhookService webhookService,
+            ClaimsPrincipal principal,
             CancellationToken ct) =>
         {
             var tenantId = tenantContext.CurrentTenantId ?? Guid.Empty;
             if (tenantId == Guid.Empty)
-                return Results.BadRequest("Tenant context required.");
+                return Results.Forbid();
+
+            // Resolve CreatedBy from auth context, never trust client-supplied value
+            var createdBy = ResolveUserId(principal);
 
             var endpoint = await webhookService.CreateEndpointAsync(
                 tenantId, request.Url, request.Description,
-                request.EventTypes, request.CreatedBy, ct);
+                request.EventTypes, createdBy, ct);
 
             return Results.Created($"/api/v1/webhooks/{endpoint.Id}", new
             {
@@ -68,9 +73,14 @@ public static class WebhookEndpoints
         group.MapPut("/{id:int}", async (
             int id,
             UpdateWebhookRequest request,
+            ITenantContext tenantContext,
             IWebhookService webhookService,
             CancellationToken ct) =>
         {
+            var tenantId = tenantContext.CurrentTenantId ?? Guid.Empty;
+            if (tenantId == Guid.Empty)
+                return Results.Forbid();
+
             try
             {
                 await webhookService.UpdateEndpointAsync(
@@ -88,9 +98,14 @@ public static class WebhookEndpoints
 
         group.MapDelete("/{id:int}", async (
             int id,
+            ITenantContext tenantContext,
             IWebhookService webhookService,
             CancellationToken ct) =>
         {
+            var tenantId = tenantContext.CurrentTenantId ?? Guid.Empty;
+            if (tenantId == Guid.Empty)
+                return Results.Forbid();
+
             await webhookService.DeleteEndpointAsync(id, ct);
             return Results.NoContent();
         })
@@ -99,9 +114,14 @@ public static class WebhookEndpoints
 
         group.MapPost("/{id:int}/rotate-secret", async (
             int id,
+            ITenantContext tenantContext,
             IWebhookService webhookService,
             CancellationToken ct) =>
         {
+            var tenantId = tenantContext.CurrentTenantId ?? Guid.Empty;
+            if (tenantId == Guid.Empty)
+                return Results.Forbid();
+
             try
             {
                 var newSecret = await webhookService.RotateSecretAsync(id, ct);
@@ -117,9 +137,14 @@ public static class WebhookEndpoints
 
         group.MapPost("/{id:int}/test", async (
             int id,
+            ITenantContext tenantContext,
             IWebhookService webhookService,
             CancellationToken ct) =>
         {
+            var tenantId = tenantContext.CurrentTenantId ?? Guid.Empty;
+            if (tenantId == Guid.Empty)
+                return Results.Forbid();
+
             try
             {
                 await webhookService.SendTestWebhookAsync(id, ct);
@@ -135,10 +160,19 @@ public static class WebhookEndpoints
 
         group.MapGet("/{id:int}/deliveries", async (
             int id,
+            ITenantContext tenantContext,
             IWebhookService webhookService,
             int take = 50,
             CancellationToken ct = default) =>
         {
+            var tenantId = tenantContext.CurrentTenantId ?? Guid.Empty;
+            if (tenantId == Guid.Empty)
+                return Results.Forbid();
+
+            // Cap take to prevent excessive payloads
+            if (take <= 0) take = 50;
+            if (take > 500) take = 500;
+
             var deliveries = await webhookService.GetDeliveryLogAsync(id, take, ct);
             return Results.Ok(deliveries.Select(d => new
             {
@@ -157,13 +191,19 @@ public static class WebhookEndpoints
         .WithName("GetWebhookDeliveries")
         .WithSummary("Get the delivery log for a webhook endpoint");
     }
+
+    private static int ResolveUserId(ClaimsPrincipal principal)
+    {
+        var candidate = principal.FindFirstValue(ClaimTypes.NameIdentifier)
+                       ?? principal.FindFirstValue("sub");
+        return int.TryParse(candidate, out var userId) ? userId : 0;
+    }
 }
 
 public record CreateWebhookRequest(
     string Url,
     string? Description,
-    List<string> EventTypes,
-    int CreatedBy);
+    List<string> EventTypes);
 
 public record UpdateWebhookRequest(
     string? Url = null,
