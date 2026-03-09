@@ -300,6 +300,8 @@ v1.MapPrivacyEndpoints();
 v1.MapHistoricalMigrationEndpoints();
 v1.MapWebhookEndpoints();
 v1.MapDirectSubmissionEndpoints();
+v1.MapSubmissionBatchEndpoints();
+v1.MapRegulatoryQueryEndpoints();
 v1.MapCaaSEndpoints();
 v1.MapStressTestEndpoints();
 v1.MapWhiteLabelDocsEndpoints();

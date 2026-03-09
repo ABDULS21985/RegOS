@@ -10,6 +10,7 @@ using FC.Engine.Domain.Models;
 using FC.Engine.Infrastructure.Export;
 using FC.Engine.Infrastructure.Export.Adapters;
 using FC.Engine.Infrastructure.Export.ApiClients;
+using FC.Engine.Infrastructure.Export.ChannelAdapters;
 using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Metadata.Repositories;
 using FC.Engine.Infrastructure.Importing.Parsers;
@@ -344,6 +345,73 @@ public static class DependencyInjection
 
         services.AddHostedService<DirectSubmissionRetryJob>();
         services.AddHostedService<RegulatorStatusPollingJob>();
+
+        // ── RG-34 Batch Submission (new architecture) ──
+        services.AddScoped<ISubmissionSigningService, BatchSubmissionSigningService>();
+        services.AddScoped<ISubmissionEventPublisher, MassTransitSubmissionEventPublisher>();
+        services.AddScoped<ISubmissionBatchAuditLogger, SubmissionBatchAuditLogger>();
+        services.AddScoped<ISubmissionOrchestrator, FC.Engine.Application.Services.SubmissionOrchestrator>();
+        services.AddScoped<IRegulatorQueryService, RegulatorQueryService>();
+
+        // Channel adapters (Polly v8 resilience built into base class)
+        services.AddHttpClient<CbnEfassChannelAdapter>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<RegulatoryApiSettings>>().Value;
+            if (!string.IsNullOrWhiteSpace(opts.Cbn.BaseUrl))
+                client.BaseAddress = new Uri(opts.Cbn.BaseUrl.TrimEnd('/'));
+            client.Timeout = TimeSpan.FromSeconds(opts.Cbn.TimeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "RegOS-BatchSubmission/1.0");
+        });
+        services.AddHttpClient<NfiuGoAmlChannelAdapter>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<RegulatoryApiSettings>>().Value;
+            if (!string.IsNullOrWhiteSpace(opts.Nfiu.BaseUrl))
+                client.BaseAddress = new Uri(opts.Nfiu.BaseUrl.TrimEnd('/'));
+            client.Timeout = TimeSpan.FromSeconds(opts.Nfiu.TimeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "RegOS-BatchSubmission/1.0");
+        });
+        services.AddHttpClient<NdicChannelAdapter>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<RegulatoryApiSettings>>().Value;
+            if (!string.IsNullOrWhiteSpace(opts.Ndic.BaseUrl))
+                client.BaseAddress = new Uri(opts.Ndic.BaseUrl.TrimEnd('/'));
+            client.Timeout = TimeSpan.FromSeconds(opts.Ndic.TimeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "RegOS-BatchSubmission/1.0");
+        });
+        services.AddHttpClient<SecChannelAdapter>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<RegulatoryApiSettings>>().Value;
+            if (!string.IsNullOrWhiteSpace(opts.Sec.BaseUrl))
+                client.BaseAddress = new Uri(opts.Sec.BaseUrl.TrimEnd('/'));
+            client.Timeout = TimeSpan.FromSeconds(opts.Sec.TimeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "RegOS-BatchSubmission/1.0");
+        });
+        services.AddHttpClient<NaicomChannelAdapter>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<RegulatoryApiSettings>>().Value;
+            if (!string.IsNullOrWhiteSpace(opts.Naicom.BaseUrl))
+                client.BaseAddress = new Uri(opts.Naicom.BaseUrl.TrimEnd('/'));
+            client.Timeout = TimeSpan.FromSeconds(opts.Naicom.TimeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "RegOS-BatchSubmission/1.0");
+        });
+        services.AddHttpClient<PencomChannelAdapter>((sp, client) =>
+        {
+            var opts = sp.GetRequiredService<IOptions<RegulatoryApiSettings>>().Value;
+            if (!string.IsNullOrWhiteSpace(opts.Pencom.BaseUrl))
+                client.BaseAddress = new Uri(opts.Pencom.BaseUrl.TrimEnd('/'));
+            client.Timeout = TimeSpan.FromSeconds(opts.Pencom.TimeoutSeconds);
+            client.DefaultRequestHeaders.Add("User-Agent", "RegOS-BatchSubmission/1.0");
+        });
+
+        services.AddScoped<IRegulatoryChannelAdapter, CbnEfassChannelAdapter>();
+        services.AddScoped<IRegulatoryChannelAdapter, NfiuGoAmlChannelAdapter>();
+        services.AddScoped<IRegulatoryChannelAdapter, NdicChannelAdapter>();
+        services.AddScoped<IRegulatoryChannelAdapter, SecChannelAdapter>();
+        services.AddScoped<IRegulatoryChannelAdapter, NaicomChannelAdapter>();
+        services.AddScoped<IRegulatoryChannelAdapter, PencomChannelAdapter>();
+
+        services.AddHostedService<BatchStatusPollingJob>();
+        services.AddHostedService<BatchQuerySyncJob>();
 
         // ── Compliance-as-a-Service (RG-35) ──
         services.AddScoped<ICaaSService, CaaSService>();

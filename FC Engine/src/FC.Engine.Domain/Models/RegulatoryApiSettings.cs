@@ -20,6 +20,8 @@ public class DigitalSignatureSettings
     public string CertificatePath { get; set; } = string.Empty;
     public string CertificatePassword { get; set; } = string.Empty;
     public string Algorithm { get; set; } = "SHA256withRSA";
+    /// <summary>RFC 3161 TSA endpoint. If empty, timestamping is skipped.</summary>
+    public string TsaUrl { get; set; } = string.Empty;
 }
 
 public class CbnApiSettings

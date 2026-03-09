@@ -83,8 +83,19 @@ public class MetadataDbContext : DbContext
     public DbSet<MigrationModuleSignOff> MigrationModuleSignOffs => Set<MigrationModuleSignOff>();
     public DbSet<KnowledgeBaseArticle> KnowledgeBaseArticles => Set<KnowledgeBaseArticle>();
 
-    // Direct regulatory submissions (RG-34)
+    // Direct regulatory submissions (RG-34 legacy)
     public DbSet<DirectSubmission> DirectSubmissions => Set<DirectSubmission>();
+
+    // Batch regulatory submission engine (RG-34 v2)
+    public DbSet<RegulatoryChannel> RegulatoryChannels => Set<RegulatoryChannel>();
+    public DbSet<SubmissionBatch> SubmissionBatches => Set<SubmissionBatch>();
+    public DbSet<SubmissionItem> SubmissionItems => Set<SubmissionItem>();
+    public DbSet<SubmissionSignatureRecord> SubmissionSignatureRecords => Set<SubmissionSignatureRecord>();
+    public DbSet<SubmissionBatchReceipt> SubmissionBatchReceipts => Set<SubmissionBatchReceipt>();
+    public DbSet<RegulatoryQueryRecord> RegulatoryQueryRecords => Set<RegulatoryQueryRecord>();
+    public DbSet<QueryResponse> QueryResponses => Set<QueryResponse>();
+    public DbSet<QueryResponseAttachment> QueryResponseAttachments => Set<QueryResponseAttachment>();
+    public DbSet<SubmissionBatchAuditLog> SubmissionBatchAuditLogs => Set<SubmissionBatchAuditLog>();
 
     // Regulator portal (RG-25)
     public DbSet<RegulatorReceipt> RegulatorReceipts => Set<RegulatorReceipt>();
