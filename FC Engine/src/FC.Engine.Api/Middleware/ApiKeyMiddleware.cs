@@ -32,6 +32,7 @@ public class ApiKeyMiddleware
             path.StartsWith("/health/", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/metrics", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/swagger", StringComparison.OrdinalIgnoreCase) ||
+            path.Equals("/error", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/api/v1/auth/login", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("/api/v1/auth/refresh", StringComparison.OrdinalIgnoreCase))
         {

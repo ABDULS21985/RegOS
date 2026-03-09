@@ -121,6 +121,14 @@ if (signalRSettings?.RedisBackplane == true)
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions>(options =>
+{
+    options.DetailedErrors = builder.Environment.IsDevelopment();
+    options.DisconnectedCircuitMaxRetained = 20;
+    options.DisconnectedCircuitRetentionPeriod = TimeSpan.FromMinutes(2);
+    options.MaxBufferedUnacknowledgedRenderBatches = 10;
+});
+
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())

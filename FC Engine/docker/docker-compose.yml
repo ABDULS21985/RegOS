@@ -37,6 +37,7 @@ services:
       - ../scripts:/app/scripts:ro
 
   api:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: docker/Dockerfile.api
@@ -61,6 +62,7 @@ services:
       start_period: 15s
 
   admin:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: docker/Dockerfile.admin
@@ -84,6 +86,14 @@ services:
       start_period: 15s
 
   portal:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
     build:
       context: ..
       dockerfile: docker/Dockerfile.portal

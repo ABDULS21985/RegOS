@@ -220,6 +220,7 @@ public static class DependencyInjection
 
         // ── Compliance Health Scoring (RG-32) ──
         services.AddScoped<IComplianceHealthService, ComplianceHealthService>();
+        services.AddHostedService<ChsComputationJob>();
 
         // ── Report Builder (RG-18) ──
         services.AddScoped<ISavedReportRepository, SavedReportRepository>();

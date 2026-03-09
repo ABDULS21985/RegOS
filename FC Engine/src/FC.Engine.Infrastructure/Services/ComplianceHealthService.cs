@@ -1,5 +1,9 @@
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Domain.Entities;
+using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Models;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 
@@ -7,6 +11,7 @@ namespace FC.Engine.Infrastructure.Services;
 
 public class ComplianceHealthService : IComplianceHealthService
 {
+    private readonly MetadataDbContext _db;
     private readonly IMemoryCache _cache;
     private readonly ILogger<ComplianceHealthService> _logger;
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
@@ -17,25 +22,32 @@ public class ComplianceHealthService : IComplianceHealthService
     private const decimal GovernanceWeight = 0.15m;
     private const decimal EngagementWeight = 0.15m;
 
-    private static readonly List<SimulatedInstitution> Pool = GeneratePool();
+    // Metric keys for ParsedDataJson extraction
+    private static readonly string[] CarKeys = { "car", "capitaladequacyratio", "capitalratio" };
+    private static readonly string[] NplKeys = { "nplratio", "nonperformingloansratio", "npl" };
+    private static readonly string[] LcrKeys = { "lcr", "liquiditycoverageratio", "liquidityratio" };
 
-    public ComplianceHealthService(IMemoryCache cache, ILogger<ComplianceHealthService> logger)
+    public ComplianceHealthService(
+        MetadataDbContext db,
+        IMemoryCache cache,
+        ILogger<ComplianceHealthService> logger)
     {
+        _db = db;
         _cache = cache;
         _logger = logger;
     }
 
     // ── Institution-level ──
 
-    public Task<ComplianceHealthScore> GetCurrentScore(Guid tenantId, CancellationToken ct = default)
+    public async Task<ComplianceHealthScore> GetCurrentScore(Guid tenantId, CancellationToken ct = default)
     {
         var key = $"chs:current:{tenantId}";
-        var result = _cache.GetOrCreate(key, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-            return ComputeScore(tenantId, DateTime.UtcNow);
-        })!;
-        return Task.FromResult(result);
+        if (_cache.TryGetValue(key, out ComplianceHealthScore? cached) && cached is not null)
+            return cached;
+
+        var score = await ComputeScoreFromData(tenantId, ct);
+        _cache.Set(key, score, CacheTtl);
+        return score;
     }
 
     public async Task<ChsDashboardData> GetDashboard(Guid tenantId, CancellationToken ct = default)
@@ -57,201 +69,30 @@ public class ComplianceHealthService : IComplianceHealthService
         };
     }
 
-    public Task<ChsTrendData> GetTrend(Guid tenantId, int periods = 12, CancellationToken ct = default)
+    public async Task<ChsTrendData> GetTrend(Guid tenantId, int periods = 12, CancellationToken ct = default)
     {
         var key = $"chs:trend:{tenantId}:{periods}";
-        var result = _cache.GetOrCreate(key, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-            return BuildTrend(tenantId, periods);
-        })!;
-        return Task.FromResult(result);
-    }
+        if (_cache.TryGetValue(key, out ChsTrendData? cached) && cached is not null)
+            return cached;
 
-    public Task<ChsPeerComparison> GetPeerComparison(Guid tenantId, CancellationToken ct = default)
-    {
-        var key = $"chs:peer:{tenantId}";
-        var result = _cache.GetOrCreate(key, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-            return BuildPeerComparison(tenantId);
-        })!;
-        return Task.FromResult(result);
-    }
-
-    public Task<List<ChsAlert>> GetAlerts(Guid tenantId, CancellationToken ct = default)
-    {
-        var trend = BuildTrend(tenantId, 12);
-        var alerts = new List<ChsAlert>();
-        var inst = Pool.FirstOrDefault(p => p.TenantId == tenantId)
-                   ?? new SimulatedInstitution(tenantId, "Your Institution", "Commercial Bank", 72m);
-
-        if (trend.ConsecutiveDeclines >= 3)
-        {
-            alerts.Add(new ChsAlert
+        var snapshots = await _db.ChsScoreSnapshots
+            .Where(s => s.TenantId == tenantId)
+            .OrderByDescending(s => s.ComputedAt)
+            .Take(periods)
+            .OrderBy(s => s.ComputedAt)
+            .Select(s => new ChsTrendSnapshot
             {
-                TenantId = tenantId,
-                TenantName = inst.Name,
-                AlertType = ChsAlertType.ConsecutiveDecline,
-                Message = $"CHS has declined for {trend.ConsecutiveDeclines} consecutive weeks. Immediate attention recommended.",
-                CurrentScore = trend.Snapshots.LastOrDefault()?.OverallScore ?? 0,
-                PreviousScore = trend.Snapshots.Count >= 2 ? trend.Snapshots[^2].OverallScore : null,
-                Severity = "warning",
-                TriggeredAt = DateTime.UtcNow
-            });
-        }
-
-        var currentScore = trend.Snapshots.LastOrDefault()?.OverallScore ?? 0;
-        if (currentScore < 60)
-        {
-            alerts.Add(new ChsAlert
-            {
-                TenantId = tenantId,
-                TenantName = inst.Name,
-                AlertType = ChsAlertType.BelowThreshold,
-                Message = $"CHS is {currentScore:F1}, below the 60-point regulatory threshold. Regulator has been notified.",
-                CurrentScore = currentScore,
-                Severity = "critical",
-                TriggeredAt = DateTime.UtcNow
-            });
-        }
-
-        return Task.FromResult(alerts);
-    }
-
-    // ── Regulator / Sector-level ──
-
-    public Task<SectorChsSummary> GetSectorSummary(string regulatorCode, CancellationToken ct = default)
-    {
-        var key = $"chs:sector:{regulatorCode}";
-        var result = _cache.GetOrCreate(key, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-            return BuildSectorSummary(regulatorCode);
-        })!;
-        return Task.FromResult(result);
-    }
-
-    public Task<List<ChsWatchListItem>> GetWatchList(string regulatorCode, CancellationToken ct = default)
-    {
-        var key = $"chs:watch:{regulatorCode}";
-        var result = _cache.GetOrCreate(key, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-            return BuildWatchList();
-        })!;
-        return Task.FromResult(result);
-    }
-
-    public Task<List<ChsHeatmapItem>> GetSectorHeatmap(string regulatorCode, CancellationToken ct = default)
-    {
-        var key = $"chs:heatmap:{regulatorCode}";
-        var result = _cache.GetOrCreate(key, entry =>
-        {
-            entry.AbsoluteExpirationRelativeToNow = CacheTtl;
-            return BuildHeatmap();
-        })!;
-        return Task.FromResult(result);
-    }
-
-    // ── Scoring engine ──
-
-    private ComplianceHealthScore ComputeScore(Guid tenantId, DateTime asOf)
-    {
-        var inst = Pool.FirstOrDefault(p => p.TenantId == tenantId)
-                   ?? new SimulatedInstitution(tenantId, "Your Institution", "Commercial Bank", 72m);
-
-        var weekNum = GetIsoWeek(asOf);
-        var seed = Math.Abs(inst.TenantId.GetHashCode()) ^ (weekNum * 7919);
-        var rng = new Random(seed);
-
-        var filing = Clamp(inst.BaseScore + Jitter(rng, 8));
-        var dataQuality = Clamp(inst.BaseScore + Jitter(rng, 10));
-        var capital = Clamp(inst.BaseScore + Jitter(rng, 12));
-        var governance = Clamp(inst.BaseScore + Jitter(rng, 6));
-        var engagement = Clamp(inst.BaseScore + Jitter(rng, 15));
-
-        var overall = Math.Round(
-            filing * FilingWeight +
-            dataQuality * DataQualityWeight +
-            capital * CapitalWeight +
-            governance * GovernanceWeight +
-            engagement * EngagementWeight, 1);
-
-        var trend = ComputeTrendDirection(tenantId, asOf);
-
-        return new ComplianceHealthScore
-        {
-            TenantId = tenantId,
-            TenantName = inst.Name,
-            LicenceType = inst.LicenceType,
-            OverallScore = overall,
-            Rating = ToRating(overall),
-            Trend = trend,
-            FilingTimeliness = filing,
-            DataQuality = dataQuality,
-            RegulatoryCapital = capital,
-            AuditGovernance = governance,
-            Engagement = engagement,
-            ComputedAt = asOf,
-            PeriodLabel = $"{asOf.Year}-W{weekNum:D2}"
-        };
-    }
-
-    private ChsTrend ComputeTrendDirection(Guid tenantId, DateTime asOf)
-    {
-        var current = ScoreForWeek(tenantId, asOf);
-        var prev = ScoreForWeek(tenantId, asOf.AddDays(-7));
-        var diff = current - prev;
-        return diff > 1.5m ? ChsTrend.Improving : diff < -1.5m ? ChsTrend.Declining : ChsTrend.Stable;
-    }
-
-    private decimal ScoreForWeek(Guid tenantId, DateTime asOf)
-    {
-        var inst = Pool.FirstOrDefault(p => p.TenantId == tenantId)
-                   ?? new SimulatedInstitution(tenantId, "Your Institution", "Commercial Bank", 72m);
-        var weekNum = GetIsoWeek(asOf);
-        var seed = Math.Abs(inst.TenantId.GetHashCode()) ^ (weekNum * 7919);
-        var rng = new Random(seed);
-
-        var filing = Clamp(inst.BaseScore + Jitter(rng, 8));
-        var dataQuality = Clamp(inst.BaseScore + Jitter(rng, 10));
-        var capital = Clamp(inst.BaseScore + Jitter(rng, 12));
-        var governance = Clamp(inst.BaseScore + Jitter(rng, 6));
-        var engagement = Clamp(inst.BaseScore + Jitter(rng, 15));
-
-        return Math.Round(
-            filing * FilingWeight +
-            dataQuality * DataQualityWeight +
-            capital * CapitalWeight +
-            governance * GovernanceWeight +
-            engagement * EngagementWeight, 1);
-    }
-
-    // ── Trend builder ──
-
-    private ChsTrendData BuildTrend(Guid tenantId, int periods)
-    {
-        var snapshots = new List<ChsTrendSnapshot>();
-        var now = DateTime.UtcNow;
-
-        for (int i = periods - 1; i >= 0; i--)
-        {
-            var date = now.AddDays(-7 * i);
-            var score = ComputeScore(tenantId, date);
-            snapshots.Add(new ChsTrendSnapshot
-            {
-                PeriodLabel = score.PeriodLabel,
-                Date = date.Date,
-                OverallScore = score.OverallScore,
-                Rating = score.Rating,
-                FilingTimeliness = score.FilingTimeliness,
-                DataQuality = score.DataQuality,
-                RegulatoryCapital = score.RegulatoryCapital,
-                AuditGovernance = score.AuditGovernance,
-                Engagement = score.Engagement
-            });
-        }
+                PeriodLabel = s.PeriodLabel,
+                Date = s.ComputedAt.Date,
+                OverallScore = s.OverallScore,
+                Rating = ToRating(s.OverallScore),
+                FilingTimeliness = s.FilingTimeliness,
+                DataQuality = s.DataQuality,
+                RegulatoryCapital = s.RegulatoryCapital,
+                AuditGovernance = s.AuditGovernance,
+                Engagement = s.Engagement
+            })
+            .ToListAsync(ct);
 
         int consecutiveDeclines = 0;
         for (int i = snapshots.Count - 1; i >= 1; i--)
@@ -271,13 +112,657 @@ public class ComplianceHealthService : IComplianceHealthService
             }
             : ChsTrend.Stable;
 
-        return new ChsTrendData
+        var result = new ChsTrendData
         {
             TenantId = tenantId,
             Snapshots = snapshots,
             OverallTrend = overallTrend,
             ConsecutiveDeclines = consecutiveDeclines
         };
+
+        _cache.Set(key, result, CacheTtl);
+        return result;
+    }
+
+    public async Task<ChsPeerComparison> GetPeerComparison(Guid tenantId, CancellationToken ct = default)
+    {
+        var key = $"chs:peer:{tenantId}";
+        if (_cache.TryGetValue(key, out ChsPeerComparison? cached) && cached is not null)
+            return cached;
+
+        var result = await BuildPeerComparison(tenantId, ct);
+        _cache.Set(key, result, CacheTtl);
+        return result;
+    }
+
+    public async Task<List<ChsAlert>> GetAlerts(Guid tenantId, CancellationToken ct = default)
+    {
+        var trend = await GetTrend(tenantId, 12, ct);
+        var alerts = new List<ChsAlert>();
+
+        var tenant = await _db.Tenants
+            .Where(t => t.TenantId == tenantId)
+            .Select(t => new { t.TenantName })
+            .FirstOrDefaultAsync(ct);
+
+        var tenantName = tenant?.TenantName ?? "Unknown";
+
+        if (trend.ConsecutiveDeclines >= 3)
+        {
+            alerts.Add(new ChsAlert
+            {
+                TenantId = tenantId,
+                TenantName = tenantName,
+                AlertType = ChsAlertType.ConsecutiveDecline,
+                Message = $"CHS has declined for {trend.ConsecutiveDeclines} consecutive weeks. Immediate attention recommended.",
+                CurrentScore = trend.Snapshots.LastOrDefault()?.OverallScore ?? 0,
+                PreviousScore = trend.Snapshots.Count >= 2 ? trend.Snapshots[^2].OverallScore : null,
+                Severity = "warning",
+                TriggeredAt = DateTime.UtcNow
+            });
+        }
+
+        var currentScore = trend.Snapshots.LastOrDefault()?.OverallScore ?? 0;
+        if (currentScore > 0 && currentScore < 60)
+        {
+            alerts.Add(new ChsAlert
+            {
+                TenantId = tenantId,
+                TenantName = tenantName,
+                AlertType = ChsAlertType.BelowThreshold,
+                Message = $"CHS is {currentScore:F1}, below the 60-point regulatory threshold. Regulator has been notified.",
+                CurrentScore = currentScore,
+                Severity = "critical",
+                TriggeredAt = DateTime.UtcNow
+            });
+        }
+
+        // Check for pillar-level critical scores
+        var latest = trend.Snapshots.LastOrDefault();
+        if (latest is not null)
+        {
+            var pillarChecks = new (string Name, decimal Score)[]
+            {
+                ("Filing Timeliness", latest.FilingTimeliness),
+                ("Data Quality", latest.DataQuality),
+                ("Regulatory Capital", latest.RegulatoryCapital),
+                ("Audit & Governance", latest.AuditGovernance),
+                ("Engagement", latest.Engagement)
+            };
+
+            foreach (var (name, score) in pillarChecks)
+            {
+                if (score < 40)
+                {
+                    alerts.Add(new ChsAlert
+                    {
+                        TenantId = tenantId,
+                        TenantName = tenantName,
+                        AlertType = ChsAlertType.PillarCritical,
+                        Message = $"{name} pillar score is {score:F1} (critical). Targeted remediation required.",
+                        CurrentScore = score,
+                        Severity = "warning",
+                        TriggeredAt = DateTime.UtcNow
+                    });
+                }
+            }
+        }
+
+        return alerts;
+    }
+
+    // ── Regulator / Sector-level ──
+
+    public async Task<SectorChsSummary> GetSectorSummary(string regulatorCode, CancellationToken ct = default)
+    {
+        var key = $"chs:sector:{regulatorCode}";
+        if (_cache.TryGetValue(key, out SectorChsSummary? cached) && cached is not null)
+            return cached;
+
+        var result = await BuildSectorSummary(regulatorCode, ct);
+        _cache.Set(key, result, CacheTtl);
+        return result;
+    }
+
+    public async Task<List<ChsWatchListItem>> GetWatchList(string regulatorCode, CancellationToken ct = default)
+    {
+        var key = $"chs:watch:{regulatorCode}";
+        if (_cache.TryGetValue(key, out List<ChsWatchListItem>? cached) && cached is not null)
+            return cached;
+
+        var result = await BuildWatchList(regulatorCode, ct);
+        _cache.Set(key, result, CacheTtl);
+        return result;
+    }
+
+    public async Task<List<ChsHeatmapItem>> GetSectorHeatmap(string regulatorCode, CancellationToken ct = default)
+    {
+        var key = $"chs:heatmap:{regulatorCode}";
+        if (_cache.TryGetValue(key, out List<ChsHeatmapItem>? cached) && cached is not null)
+            return cached;
+
+        var result = await BuildHeatmap(regulatorCode, ct);
+        _cache.Set(key, result, CacheTtl);
+        return result;
+    }
+
+    // ── Real data scoring engine ──
+
+    private async Task<ComplianceHealthScore> ComputeScoreFromData(Guid tenantId, CancellationToken ct)
+    {
+        var tenant = await _db.Tenants
+            .Where(t => t.TenantId == tenantId)
+            .Select(t => new { t.TenantName })
+            .FirstOrDefaultAsync(ct);
+
+        var licenceType = await _db.TenantLicenceTypes
+            .Where(tl => tl.TenantId == tenantId && tl.IsActive)
+            .Include(tl => tl.LicenceType)
+            .Select(tl => tl.LicenceType!.Name)
+            .FirstOrDefaultAsync(ct);
+
+        var now = DateTime.UtcNow;
+        var lookback = now.AddMonths(-6);
+
+        // Compute each pillar
+        var filing = await ComputeFilingTimeliness(tenantId, lookback, ct);
+        var dataQuality = await ComputeDataQuality(tenantId, lookback, ct);
+        var capital = await ComputeRegulatoryCapital(tenantId, ct);
+        var governance = await ComputeAuditGovernance(tenantId, lookback, ct);
+        var engagement = await ComputeEngagement(tenantId, lookback, ct);
+
+        var overall = Math.Round(
+            filing * FilingWeight +
+            dataQuality * DataQualityWeight +
+            capital * CapitalWeight +
+            governance * GovernanceWeight +
+            engagement * EngagementWeight, 1);
+
+        // Get trend direction from snapshots
+        var recentSnapshots = await _db.ChsScoreSnapshots
+            .Where(s => s.TenantId == tenantId)
+            .OrderByDescending(s => s.ComputedAt)
+            .Take(2)
+            .ToListAsync(ct);
+
+        var trend = ChsTrend.Stable;
+        if (recentSnapshots.Count >= 2)
+        {
+            var diff = overall - recentSnapshots[0].OverallScore;
+            trend = diff > 1.5m ? ChsTrend.Improving : diff < -1.5m ? ChsTrend.Declining : ChsTrend.Stable;
+        }
+
+        var weekNum = GetIsoWeek(now);
+
+        return new ComplianceHealthScore
+        {
+            TenantId = tenantId,
+            TenantName = tenant?.TenantName ?? "Unknown",
+            LicenceType = licenceType ?? "Unknown",
+            OverallScore = overall,
+            Rating = ToRating(overall),
+            Trend = trend,
+            FilingTimeliness = filing,
+            DataQuality = dataQuality,
+            RegulatoryCapital = capital,
+            AuditGovernance = governance,
+            Engagement = engagement,
+            ComputedAt = now,
+            PeriodLabel = $"{now.Year}-W{weekNum:D2}"
+        };
+    }
+
+    // ── Pillar 1: Filing Timeliness (25%) ──
+
+    private async Task<decimal> ComputeFilingTimeliness(Guid tenantId, DateTime lookback, CancellationToken ct)
+    {
+        var records = await _db.FilingSlaRecords
+            .Where(r => r.TenantId == tenantId && r.PeriodEndDate >= lookback)
+            .ToListAsync(ct);
+
+        if (records.Count == 0) return 50m; // baseline for new tenants
+
+        // Sub-factor 1: On-time rate (50%)
+        var totalWithStatus = records.Where(r => r.OnTime.HasValue).ToList();
+        var onTimeRate = totalWithStatus.Count > 0
+            ? (decimal)totalWithStatus.Count(r => r.OnTime == true) / totalWithStatus.Count * 100
+            : 50m;
+
+        // Sub-factor 2: Avg days to deadline (30%) — higher is better, max 10 days early
+        var withDays = records.Where(r => r.DaysToDeadline.HasValue).ToList();
+        var avgDaysEarly = withDays.Count > 0
+            ? (decimal)withDays.Average(r => r.DaysToDeadline!.Value)
+            : 0m;
+        var daysScore = Math.Min(100, Math.Max(0, (avgDaysEarly + 5) * 10)); // -5 days=0, +5 days=100
+
+        // Sub-factor 3: Overdue penalty (20%) — fewer overdue = higher score
+        var overdueCount = records.Count(r => r.OnTime == false);
+        var overdueScore = Math.Max(0, 100 - overdueCount * 15m);
+
+        return Clamp(onTimeRate * 0.5m + daysScore * 0.3m + overdueScore * 0.2m);
+    }
+
+    // ── Pillar 2: Data Quality (25%) ──
+
+    private async Task<decimal> ComputeDataQuality(Guid tenantId, DateTime lookback, CancellationToken ct)
+    {
+        var reports = await _db.ValidationReports
+            .Where(r => r.TenantId == tenantId && r.CreatedAt >= lookback)
+            .Select(r => new { r.Id })
+            .ToListAsync(ct);
+
+        if (reports.Count == 0) return 50m;
+
+        var reportIds = reports.Select(r => r.Id).ToList();
+
+        var errors = await _db.ValidationErrors
+            .Where(e => reportIds.Contains(e.ValidationReportId))
+            .GroupBy(e => e.ValidationReportId)
+            .Select(g => new
+            {
+                ReportId = g.Key,
+                ErrorCount = g.Count(e => e.Severity == ValidationSeverity.Error),
+                WarningCount = g.Count(e => e.Severity == ValidationSeverity.Warning)
+            })
+            .ToListAsync(ct);
+
+        // Sub-factor 1: Pass rate (40%) — reports with zero errors
+        var passCount = reports.Count - errors.Count(e => e.ErrorCount > 0);
+        var passRate = (decimal)passCount / reports.Count * 100;
+
+        // Sub-factor 2: Error severity score (35%) — 100 - (errors*7 + warnings*2)
+        var totalErrors = errors.Sum(e => e.ErrorCount);
+        var totalWarnings = errors.Sum(e => e.WarningCount);
+        var avgErrorsPerReport = (decimal)(totalErrors * 7 + totalWarnings * 2) / reports.Count;
+        var severityScore = Math.Max(0, 100 - avgErrorsPerReport);
+
+        // Sub-factor 3: Cross-sheet consistency (25%) — based on cross-sheet error ratio
+        var crossSheetErrors = await _db.ValidationErrors
+            .Where(e => reportIds.Contains(e.ValidationReportId)
+                        && e.ReferencedReturnCode != null)
+            .CountAsync(ct);
+        var consistencyScore = reports.Count > 0
+            ? Math.Max(0, 100 - (decimal)crossSheetErrors / reports.Count * 20)
+            : 50m;
+
+        return Clamp(passRate * 0.4m + severityScore * 0.35m + consistencyScore * 0.25m);
+    }
+
+    // ── Pillar 3: Regulatory Capital (20%) ──
+
+    private async Task<decimal> ComputeRegulatoryCapital(Guid tenantId, CancellationToken ct)
+    {
+        // Get latest submission with parsed data
+        var latestSubmission = await _db.Submissions
+            .Where(s => s.TenantId == tenantId
+                        && s.ParsedDataJson != null
+                        && s.Status != SubmissionStatus.Rejected)
+            .OrderByDescending(s => s.SubmittedAt)
+            .Select(s => s.ParsedDataJson)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrWhiteSpace(latestSubmission)) return 50m;
+
+        // Sub-factor 1: CAR adequacy (40%) — CAR >= 15% = 100, 10% = 50, < 8% = 0
+        var car = RegulatorAnalyticsSupport.ExtractFirstMetric(latestSubmission, CarKeys);
+        var carScore = car.HasValue
+            ? Clamp((car.Value - 8m) / 7m * 100m)
+            : 50m;
+
+        // Sub-factor 2: NPL ratio (35%) — lower is better; 0% = 100, 5% = 65, 15% = 0
+        var npl = RegulatorAnalyticsSupport.ExtractFirstMetric(latestSubmission, NplKeys);
+        var nplScore = npl.HasValue
+            ? Clamp(100 - npl.Value * 6.67m)
+            : 50m;
+
+        // Sub-factor 3: LCR (25%) — >= 100% = 100, 80% = 60, < 60% = 0
+        var lcr = RegulatorAnalyticsSupport.ExtractFirstMetric(latestSubmission, LcrKeys);
+        var lcrScore = lcr.HasValue
+            ? Clamp((lcr.Value - 60m) / 40m * 100m)
+            : 50m;
+
+        return Clamp(carScore * 0.4m + nplScore * 0.35m + lcrScore * 0.25m);
+    }
+
+    // ── Pillar 4: Audit & Governance (15%) ──
+
+    private async Task<decimal> ComputeAuditGovernance(Guid tenantId, DateTime lookback, CancellationToken ct)
+    {
+        // Sub-factor 1: Maker-checker compliance (40%)
+        var totalSubmissions = await _db.Submissions
+            .Where(s => s.TenantId == tenantId && s.SubmittedAt >= lookback)
+            .CountAsync(ct);
+
+        var approvedSubmissions = await _db.SubmissionApprovals
+            .Where(a => a.TenantId == tenantId && a.RequestedAt >= lookback
+                        && a.Status == ApprovalStatus.Approved)
+            .CountAsync(ct);
+
+        var makerCheckerScore = totalSubmissions > 0
+            ? Clamp((decimal)approvedSubmissions / totalSubmissions * 100)
+            : 50m;
+
+        // Sub-factor 2: MFA adoption (30%)
+        var totalUsers = await _db.Set<InstitutionUser>()
+            .Where(u => u.TenantId == tenantId && u.IsActive)
+            .CountAsync(ct);
+
+        var mfaUsers = await _db.UserMfaConfigs
+            .Where(m => m.TenantId == tenantId && m.IsEnabled)
+            .CountAsync(ct);
+
+        var mfaScore = totalUsers > 0
+            ? Clamp((decimal)mfaUsers / totalUsers * 100)
+            : 50m;
+
+        // Sub-factor 3: Audit trail completeness (30%)
+        var auditEntries = await _db.AuditLog
+            .Where(a => a.TenantId == tenantId && a.PerformedAt >= lookback)
+            .CountAsync(ct);
+
+        // Expect at least 10 audit entries per submission as a healthy baseline
+        var expectedEntries = totalSubmissions * 10;
+        var auditScore = expectedEntries > 0
+            ? Clamp((decimal)auditEntries / expectedEntries * 100)
+            : 50m;
+
+        return Clamp(makerCheckerScore * 0.4m + mfaScore * 0.3m + auditScore * 0.3m);
+    }
+
+    // ── Pillar 5: Engagement (15%) ──
+
+    private async Task<decimal> ComputeEngagement(Guid tenantId, DateTime lookback, CancellationToken ct)
+    {
+        var months = Math.Max(1, (DateTime.UtcNow - lookback).Days / 30.0);
+
+        // Sub-factor 1: Login frequency (40%) — logins per month, 20+/month = 100
+        var loginCount = await _db.LoginAttempts
+            .Where(l => l.TenantId == tenantId && l.Succeeded && l.AttemptedAt >= lookback)
+            .CountAsync(ct);
+
+        var loginsPerMonth = (decimal)(loginCount / months);
+        var loginScore = Clamp(loginsPerMonth / 20m * 100m);
+
+        // Sub-factor 2: Filing lead time (35%) — avg days before deadline for submitted returns
+        var filingRecords = await _db.FilingSlaRecords
+            .Where(r => r.TenantId == tenantId
+                        && r.SubmittedDate.HasValue
+                        && r.DaysToDeadline.HasValue
+                        && r.PeriodEndDate >= lookback)
+            .Select(r => r.DaysToDeadline!.Value)
+            .ToListAsync(ct);
+
+        var leadTimeScore = 50m;
+        if (filingRecords.Count > 0)
+        {
+            var avgLeadTime = (decimal)filingRecords.Average();
+            leadTimeScore = Clamp((avgLeadTime + 3) * 10m); // -3 days = 0, 7 days = 100
+        }
+
+        // Sub-factor 3: Draft utilization (25%) — using drafts before final submission
+        var draftCount = await _db.ReturnDrafts
+            .Where(d => d.TenantId == tenantId && d.LastSavedAt >= lookback)
+            .CountAsync(ct);
+
+        var submissionCount = await _db.Submissions
+            .Where(s => s.TenantId == tenantId && s.SubmittedAt >= lookback)
+            .CountAsync(ct);
+
+        var draftScore = submissionCount > 0
+            ? Clamp((decimal)draftCount / submissionCount * 100m)
+            : 50m;
+
+        return Clamp(loginScore * 0.4m + leadTimeScore * 0.35m + draftScore * 0.25m);
+    }
+
+    // ── Peer comparison ──
+
+    private async Task<ChsPeerComparison> BuildPeerComparison(Guid tenantId, CancellationToken ct)
+    {
+        var tenantLicence = await _db.TenantLicenceTypes
+            .Where(tl => tl.TenantId == tenantId && tl.IsActive)
+            .Include(tl => tl.LicenceType)
+            .FirstOrDefaultAsync(ct);
+
+        var licenceTypeName = tenantLicence?.LicenceType?.Name ?? "Unknown";
+        var licenceTypeId = tenantLicence?.LicenceTypeId ?? 0;
+
+        // Find peers with same licence type
+        var peerTenantIds = await _db.TenantLicenceTypes
+            .Where(tl => tl.LicenceTypeId == licenceTypeId && tl.IsActive)
+            .Select(tl => tl.TenantId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        // Get latest snapshot for each peer
+        var latestSnapshots = await _db.ChsScoreSnapshots
+            .Where(s => peerTenantIds.Contains(s.TenantId))
+            .GroupBy(s => s.TenantId)
+            .Select(g => g.OrderByDescending(s => s.ComputedAt).First())
+            .ToListAsync(ct);
+
+        var tenantSnapshot = latestSnapshots.FirstOrDefault(s => s.TenantId == tenantId);
+        var tenantScore = tenantSnapshot?.OverallScore ?? 50m;
+
+        var peerScores = latestSnapshots.Select(s => s.OverallScore).OrderBy(s => s).ToList();
+
+        var percentile = peerScores.Count > 0
+            ? (int)Math.Round(100.0m * peerScores.Count(s => s <= tenantScore) / peerScores.Count)
+            : 50;
+
+        var buckets = new[] { "0-49", "50-59", "60-69", "70-79", "80-89", "90-100" };
+        var distribution = buckets.Select(label =>
+        {
+            var (lo, hi) = ParseBucket(label);
+            var count = peerScores.Count(s => s >= lo && s <= hi);
+            return new ChsDistributionBucket
+            {
+                Label = label,
+                Count = count,
+                ContainsTenant = tenantScore >= lo && tenantScore <= hi
+            };
+        }).ToList();
+
+        var medianScore = RegulatorAnalyticsSupport.Median(peerScores);
+        var p25Score = RegulatorAnalyticsSupport.Percentile(peerScores, 25m);
+        var p75Score = RegulatorAnalyticsSupport.Percentile(peerScores, 75m);
+
+        var pillarComparisons = new List<ChsPillarPeerComparison>
+        {
+            PillarComp("Filing Timeliness",
+                tenantSnapshot?.FilingTimeliness ?? 50m,
+                latestSnapshots.Select(s => s.FilingTimeliness)),
+            PillarComp("Data Quality",
+                tenantSnapshot?.DataQuality ?? 50m,
+                latestSnapshots.Select(s => s.DataQuality)),
+            PillarComp("Regulatory Capital",
+                tenantSnapshot?.RegulatoryCapital ?? 50m,
+                latestSnapshots.Select(s => s.RegulatoryCapital)),
+            PillarComp("Audit & Governance",
+                tenantSnapshot?.AuditGovernance ?? 50m,
+                latestSnapshots.Select(s => s.AuditGovernance)),
+            PillarComp("Engagement",
+                tenantSnapshot?.Engagement ?? 50m,
+                latestSnapshots.Select(s => s.Engagement))
+        };
+
+        return new ChsPeerComparison
+        {
+            TenantId = tenantId,
+            LicenceType = licenceTypeName,
+            PeerCount = peerTenantIds.Count,
+            TenantScore = tenantScore,
+            PeerMedian = medianScore,
+            PeerP25 = p25Score,
+            PeerP75 = p75Score,
+            Percentile = percentile,
+            Distribution = distribution,
+            PillarComparisons = pillarComparisons
+        };
+    }
+
+    // ── Sector builders ──
+
+    private async Task<SectorChsSummary> BuildSectorSummary(string regulatorCode, CancellationToken ct)
+    {
+        // Find all tenants under this regulator via licence types
+        var tenantIds = await _db.TenantLicenceTypes
+            .Where(tl => tl.IsActive && tl.LicenceType != null && tl.LicenceType.Regulator == regulatorCode)
+            .Select(tl => tl.TenantId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        // Latest snapshot per tenant
+        var latestSnapshots = await _db.ChsScoreSnapshots
+            .Where(s => tenantIds.Contains(s.TenantId))
+            .GroupBy(s => s.TenantId)
+            .Select(g => g.OrderByDescending(s => s.ComputedAt).First())
+            .ToListAsync(ct);
+
+        var scores = latestSnapshots.Select(s => s.OverallScore).OrderBy(s => s).ToList();
+
+        var ratingDist = latestSnapshots
+            .GroupBy(s => ToRating(s.OverallScore))
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        // Sector trend: average score per week for last 12 weeks
+        var twelveWeeksAgo = DateTime.UtcNow.AddDays(-84);
+        var sectorSnapshots = await _db.ChsScoreSnapshots
+            .Where(s => tenantIds.Contains(s.TenantId) && s.ComputedAt >= twelveWeeksAgo)
+            .ToListAsync(ct);
+
+        var sectorTrend = sectorSnapshots
+            .GroupBy(s => s.PeriodLabel)
+            .OrderBy(g => g.Min(s => s.ComputedAt))
+            .Select(g => new ChsTrendSnapshot
+            {
+                PeriodLabel = g.Key,
+                Date = g.Min(s => s.ComputedAt).Date,
+                OverallScore = Math.Round(g.Average(s => s.OverallScore), 1),
+                Rating = ToRating(g.Average(s => s.OverallScore))
+            })
+            .ToList();
+
+        return new SectorChsSummary
+        {
+            RegulatorCode = regulatorCode,
+            SectorAverage = scores.Count > 0 ? Math.Round(scores.Average(), 1) : 0,
+            SectorMedian = RegulatorAnalyticsSupport.Median(scores),
+            TotalInstitutions = tenantIds.Count,
+            RatingDistribution = ratingDist,
+            SectorTrend = sectorTrend
+        };
+    }
+
+    private async Task<List<ChsWatchListItem>> BuildWatchList(string regulatorCode, CancellationToken ct)
+    {
+        var tenantIds = await _db.TenantLicenceTypes
+            .Where(tl => tl.IsActive && tl.LicenceType != null && tl.LicenceType.Regulator == regulatorCode)
+            .Select(tl => tl.TenantId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        // Latest snapshot per tenant
+        var latestSnapshots = await _db.ChsScoreSnapshots
+            .Where(s => tenantIds.Contains(s.TenantId))
+            .GroupBy(s => s.TenantId)
+            .Select(g => g.OrderByDescending(s => s.ComputedAt).First())
+            .ToListAsync(ct);
+
+        var watchItems = new List<ChsWatchListItem>();
+
+        foreach (var snap in latestSnapshots)
+        {
+            var trend = await GetTrend(snap.TenantId, 6, ct);
+            var isBelowThreshold = snap.OverallScore < 60;
+            var isConsecutiveDecline = trend.ConsecutiveDeclines >= 3;
+
+            if (!isBelowThreshold && !isConsecutiveDecline) continue;
+
+            var tenantName = await _db.Tenants
+                .Where(t => t.TenantId == snap.TenantId)
+                .Select(t => t.TenantName)
+                .FirstOrDefaultAsync(ct) ?? "Unknown";
+
+            var licenceType = await _db.TenantLicenceTypes
+                .Where(tl => tl.TenantId == snap.TenantId && tl.IsActive)
+                .Include(tl => tl.LicenceType)
+                .Select(tl => tl.LicenceType!.Name)
+                .FirstOrDefaultAsync(ct) ?? "Unknown";
+
+            var reason = isBelowThreshold && isConsecutiveDecline
+                ? "Below 60 & 3+ consecutive declines"
+                : isBelowThreshold
+                    ? "CHS below 60"
+                    : "3+ consecutive declines";
+
+            var scoreChange = trend.Snapshots.Count >= 5
+                ? snap.OverallScore - trend.Snapshots[^5].OverallScore
+                : 0;
+
+            watchItems.Add(new ChsWatchListItem
+            {
+                TenantId = snap.TenantId,
+                InstitutionName = tenantName,
+                LicenceType = licenceType,
+                CurrentScore = snap.OverallScore,
+                Rating = ToRating(snap.OverallScore),
+                Trend = trend.OverallTrend,
+                ConsecutiveDeclines = trend.ConsecutiveDeclines,
+                ScoreChange = Math.Round(scoreChange, 1),
+                WatchReason = reason,
+                RecentAlerts = await GetAlerts(snap.TenantId, ct)
+            });
+        }
+
+        return watchItems.OrderBy(w => w.CurrentScore).ToList();
+    }
+
+    private async Task<List<ChsHeatmapItem>> BuildHeatmap(string regulatorCode, CancellationToken ct)
+    {
+        var tenantIds = await _db.TenantLicenceTypes
+            .Where(tl => tl.IsActive && tl.LicenceType != null && tl.LicenceType.Regulator == regulatorCode)
+            .Select(tl => tl.TenantId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var latestSnapshots = await _db.ChsScoreSnapshots
+            .Where(s => tenantIds.Contains(s.TenantId))
+            .GroupBy(s => s.TenantId)
+            .Select(g => g.OrderByDescending(s => s.ComputedAt).First())
+            .ToListAsync(ct);
+
+        var heatmapItems = new List<ChsHeatmapItem>();
+
+        foreach (var snap in latestSnapshots)
+        {
+            var tenantName = await _db.Tenants
+                .Where(t => t.TenantId == snap.TenantId)
+                .Select(t => t.TenantName)
+                .FirstOrDefaultAsync(ct) ?? "Unknown";
+
+            var licenceType = await _db.TenantLicenceTypes
+                .Where(tl => tl.TenantId == snap.TenantId && tl.IsActive)
+                .Include(tl => tl.LicenceType)
+                .Select(tl => tl.LicenceType!.Name)
+                .FirstOrDefaultAsync(ct) ?? "Unknown";
+
+            heatmapItems.Add(new ChsHeatmapItem
+            {
+                TenantId = snap.TenantId,
+                InstitutionName = tenantName,
+                LicenceType = licenceType,
+                OverallScore = snap.OverallScore,
+                Rating = ToRating(snap.OverallScore),
+                FilingTimeliness = snap.FilingTimeliness,
+                DataQuality = snap.DataQuality,
+                RegulatoryCapital = snap.RegulatoryCapital,
+                AuditGovernance = snap.AuditGovernance,
+                Engagement = snap.Engagement
+            });
+        }
+
+        return heatmapItems.OrderByDescending(h => h.OverallScore).ToList();
     }
 
     // ── Pillar detail builder ──
@@ -348,174 +833,15 @@ public class ComplianceHealthService : IComplianceHealthService
                 Score = score.Engagement,
                 Weight = EngagementWeight,
                 WeightedContribution = Math.Round(score.Engagement * EngagementWeight, 1),
-                Description = "Login frequency, return preparation lead time, help article views",
+                Description = "Login frequency, return preparation lead time, draft utilization",
                 Factors = new()
                 {
                     new() { Name = "Login frequency", Value = Math.Round(score.Engagement / 4, 0), Max = 30, Unit = "per month" },
                     new() { Name = "Prep lead time", Value = Math.Round(score.Engagement / 8, 0), Max = 14, Unit = "days" },
-                    new() { Name = "Help article views", Value = Math.Round(score.Engagement / 3, 0), Max = 40, Unit = "views" }
+                    new() { Name = "Draft utilization", Value = Math.Round(score.Engagement / 3, 0), Max = 40, Unit = "drafts" }
                 }
             }
         };
-    }
-
-    // ── Peer comparison ──
-
-    private ChsPeerComparison BuildPeerComparison(Guid tenantId)
-    {
-        var inst = Pool.FirstOrDefault(p => p.TenantId == tenantId)
-                   ?? new SimulatedInstitution(tenantId, "Your Institution", "Commercial Bank", 72m);
-
-        var peers = Pool.Where(p => p.LicenceType == inst.LicenceType).ToList();
-        var tenantScore = ComputeScore(tenantId, DateTime.UtcNow);
-        var peerScores = peers.Select(p => ComputeScore(p.TenantId, DateTime.UtcNow)).ToList();
-        var sorted = peerScores.OrderBy(s => s.OverallScore).ToList();
-
-        var percentile = sorted.Count > 0
-            ? (int)Math.Round(100.0 * sorted.Count(s => s.OverallScore <= tenantScore.OverallScore) / sorted.Count)
-            : 50;
-
-        var buckets = new[] { "0–49", "50–59", "60–69", "70–79", "80–89", "90–100" };
-        var distribution = buckets.Select(label =>
-        {
-            var (lo, hi) = ParseBucket(label);
-            var count = peerScores.Count(s => s.OverallScore >= lo && s.OverallScore <= hi);
-            return new ChsDistributionBucket
-            {
-                Label = label,
-                Count = count,
-                ContainsTenant = tenantScore.OverallScore >= lo && tenantScore.OverallScore <= hi
-            };
-        }).ToList();
-
-        var medianScore = sorted.Count > 0 ? sorted[sorted.Count / 2].OverallScore : 0;
-        var p25Score = sorted.Count > 3 ? sorted[sorted.Count / 4].OverallScore : medianScore;
-        var p75Score = sorted.Count > 3 ? sorted[3 * sorted.Count / 4].OverallScore : medianScore;
-
-        var pillarComparisons = new List<ChsPillarPeerComparison>
-        {
-            PillarComp("Filing Timeliness", tenantScore.FilingTimeliness, peerScores.Select(s => s.FilingTimeliness)),
-            PillarComp("Data Quality", tenantScore.DataQuality, peerScores.Select(s => s.DataQuality)),
-            PillarComp("Regulatory Capital", tenantScore.RegulatoryCapital, peerScores.Select(s => s.RegulatoryCapital)),
-            PillarComp("Audit & Governance", tenantScore.AuditGovernance, peerScores.Select(s => s.AuditGovernance)),
-            PillarComp("Engagement", tenantScore.Engagement, peerScores.Select(s => s.Engagement))
-        };
-
-        return new ChsPeerComparison
-        {
-            TenantId = tenantId,
-            LicenceType = inst.LicenceType,
-            PeerCount = peers.Count,
-            TenantScore = tenantScore.OverallScore,
-            PeerMedian = medianScore,
-            PeerP25 = p25Score,
-            PeerP75 = p75Score,
-            Percentile = percentile,
-            Distribution = distribution,
-            PillarComparisons = pillarComparisons
-        };
-    }
-
-    // ── Sector builders ──
-
-    private SectorChsSummary BuildSectorSummary(string regulatorCode)
-    {
-        var allScores = Pool.Select(p => ComputeScore(p.TenantId, DateTime.UtcNow)).ToList();
-        var sorted = allScores.OrderBy(s => s.OverallScore).ToList();
-
-        var ratingDist = allScores.GroupBy(s => s.Rating)
-            .ToDictionary(g => g.Key, g => g.Count());
-
-        // Sector trend: average score per week for last 12 weeks
-        var sectorTrend = new List<ChsTrendSnapshot>();
-        var now = DateTime.UtcNow;
-        for (int i = 11; i >= 0; i--)
-        {
-            var date = now.AddDays(-7 * i);
-            var weekScores = Pool.Select(p => ComputeScore(p.TenantId, date)).ToList();
-            var avg = weekScores.Average(s => s.OverallScore);
-            sectorTrend.Add(new ChsTrendSnapshot
-            {
-                PeriodLabel = $"{date.Year}-W{GetIsoWeek(date):D2}",
-                Date = date.Date,
-                OverallScore = Math.Round(avg, 1),
-                Rating = ToRating(avg)
-            });
-        }
-
-        return new SectorChsSummary
-        {
-            RegulatorCode = regulatorCode,
-            SectorAverage = Math.Round(allScores.Average(s => s.OverallScore), 1),
-            SectorMedian = sorted.Count > 0 ? sorted[sorted.Count / 2].OverallScore : 0,
-            TotalInstitutions = allScores.Count,
-            RatingDistribution = ratingDist,
-            SectorTrend = sectorTrend
-        };
-    }
-
-    private List<ChsWatchListItem> BuildWatchList()
-    {
-        var watchItems = new List<ChsWatchListItem>();
-
-        foreach (var inst in Pool)
-        {
-            var score = ComputeScore(inst.TenantId, DateTime.UtcNow);
-            var trend = BuildTrend(inst.TenantId, 6);
-            var isBelowThreshold = score.OverallScore < 60;
-            var isConsecutiveDecline = trend.ConsecutiveDeclines >= 3;
-
-            if (!isBelowThreshold && !isConsecutiveDecline) continue;
-
-            var reason = isBelowThreshold && isConsecutiveDecline
-                ? "Below 60 & 3+ consecutive declines"
-                : isBelowThreshold
-                    ? "CHS below 60"
-                    : "3+ consecutive declines";
-
-            var scoreChange = trend.Snapshots.Count >= 5
-                ? score.OverallScore - trend.Snapshots[^5].OverallScore
-                : 0;
-
-            watchItems.Add(new ChsWatchListItem
-            {
-                TenantId = inst.TenantId,
-                InstitutionName = inst.Name,
-                LicenceType = inst.LicenceType,
-                CurrentScore = score.OverallScore,
-                Rating = score.Rating,
-                Trend = score.Trend,
-                ConsecutiveDeclines = trend.ConsecutiveDeclines,
-                ScoreChange = Math.Round(scoreChange, 1),
-                WatchReason = reason,
-                RecentAlerts = new()
-            });
-        }
-
-        return watchItems.OrderBy(w => w.CurrentScore).ToList();
-    }
-
-    private List<ChsHeatmapItem> BuildHeatmap()
-    {
-        return Pool.Select(inst =>
-        {
-            var score = ComputeScore(inst.TenantId, DateTime.UtcNow);
-            return new ChsHeatmapItem
-            {
-                TenantId = inst.TenantId,
-                InstitutionName = inst.Name,
-                LicenceType = inst.LicenceType,
-                OverallScore = score.OverallScore,
-                Rating = score.Rating,
-                FilingTimeliness = score.FilingTimeliness,
-                DataQuality = score.DataQuality,
-                RegulatoryCapital = score.RegulatoryCapital,
-                AuditGovernance = score.AuditGovernance,
-                Engagement = score.Engagement
-            };
-        })
-        .OrderByDescending(h => h.OverallScore)
-        .ToList();
     }
 
     // ── Helpers ──
@@ -547,7 +873,7 @@ public class ComplianceHealthService : IComplianceHealthService
         _ => "\u2192"
     };
 
-    private static ChsRating ToRating(decimal score) => score switch
+    internal static ChsRating ToRating(decimal score) => score switch
     {
         >= 90 => ChsRating.APlus,
         >= 80 => ChsRating.A,
@@ -559,9 +885,6 @@ public class ComplianceHealthService : IComplianceHealthService
 
     private static decimal Clamp(decimal value) => Math.Max(0, Math.Min(100, Math.Round(value, 1)));
 
-    private static decimal Jitter(Random rng, int range)
-        => (decimal)(rng.NextDouble() * range * 2 - range);
-
     private static int GetIsoWeek(DateTime date)
     {
         var day = System.Globalization.CultureInfo.InvariantCulture.Calendar
@@ -571,15 +894,14 @@ public class ComplianceHealthService : IComplianceHealthService
 
     private static (decimal lo, decimal hi) ParseBucket(string label)
     {
-        var cleaned = label.Replace("\u2013", "-").Replace("–", "-");
-        var parts = cleaned.Split('-');
+        var parts = label.Split('-');
         return (decimal.Parse(parts[0].Trim()), decimal.Parse(parts[1].Trim()));
     }
 
     private static ChsPillarPeerComparison PillarComp(string name, decimal tenantScore, IEnumerable<decimal> peerScores)
     {
         var sorted = peerScores.OrderBy(s => s).ToList();
-        var median = sorted.Count > 0 ? sorted[sorted.Count / 2] : 0;
+        var median = RegulatorAnalyticsSupport.Median(sorted);
         return new ChsPillarPeerComparison
         {
             PillarName = name,
@@ -588,44 +910,4 @@ public class ComplianceHealthService : IComplianceHealthService
             Delta = Math.Round(tenantScore - median, 1)
         };
     }
-
-    // ── Simulated Institution Pool ──
-
-    private static List<SimulatedInstitution> GeneratePool()
-    {
-        return new List<SimulatedInstitution>
-        {
-            // Commercial Banks
-            new(Guid.Parse("a1000001-0000-0000-0000-000000000001"), "First National Bank", "Commercial Bank", 88m),
-            new(Guid.Parse("a1000001-0000-0000-0000-000000000002"), "Union Bank of Nigeria", "Commercial Bank", 75m),
-            new(Guid.Parse("a1000001-0000-0000-0000-000000000003"), "Zenith Commercial Bank", "Commercial Bank", 92m),
-            new(Guid.Parse("a1000001-0000-0000-0000-000000000004"), "Access Bank PLC", "Commercial Bank", 68m),
-            new(Guid.Parse("a1000001-0000-0000-0000-000000000005"), "Sterling Finance Bank", "Commercial Bank", 55m),
-
-            // Microfinance Banks
-            new(Guid.Parse("b2000001-0000-0000-0000-000000000001"), "LAPO Microfinance", "Microfinance", 82m),
-            new(Guid.Parse("b2000001-0000-0000-0000-000000000002"), "AB Microfinance", "Microfinance", 65m),
-            new(Guid.Parse("b2000001-0000-0000-0000-000000000003"), "Accion Microfinance", "Microfinance", 45m),
-            new(Guid.Parse("b2000001-0000-0000-0000-000000000004"), "Mutual Benefits MFB", "Microfinance", 78m),
-
-            // Insurance Companies
-            new(Guid.Parse("c3000001-0000-0000-0000-000000000001"), "Leadway Assurance", "Insurance", 85m),
-            new(Guid.Parse("c3000001-0000-0000-0000-000000000002"), "AIICO Insurance", "Insurance", 72m),
-            new(Guid.Parse("c3000001-0000-0000-0000-000000000003"), "Cornerstone Insurance", "Insurance", 60m),
-            new(Guid.Parse("c3000001-0000-0000-0000-000000000004"), "NEM Insurance", "Insurance", 91m),
-
-            // Securities Firms
-            new(Guid.Parse("d4000001-0000-0000-0000-000000000001"), "Stanbic IBTC Securities", "Securities", 80m),
-            new(Guid.Parse("d4000001-0000-0000-0000-000000000002"), "Chapel Hill Denham", "Securities", 58m),
-            new(Guid.Parse("d4000001-0000-0000-0000-000000000003"), "Afrinvest Securities", "Securities", 74m),
-            new(Guid.Parse("d4000001-0000-0000-0000-000000000004"), "CardinalStone Partners", "Securities", 85m),
-
-            // Pension Administrators
-            new(Guid.Parse("e5000001-0000-0000-0000-000000000001"), "Stanbic IBTC Pension", "Pension", 90m),
-            new(Guid.Parse("e5000001-0000-0000-0000-000000000002"), "ARM Pension Managers", "Pension", 76m),
-            new(Guid.Parse("e5000001-0000-0000-0000-000000000003"), "Trustfund Pensions", "Pension", 67m)
-        };
-    }
-
-    private record SimulatedInstitution(Guid TenantId, string Name, string LicenceType, decimal BaseScore);
 }

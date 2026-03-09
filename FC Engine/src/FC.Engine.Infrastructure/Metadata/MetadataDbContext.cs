@@ -126,6 +126,9 @@ public class MetadataDbContext : DbContext
     // Compliance-as-a-Service (RG-35)
     public DbSet<FC.Engine.Infrastructure.BackgroundJobs.CaasAutoFilingConfig> CaasAutoFilingConfigs => Set<FC.Engine.Infrastructure.BackgroundJobs.CaasAutoFilingConfig>();
 
+    // Compliance Health Scoring (RG-32)
+    public DbSet<ChsScoreSnapshot> ChsScoreSnapshots => Set<ChsScoreSnapshot>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(MetadataDbContext).Assembly);

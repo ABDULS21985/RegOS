@@ -145,7 +145,8 @@ public class EntitlementService : IEntitlementService
     public async Task<bool> HasFeatureAccess(Guid tenantId, string featureCode, CancellationToken ct = default)
     {
         var entitlement = await ResolveEntitlements(tenantId, ct);
-        return entitlement.Features.Contains(featureCode, StringComparer.OrdinalIgnoreCase);
+        return entitlement.Features.Contains(featureCode, StringComparer.OrdinalIgnoreCase)
+            || entitlement.Features.Contains("all_features", StringComparer.OrdinalIgnoreCase);
     }
 
     public Task InvalidateCache(Guid tenantId)

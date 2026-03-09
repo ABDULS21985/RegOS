@@ -19,7 +19,8 @@ public class WebhookDeliveryConsumer :
     IConsumer<SubscriptionChangedEvent>,
     IConsumer<ModuleActivatedEvent>,
     IConsumer<UserCreatedEvent>,
-    IConsumer<ExportCompletedEvent>
+    IConsumer<ExportCompletedEvent>,
+    IConsumer<ComplianceScoreChangedEvent>
 {
     private readonly MetadataDbContext _db;
     private readonly IWebhookService _webhookService;
@@ -46,6 +47,7 @@ public class WebhookDeliveryConsumer :
     public Task Consume(ConsumeContext<ModuleActivatedEvent> context) => DispatchAsync(context.Message, context.CancellationToken);
     public Task Consume(ConsumeContext<UserCreatedEvent> context) => DispatchAsync(context.Message, context.CancellationToken);
     public Task Consume(ConsumeContext<ExportCompletedEvent> context) => DispatchAsync(context.Message, context.CancellationToken);
+    public Task Consume(ConsumeContext<ComplianceScoreChangedEvent> context) => DispatchAsync(context.Message, context.CancellationToken);
 
     private async Task DispatchAsync(IDomainEvent domainEvent, CancellationToken ct)
     {

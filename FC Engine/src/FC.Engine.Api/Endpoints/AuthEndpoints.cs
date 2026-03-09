@@ -66,7 +66,9 @@ public static class AuthEndpoints
             var tokens = await jwtService.GenerateTokenPair(user);
             return Results.Ok(tokens);
         })
-        .AllowAnonymous();
+        .AllowAnonymous()
+        .WithSummary("Authenticate and obtain JWT tokens")
+        .WithDescription("POST /api/v1/auth/login — Accepts email and password, returns access and refresh tokens.");
 
         group.MapPost("/refresh", async (
             RefreshRequest request,
