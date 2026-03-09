@@ -227,6 +227,9 @@ public static class DependencyInjection
         // ── Sector-Wide Stress Testing Framework (RG-37) ──
         services.AddStressTestingFramework(configuration);
 
+        // ── Conduct Risk & Market Abuse Surveillance (RG-38) ──
+        services.AddConductRiskSurveillance(configuration);
+
         // ── Compliance Health Scoring (RG-32) ──
         services.AddScoped<IComplianceHealthService, ComplianceHealthService>();
         services.AddHostedService<ChsComputationJob>();
