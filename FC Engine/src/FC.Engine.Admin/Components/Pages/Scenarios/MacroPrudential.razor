@@ -238,14 +238,7 @@ else
     </div>
 
     <!-- At-Risk Institutions -->
-    @{
-        var atRisk = _result.Impacts
-            .Where(i => i.WorstBreach >= BreachSeverity.Breach)
-            .OrderByDescending(i => i.WorstBreach)
-            .ThenByDescending(i => i.IsSystemicallyImportant)
-            .ToList();
-    }
-    @if (atRisk.Count > 0)
+    @if (_atRisk.Count > 0)
     {
         <div class="fc-sc-breach-panel">
             <h4 class="fc-sc-breach-panel-title">
@@ -253,10 +246,10 @@ else
                     <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
                     <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
                 </svg>
-                At-Risk Institutions (@atRisk.Count)
+                At-Risk Institutions (@_atRisk.Count)
             </h4>
             <ul class="fc-sc-breach-list">
-                @foreach (var inst in atRisk)
+                @foreach (var inst in _atRisk)
                 {
                     <li class="fc-sc-breach-item">
                         <BreachIndicator Severity="inst.WorstBreach" Compact />
@@ -283,6 +276,7 @@ else
     private MacroPrudentialResult? _result;
     private decimal _systemic;
     private List<string> _heatmapMetrics = [];
+    private List<InstitutionImpact> _atRisk = [];
 
     protected override void OnInitialized()
     {
@@ -323,13 +317,17 @@ else
             _result = await Engine.RunMacroPrudential(Guid.Empty, definition);
 
             // Filter by selected types
-            _result = _result with
-            {
-                Impacts = _result.Impacts.Where(i => _selectedTypes.Contains(i.InstitutionType)).ToList(),
-                TotalInstitutions = _result.Impacts.Count(i => _selectedTypes.Contains(i.InstitutionType)),
-                InstitutionsBreaching = _result.Impacts.Count(i => _selectedTypes.Contains(i.InstitutionType) && i.WorstBreach >= BreachSeverity.Breach),
-                CriticalBreaches = _result.Impacts.Count(i => _selectedTypes.Contains(i.InstitutionType) && i.WorstBreach == BreachSeverity.Critical),
-            };
+            var filteredImpacts = _result.Impacts.Where(i => _selectedTypes.Contains(i.InstitutionType)).ToList();
+            _result.Impacts = filteredImpacts;
+            _result.TotalInstitutions = filteredImpacts.Count;
+            _result.InstitutionsBreaching = filteredImpacts.Count(i => i.WorstBreach >= BreachSeverity.Breach);
+            _result.CriticalBreaches = filteredImpacts.Count(i => i.WorstBreach == BreachSeverity.Critical);
+
+            _atRisk = filteredImpacts
+                .Where(i => i.WorstBreach >= BreachSeverity.Breach)
+                .OrderByDescending(i => i.WorstBreach)
+                .ThenByDescending(i => i.IsSystemicallyImportant)
+                .ToList();
 
             // Compute systemic risk score
             var siiBreaching = _result.Impacts.Count(i => i.IsSystemicallyImportant && i.WorstBreach >= BreachSeverity.Breach);

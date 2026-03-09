@@ -1,5 +1,6 @@
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
+using SubmissionEntity = FC.Engine.Domain.Entities.Submission;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Notifications;
 using FC.Engine.Portal.Services;
@@ -32,7 +33,7 @@ public class WorkflowServiceTests
             Status = ApprovalStatus.Pending
         };
 
-        var submission = new Submission
+        var submission = new SubmissionEntity
         {
             Id = submissionId,
             TenantId = tenantId,

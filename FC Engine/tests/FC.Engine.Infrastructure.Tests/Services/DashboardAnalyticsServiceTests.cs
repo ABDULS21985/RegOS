@@ -337,7 +337,7 @@ public class DashboardAnalyticsServiceTests
         db.PartnerConfigs.Add(new PartnerConfig
         {
             TenantId = partner.TenantId,
-            PartnerTier = PartnerTier.Gold,
+            PartnerTier = FC.Engine.Domain.Enums.PartnerTier.Gold,
             BillingModel = PartnerBillingModel.Direct,
             CommissionRate = 0.15m,
             MaxSubTenants = 20,

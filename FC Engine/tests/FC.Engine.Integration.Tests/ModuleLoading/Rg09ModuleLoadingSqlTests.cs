@@ -2,6 +2,7 @@ using Dapper;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.DataRecord;
 using FC.Engine.Domain.Entities;
+using SubmissionEntity = FC.Engine.Domain.Entities.Submission;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Metadata;
 using FC.Engine.Domain.Validation;
@@ -138,8 +139,8 @@ public class Rg09ModuleLoadingSqlTests : IAsyncLifetime
         db.ReturnPeriods.Add(returnPeriod);
         await db.SaveChangesAsync();
 
-        var dmbSubmission = Submission.Create(institution.Id, returnPeriod.Id, "DMB_DEP", tenant.TenantId);
-        var ndicSubmission = Submission.Create(institution.Id, returnPeriod.Id, "NDIC_DEP", tenant.TenantId);
+        var dmbSubmission = SubmissionEntity.Create(institution.Id, returnPeriod.Id, "DMB_DEP", tenant.TenantId);
+        var ndicSubmission = SubmissionEntity.Create(institution.Id, returnPeriod.Id, "NDIC_DEP", tenant.TenantId);
         db.Submissions.AddRange(dmbSubmission, ndicSubmission);
         await db.SaveChangesAsync();
 

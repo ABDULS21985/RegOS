@@ -67,7 +67,7 @@ public class PartnerManagementServiceTests
         db.PartnerConfigs.Add(new PartnerConfig
         {
             TenantId = partner.TenantId,
-            PartnerTier = PartnerTier.Silver,
+            PartnerTier = FC.Engine.Domain.Enums.PartnerTier.Silver,
             BillingModel = PartnerBillingModel.Direct,
             CommissionRate = 0.10m,
             MaxSubTenants = 1,
@@ -153,7 +153,7 @@ public class PartnerManagementServiceTests
             ContactEmail = "partner@test.local",
             AdminEmail = "admin@test.local",
             AdminFullName = "Partner Admin",
-            PartnerTier = PartnerTier.Silver,
+            PartnerTier = FC.Engine.Domain.Enums.PartnerTier.Silver,
             BillingModel = PartnerBillingModel.Direct,
             AgreementVersion = "v1"
         });

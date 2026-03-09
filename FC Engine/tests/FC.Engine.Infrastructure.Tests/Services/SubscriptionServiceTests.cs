@@ -441,7 +441,7 @@ public class SubscriptionServiceTests
         db.PartnerConfigs.Add(new PartnerConfig
         {
             TenantId = partner.TenantId,
-            PartnerTier = PartnerTier.Gold,
+            PartnerTier = FC.Engine.Domain.Enums.PartnerTier.Gold,
             BillingModel = PartnerBillingModel.Direct,
             CommissionRate = 0.15m,
             MaxSubTenants = 25,
@@ -484,7 +484,7 @@ public class SubscriptionServiceTests
         db.PartnerConfigs.Add(new PartnerConfig
         {
             TenantId = partner.TenantId,
-            PartnerTier = PartnerTier.Platinum,
+            PartnerTier = FC.Engine.Domain.Enums.PartnerTier.Platinum,
             BillingModel = PartnerBillingModel.Reseller,
             WholesaleDiscount = 0.30m,
             MaxSubTenants = 25,

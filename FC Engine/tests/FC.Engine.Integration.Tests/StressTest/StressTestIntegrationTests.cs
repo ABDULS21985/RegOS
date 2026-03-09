@@ -548,7 +548,7 @@ IF NOT EXISTS (SELECT 1 FROM SystemConfiguration WHERE ConfigKey='NDIC_FUND_CAPA
 
     private async Task SeedBaseDataAsync()
     {
-        await using var conn = await Db.OpenAsync();
+        using var conn = await Db.OpenAsync();
         await conn.ExecuteAsync("""
 IF NOT EXISTS (SELECT 1 FROM Regulators WHERE Code='CBN')
     INSERT INTO Regulators (Code, Name) VALUES ('CBN', 'Central Bank of Nigeria');
@@ -577,7 +577,7 @@ WHEN NOT MATCHED THEN
         string periodCode,
         (int Id, string Type, decimal CAR, decimal NPL, decimal LCR, decimal OilPct)[] entities)
     {
-        await using var conn = await Db.OpenAsync();
+        using var conn = await Db.OpenAsync();
         foreach (var e in entities)
         {
             await conn.ExecuteAsync("""
@@ -605,7 +605,7 @@ WHEN NOT MATCHED THEN
     public async Task SeedInterbankAsync(
         string periodCode, (int Lender, int Borrower, decimal Amount) edge)
     {
-        await using var conn = await Db.OpenAsync();
+        using var conn = await Db.OpenAsync();
         await conn.ExecuteAsync("""
 IF NOT EXISTS (
     SELECT 1 FROM InterbankExposures

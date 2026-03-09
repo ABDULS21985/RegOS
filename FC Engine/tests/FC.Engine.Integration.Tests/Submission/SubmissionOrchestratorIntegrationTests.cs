@@ -1,10 +1,11 @@
 using DotNet.Testcontainers.Builders;
-using FC.Engine.Application.Services;
+using FC.Engine.Infrastructure.Services;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Models.BatchSubmission;
 using FC.Engine.Infrastructure.Metadata;
+using SubmissionEntity = FC.Engine.Domain.Entities.Submission;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -346,7 +347,7 @@ public sealed class SubmissionOrchestratorIntegrationTests : IClassFixture<Submi
         db.ReturnPeriods.Add(period);
         await db.SaveChangesAsync();
 
-        var submission = Submission.Create(institution.Id, period.Id, "SRF-001", tenant.TenantId);
+        var submission = SubmissionEntity.Create(institution.Id, period.Id, "SRF-001", tenant.TenantId);
         submission.MarkAccepted();
         db.Submissions.Add(submission);
         await db.SaveChangesAsync();

@@ -380,7 +380,7 @@
     protected override async Task OnInitializedAsync()
     {
         _periodCode = CurrentPeriodCode;
-        await using var conn = await Db.OpenAsync();
+        using var conn = await Db.OpenAsync();
 
         _scenarios = (await conn.QueryAsync<ScenarioListRow>(
             """
@@ -450,7 +450,7 @@
             _lastScenarioCode = summary.ScenarioCode;
 
             // Refresh recent runs list
-            await using var conn = await Db.OpenAsync();
+            using var conn = await Db.OpenAsync();
             await LoadRecentRunsAsync(conn);
         }
         catch (Exception ex)
@@ -483,7 +483,7 @@
 
     private async Task<int> GetEntityCountAsync()
     {
-        await using var conn = await Db.OpenAsync();
+        using var conn = await Db.OpenAsync();
         return await conn.ExecuteScalarAsync<int>(
             "SELECT COUNT(*) FROM Institutions WHERE RegulatorCode=@R AND IsActive=1",
             new { R = RegulatorCode });

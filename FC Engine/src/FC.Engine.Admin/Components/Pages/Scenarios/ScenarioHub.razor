@@ -27,15 +27,15 @@
         @for (var i = 0; i < 4; i++)
         {
             <div class="fc-sc-stat-card">
-                <SkeletonLoader Variant="SkeletonVariant.Text" />
-                <SkeletonLoader Variant="SkeletonVariant.Heading" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Heading" />
             </div>
         }
     </div>
     <div class="fc-sc-template-grid">
         @for (var i = 0; i < 4; i++)
         {
-            <SkeletonLoader Variant="SkeletonVariant.Card" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" />
         }
     </div>
 }
@@ -107,21 +107,21 @@ else
             else
             {
                 <DataTable TItem="ScenarioDefinition" Items="_scenarios" Responsive>
-                    <DataTableColumn TItem="ScenarioDefinition" Property="@(s => s.Name)" Title="Scenario" Sortable>
-                        <Template Context="row">
+                    <DataColumn TItem="ScenarioDefinition" SortKey="s => s.Name" Title="Scenario">
+                        <CellTemplate Context="row">
                             <a href="/scenarios/@row.Id/results" class="fc-link">@row.Name</a>
-                        </Template>
-                    </DataTableColumn>
-                    <DataTableColumn TItem="ScenarioDefinition" Property="@(s => s.Status)" Title="Status" Sortable>
-                        <Template Context="row">
+                        </CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ScenarioDefinition" SortKey="s => s.Status.ToString()" Title="Status">
+                        <CellTemplate Context="row">
                             <span class="fc-detail-status fc-detail-status-@row.Status.ToString().ToLowerInvariant()">
                                 <span class="fc-detail-status-dot"></span>
                                 @row.Status
                             </span>
-                        </Template>
-                    </DataTableColumn>
-                    <DataTableColumn TItem="ScenarioDefinition" Property="@(s => s.AffectedModules.Count)" Title="Modules">
-                        <Template Context="row">
+                        </CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ScenarioDefinition" Title="Modules">
+                        <CellTemplate Context="row">
                             <div style="display:flex;gap:4px;flex-wrap:wrap;">
                                 @foreach (var m in row.AffectedModules.Take(3))
                                 {
@@ -132,15 +132,15 @@ else
                                     <span class="fc-sc-card-chip">+@(row.AffectedModules.Count - 3)</span>
                                 }
                             </div>
-                        </Template>
-                    </DataTableColumn>
-                    <DataTableColumn TItem="ScenarioDefinition" Property="@(s => s.CreatedAt)" Title="Created" Sortable>
-                        <Template Context="row">
+                        </CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ScenarioDefinition" SortKey="s => s.CreatedAt" Title="Created">
+                        <CellTemplate Context="row">
                             @row.CreatedAt.ToString("dd MMM yyyy HH:mm")
-                        </Template>
-                    </DataTableColumn>
-                    <DataTableColumn TItem="ScenarioDefinition" Title="Actions">
-                        <Template Context="row">
+                        </CellTemplate>
+                    </DataColumn>
+                    <DataColumn TItem="ScenarioDefinition" Title="Actions">
+                        <CellTemplate Context="row">
                             <div style="display:flex;gap:var(--space-2);">
                                 @if (row.Status == ScenarioStatus.Completed)
                                 {
@@ -155,8 +155,8 @@ else
                                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                                 </button>
                             </div>
-                        </Template>
-                    </DataTableColumn>
+                        </CellTemplate>
+                    </DataColumn>
                 </DataTable>
             }
         </div>

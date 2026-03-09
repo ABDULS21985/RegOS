@@ -3,6 +3,7 @@ using FC.Engine.Application.Models;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.DataRecord;
 using FC.Engine.Domain.Entities;
+using SubmissionEntity = FC.Engine.Domain.Entities.Submission;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Validation;
 using FC.Engine.Domain.ValueObjects;
@@ -164,10 +165,10 @@ public class Rg08ModuleLoadingSqlTests : IAsyncLifetime
         db.ReturnPeriods.Add(returnPeriod);
         await db.SaveChangesAsync();
 
-        var bdcSubmission = Submission.Create(institution.Id, returnPeriod.Id, bdcAmlCode, tenant.TenantId);
-        var mfbSubmission = Submission.Create(institution.Id, returnPeriod.Id, mfbAmlCode, tenant.TenantId);
-        var nfiuStrSubmission = Submission.Create(institution.Id, returnPeriod.Id, nfiuStrCode, tenant.TenantId);
-        var nfiuCtrSubmission = Submission.Create(institution.Id, returnPeriod.Id, nfiuCtrCode, tenant.TenantId);
+        var bdcSubmission = SubmissionEntity.Create(institution.Id, returnPeriod.Id, bdcAmlCode, tenant.TenantId);
+        var mfbSubmission = SubmissionEntity.Create(institution.Id, returnPeriod.Id, mfbAmlCode, tenant.TenantId);
+        var nfiuStrSubmission = SubmissionEntity.Create(institution.Id, returnPeriod.Id, nfiuStrCode, tenant.TenantId);
+        var nfiuCtrSubmission = SubmissionEntity.Create(institution.Id, returnPeriod.Id, nfiuCtrCode, tenant.TenantId);
         db.Submissions.AddRange(bdcSubmission, mfbSubmission, nfiuStrSubmission, nfiuCtrSubmission);
         await db.SaveChangesAsync();
 

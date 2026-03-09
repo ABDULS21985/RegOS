@@ -388,7 +388,7 @@ public class ScenarioEngine : IScenarioEngine
         // Add some non-impacted fields for realism
         fields.Add(new ProFormaField("institution_name", "Institution Name", "General Information", "Text", "Sample Bank Plc", "Sample Bank Plc", false, false, BreachSeverity.None));
         fields.Add(new ProFormaField("reporting_date", "Reporting Date", "General Information", "Date", DateTime.UtcNow.AddMonths(-1).ToString("yyyy-MM-dd"), DateTime.UtcNow.AddMonths(-1).ToString("yyyy-MM-dd"), false, false, BreachSeverity.None));
-        fields.Add(new ProFormaField("total_assets", "Total Assets (₦B)", "Balance Sheet", 5_230.0m, 5_230.0m, "Money", false, false, BreachSeverity.None));
+        fields.Add(new ProFormaField("total_assets", "Total Assets (₦B)", "Balance Sheet", "Money", 5_230.0m, 5_230.0m, false, false, BreachSeverity.None));
         fields.Add(new ProFormaField("total_liabilities", "Total Liabilities (₦B)", "Balance Sheet", "Money", 4_180.0m, 4_180.0m, false, false, BreachSeverity.None));
 
         return fields;
