@@ -114,7 +114,6 @@ app.UseTenantContext();
 app.UseReConsent();
 app.UseAuthorization();
 app.UseAntiforgery();
-app.MapStaticAssets();
 
 // Login endpoint — handles cookie auth outside of Blazor's interactive (SignalR) pipeline
 app.MapPost("/account/login", async (
