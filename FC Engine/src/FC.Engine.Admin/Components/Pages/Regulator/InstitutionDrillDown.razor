@@ -4,6 +4,7 @@
 @inject ISupervisoryActionEngine ActionEngine
 @inject IDbConnectionFactory Db
 @inject NavigationManager Nav
+@inject RegulatorSessionService RegulatorSession
 @inject ToastService Toast
 @using Dapper
 @using FC.Engine.Domain.Abstractions
@@ -157,12 +158,11 @@
 @code {
     [Parameter] public int InstitutionId { get; set; }
     [SupplyParameterFromQuery] public string Period { get; set; } = string.Empty;
-    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _loading = true;
     private bool _generatingAction;
     private Exception? _loadException;
-    private string _regulatorCode = "CBN";
+    private string _regulatorCode = string.Empty;
     private string _institutionName = string.Empty;
     private string _riskBand = "GREEN";
     private string _institutionType = string.Empty;
@@ -173,11 +173,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (AuthState is not null)
-        {
-            var state = await AuthState;
-            _regulatorCode = state.User.FindFirst("RegulatorCode")?.Value?.Trim() ?? "CBN";
-        }
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorCode = session.RegulatorCode;
 
         if (string.IsNullOrWhiteSpace(Period))
         {

@@ -50,6 +50,7 @@ builder.Services.AddScoped<FC.Engine.Admin.Services.GlobalErrorService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.SessionService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.KeyboardShortcutService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.HealthAlertService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.RegulatorSessionService>();
 builder.Services.AddScoped<FC.Engine.Infrastructure.Charts.ChartJsInterop>();
 
 // Scenario simulation engine

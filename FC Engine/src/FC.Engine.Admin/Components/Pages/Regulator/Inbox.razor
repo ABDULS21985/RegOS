@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "RegulatorOnly")]
 @implements IDisposable
 @inject IRegulatorInboxService InboxService
+@inject RegulatorSessionService RegulatorSession
 @inject ToastService Toast
 
 <PageTitle>Submissions Inbox</PageTitle>
@@ -94,8 +95,6 @@
 </SectionErrorBoundary>
 
 @code {
-    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-
     private readonly RegulatorInboxFilter _filter = new();
     private readonly List<RegulatorSubmissionInboxItem> _items = new();
 
@@ -115,17 +114,16 @@
 
     private async Task ResolveContext()
     {
-        var state = await AuthState!;
-        var tenantClaim = state.User.FindFirst("TenantId")?.Value;
-        var regulatorClaim = state.User.FindFirst("RegulatorCode")?.Value;
-
-        if (!Guid.TryParse(tenantClaim, out _tenantId) || string.IsNullOrWhiteSpace(regulatorClaim))
+        try
         {
-            Toast.Error("Regulator tenant context is unavailable for this session.");
-            return;
+            var session = await RegulatorSession.GetRequiredAsync();
+            _tenantId = session.TenantId;
+            _regulatorCode = session.RegulatorCode;
         }
-
-        _regulatorCode = regulatorClaim.Trim();
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message);
+        }
     }
 
     private async Task RefreshTick()

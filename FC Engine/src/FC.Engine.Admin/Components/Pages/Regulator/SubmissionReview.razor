@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "RegulatorOnly")]
 @inject IRegulatorInboxService InboxService
 @inject IEntityBenchmarkingService BenchmarkingService
+@inject RegulatorSessionService RegulatorSession
 @inject ToastService Toast
 
 <PageTitle>Submission Review</PageTitle>
@@ -165,8 +166,6 @@
 
 @code {
     [Parameter] public int SubmissionId { get; set; }
-    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-
     private Guid _tenantId;
     private int _userId;
     private string _regulatorCode = string.Empty;
@@ -188,20 +187,10 @@
 
     private async Task ResolveContext()
     {
-        var state = await AuthState!;
-
-        var tenantClaim = state.User.FindFirst("TenantId")?.Value;
-        var regulatorClaim = state.User.FindFirst("RegulatorCode")?.Value;
-        var userClaim = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-
-        if (!Guid.TryParse(tenantClaim, out _tenantId)
-            || !int.TryParse(userClaim, out _userId)
-            || string.IsNullOrWhiteSpace(regulatorClaim))
-        {
-            throw new InvalidOperationException("Regulator identity claims are incomplete for this session.");
-        }
-
-        _regulatorCode = regulatorClaim.Trim();
+        var session = await RegulatorSession.GetRequiredAsync();
+        _tenantId = session.TenantId;
+        _userId = session.UserId;
+        _regulatorCode = session.RegulatorCode;
     }
 
     private async Task LoadDetail()

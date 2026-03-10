@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "RegulatorOnly")]
 @inject IComplianceHealthService ChsService
 @inject FC.Engine.Infrastructure.Charts.ChartJsInterop Charts
+@inject RegulatorSessionService RegulatorSession
 @inject ToastService Toast
 
 <PageTitle>Sector Compliance Health</PageTitle>
@@ -155,8 +156,6 @@
 </SectionErrorBoundary>
 
 @code {
-    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-
     private string _regulatorCode = string.Empty;
     private bool _loading = true;
     private Exception? _loadException;
@@ -168,8 +167,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var state = await AuthState!;
-        _regulatorCode = state.User.FindFirst("RegulatorCode")?.Value?.Trim() ?? "CBN";
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorCode = session.RegulatorCode;
         await Load();
     }
 

@@ -27,6 +27,7 @@ using FC.Engine.Infrastructure.Validation;
 using FC.Engine.Infrastructure.Webhooks;
 using FC.Engine.Infrastructure.Xml;
 using MassTransit;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -45,9 +46,11 @@ public static class DependencyInjection
         services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));
         services.Configure<PrivacyComplianceOptions>(configuration.GetSection(PrivacyComplianceOptions.SectionName));
         services.Configure<ContinuousDspmOptions>(configuration.GetSection(ContinuousDspmOptions.SectionName));
+        services.AddTransient<IClaimsTransformation, TenantClaimsTransformation>();
 
         // ── Multi-Tenancy ──
         services.AddScoped<ITenantContext, HttpTenantContext>();
+        services.AddScoped<ITenantAccessContextResolver, TenantAccessContextResolver>();
         services.AddScoped<IDataResidencyRouter, DataResidencyRouter>();
         services.AddScoped<IDbConnectionFactory, TenantAwareConnectionFactory>();
         services.AddScoped<TenantSessionContextInterceptor>();

@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "RegulatorOnly")]
 @inject IHeatmapQueryService HeatmapService
 @inject NavigationManager Nav
+@inject RegulatorSessionService RegulatorSession
 @inject ToastService Toast
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Enums
@@ -107,22 +108,17 @@
 </SectionErrorBoundary>
 
 @code {
-    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-
     private IReadOnlyList<HeatmapCell> _cells = Array.Empty<HeatmapCell>();
     private bool _loading = true;
     private Exception? _loadException;
     private string? _institutionTypeFilter;
     private string _periodCode = string.Empty;
-    private string _regulatorCode = "CBN";
+    private string _regulatorCode = string.Empty;
 
     protected override async Task OnInitializedAsync()
     {
-        if (AuthState is not null)
-        {
-            var state = await AuthState;
-            _regulatorCode = state.User.FindFirst("RegulatorCode")?.Value?.Trim() ?? "CBN";
-        }
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorCode = session.RegulatorCode;
 
         _periodCode = DeriveCurrentPeriod();
         await LoadDataAsync();
