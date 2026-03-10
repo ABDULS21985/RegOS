@@ -141,7 +141,11 @@ public partial class AddDigitalExaminationToolkitRg39 : Migration
 
             IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_examination_evidence_files_FileHash' AND object_id = OBJECT_ID('dbo.examination_evidence_files'))
                 CREATE INDEX IX_examination_evidence_files_FileHash ON dbo.examination_evidence_files(FileHash);
+        ");
 
+        // Separate batch: ALTER SECURITY POLICY validates table refs at compile time,
+        // so the tables must already exist before this batch is parsed.
+        migrationBuilder.Sql(@"
             IF OBJECT_ID(N'dbo.TenantSecurityPolicy', N'SP') IS NOT NULL
             BEGIN
                 BEGIN TRY
@@ -154,7 +158,7 @@ public partial class AddDigitalExaminationToolkitRg39 : Migration
                         ADD BLOCK PREDICATE dbo.fn_TenantFilter(TenantId) ON dbo.examination_evidence_files;
                 END TRY
                 BEGIN CATCH
-                    IF ERROR_NUMBER() NOT IN (3728, 33280)
+                    IF ERROR_NUMBER() NOT IN (3728, 33268, 33280)
                         THROW;
                 END CATCH
             END;

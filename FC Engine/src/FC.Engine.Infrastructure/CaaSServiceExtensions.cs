@@ -44,6 +44,7 @@ public static class CaaSServiceExtensions
         services.AddScoped<ICaaSAutoFilingService, CaaSAutoFilingService>();
 
         // ── Adapter bridge services ──────────────────────────────────────
+        services.AddScoped<FC.Engine.Application.Services.ValidationOrchestrator>();
         services.AddScoped<IValidationPipeline, CaaSValidationPipelineAdapter>();
         services.AddScoped<ITemplateEngine, CaaSTemplateEngineAdapter>();
 
