@@ -1,5 +1,6 @@
 using Dapper;
 using FC.Engine.Domain.Abstractions;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 
 namespace FC.Engine.Infrastructure.Services;
@@ -30,14 +31,22 @@ public sealed class NDICExposureCalculator : INDICExposureCalculator
         using var conn = await _db.OpenAsync(ct);
 
         // Attempt to load actual depositor distribution data
-        var dist = await conn.QuerySingleOrDefaultAsync<DepositorDistRow>(
-            """
-            SELECT TotalDeposits, DepositorsAboveCap, TotalDepositorCount,
-                   DepositsByAccountsBelowCap
-            FROM   DepositorDistributions
-            WHERE  InstitutionId = @Id AND PeriodCode = @Period
-            """,
-            new { Id = institutionId, Period = periodCode });
+        DepositorDistRow? dist = null;
+        try
+        {
+            dist = await conn.QuerySingleOrDefaultAsync<DepositorDistRow>(
+                """
+                SELECT TotalDeposits, DepositorsAboveCap, TotalDepositorCount,
+                       DepositsByAccountsBelowCap
+                FROM   DepositorDistributions
+                WHERE  InstitutionId = @Id AND PeriodCode = @Period
+                """,
+                new { Id = institutionId, Period = periodCode });
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            _log.LogDebug("DepositorDistributions table is unavailable; using prudential metrics fallback.");
+        }
 
         if (dist is not null && dist.TotalDepositorCount > 0)
         {
@@ -50,7 +59,7 @@ public sealed class NDICExposureCalculator : INDICExposureCalculator
         var totalDeposits = await conn.ExecuteScalarAsync<decimal>(
             """
             SELECT ISNULL(TotalDeposits, 0)
-            FROM   PrudentialMetrics
+            FROM   meta.prudential_metrics
             WHERE  InstitutionId = @Id AND PeriodCode = @Period
             """,
             new { Id = institutionId, Period = periodCode });
@@ -77,8 +86,18 @@ public sealed class NDICExposureCalculator : INDICExposureCalculator
     public async Task<decimal> GetNDICFundCapacityAsync(CancellationToken ct = default)
     {
         using var conn = await _db.OpenAsync(ct);
-        var capacity = await conn.ExecuteScalarAsync<decimal?>(
-            "SELECT ConfigValue FROM SystemConfiguration WHERE ConfigKey='NDIC_FUND_CAPACITY_NGN_MILLIONS'");
+        decimal? capacity;
+        try
+        {
+            capacity = await conn.ExecuteScalarAsync<decimal?>(
+                "SELECT ConfigValue FROM SystemConfiguration WHERE ConfigKey='NDIC_FUND_CAPACITY_NGN_MILLIONS'");
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            _log.LogDebug("SystemConfiguration table is unavailable; using default NDIC fund capacity.");
+            capacity = null;
+        }
+
         // Default: NDIC Deposit Insurance Fund ≈ ₦1.5 trillion (2024)
         return capacity ?? 1_500_000m;
     }

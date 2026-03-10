@@ -522,9 +522,8 @@ else
             _regulatorOptions = (await conn.QueryAsync<string>(
                 """
                 SELECT DISTINCT RegulatorCode
-                FROM   Institutions
-                WHERE  IsActive = 1
-                  AND  RegulatorCode IS NOT NULL
+                FROM   meta.prudential_metrics
+                WHERE  RegulatorCode IS NOT NULL
                   AND  LTRIM(RTRIM(RegulatorCode)) <> ''
                 ORDER BY RegulatorCode
                 """)).ToList();
@@ -538,12 +537,11 @@ else
             _scenarios = await LoadScenarioOptionsAsync(conn);
             _periodOptions = (await conn.QueryAsync<string>(
                 """
-                SELECT DISTINCT pm.PeriodCode
-                FROM   PrudentialMetrics pm
-                JOIN   Institutions i ON i.Id = pm.InstitutionId
-                WHERE  i.RegulatorCode = @Regulator
-                  AND  pm.PeriodCode IS NOT NULL
-                ORDER  BY pm.PeriodCode DESC
+                SELECT DISTINCT PeriodCode
+                FROM   meta.prudential_metrics
+                WHERE  RegulatorCode = @Regulator
+                  AND  PeriodCode IS NOT NULL
+                ORDER  BY PeriodCode DESC
                 """,
                 new { Regulator = _regulatorCode })).ToList();
 
@@ -755,10 +753,10 @@ else
             var bytes = await ReportGenerator.GenerateAsync(runId, _anonymise);
             var fileName = $"MacroStress_{scenarioCode}_{_selectedPeriodCode}_{DateTime.UtcNow:yyyyMMdd}.pdf";
             await JS.InvokeVoidAsync(
-                "portalDownloadFile",
+                "portalDownloadBase64File",
+                Convert.ToBase64String(bytes),
                 fileName,
-                "application/pdf",
-                Convert.ToBase64String(bytes));
+                "application/pdf");
         }
         catch (Exception ex)
         {
@@ -940,19 +938,21 @@ else
         string TimeHorizon,
         string NarrativeSummary);
 
-    private sealed record RunListRow(
-        long Id,
-        Guid RunGuid,
-        string PeriodCode,
-        string TimeHorizon,
-        int EntitiesShocked,
-        int ContagionRounds,
-        decimal? SystemicResilienceScore,
-        string Status,
-        DateTimeOffset StartedAt,
-        string ScenarioName,
-        string ScenarioCode,
-        string ResilienceRating);
+    private sealed class RunListRow
+    {
+        public long Id { get; set; }
+        public Guid RunGuid { get; set; }
+        public string PeriodCode { get; set; } = string.Empty;
+        public string TimeHorizon { get; set; } = string.Empty;
+        public int EntitiesShocked { get; set; }
+        public int ContagionRounds { get; set; }
+        public decimal? SystemicResilienceScore { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public DateTime StartedAt { get; set; }
+        public string ScenarioName { get; set; } = string.Empty;
+        public string ScenarioCode { get; set; } = string.Empty;
+        public string ResilienceRating { get; set; } = string.Empty;
+    }
 
     private sealed class EntityResultRow
     {

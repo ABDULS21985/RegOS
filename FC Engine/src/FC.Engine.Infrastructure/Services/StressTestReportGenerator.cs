@@ -1,6 +1,7 @@
 using Dapper;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Models;
+using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Logging;
 using QuestPDF.Elements.Table;
 using QuestPDF.Fluent;
@@ -62,7 +63,7 @@ public sealed class StressTestReportGenerator : IStressTestReportGenerator
             SELECT er.InstitutionId,
                    {(anonymiseEntities
                        ? "CAST('Bank ' + CAST(ROW_NUMBER() OVER (ORDER BY er.PostCAR) AS VARCHAR) AS NVARCHAR(150))"
-                       : "i.ShortName")} AS InstitutionName,
+                       : "i.InstitutionName")} AS InstitutionName,
                    er.InstitutionType,
                    er.PreCAR, er.PreNPL, er.PreLCR,
                    er.PostCAR, er.PostNPL, er.PostLCR,
@@ -86,8 +87,8 @@ public sealed class StressTestReportGenerator : IStressTestReportGenerator
             """
             SELECT ce.ContagionRound, ce.FailingInstitutionId, ce.AffectedInstitutionId,
                    ce.ExposureAmount, ce.TransmissionType,
-                   fi.ShortName AS FailingName,
-                   ai.ShortName AS AffectedName
+                   fi.InstitutionName AS FailingName,
+                   ai.InstitutionName AS AffectedName
             FROM   StressTestContagionEvents ce
             JOIN   Institutions fi ON fi.Id = ce.FailingInstitutionId
             JOIN   Institutions ai ON ai.Id = ce.AffectedInstitutionId
@@ -96,9 +97,18 @@ public sealed class StressTestReportGenerator : IStressTestReportGenerator
             """,
             new { RunId = runId })).ToList();
 
-        var ndicCapacity = await conn.ExecuteScalarAsync<decimal?>(
-            "SELECT ConfigValue FROM SystemConfiguration WHERE ConfigKey='NDIC_FUND_CAPACITY_NGN_MILLIONS'")
-            ?? 1_500_000m;
+        decimal ndicCapacity;
+        try
+        {
+            ndicCapacity = await conn.ExecuteScalarAsync<decimal?>(
+                    "SELECT ConfigValue FROM SystemConfiguration WHERE ConfigKey='NDIC_FUND_CAPACITY_NGN_MILLIONS'")
+                ?? 1_500_000m;
+        }
+        catch (SqlException ex) when (ex.Number == 208)
+        {
+            _log.LogDebug("SystemConfiguration table is unavailable; using default NDIC fund capacity.");
+            ndicCapacity = 1_500_000m;
+        }
 
         var score        = (double)(run.SystemicResilienceScore ?? 50m);
         var rating       = GetRating(score);

@@ -1,4 +1,6 @@
 using System;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -6,6 +8,8 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace FC.Engine.Infrastructure.Migrations
 {
     /// <inheritdoc />
+    [DbContext(typeof(MetadataDbContext))]
+    [Migration("20260320000000_AddEarlyWarningSchema")]
     public partial class AddEarlyWarningSchema : Migration
     {
         /// <inheritdoc />
@@ -31,12 +35,15 @@ namespace FC.Engine.Infrastructure.Migrations
                     Tier2Capital = table.Column<decimal>(type: "decimal(18,2)", nullable: true),
                     RWA = table.Column<decimal>(type: "decimal(18,2)", nullable: true),
                     TotalAssets = table.Column<decimal>(type: "decimal(18,2)", nullable: true),
+                    TotalDeposits = table.Column<decimal>(type: "decimal(18,2)", nullable: true),
 
                     // Asset Quality
                     NPLRatio = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
                     GrossNPL = table.Column<decimal>(type: "decimal(18,2)", nullable: true),
                     GrossLoans = table.Column<decimal>(type: "decimal(18,2)", nullable: true),
                     ProvisioningCoverage = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
+                    OilSectorExposurePct = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
+                    AgriExposurePct = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
 
                     // Earnings
                     ROA = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
@@ -52,6 +59,8 @@ namespace FC.Engine.Infrastructure.Migrations
 
                     // Market / Sensitivity
                     FXExposureRatio = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
+                    FXLoansAssetPct = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
+                    BondPortfolioAssetPct = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
                     InterestRateSensitivity = table.Column<decimal>(type: "decimal(8,4)", nullable: true),
 
                     // Management / Compliance
@@ -392,81 +401,34 @@ namespace FC.Engine.Infrastructure.Migrations
                 descending: [false, true]);
 
             // ── Seed EWI Definitions ──────────────────────────────────────────
-            migrationBuilder.InsertData(
-                schema: "meta",
-                table: "ewi_definitions",
-                columns: ["EWICode", "EWIName", "Category", "CAMELSComponent", "DefaultSeverity",
-                          "Description", "RemediationGuidance"],
-                values: new object[,]
-                {
-                    // Capital
-                    { "CAR_DECLINING_3Q", "CAR Declining 3+ Consecutive Quarters", "INSTITUTIONAL", "C", "HIGH",
-                      "Capital Adequacy Ratio has declined for three or more consecutive quarters, indicating sustained capital erosion.",
-                      "Submit capital restoration plan within 30 days. Consider rights issue or retained earnings strategy." },
-                    { "CAR_BREACH_MINIMUM", "CAR Below Regulatory Minimum", "INSTITUTIONAL", "C", "CRITICAL",
-                      "Capital Adequacy Ratio has fallen below the regulatory minimum threshold.",
-                      "Immediate capital injection required. Suspend dividend payments. Submit emergency capital plan within 7 days." },
-                    { "TIER1_RATIO_LOW", "Tier 1 Ratio Below Warning Threshold", "INSTITUTIONAL", "C", "MEDIUM",
-                      "Tier 1 capital ratio has fallen to within 2 percentage points of the minimum requirement.",
-                      "Review capital planning. Restrict discretionary spending. Engage shareholders on capital support." },
-                    // Asset Quality
-                    { "NPL_THRESHOLD_BREACH", "NPL Ratio Exceeds 5%", "INSTITUTIONAL", "A", "HIGH",
-                      "Non-Performing Loan ratio has breached the 5% regulatory warning threshold.",
-                      "Submit NPL resolution plan. Increase provisioning. Suspend new lending in affected segments." },
-                    { "NPL_RAPID_RISE", "NPL Ratio Risen >2pp in Single Quarter", "INSTITUTIONAL", "A", "HIGH",
-                      "NPL ratio increased by more than 2 percentage points within a single reporting quarter.",
-                      "Immediate loan book review. Identify concentration of new NPLs. Engage board risk committee." },
-                    { "PROVISIONING_LOW", "Provisioning Coverage Below 50%", "INSTITUTIONAL", "A", "MEDIUM",
-                      "Provision coverage ratio has fallen below 50%, indicating inadequate loss absorption buffer.",
-                      "Increase provisions to minimum 60% within two quarters. Review classification methodology." },
-                    // Liquidity
-                    { "LCR_WARNING_ZONE", "LCR Below 110% (Approaching Minimum)", "INSTITUTIONAL", "L", "MEDIUM",
-                      "Liquidity Coverage Ratio has entered the warning zone below 110%, approaching the 100% regulatory minimum.",
-                      "Reduce short-term liabilities. Build HQLA buffer. Review funding concentration." },
-                    { "LCR_BREACH", "LCR Below 100% (Regulatory Minimum)", "INSTITUTIONAL", "L", "CRITICAL",
-                      "LCR has fallen below the 100% regulatory minimum, indicating a liquidity stress event.",
-                      "Immediate access to CBN Standing Lending Facility. Submit liquidity recovery plan within 24 hours." },
-                    { "DEPOSIT_CONCENTRATION", "Top-20 Depositors Exceed 30% of Total", "INSTITUTIONAL", "L", "MEDIUM",
-                      "Deposit concentration risk: the top 20 depositors account for more than 30% of total deposits.",
-                      "Diversify funding base. Implement depositor concentration limits. Review wholesale funding reliance." },
-                    { "NSFR_BREACH", "NSFR Below 100%", "INSTITUTIONAL", "L", "HIGH",
-                      "Net Stable Funding Ratio has breached 100%, indicating structural liquidity vulnerability.",
-                      "Extend liability maturity profile. Reduce reliance on short-term wholesale funding." },
-                    // Management
-                    { "LATE_FILINGS_2PLUS", "2+ Consecutive Late Filings", "INSTITUTIONAL", "M", "MEDIUM",
-                      "Institution has filed regulatory returns late for two or more consecutive periods.",
-                      "Review internal reporting processes. Designate dedicated regulatory reporting officer." },
-                    { "RELATED_PARTY_EXCESS", "Related-Party Lending Exceeds Limit", "INSTITUTIONAL", "M", "HIGH",
-                      "Related-party lending has exceeded the regulatory limit as a percentage of capital.",
-                      "Immediate cessation of new related-party facilities. Develop wind-down schedule for excess." },
-                    { "AUDIT_ADVERSE", "Adverse or Disclaimer Audit Opinion", "INSTITUTIONAL", "M", "CRITICAL",
-                      "External auditors have issued an adverse or disclaimer of opinion on financial statements.",
-                      "Immediate disclosure to CBN. Engage new auditors. Submit remediation plan within 14 days." },
-                    // Earnings
-                    { "ROA_NEGATIVE", "Return on Assets Negative", "INSTITUTIONAL", "E", "HIGH",
-                      "Institution is operating at a loss, with negative Return on Assets.",
-                      "Submit earnings recovery plan. Review cost structure. Identify non-core asset disposals." },
-                    { "CIR_CRITICAL", "Cost-to-Income Ratio Exceeds 80%", "INSTITUTIONAL", "E", "MEDIUM",
-                      "Operating efficiency has deteriorated with CIR above 80%, threatening long-term viability.",
-                      "Implement cost reduction plan. Review branch rationalisation. Automate manual processes." },
-                    // Sensitivity
-                    { "FX_EXPOSURE_EXCESS", "Net FX Position Exceeds 20% of Capital", "INSTITUTIONAL", "S", "HIGH",
-                      "Net open foreign exchange position has exceeded 20% of shareholders funds.",
-                      "Immediately reduce FX exposure. Submit FX risk management plan. Review hedging strategy." },
-                    { "SUDDEN_ASSET_GROWTH", "Assets Grew >30% Quarter-on-Quarter", "INSTITUTIONAL", "C", "MEDIUM",
-                      "Total assets have grown by more than 30% in a single quarter, raising capital adequacy concerns.",
-                      "Ensure CAR adequacy for new asset base. Review asset quality of new growth. Submit growth plan." },
-                    // Systemic
-                    { "SYSTEMIC_NPL_RISING", "Sector NPL Rising Across Multiple Types", "SYSTEMIC", "A", "HIGH",
-                      "Aggregate NPL is rising simultaneously across multiple supervised institution types.",
-                      "Sector-wide stress test. Macroprudential policy review. Consider countercyclical buffer." },
-                    { "SYSTEMIC_LCR_STRESS", "Multiple Entities Breaching LCR", "SYSTEMIC", "L", "CRITICAL",
-                      "Three or more institutions have simultaneously breached the LCR minimum.",
-                      "Activate systemic liquidity support framework. Consider Emergency Liquidity Assistance." },
-                    { "CONTAGION_DSIB_RISK", "D-SIB Contagion Risk Elevated", "SYSTEMIC", "S", "CRITICAL",
-                      "A Domestic Systemically Important Bank shows elevated contagion risk via interbank network.",
-                      "Immediate supervisory engagement with D-SIB board. Consider enhanced supervision mandate." },
-                });
+            migrationBuilder.Sql("""
+IF NOT EXISTS (SELECT 1 FROM meta.ewi_definitions WHERE EWICode = 'CAR_DECLINING_3Q')
+BEGIN
+    INSERT INTO meta.ewi_definitions
+        (EWICode, EWIName, Category, CAMELSComponent, DefaultSeverity, Description, RemediationGuidance)
+    VALUES
+        ('CAR_DECLINING_3Q', 'CAR Declining 3+ Consecutive Quarters', 'INSTITUTIONAL', 'C', 'HIGH', 'Capital Adequacy Ratio has declined for three or more consecutive quarters, indicating sustained capital erosion.', 'Submit capital restoration plan within 30 days. Consider rights issue or retained earnings strategy.'),
+        ('CAR_BREACH_MINIMUM', 'CAR Below Regulatory Minimum', 'INSTITUTIONAL', 'C', 'CRITICAL', 'Capital Adequacy Ratio has fallen below the regulatory minimum threshold.', 'Immediate capital injection required. Suspend dividend payments. Submit emergency capital plan within 7 days.'),
+        ('TIER1_RATIO_LOW', 'Tier 1 Ratio Below Warning Threshold', 'INSTITUTIONAL', 'C', 'MEDIUM', 'Tier 1 capital ratio has fallen to within 2 percentage points of the minimum requirement.', 'Review capital planning. Restrict discretionary spending. Engage shareholders on capital support.'),
+        ('NPL_THRESHOLD_BREACH', 'NPL Ratio Exceeds 5%', 'INSTITUTIONAL', 'A', 'HIGH', 'Non-Performing Loan ratio has breached the 5% regulatory warning threshold.', 'Submit NPL resolution plan. Increase provisioning. Suspend new lending in affected segments.'),
+        ('NPL_RAPID_RISE', 'NPL Ratio Risen >2pp in Single Quarter', 'INSTITUTIONAL', 'A', 'HIGH', 'NPL ratio increased by more than 2 percentage points within a single reporting quarter.', 'Immediate loan book review. Identify concentration of new NPLs. Engage board risk committee.'),
+        ('PROVISIONING_LOW', 'Provisioning Coverage Below 50%', 'INSTITUTIONAL', 'A', 'MEDIUM', 'Provision coverage ratio has fallen below 50%, indicating inadequate loss absorption buffer.', 'Increase provisions to minimum 60% within two quarters. Review classification methodology.'),
+        ('LCR_WARNING_ZONE', 'LCR Below 110% (Approaching Minimum)', 'INSTITUTIONAL', 'L', 'MEDIUM', 'Liquidity Coverage Ratio has entered the warning zone below 110%, approaching the 100% regulatory minimum.', 'Reduce short-term liabilities. Build HQLA buffer. Review funding concentration.'),
+        ('LCR_BREACH', 'LCR Below 100% (Regulatory Minimum)', 'INSTITUTIONAL', 'L', 'CRITICAL', 'LCR has fallen below the 100% regulatory minimum, indicating a liquidity stress event.', 'Immediate access to CBN Standing Lending Facility. Submit liquidity recovery plan within 24 hours.'),
+        ('DEPOSIT_CONCENTRATION', 'Top-20 Depositors Exceed 30% of Total', 'INSTITUTIONAL', 'L', 'MEDIUM', 'Deposit concentration risk: the top 20 depositors account for more than 30% of total deposits.', 'Diversify funding base. Implement depositor concentration limits. Review wholesale funding reliance.'),
+        ('NSFR_BREACH', 'NSFR Below 100%', 'INSTITUTIONAL', 'L', 'HIGH', 'Net Stable Funding Ratio has breached 100%, indicating structural liquidity vulnerability.', 'Extend liability maturity profile. Reduce reliance on short-term wholesale funding.'),
+        ('LATE_FILINGS_2PLUS', '2+ Consecutive Late Filings', 'INSTITUTIONAL', 'M', 'MEDIUM', 'Institution has filed regulatory returns late for two or more consecutive periods.', 'Review internal reporting processes. Designate dedicated regulatory reporting officer.'),
+        ('RELATED_PARTY_EXCESS', 'Related-Party Lending Exceeds Limit', 'INSTITUTIONAL', 'M', 'HIGH', 'Related-party lending has exceeded the regulatory limit as a percentage of capital.', 'Immediate cessation of new related-party facilities. Develop wind-down schedule for excess.'),
+        ('AUDIT_ADVERSE', 'Adverse or Disclaimer Audit Opinion', 'INSTITUTIONAL', 'M', 'CRITICAL', 'External auditors have issued an adverse or disclaimer of opinion on financial statements.', 'Immediate disclosure to CBN. Engage new auditors. Submit remediation plan within 14 days.'),
+        ('ROA_NEGATIVE', 'Return on Assets Negative', 'INSTITUTIONAL', 'E', 'HIGH', 'Institution is operating at a loss, with negative Return on Assets.', 'Submit earnings recovery plan. Review cost structure. Identify non-core asset disposals.'),
+        ('CIR_CRITICAL', 'Cost-to-Income Ratio Exceeds 80%', 'INSTITUTIONAL', 'E', 'MEDIUM', 'Operating efficiency has deteriorated with CIR above 80%, threatening long-term viability.', 'Implement cost reduction plan. Review branch rationalisation. Automate manual processes.'),
+        ('FX_EXPOSURE_EXCESS', 'Net FX Position Exceeds 20% of Capital', 'INSTITUTIONAL', 'S', 'HIGH', 'Net open foreign exchange position has exceeded 20% of shareholders funds.', 'Immediately reduce FX exposure. Submit FX risk management plan. Review hedging strategy.'),
+        ('SUDDEN_ASSET_GROWTH', 'Assets Grew >30% Quarter-on-Quarter', 'INSTITUTIONAL', 'C', 'MEDIUM', 'Total assets have grown by more than 30% in a single quarter, raising capital adequacy concerns.', 'Ensure CAR adequacy for new asset base. Review asset quality of new growth. Submit growth plan.'),
+        ('SYSTEMIC_NPL_RISING', 'Sector NPL Rising Across Multiple Types', 'SYSTEMIC', 'A', 'HIGH', 'Aggregate NPL is rising simultaneously across multiple supervised institution types.', 'Sector-wide stress test. Macroprudential policy review. Consider countercyclical buffer.'),
+        ('SYSTEMIC_LCR_STRESS', 'Multiple Entities Breaching LCR', 'SYSTEMIC', 'L', 'CRITICAL', 'Three or more institutions have simultaneously breached the LCR minimum.', 'Activate systemic liquidity support framework. Consider Emergency Liquidity Assistance.'),
+        ('CONTAGION_DSIB_RISK', 'D-SIB Contagion Risk Elevated', 'SYSTEMIC', 'S', 'CRITICAL', 'A Domestic Systemically Important Bank shows elevated contagion risk via interbank network.', 'Immediate supervisory engagement with D-SIB board. Consider enhanced supervision mandate.');
+END
+""");
         }
 
         /// <inheritdoc />

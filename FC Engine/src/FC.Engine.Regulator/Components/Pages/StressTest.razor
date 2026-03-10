@@ -470,7 +470,7 @@
             var bytes = await ReportGenerator.GenerateAsync(runId, _anonymise);
             var fileName = $"StressTest_{scenarioCode}_{_periodCode}_{DateTime.UtcNow:yyyyMMdd}.pdf";
             var base64  = Convert.ToBase64String(bytes);
-            await JS.InvokeVoidAsync("portalDownloadFile", fileName, "application/pdf", base64);
+            await JS.InvokeVoidAsync("portalDownloadBase64File", base64, fileName, "application/pdf");
         }
         catch (Exception ex)
         {
@@ -485,8 +485,13 @@
     {
         using var conn = await Db.OpenAsync();
         return await conn.ExecuteScalarAsync<int>(
-            "SELECT COUNT(*) FROM Institutions WHERE RegulatorCode=@R AND IsActive=1",
-            new { R = RegulatorCode });
+            """
+            SELECT COUNT(DISTINCT InstitutionId)
+            FROM   meta.prudential_metrics
+            WHERE  RegulatorCode = @R
+              AND  PeriodCode = @P
+            """,
+            new { R = RegulatorCode, P = _periodCode });
     }
 
     // ── Row types ─────────────────────────────────────────────────────────────
@@ -495,11 +500,18 @@
         string Category, string Severity,
         string TimeHorizon, string NarrativeSummary);
 
-    private sealed record RunListRow(
-        long Id, Guid RunGuid, string PeriodCode,
-        int EntitiesShocked, int ContagionRounds,
-        decimal? SystemicResilienceScore,
-        string Status, DateTimeOffset StartedAt,
-        string ScenarioName, string ScenarioCode,
-        string ResilienceRating);
+    private sealed class RunListRow
+    {
+        public long Id { get; set; }
+        public Guid RunGuid { get; set; }
+        public string PeriodCode { get; set; } = string.Empty;
+        public int EntitiesShocked { get; set; }
+        public int ContagionRounds { get; set; }
+        public decimal? SystemicResilienceScore { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public DateTime StartedAt { get; set; }
+        public string ScenarioName { get; set; } = string.Empty;
+        public string ScenarioCode { get; set; } = string.Empty;
+        public string ResilienceRating { get; set; } = string.Empty;
+    }
 }

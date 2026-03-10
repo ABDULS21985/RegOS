@@ -37,5 +37,28 @@ window.fcScenarios = (function () {
         el.classList.remove('fc-sc-print-target');
     }
 
-    return { syncScroll, animateMetric, exportComparison };
+    function downloadBase64File(base64Content, filename, contentType) {
+        const binary = atob(base64Content);
+        const len = binary.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+
+        const blob = new Blob([bytes], { type: contentType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    return { syncScroll, animateMetric, exportComparison, downloadBase64File };
 })();
+
+window.portalDownloadBase64File = function (base64Content, filename, contentType) {
+    window.fcScenarios.downloadBase64File(base64Content, filename, contentType);
+};

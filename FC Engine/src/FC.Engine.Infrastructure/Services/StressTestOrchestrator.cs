@@ -225,7 +225,7 @@ public sealed class StressTestOrchestrator : IStressTestOrchestrator
     {
         return (await conn.QueryAsync<PrudentialMetricSnapshot>(
             """
-            SELECT pm.InstitutionId, i.InstitutionType, pm.RegulatorCode, pm.PeriodCode,
+            SELECT pm.InstitutionId, pm.InstitutionType, pm.RegulatorCode, pm.PeriodCode,
                    ISNULL(pm.CAR,0)  AS CAR,   ISNULL(pm.NPLRatio,0) AS NPL,
                    ISNULL(pm.LCR,0)  AS LCR,   ISNULL(pm.NSFR,0)    AS NSFR,
                    ISNULL(pm.ROA,0)  AS ROA,
@@ -236,9 +236,9 @@ public sealed class StressTestOrchestrator : IStressTestOrchestrator
                    ISNULL(pm.FXLoansAssetPct,0)        AS FXLoansAssetPct,
                    ISNULL(pm.BondPortfolioAssetPct,0)  AS BondPortfolioAssetPct,
                    ISNULL(pm.DepositConcentration,0)   AS TopDepositorConcentration
-            FROM   PrudentialMetrics pm
-            JOIN   Institutions i ON i.Id = pm.InstitutionId
-            WHERE  i.RegulatorCode = @Regulator AND pm.PeriodCode = @Period
+            FROM   meta.prudential_metrics pm
+            WHERE  pm.RegulatorCode = @Regulator
+              AND  pm.PeriodCode = @Period
             """,
             new { Regulator = regulatorCode, Period = periodCode })).ToList();
     }

@@ -1,9 +1,13 @@
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace FC.Engine.Infrastructure.Migrations;
 
+[DbContext(typeof(MetadataDbContext))]
+[Migration("20260325000000_AddStressTestingSchema")]
 /// <summary>
 /// RG-37: Sector-Wide Stress Testing Framework — idempotent schema migration.
 /// Creates: StressScenarios, StressScenarioParameters, StressTestRuns,
