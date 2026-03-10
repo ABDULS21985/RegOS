@@ -5,6 +5,7 @@
 @inject IDbConnectionFactory Db
 @inject NavigationManager Nav
 @inject IJSRuntime JS
+@inject RegulatorSessionService RegulatorSession
 @inject ToastService Toast
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Models
@@ -368,9 +369,9 @@
 </SectionErrorBoundary>
 
 @code {
-    [CascadingParameter] private string RegulatorCode { get; set; } = "CBN";
-    [CascadingParameter] private string CurrentPeriodCode { get; set; } = "2026-Q1";
-    [CascadingParameter] private int CurrentUserId { get; set; }
+    private string RegulatorCode { get; set; } = string.Empty;
+    private string CurrentPeriodCode { get; set; } = "2026-Q1";
+    private int CurrentUserId { get; set; }
 
     private IReadOnlyList<ScenarioListRow> _scenarios = Array.Empty<ScenarioListRow>();
     private List<RunListRow> _recentRuns = new();
@@ -397,6 +398,9 @@
 
         try
         {
+            var session = await RegulatorSession.GetRequiredAsync();
+            RegulatorCode = session.RegulatorCode;
+            CurrentUserId = session.UserId;
             _periodCode = CurrentPeriodCode;
             using var conn = await Db.OpenAsync();
 

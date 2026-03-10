@@ -4,6 +4,7 @@
 @inject ISurveillanceOrchestrator Orchestrator
 @inject IWhistleblowerService WhistleblowerService
 @inject IDbConnectionFactory Db
+@inject RegulatorSessionService RegulatorSession
 @inject ToastService Toast
 
 <PageTitle>Conduct Risk Surveillance</PageTitle>
@@ -204,8 +205,6 @@
 }
 
 @code {
-    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
-
     private string _regulatorCode = string.Empty;
     private Guid? _tenantId;
     private string _periodCode = $"{DateTime.UtcNow.Year}-Q{((DateTime.UtcNow.Month - 1) / 3) + 1}";
@@ -231,10 +230,10 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var state = await AuthState!;
-        _regulatorCode = state.User.FindFirst("RegulatorCode")?.Value?.Trim() ?? string.Empty;
-        _tenantId = Guid.TryParse(state.User.FindFirst("TenantId")?.Value, out var tenantId) ? tenantId : null;
-        _currentUserId = int.TryParse(state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 0;
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorCode = session.RegulatorCode;
+        _tenantId = session.TenantId;
+        _currentUserId = session.UserId;
         await LoadDataAsync();
     }
 

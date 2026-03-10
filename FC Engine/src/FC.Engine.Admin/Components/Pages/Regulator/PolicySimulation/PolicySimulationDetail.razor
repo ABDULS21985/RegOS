@@ -6,6 +6,7 @@
 @inject IConsultationService ConsultationService
 @inject IPolicyDecisionService DecisionService
 @inject IHistoricalImpactTracker Tracker
+@inject RegulatorSessionService RegulatorSession
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ToastService Toast
@@ -910,7 +911,6 @@
 
 @code {
     [Parameter] public long ScenarioId { get; set; }
-    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private int _regulatorId;
     private int _userId;
@@ -960,10 +960,9 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var state = await AuthState!;
-        _regulatorId = int.Parse(state.User.FindFirst("RegulatorId")?.Value
-            ?? state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "1");
-        _userId = int.Parse(state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "1");
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorId = session.RegulatorId;
+        _userId = session.UserId;
         await LoadAsync();
     }
 

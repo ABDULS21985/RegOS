@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "RegulatorOnly")]
 @inject IImpactAssessmentEngine ImpactEngine
 @inject IPolicyScenarioService ScenarioService
+@inject RegulatorSessionService RegulatorSession
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 @inject ToastService Toast
@@ -122,7 +123,6 @@
 </SectionErrorBoundary>
 
 @code {
-    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "runs")] public string? InitialRunIds { get; set; }
 
     private int _regulatorId;
@@ -133,9 +133,8 @@
 
     protected override async Task OnInitializedAsync()
     {
-        var state = await AuthState!;
-        _regulatorId = int.Parse(state.User.FindFirst("RegulatorId")?.Value
-            ?? state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "1");
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorId = session.RegulatorId;
 
         if (!string.IsNullOrWhiteSpace(InitialRunIds))
         {
