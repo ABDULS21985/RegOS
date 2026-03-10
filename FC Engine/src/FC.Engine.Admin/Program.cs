@@ -62,6 +62,7 @@ builder.Services.AddSingleton<FC.Engine.Admin.Services.Scenarios.IScenarioTempla
 builder.Services.AddScoped<FC.Engine.Admin.Services.TenantManagementService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformAdminService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.JurisdictionManagementService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.RegulatoryCalendarImportService>();
 
 // Authentication — cookie-based for Blazor Server
 builder.Services.AddAuthentication(AdminAuthScheme)

@@ -1,347 +1,672 @@
 @page "/scenarios/macro"
+@using System.Security.Claims
+@using Dapper
 @using FC.Engine.Admin.Services.Scenarios
-@inject IScenarioEngine Engine
-@inject IScenarioTemplateService TemplateService
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@using Microsoft.AspNetCore.Components.Authorization
+@inject IStressTestOrchestrator Orchestrator
+@inject IStressTestReportGenerator ReportGenerator
+@inject IDbConnectionFactory Db
 @inject FC.Engine.Infrastructure.Charts.ChartJsInterop Charts
+@inject IJSRuntime JS
 
-<PageHeader Title="Macro-Prudential Scenarios" Subtitle="Sector-Wide Impact Analysis" BackUrl="/scenarios">
+<PageHeader Title="Macro-Prudential Scenarios" Subtitle="Persisted sector-wide stress testing workspace" BackUrl="/scenarios">
     <SecondaryActions>
-        @if (_result != null)
+        @if (_activeRunId > 0)
         {
-            <button class="fc-btn fc-btn--outline" @onclick="Reset">
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-                New Analysis
+            <button class="fc-btn fc-btn--outline" @onclick="() => DownloadReportAsync(_activeRunId, _activeScenarioCode)">
+                Export PDF
+            </button>
+            <button class="fc-btn fc-btn--outline" @onclick="ClearResults">
+                Clear Results
             </button>
         }
     </SecondaryActions>
 </PageHeader>
 
-@if (_result == null)
+@if (!string.IsNullOrWhiteSpace(_error))
 {
-    <!-- Shock Selector -->
-    <section class="fc-section" style="margin-bottom:var(--space-5);">
-        <div class="fc-section-header">
-            <h3>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                Select Macro Shock
-            </h3>
-        </div>
-        <div class="fc-section-body">
-            <div class="fc-sc-macro-shock-grid">
-                @foreach (var tpl in _templates)
-                {
-                    var isSelected = _selectedTemplateId == tpl.Id;
-                    <div class="fc-sc-macro-shock-card @(isSelected ? "fc-sc-macro-shock-card--selected" : "")"
-                         @onclick="() => SelectShock(tpl.Id)">
-                        <div style="display:flex;align-items:center;gap:var(--space-2);margin-bottom:var(--space-2);">
-                            <div class="fc-sc-card-icon">
-                                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">@((MarkupString)tpl.IconSvg)</svg>
-                            </div>
-                            <strong style="font-size:var(--text-body-sm);">@tpl.Name</strong>
-                        </div>
-                        <p style="font-size:var(--text-caption);color:var(--cbn-text-secondary);margin:0 0 var(--space-2);">@tpl.Description</p>
-                        <div style="display:flex;gap:4px;flex-wrap:wrap;">
-                            @foreach (var mod in tpl.AffectedModules)
-                            {
-                                <span class="fc-sc-card-chip">@mod</span>
-                            }
-                        </div>
-                    </div>
-                }
+    <AppAlert Variant="AppAlert.AlertVariant.Error"
+              Message="@_error"
+              Dismissible="true"
+              OnDismiss="() => _error = null" />
+}
+
+@if (_loading)
+{
+    <div class="fc-sc-hub-stats">
+        @for (var i = 0; i < 4; i++)
+        {
+            <div class="fc-sc-stat-card">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Heading" />
             </div>
-        </div>
-    </section>
-
-    <!-- Configuration -->
-    @if (!string.IsNullOrEmpty(_selectedTemplateId))
-    {
-        <div class="fc-sc-macro-config">
-            <label>Shock Magnitude:</label>
-            <input type="range" min="10" max="200" step="5" @bind="_magnitudePct" style="flex:1;max-width:300px;" />
-            <span style="font-weight:600;min-width:50px;text-align:center;">@_magnitudePct%</span>
-
-            <label style="margin-left:var(--space-4);">Institution Types:</label>
-            <div style="display:flex;gap:var(--space-2);">
-                @foreach (var t in _institutionTypes)
-                {
-                    var isChecked = _selectedTypes.Contains(t);
-                    <label style="display:flex;align-items:center;gap:4px;font-size:var(--text-body-sm);cursor:pointer;">
-                        <input type="checkbox" checked="@isChecked" @onchange="() => ToggleType(t)" />
-                        @t
-                    </label>
-                }
-            </div>
-
-            <button class="fc-btn fc-btn--gold" @onclick="RunAnalysis" disabled="@_running" style="margin-left:auto;">
-                @if (_running)
-                {
-                    <span class="fc-btn-spinner"></span>
-                    <text>Analysing...</text>
-                }
-                else
-                {
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/></svg>
-                    <text>Run Sector Analysis</text>
-                }
-            </button>
-        </div>
-    }
+        }
+    </div>
+    <div class="fc-sc-template-grid">
+        @for (var i = 0; i < 4; i++)
+        {
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" />
+        }
+    </div>
 }
 else
 {
-    <!-- Results -->
-    <!-- Sector Summary Strip -->
-    <div class="fc-sc-results-strip">
-        <div class="fc-sc-stat-card">
-            <span class="fc-sc-stat-card-label">Total Institutions</span>
-            <span class="fc-sc-stat-card-value">@_result.TotalInstitutions</span>
-            <span class="fc-sc-stat-card-sub">@_selectedTypes.Count type(s) analysed</span>
-        </div>
-        <div class="fc-sc-stat-card">
-            <span class="fc-sc-stat-card-label">Breaching Institutions</span>
-            <span class="fc-sc-stat-card-value fc-sc-stat-card-value--danger">@_result.InstitutionsBreaching</span>
-            <span class="fc-sc-stat-card-sub">@((_result.TotalInstitutions > 0 ? (decimal)_result.InstitutionsBreaching / _result.TotalInstitutions * 100 : 0).ToString("N0"))% of sector</span>
-        </div>
-        <div class="fc-sc-stat-card">
-            <span class="fc-sc-stat-card-label">Critical Breaches</span>
-            <span class="fc-sc-stat-card-value fc-sc-stat-card-value--danger">@_result.CriticalBreaches</span>
-            <span class="fc-sc-stat-card-sub">institutions in critical zone</span>
-        </div>
-        <div class="fc-sc-stat-card">
-            <span class="fc-sc-stat-card-label">Systemic Risk</span>
-            <span class="fc-sc-stat-card-value @(_systemic >= 70 ? "fc-sc-stat-card-value--danger" : _systemic >= 40 ? "fc-sc-stat-card-value--accent" : "fc-sc-stat-card-value--success")">
-                @_systemic.ToString("N0")
-            </span>
-            <span class="fc-sc-stat-card-sub">risk score (0–100)</span>
-        </div>
-    </div>
-
-    <!-- Sector Aggregates Table -->
-    <section class="fc-section" style="margin-bottom:var(--space-5);">
-        <div class="fc-section-header"><h3>Sector Aggregates</h3></div>
-        <div class="fc-section-body" style="padding:0;">
-            <table class="fc-sc-metric-table">
-                <thead>
-                    <tr>
-                        <th>Metric</th>
-                        <th>Sector Avg (Baseline)</th>
-                        <th>Sector Avg (Scenario)</th>
-                        <th>Worst Case</th>
-                        <th>Worst Institution</th>
-                        <th># Breaching</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var (key, agg) in _result.SectorAggregates)
-                    {
-                        var isRatio = !key.Contains("₦");
-                        <tr>
-                            <td class="fc-sc-metric-name">@key</td>
-                            <td>@FormatMetric(agg.SectorAvgBaseline, isRatio)</td>
-                            <td style="font-weight:600;">@FormatMetric(agg.SectorAvgScenario, isRatio)</td>
-                            <td style="font-weight:700;color:var(--cbn-danger);">@FormatMetric(agg.WorstCase, isRatio)</td>
-                            <td>@agg.WorstCaseInstitution</td>
-                            <td>
-                                @if (agg.CountBreaching > 0)
-                                {
-                                    <span style="color:var(--cbn-danger);font-weight:600;">@agg.CountBreaching</span>
-                                }
-                                else
-                                {
-                                    <span style="color:var(--cbn-success);">0</span>
-                                }
-                            </td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
-        </div>
-    </section>
-
-    <!-- Institution Heatmap -->
     <section class="fc-section" style="margin-bottom:var(--space-5);">
         <div class="fc-section-header">
-            <h3>Institution Impact Heatmap</h3>
-            <div style="display:flex;gap:var(--space-2);align-items:center;font-size:var(--text-caption);">
-                <span class="fc-sc-heatmap-cell fc-sc-heatmap-cell--green" style="padding:2px 8px;border-radius:4px;">Safe</span>
-                <span class="fc-sc-heatmap-cell fc-sc-heatmap-cell--amber" style="padding:2px 8px;border-radius:4px;">Warning</span>
-                <span class="fc-sc-heatmap-cell fc-sc-heatmap-cell--red" style="padding:2px 8px;border-radius:4px;">Breach</span>
-                <span class="fc-sc-heatmap-cell fc-sc-heatmap-cell--critical" style="padding:2px 8px;border-radius:4px;">Critical</span>
-            </div>
+            <h3>Run Configuration</h3>
         </div>
-        <div class="fc-section-body" style="padding:0;overflow-x:auto;">
-            <table class="fc-sc-metric-table" style="min-width:800px;">
-                <thead>
-                    <tr>
-                        <th>Institution</th>
-                        <th>Type</th>
-                        <th>SII</th>
-                        @foreach (var metricName in _heatmapMetrics)
+        <div class="fc-section-body">
+            <div class="fc-sc-macro-config" style="align-items:flex-end;row-gap:var(--space-3);">
+                <div style="display:flex;flex-direction:column;gap:6px;min-width:180px;">
+                    <label>Regulator</label>
+                    <select class="fc-form-input" @bind="_regulatorCode" @bind:after="OnRegulatorChangedAsync">
+                        @foreach (var regulator in _regulatorOptions)
                         {
-                            <th>@TruncateMetric(metricName)</th>
+                            <option value="@regulator">@regulator</option>
                         }
-                        <th>Worst</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var inst in _result.Impacts.OrderByDescending(i => i.WorstBreach).ThenByDescending(i => i.IsSystemicallyImportant))
-                    {
-                        <tr>
-                            <td style="font-weight:600;">@inst.InstitutionName</td>
-                            <td><span class="fc-sc-card-chip">@inst.InstitutionType</span></td>
-                            <td>
-                                @if (inst.IsSystemicallyImportant)
-                                {
-                                    <span class="fc-sc-sii-badge">SII</span>
-                                }
-                            </td>
-                            @foreach (var metricName in _heatmapMetrics)
+                    </select>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:6px;min-width:180px;">
+                    <label>Base Period</label>
+                    <select class="fc-form-input" @bind="_selectedPeriodCode">
+                        @if (_periodOptions.Count == 0)
+                        {
+                            <option value="@_selectedPeriodCode">@_selectedPeriodCode</option>
+                        }
+                        else
+                        {
+                            @foreach (var period in _periodOptions)
                             {
-                                var metric = inst.Metrics.FirstOrDefault(m => m.MetricName == metricName);
-                                if (metric != null)
-                                {
-                                    var cellClass = metric.Breach switch
-                                    {
-                                        BreachSeverity.Critical => "fc-sc-heatmap-cell--critical",
-                                        BreachSeverity.Breach => "fc-sc-heatmap-cell--red",
-                                        BreachSeverity.Warning => "fc-sc-heatmap-cell--amber",
-                                        _ => "fc-sc-heatmap-cell--green"
-                                    };
-                                    var isRatio = !metricName.Contains("₦");
-                                    <td class="fc-sc-heatmap-cell @cellClass">
-                                        @FormatMetric(metric.ScenarioValue, isRatio)
-                                    </td>
-                                }
-                                else
-                                {
-                                    <td>—</td>
-                                }
+                                <option value="@period">@period</option>
                             }
-                            <td><BreachIndicator Severity="inst.WorstBreach" /></td>
-                        </tr>
+                        }
+                    </select>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:6px;min-width:160px;">
+                    <label>Time Horizon</label>
+                    <select class="fc-form-input" @bind="_timeHorizon">
+                        <option value="1Y">1 Year</option>
+                        <option value="2Y">2 Years</option>
+                        <option value="3Y">3 Years</option>
+                        <option value="5Y">5 Years</option>
+                    </select>
+                </div>
+
+                <label style="display:flex;align-items:center;gap:8px;font-size:var(--text-body-sm);margin-left:auto;">
+                    <input type="checkbox" @bind="_anonymise" />
+                    Anonymise PDF report
+                </label>
+
+                <button class="fc-btn fc-btn--gold"
+                        @onclick="RunAnalysisAsync"
+                        disabled="@(_running || !_selectedScenarioId.HasValue || string.IsNullOrWhiteSpace(_selectedPeriodCode))">
+                    @if (_running)
+                    {
+                        <span class="fc-btn-spinner"></span>
+                        <text>Running...</text>
                     }
-                </tbody>
-            </table>
+                    else
+                    {
+                        <text>Run Sector Analysis</text>
+                    }
+                </button>
+            </div>
+
+            @if (SelectedScenario is not null)
+            {
+                <div class="fc-sc-stat-card" style="margin-top:var(--space-4);">
+                    <span class="fc-sc-stat-card-label">Selected Scenario</span>
+                    <span class="fc-sc-stat-card-value" style="font-size:1.1rem;">@SelectedScenario.ScenarioName</span>
+                    <span class="fc-sc-stat-card-sub">
+                        @SelectedScenario.Category · @SelectedScenario.Severity · default horizon @SelectedScenario.TimeHorizon
+                    </span>
+                    <p style="margin:var(--space-3) 0 0;color:var(--cbn-text-secondary);line-height:1.6;">
+                        @SelectedScenario.NarrativeSummary
+                    </p>
+                </div>
+            }
         </div>
     </section>
 
-    <!-- Charts -->
-    <div class="fc-sc-chart-row">
-        <div class="fc-sc-chart-card">
-            <h4>CAR Distribution — Before vs After Shock</h4>
-            <canvas id="sc-macro-dist" class="fc-sc-chart-canvas"></canvas>
+    <section class="fc-section" style="margin-bottom:var(--space-5);">
+        <div class="fc-section-header">
+            <h3>Available Macro Scenarios</h3>
         </div>
-        <div class="fc-sc-chart-card">
-            <h4>Institutions at Risk</h4>
-            <canvas id="sc-macro-risk" class="fc-sc-chart-canvas"></canvas>
+        <div class="fc-section-body">
+            @if (_scenarios.Count == 0)
+            {
+                <EmptyState Context="data"
+                            Heading="No stress scenarios available"
+                            Description="Seed or activate macro stress scenarios before using this workspace." />
+            }
+            else
+            {
+                <div class="fc-sc-macro-shock-grid">
+                    @foreach (var scenario in _scenarios)
+                    {
+                        var isSelected = _selectedScenarioId == scenario.Id;
+                        <button type="button"
+                                class="fc-sc-macro-shock-card @(isSelected ? "fc-sc-macro-shock-card--selected" : "")"
+                                @onclick="() => SelectScenario(scenario)"
+                                style="text-align:left;background:transparent;">
+                            <div style="display:flex;justify-content:space-between;gap:var(--space-2);margin-bottom:var(--space-2);">
+                                <strong style="font-size:var(--text-body-sm);">@scenario.ScenarioName</strong>
+                                <span class="fc-sc-card-chip">@scenario.Severity</span>
+                            </div>
+                            <p style="font-size:var(--text-caption);color:var(--cbn-text-secondary);margin:0 0 var(--space-3);line-height:1.6;">
+                                @scenario.NarrativeSummary
+                            </p>
+                            <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                                <span class="fc-sc-card-chip">@scenario.Category</span>
+                                <span class="fc-sc-card-chip">@scenario.ScenarioCode</span>
+                                <span class="fc-sc-card-chip">@scenario.TimeHorizon</span>
+                            </div>
+                        </button>
+                    }
+                </div>
+            }
         </div>
-    </div>
+    </section>
 
-    <!-- At-Risk Institutions -->
-    @if (_atRisk.Count > 0)
-    {
-        <div class="fc-sc-breach-panel">
-            <h4 class="fc-sc-breach-panel-title">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
-                    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-                </svg>
-                At-Risk Institutions (@_atRisk.Count)
-            </h4>
-            <ul class="fc-sc-breach-list">
-                @foreach (var inst in _atRisk)
-                {
-                    <li class="fc-sc-breach-item">
-                        <BreachIndicator Severity="inst.WorstBreach" Compact />
-                        <span class="fc-sc-breach-item-message">
-                            <strong>@inst.InstitutionName</strong> (@inst.InstitutionType)
-                            @if (inst.IsSystemicallyImportant) { <span class="fc-sc-sii-badge" style="margin-left:4px;">SII</span> }
-                            — @inst.Breaches.Count breach@(inst.Breaches.Count != 1 ? "es" : ""):
-                            @string.Join(", ", inst.Breaches.Select(b => b.MetricName))
-                        </span>
-                    </li>
-                }
-            </ul>
+    <section class="fc-section" style="margin-bottom:var(--space-5);">
+        <div class="fc-section-header">
+            <h3>Recent Macro Runs</h3>
         </div>
+        <div class="fc-section-body" style="padding:0;">
+            @if (_recentRuns.Count == 0)
+            {
+                <EmptyState Context="generic"
+                            Heading="No macro runs yet"
+                            Description="Run a macro-prudential scenario to generate persisted supervisory results." />
+            }
+            else
+            {
+                <table class="fc-sc-metric-table">
+                    <thead>
+                        <tr>
+                            <th>Scenario</th>
+                            <th>Period</th>
+                            <th>Horizon</th>
+                            <th>Entities</th>
+                            <th>Resilience</th>
+                            <th>Status</th>
+                            <th>Started</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var run in _recentRuns)
+                        {
+                            <tr>
+                                <td>
+                                    <div style="font-weight:600;">@run.ScenarioName</div>
+                                    <div class="fc-cell-sub">@run.ScenarioCode</div>
+                                </td>
+                                <td>@run.PeriodCode</td>
+                                <td>@run.TimeHorizon</td>
+                                <td>@run.EntitiesShocked.ToString("N0")</td>
+                                <td>
+                                    @if (run.SystemicResilienceScore.HasValue)
+                                    {
+                                        <span class="fc-sc-card-chip">@run.SystemicResilienceScore.Value.ToString("F1") / 100</span>
+                                        <span class="fc-cell-sub">@run.ResilienceRating</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="fc-cell-sub">Pending</span>
+                                    }
+                                </td>
+                                <td>
+                                    <span class="fc-sc-card-chip">@run.Status</span>
+                                </td>
+                                <td>@run.StartedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    <div style="display:flex;gap:var(--space-2);">
+                                        @if (run.Status == "COMPLETED")
+                                        {
+                                            <button class="fc-btn fc-btn--sm fc-btn--outline" @onclick="() => LoadRunAsync(run.RunGuid)">Load</button>
+                                            <button class="fc-btn fc-btn--sm fc-btn--ghost" @onclick="() => DownloadReportAsync(run.Id, run.ScenarioCode)">PDF</button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </section>
+
+    @if (_summary is not null)
+    {
+        <section class="fc-section" style="margin-bottom:var(--space-5);">
+            <div class="fc-section-header">
+                <h3>Result Filters</h3>
+            </div>
+            <div class="fc-section-body">
+                <div class="fc-sc-macro-config">
+                    <label>Institution Types</label>
+                    <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
+                        @foreach (var type in _availableTypes)
+                        {
+                            var isChecked = _selectedTypes.Contains(type);
+                            <label style="display:flex;align-items:center;gap:6px;font-size:var(--text-body-sm);cursor:pointer;">
+                                <input type="checkbox" checked="@isChecked" @onchange="() => ToggleType(type)" />
+                                @type
+                            </label>
+                        }
+                    </div>
+                    <button class="fc-btn fc-btn--outline" @onclick="SelectAllTypes">Select All</button>
+                </div>
+            </div>
+        </section>
+
+        <div class="fc-sc-results-strip">
+            <div class="fc-sc-stat-card">
+                <span class="fc-sc-stat-card-label">Entities Analysed</span>
+                <span class="fc-sc-stat-card-value">@FilteredEntities.Count.ToString("N0")</span>
+                <span class="fc-sc-stat-card-sub">@_summary.PeriodCode · @_summary.TimeHorizon</span>
+            </div>
+            <div class="fc-sc-stat-card">
+                <span class="fc-sc-stat-card-label">At-Risk Institutions</span>
+                <span class="fc-sc-stat-card-value fc-sc-stat-card-value--danger">@AtRiskEntities.Count.ToString("N0")</span>
+                <span class="fc-sc-stat-card-sub">breach or critical impact</span>
+            </div>
+            <div class="fc-sc-stat-card">
+                <span class="fc-sc-stat-card-label">Contagion Victims</span>
+                <span class="fc-sc-stat-card-value fc-sc-stat-card-value--accent">@FilteredEntities.Count(e => e.IsContagionVictim).ToString("N0")</span>
+                <span class="fc-sc-stat-card-sub">second-round transmission</span>
+            </div>
+            <div class="fc-sc-stat-card">
+                <span class="fc-sc-stat-card-label">Systemic Resilience</span>
+                <span class="fc-sc-stat-card-value @(SystemicResilienceScore < 40 ? "fc-sc-stat-card-value--danger" : SystemicResilienceScore < 60 ? "fc-sc-stat-card-value--accent" : "fc-sc-stat-card-value--success")">
+                    @SystemicResilienceScore.ToString("F1")
+                </span>
+                <span class="fc-sc-stat-card-sub">@_summary.ResilienceRating</span>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_summary.ExecutiveSummary))
+        {
+            <section class="fc-section" style="margin-bottom:var(--space-5);">
+                <div class="fc-section-header">
+                    <h3>Executive Summary</h3>
+                </div>
+                <div class="fc-section-body">
+                    <pre style="white-space:pre-wrap;font:inherit;color:var(--cbn-text-secondary);margin:0;line-height:1.7;">@_summary.ExecutiveSummary</pre>
+                </div>
+            </section>
+        }
+
+        <section class="fc-section" style="margin-bottom:var(--space-5);">
+            <div class="fc-section-header">
+                <h3>Sector Aggregates</h3>
+            </div>
+            <div class="fc-section-body" style="padding:0;">
+                <table class="fc-sc-metric-table">
+                    <thead>
+                        <tr>
+                            <th>Sector</th>
+                            <th>Entities</th>
+                            <th>CAR Pre</th>
+                            <th>CAR Post</th>
+                            <th>NPL Post</th>
+                            <th>LCR Post</th>
+                            <th>CAR Breaches</th>
+                            <th>Insolvent</th>
+                            <th>Capital Shortfall</th>
+                            <th>NDIC Exposure</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var sector in VisibleSectors)
+                        {
+                            <tr>
+                                <td><strong>@sector.InstitutionType</strong></td>
+                                <td>@sector.EntityCount</td>
+                                <td>@FormatPercent(sector.PreAvgCAR)</td>
+                                <td>@FormatPercent(sector.PostAvgCAR)</td>
+                                <td>@FormatPercent(sector.PostAvgNPL)</td>
+                                <td>@FormatPercent(sector.PostAvgLCR)</td>
+                                <td>@sector.EntitiesBreachingCAR</td>
+                                <td>@sector.EntitiesInsolvent</td>
+                                <td>@FormatCurrency(sector.TotalCapitalShortfall)</td>
+                                <td>@FormatCurrency(sector.TotalInsurableDepositsAtRisk)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <section class="fc-section" style="margin-bottom:var(--space-5);">
+            <div class="fc-section-header">
+                <h3>Institution Impact Heatmap</h3>
+            </div>
+            <div class="fc-section-body" style="padding:0;overflow-x:auto;">
+                @if (FilteredEntities.Count == 0)
+                {
+                    <div style="padding:var(--space-5);">
+                        <EmptyState Context="search"
+                                    Heading="No institutions match the selected filters"
+                                    Description="Adjust the institution type filter to view run results." />
+                    </div>
+                }
+                else
+                {
+                    <table class="fc-sc-metric-table" style="min-width:960px;">
+                        <thead>
+                            <tr>
+                                <th>Institution</th>
+                                <th>Type</th>
+                                <th>Contagion</th>
+                                <th>Post CAR</th>
+                                <th>Post NPL</th>
+                                <th>Post LCR</th>
+                                <th>Post NSFR</th>
+                                <th>Post ROA</th>
+                                <th>Worst</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var entity in FilteredEntities.OrderByDescending(GetWorstBreach).ThenBy(e => e.InstitutionName))
+                            {
+                                <tr>
+                                    <td style="font-weight:600;">@entity.InstitutionName</td>
+                                    <td><span class="fc-sc-card-chip">@entity.InstitutionType</span></td>
+                                    <td>
+                                        @if (entity.IsContagionVictim)
+                                        {
+                                            <span class="fc-sc-card-chip">Round @(entity.ContagionRound ?? 1)</span>
+                                        }
+                                    </td>
+                                    <td class="fc-sc-heatmap-cell @HeatmapClass(GetCarSeverity(entity))">@FormatPercent(entity.PostCAR)</td>
+                                    <td class="fc-sc-heatmap-cell @HeatmapClass(GetNplSeverity(entity))">@FormatPercent(entity.PostNPL)</td>
+                                    <td class="fc-sc-heatmap-cell @HeatmapClass(GetLcrSeverity(entity))">@FormatPercent(entity.PostLCR)</td>
+                                    <td class="fc-sc-heatmap-cell @HeatmapClass(GetNsfrSeverity(entity))">@FormatPercent(entity.PostNSFR)</td>
+                                    <td class="fc-sc-heatmap-cell @HeatmapClass(GetRoaSeverity(entity))">@FormatPercent(entity.PostROA)</td>
+                                    <td><BreachIndicator Severity="@GetWorstBreach(entity)" /></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </section>
+
+        <div class="fc-sc-chart-row">
+            <div class="fc-sc-chart-card">
+                <h4>CAR Distribution — Before vs After Shock</h4>
+                <canvas id="sc-macro-dist" class="fc-sc-chart-canvas"></canvas>
+            </div>
+            <div class="fc-sc-chart-card">
+                <h4>Institution Risk Distribution</h4>
+                <canvas id="sc-macro-risk" class="fc-sc-chart-canvas"></canvas>
+            </div>
+        </div>
+
+        @if (AtRiskEntities.Count > 0)
+        {
+            <div class="fc-sc-breach-panel">
+                <h4 class="fc-sc-breach-panel-title">At-Risk Institutions (@AtRiskEntities.Count)</h4>
+                <ul class="fc-sc-breach-list">
+                    @foreach (var entity in AtRiskEntities)
+                    {
+                        <li class="fc-sc-breach-item">
+                            <BreachIndicator Severity="@GetWorstBreach(entity)" Compact />
+                            <span class="fc-sc-breach-item-message">
+                                <strong>@entity.InstitutionName</strong> (@entity.InstitutionType)
+                                — @BuildRiskSummary(entity)
+                            </span>
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
     }
 }
 
 @code {
-    private List<ScenarioTemplate> _templates = [];
-    private string _selectedTemplateId = "";
-    private int _magnitudePct = 100;
-    private HashSet<string> _selectedTypes = ["DMB", "MFB", "PMB", "BDC", "DFI"];
-    private static readonly string[] _institutionTypes = ["DMB", "MFB", "PMB", "BDC", "DFI"];
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
     private bool _running;
-    private MacroPrudentialResult? _result;
-    private decimal _systemic;
-    private List<string> _heatmapMetrics = [];
-    private List<InstitutionImpact> _atRisk = [];
+    private bool _anonymise = true;
+    private string? _error;
 
-    protected override void OnInitialized()
+    private string _regulatorCode = "CBN";
+    private int _currentUserId;
+    private string _selectedPeriodCode = DefaultPeriodCode();
+    private string _timeHorizon = "1Y";
+
+    private List<string> _regulatorOptions = [];
+    private List<string> _periodOptions = [];
+    private List<ScenarioListRow> _scenarios = [];
+    private List<RunListRow> _recentRuns = [];
+    private int? _selectedScenarioId;
+
+    private StressTestRunSummary? _summary;
+    private List<EntityResultRow> _entityResults = [];
+    private HashSet<string> _selectedTypes = new(StringComparer.OrdinalIgnoreCase);
+    private long _activeRunId;
+    private string _activeScenarioCode = string.Empty;
+    private long? _chartsRenderedForRunId;
+
+    private ScenarioListRow? SelectedScenario =>
+        _selectedScenarioId.HasValue
+            ? _scenarios.FirstOrDefault(s => s.Id == _selectedScenarioId.Value)
+            : null;
+
+    private List<string> _availableTypes => _entityResults
+        .Select(e => e.InstitutionType)
+        .Where(t => !string.IsNullOrWhiteSpace(t))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .OrderBy(t => t)
+        .ToList();
+
+    private List<EntityResultRow> FilteredEntities => _entityResults
+        .Where(e => _selectedTypes.Count == 0 || _selectedTypes.Contains(e.InstitutionType))
+        .ToList();
+
+    private List<SectorStressAggregate> VisibleSectors =>
+        _summary?.BySector
+            .Where(s => _selectedTypes.Count == 0 || _selectedTypes.Contains(s.InstitutionType))
+            .ToList()
+        ?? [];
+
+    private List<EntityResultRow> AtRiskEntities => FilteredEntities
+        .Where(e => GetWorstBreach(e) >= BreachSeverity.Breach)
+        .OrderByDescending(GetWorstBreach)
+        .ThenBy(e => e.InstitutionName)
+        .ToList();
+
+    private decimal SystemicResilienceScore =>
+        _summary is null ? 0m : Math.Round((decimal)_summary.SystemicResilienceScore, 1);
+
+    protected override async Task OnInitializedAsync()
     {
-        _templates = TemplateService.GetAllTemplates()
-            .Where(t => t.Category == "Stress Test")
-            .ToList();
+        if (AuthState is not null)
+        {
+            var state = await AuthState;
+            _regulatorCode = state.User.FindFirst("RegulatorCode")?.Value?.Trim() ?? _regulatorCode;
+
+            if (int.TryParse(state.User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
+                _currentUserId = userId;
+        }
+
+        await LoadWorkspaceAsync();
     }
 
-    private void SelectShock(string id) => _selectedTemplateId = id;
-
-    private void ToggleType(string type)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_selectedTypes.Contains(type))
-            _selectedTypes.Remove(type);
-        else
-            _selectedTypes.Add(type);
+        if (_activeRunId > 0 && _entityResults.Count > 0 && _chartsRenderedForRunId != _activeRunId)
+        {
+            _chartsRenderedForRunId = _activeRunId;
+            await RenderMacroChartsAsync();
+        }
     }
 
-    private async Task RunAnalysis()
+    private async Task LoadWorkspaceAsync()
     {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            using var conn = await Db.OpenAsync();
+
+            _regulatorOptions = (await conn.QueryAsync<string>(
+                """
+                SELECT DISTINCT RegulatorCode
+                FROM   Institutions
+                WHERE  IsActive = 1
+                  AND  RegulatorCode IS NOT NULL
+                  AND  LTRIM(RTRIM(RegulatorCode)) <> ''
+                ORDER BY RegulatorCode
+                """)).ToList();
+
+            if (_regulatorOptions.Count == 0)
+                _regulatorOptions.Add(_regulatorCode);
+
+            if (!_regulatorOptions.Contains(_regulatorCode, StringComparer.OrdinalIgnoreCase))
+                _regulatorCode = _regulatorOptions[0];
+
+            _scenarios = await LoadScenarioOptionsAsync(conn);
+            _periodOptions = (await conn.QueryAsync<string>(
+                """
+                SELECT DISTINCT pm.PeriodCode
+                FROM   PrudentialMetrics pm
+                JOIN   Institutions i ON i.Id = pm.InstitutionId
+                WHERE  i.RegulatorCode = @Regulator
+                  AND  pm.PeriodCode IS NOT NULL
+                ORDER  BY pm.PeriodCode DESC
+                """,
+                new { Regulator = _regulatorCode })).ToList();
+
+            if (_periodOptions.Count > 0 && !_periodOptions.Contains(_selectedPeriodCode, StringComparer.OrdinalIgnoreCase))
+                _selectedPeriodCode = _periodOptions[0];
+
+            await LoadRecentRunsAsync(conn);
+
+            if (_selectedScenarioId.HasValue)
+            {
+                var scenario = _scenarios.FirstOrDefault(s => s.Id == _selectedScenarioId.Value);
+                if (scenario is not null)
+                    SelectScenario(scenario);
+                else if (_scenarios.Count > 0)
+                    SelectScenario(_scenarios[0]);
+            }
+            else if (_scenarios.Count > 0)
+            {
+                SelectScenario(_scenarios[0]);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load macro-prudential workspace: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task<List<ScenarioListRow>> LoadScenarioOptionsAsync(System.Data.IDbConnection conn)
+    {
+        var macroScenarios = (await conn.QueryAsync<ScenarioListRow>(
+            """
+            SELECT Id, ScenarioCode, ScenarioName, Category, Severity, TimeHorizon, NarrativeSummary
+            FROM   StressScenarios
+            WHERE  IsActive = 1
+              AND  Category = 'MACRO'
+            ORDER  BY Severity DESC, ScenarioName
+            """)).ToList();
+
+        if (macroScenarios.Count > 0)
+            return macroScenarios;
+
+        return (await conn.QueryAsync<ScenarioListRow>(
+            """
+            SELECT Id, ScenarioCode, ScenarioName, Category, Severity, TimeHorizon, NarrativeSummary
+            FROM   StressScenarios
+            WHERE  IsActive = 1
+            ORDER  BY Category, Severity DESC, ScenarioName
+            """)).ToList();
+    }
+
+    private async Task LoadRecentRunsAsync(System.Data.IDbConnection conn)
+    {
+        _recentRuns = (await conn.QueryAsync<RunListRow>(
+            """
+            SELECT TOP 12
+                   r.Id,
+                   r.RunGuid,
+                   r.PeriodCode,
+                   r.TimeHorizon,
+                   r.EntitiesShocked,
+                   r.ContagionRounds,
+                   r.SystemicResilienceScore,
+                   r.Status,
+                   r.StartedAt,
+                   s.ScenarioName,
+                   s.ScenarioCode,
+                   CASE
+                       WHEN r.SystemicResilienceScore >= 80 THEN 'RESILIENT'
+                       WHEN r.SystemicResilienceScore >= 60 THEN 'ADEQUATE'
+                       WHEN r.SystemicResilienceScore >= 40 THEN 'VULNERABLE'
+                       WHEN r.SystemicResilienceScore IS NOT NULL THEN 'CRITICAL'
+                       ELSE '—'
+                   END AS ResilienceRating
+            FROM   StressTestRuns r
+            JOIN   StressScenarios s ON s.Id = r.ScenarioId
+            WHERE  r.RegulatorCode = @Regulator
+              AND  s.Category = 'MACRO'
+            ORDER  BY r.StartedAt DESC
+            """,
+            new { Regulator = _regulatorCode })).ToList();
+    }
+
+    private async Task OnRegulatorChangedAsync()
+    {
+        ClearResults();
+        await LoadWorkspaceAsync();
+    }
+
+    private void SelectScenario(ScenarioListRow scenario)
+    {
+        _selectedScenarioId = scenario.Id;
+        _activeScenarioCode = scenario.ScenarioCode;
+        _timeHorizon = scenario.TimeHorizon;
+    }
+
+    private async Task RunAnalysisAsync()
+    {
+        if (!_selectedScenarioId.HasValue || string.IsNullOrWhiteSpace(_selectedPeriodCode))
+            return;
+
         _running = true;
+        _error = null;
+        ClearResults();
         StateHasChanged();
 
         try
         {
-            var definition = TemplateService.CreateFromTemplate(_selectedTemplateId);
-            definition.Scope = ScenarioScope.MacroPrudential;
+            var summary = await Orchestrator.RunAsync(
+                _regulatorCode,
+                _selectedScenarioId.Value,
+                _selectedPeriodCode,
+                _timeHorizon,
+                _currentUserId);
 
-            // Scale overrides by magnitude
-            if (_magnitudePct != 100)
-            {
-                var scale = _magnitudePct / 100m;
-                definition.Overrides = definition.Overrides
-                    .Select(o => o with { ShockValue = o.ShockValue * scale })
-                    .ToList();
-            }
-
-            _result = await Engine.RunMacroPrudential(Guid.Empty, definition);
-
-            // Filter by selected types
-            var filteredImpacts = _result.Impacts.Where(i => _selectedTypes.Contains(i.InstitutionType)).ToList();
-            _result.Impacts = filteredImpacts;
-            _result.TotalInstitutions = filteredImpacts.Count;
-            _result.InstitutionsBreaching = filteredImpacts.Count(i => i.WorstBreach >= BreachSeverity.Breach);
-            _result.CriticalBreaches = filteredImpacts.Count(i => i.WorstBreach == BreachSeverity.Critical);
-
-            _atRisk = filteredImpacts
-                .Where(i => i.WorstBreach >= BreachSeverity.Breach)
-                .OrderByDescending(i => i.WorstBreach)
-                .ThenByDescending(i => i.IsSystemicallyImportant)
-                .ToList();
-
-            // Compute systemic risk score
-            var siiBreaching = _result.Impacts.Count(i => i.IsSystemicallyImportant && i.WorstBreach >= BreachSeverity.Breach);
-            var breachPct = _result.TotalInstitutions > 0 ? (decimal)_result.InstitutionsBreaching / _result.TotalInstitutions * 100 : 0;
-            _systemic = Math.Min(100, breachPct * 0.6m + siiBreaching * 15m + _result.CriticalBreaches * 5m);
-
-            // Get common metrics for heatmap
-            _heatmapMetrics = _result.Impacts
-                .SelectMany(i => i.Metrics.Select(m => m.MetricName))
-                .GroupBy(n => n)
-                .OrderByDescending(g => g.Count())
-                .Take(5)
-                .Select(g => g.Key)
-                .ToList();
+            await LoadRunAsync(summary.RunGuid);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Stress test failed: {ex.Message}";
         }
         finally
         {
@@ -349,68 +674,313 @@ else
         }
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
+    private async Task LoadRunAsync(Guid runGuid)
     {
-        if (_result != null && _result.Impacts.Count > 0)
+        _error = null;
+
+        try
         {
-            await RenderMacroCharts();
+            var summary = await Orchestrator.GetRunSummaryAsync(runGuid);
+            if (summary is null)
+            {
+                _error = $"Run {runGuid} was not found.";
+                return;
+            }
+
+            using var conn = await Db.OpenAsync();
+            _entityResults = (await conn.QueryAsync<EntityResultRow>(
+                """
+                SELECT er.InstitutionId,
+                       ISNULL(i.InstitutionName, CONCAT('Institution ', er.InstitutionId)) AS InstitutionName,
+                       er.InstitutionType,
+                       ISNULL(er.PreCAR, 0)               AS PreCAR,
+                       ISNULL(er.PreNPL, 0)               AS PreNPL,
+                       ISNULL(er.PreLCR, 0)               AS PreLCR,
+                       ISNULL(er.PreNSFR, 0)              AS PreNSFR,
+                       ISNULL(er.PreROA, 0)               AS PreROA,
+                       ISNULL(er.PreTotalAssets, 0)       AS PreTotalAssets,
+                       ISNULL(er.PreTotalDeposits, 0)     AS PreTotalDeposits,
+                       ISNULL(er.PostCAR, 0)              AS PostCAR,
+                       ISNULL(er.PostNPL, 0)              AS PostNPL,
+                       ISNULL(er.PostLCR, 0)              AS PostLCR,
+                       ISNULL(er.PostNSFR, 0)             AS PostNSFR,
+                       ISNULL(er.PostROA, 0)              AS PostROA,
+                       ISNULL(er.PostCapitalShortfall, 0) AS PostCapitalShortfall,
+                       ISNULL(er.AdditionalProvisions, 0) AS AdditionalProvisions,
+                       er.BreachesCAR,
+                       er.BreachesLCR,
+                       er.BreachesNSFR,
+                       er.IsInsolvent,
+                       er.IsContagionVictim,
+                       er.ContagionRound,
+                       er.FailureCause,
+                       ISNULL(er.InsurableDeposits, 0)    AS InsurableDeposits,
+                       ISNULL(er.UninsurableDeposits, 0)  AS UninsurableDeposits
+                FROM   StressTestEntityResults er
+                LEFT JOIN Institutions i ON i.Id = er.InstitutionId
+                WHERE  er.RunId = @RunId
+                ORDER  BY er.PostCAR ASC, er.InstitutionId ASC
+                """,
+                new { RunId = summary.RunId })).ToList();
+
+            _summary = summary;
+            _activeRunId = summary.RunId;
+            _activeScenarioCode = summary.ScenarioCode;
+            _selectedPeriodCode = summary.PeriodCode;
+            _timeHorizon = summary.TimeHorizon;
+
+            var scenario = _scenarios.FirstOrDefault(s =>
+                string.Equals(s.ScenarioCode, summary.ScenarioCode, StringComparison.OrdinalIgnoreCase));
+            if (scenario is not null)
+                _selectedScenarioId = scenario.Id;
+
+            _selectedTypes = _entityResults
+                .Select(e => e.InstitutionType)
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _chartsRenderedForRunId = null;
+            await LoadRecentRunsAsync(conn);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Could not load run results: {ex.Message}";
         }
     }
 
-    private async Task RenderMacroCharts()
+    private async Task DownloadReportAsync(long runId, string scenarioCode)
     {
-        if (_result == null) return;
-
-        // CAR distribution
-        var carMetric = _result.Impacts
-            .Select(i => i.Metrics.FirstOrDefault(m => m.MetricName.Contains("Capital Adequacy")))
-            .Where(m => m != null)
-            .ToList();
-
-        if (carMetric.Count > 0)
+        try
         {
-            var labels = _result.Impacts.Select(i => i.InstitutionName.Length > 12 ? i.InstitutionName[..12] : i.InstitutionName).ToArray();
-            var baselines = carMetric.Select(m => m!.BaselineValue).ToArray();
-            var scenarios = carMetric.Select(m => m!.ScenarioValue).ToArray();
-
-            await Charts.InitChart("sc-macro-dist", new
-            {
-                type = "bar",
-                labels,
-                datasets = new[]
-                {
-                    new { label = "Baseline CAR", data = baselines, color = "#006B3F" },
-                    new { label = "Post-Shock CAR", data = scenarios, color = "#dc2626" },
-                },
-                legend = true,
-            });
+            var bytes = await ReportGenerator.GenerateAsync(runId, _anonymise);
+            var fileName = $"MacroStress_{scenarioCode}_{_selectedPeriodCode}_{DateTime.UtcNow:yyyyMMdd}.pdf";
+            await JS.InvokeVoidAsync(
+                "portalDownloadFile",
+                fileName,
+                "application/pdf",
+                Convert.ToBase64String(bytes));
         }
+        catch (Exception ex)
+        {
+            _error = $"Failed to generate PDF: {ex.Message}";
+        }
+    }
 
-        // Risk donut
-        var safe = _result.Impacts.Count(i => i.WorstBreach == BreachSeverity.None);
-        var warning = _result.Impacts.Count(i => i.WorstBreach == BreachSeverity.Warning);
-        var breach = _result.Impacts.Count(i => i.WorstBreach == BreachSeverity.Breach);
-        var critical = _result.Impacts.Count(i => i.WorstBreach == BreachSeverity.Critical);
+    private void ToggleType(string type)
+    {
+        if (_selectedTypes.Contains(type))
+            _selectedTypes.Remove(type);
+        else
+            _selectedTypes.Add(type);
 
-        await Charts.RenderDonutWithColors("sc-macro-risk",
+        _chartsRenderedForRunId = null;
+    }
+
+    private void SelectAllTypes()
+    {
+        _selectedTypes = _availableTypes.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _chartsRenderedForRunId = null;
+    }
+
+    private void ClearResults()
+    {
+        _summary = null;
+        _entityResults = [];
+        _activeRunId = 0;
+        _activeScenarioCode = SelectedScenario?.ScenarioCode ?? string.Empty;
+        _chartsRenderedForRunId = null;
+    }
+
+    private async Task RenderMacroChartsAsync()
+    {
+        if (_summary is null || FilteredEntities.Count == 0)
+            return;
+
+        var labels = FilteredEntities
+            .Select(e => e.InstitutionName.Length > 14 ? e.InstitutionName[..14] : e.InstitutionName)
+            .ToArray();
+
+        await Charts.InitChart("sc-macro-dist", new
+        {
+            type = "bar",
+            labels,
+            datasets = new[]
+            {
+                new { label = "Pre-Stress CAR", data = FilteredEntities.Select(e => e.PreCAR).ToArray(), color = "#006B3F" },
+                new { label = "Post-Stress CAR", data = FilteredEntities.Select(e => e.PostCAR).ToArray(), color = "#dc2626" },
+            },
+            legend = true,
+        });
+
+        var safe = FilteredEntities.Count(e => GetWorstBreach(e) == BreachSeverity.None);
+        var warning = FilteredEntities.Count(e => GetWorstBreach(e) == BreachSeverity.Warning);
+        var breach = FilteredEntities.Count(e => GetWorstBreach(e) == BreachSeverity.Breach);
+        var critical = FilteredEntities.Count(e => GetWorstBreach(e) == BreachSeverity.Critical);
+
+        await Charts.RenderDonutWithColors(
+            "sc-macro-risk",
             new[] { "Safe", "Warning", "Breach", "Critical" },
             new[] { (decimal)safe, warning, breach, critical },
             new[] { "#16a34a", "#d97706", "#dc2626", "#991b1b" });
     }
 
-    private void Reset()
+    private static string HeatmapClass(BreachSeverity severity) => severity switch
     {
-        _result = null;
-        _selectedTemplateId = "";
+        BreachSeverity.Critical => "fc-sc-heatmap-cell--critical",
+        BreachSeverity.Breach => "fc-sc-heatmap-cell--red",
+        BreachSeverity.Warning => "fc-sc-heatmap-cell--amber",
+        _ => "fc-sc-heatmap-cell--green"
+    };
+
+    private static BreachSeverity GetWorstBreach(EntityResultRow entity)
+    {
+        if (entity.IsInsolvent || entity.PostCAR < 0m)
+            return BreachSeverity.Critical;
+
+        if (entity.BreachesCAR || entity.BreachesLCR || entity.BreachesNSFR)
+            return entity.PostCapitalShortfall > 0m ? BreachSeverity.Critical : BreachSeverity.Breach;
+
+        if (entity.IsContagionVictim
+            || entity.PostCAR < entity.PreCAR
+            || entity.PostLCR < entity.PreLCR
+            || entity.PostNSFR < entity.PreNSFR
+            || entity.PostNPL > entity.PreNPL)
+            return BreachSeverity.Warning;
+
+        return BreachSeverity.None;
     }
 
-    private static string FormatMetric(decimal value, bool isRatio)
-        => isRatio ? $"{value:N1}%" : $"₦{value:N1}";
-
-    private static string TruncateMetric(string name)
+    private static BreachSeverity GetCarSeverity(EntityResultRow entity)
     {
-        var paren = name.IndexOf('(');
-        if (paren > 0 && paren < 15) return name[..paren].Trim();
-        return name.Length > 15 ? name[..15] + "..." : name;
+        var minCar = GetMinCar(entity.InstitutionType);
+        if (entity.PostCAR < 0m) return BreachSeverity.Critical;
+        if (entity.PostCAR < minCar) return BreachSeverity.Breach;
+        if (entity.PostCAR < minCar + 2m) return BreachSeverity.Warning;
+        return BreachSeverity.None;
+    }
+
+    private static BreachSeverity GetNplSeverity(EntityResultRow entity)
+    {
+        if (entity.PostNPL >= 20m) return BreachSeverity.Critical;
+        if (entity.PostNPL >= 10m) return BreachSeverity.Breach;
+        if (entity.PostNPL >= 8m) return BreachSeverity.Warning;
+        return BreachSeverity.None;
+    }
+
+    private static BreachSeverity GetLcrSeverity(EntityResultRow entity)
+    {
+        if (entity.PostLCR < 70m) return BreachSeverity.Critical;
+        if (entity.PostLCR < 100m) return BreachSeverity.Breach;
+        if (entity.PostLCR < 110m) return BreachSeverity.Warning;
+        return BreachSeverity.None;
+    }
+
+    private static BreachSeverity GetNsfrSeverity(EntityResultRow entity)
+    {
+        if (entity.PostNSFR < 70m) return BreachSeverity.Critical;
+        if (entity.PostNSFR < 100m) return BreachSeverity.Breach;
+        if (entity.PostNSFR < 110m) return BreachSeverity.Warning;
+        return BreachSeverity.None;
+    }
+
+    private static BreachSeverity GetRoaSeverity(EntityResultRow entity)
+    {
+        if (entity.PostROA < -1m) return BreachSeverity.Critical;
+        if (entity.PostROA < 0m) return BreachSeverity.Breach;
+        if (entity.PostROA < 1m) return BreachSeverity.Warning;
+        return BreachSeverity.None;
+    }
+
+    private static decimal GetMinCar(string institutionType) => institutionType switch
+    {
+        "DMB" => 15m,
+        "MFB" => 10m,
+        _ => 10m
+    };
+
+    private static string BuildRiskSummary(EntityResultRow entity)
+    {
+        var issues = new List<string>();
+
+        if (entity.IsInsolvent)
+            issues.Add("insolvent");
+        if (entity.BreachesCAR)
+            issues.Add("CAR breach");
+        if (entity.BreachesLCR)
+            issues.Add("LCR breach");
+        if (entity.BreachesNSFR)
+            issues.Add("NSFR breach");
+        if (entity.IsContagionVictim)
+            issues.Add($"contagion round {entity.ContagionRound ?? 1}");
+        if (entity.PostCapitalShortfall > 0m)
+            issues.Add($"shortfall {FormatCurrency(entity.PostCapitalShortfall)}");
+
+        if (issues.Count == 0 && entity.PostNPL > entity.PreNPL)
+            issues.Add($"NPL +{(entity.PostNPL - entity.PreNPL):N1}pp");
+
+        return string.Join(", ", issues);
+    }
+
+    private static string FormatPercent(decimal value) => $"{value:N1}%";
+
+    private static string FormatCurrency(decimal value) => $"₦{value:N0}";
+
+    private static string DefaultPeriodCode()
+    {
+        var now = DateTime.UtcNow.AddMonths(-1);
+        return $"{now.Year}-{now.Month:D2}";
+    }
+
+    private sealed record ScenarioListRow(
+        int Id,
+        string ScenarioCode,
+        string ScenarioName,
+        string Category,
+        string Severity,
+        string TimeHorizon,
+        string NarrativeSummary);
+
+    private sealed record RunListRow(
+        long Id,
+        Guid RunGuid,
+        string PeriodCode,
+        string TimeHorizon,
+        int EntitiesShocked,
+        int ContagionRounds,
+        decimal? SystemicResilienceScore,
+        string Status,
+        DateTimeOffset StartedAt,
+        string ScenarioName,
+        string ScenarioCode,
+        string ResilienceRating);
+
+    private sealed class EntityResultRow
+    {
+        public int InstitutionId { get; set; }
+        public string InstitutionName { get; set; } = string.Empty;
+        public string InstitutionType { get; set; } = string.Empty;
+        public decimal PreCAR { get; set; }
+        public decimal PreNPL { get; set; }
+        public decimal PreLCR { get; set; }
+        public decimal PreNSFR { get; set; }
+        public decimal PreROA { get; set; }
+        public decimal PreTotalAssets { get; set; }
+        public decimal PreTotalDeposits { get; set; }
+        public decimal PostCAR { get; set; }
+        public decimal PostNPL { get; set; }
+        public decimal PostLCR { get; set; }
+        public decimal PostNSFR { get; set; }
+        public decimal PostROA { get; set; }
+        public decimal PostCapitalShortfall { get; set; }
+        public decimal AdditionalProvisions { get; set; }
+        public bool BreachesCAR { get; set; }
+        public bool BreachesLCR { get; set; }
+        public bool BreachesNSFR { get; set; }
+        public bool IsInsolvent { get; set; }
+        public bool IsContagionVictim { get; set; }
+        public int? ContagionRound { get; set; }
+        public string? FailureCause { get; set; }
+        public decimal InsurableDeposits { get; set; }
+        public decimal UninsurableDeposits { get; set; }
     }
 }
