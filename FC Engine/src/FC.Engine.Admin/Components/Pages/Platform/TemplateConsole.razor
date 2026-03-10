@@ -27,48 +27,60 @@ else
 {
     <div class="fc-card fc-mb-4">
         <div class="fc-card__body fc-card-body--flush">
-            <table class="fc-table">
-                <thead>
-                    <tr>
-                        <th>Module</th>
-                        <th>Return Code</th>
-                        <th>Template</th>
-                        <th>Current</th>
-                        <th>Draft</th>
-                        <th>Fields</th>
-                        <th>Formulas</th>
-                        <th>Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach (var row in _data.Items)
-                    {
+            <div class="fc-table-wrap">
+                <table class="fc-table" style="table-layout: fixed;">
+                    <colgroup>
+                        <col />
+                        <col style="width: 110px;" />
+                        <col />
+                        <col style="width: 80px;" />
+                        <col style="width: 120px;" />
+                        <col style="width: 80px;" />
+                        <col style="width: 90px;" />
+                        <col style="width: 260px;" />
+                    </colgroup>
+                    <thead>
                         <tr>
-                            <td>@row.ModuleName (@row.ModuleCode)</td>
-                            <td><code>@row.ReturnCode</code></td>
-                            <td>@row.TemplateName</td>
-                            <td>@(row.CurrentVersionNumber?.ToString() ?? "-")</td>
-                            <td>@(row.DraftVersionNumber?.ToString() ?? "-") <small>@(row.DraftStatus ?? "")</small></td>
-                            <td>@row.FieldCount</td>
-                            <td>@row.FormulaCount</td>
-                            <td>
-                                <div class="fc-tag-group">
-                                    <a class="fc-btn fc-btn--outline fc-btn--xs" href="/templates/@row.ReturnCode">View</a>
-                                    @if (row.DraftVersionId.HasValue)
-                                    {
-                                        <button class="fc-btn fc-btn--primary fc-btn--xs" @onclick="() => PublishDraft(row.TemplateId)">Publish Draft</button>
-                                    }
-                                    @if (row.CurrentVersionId.HasValue)
-                                    {
-                                        <button class="fc-btn fc-btn--xs fc-btn--danger-dark" @onclick="() => Deprecate(row.TemplateId, row.CurrentVersionId.Value)">Deprecate</button>
-                                    }
-                                    <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => LoadDiff(row.TemplateId, row.CurrentVersionId, row.DraftVersionId)">Diff</button>
-                                </div>
-                            </td>
+                            <th>Module</th>
+                            <th>Return Code</th>
+                            <th>Template</th>
+                            <th>Current</th>
+                            <th>Draft</th>
+                            <th>Fields</th>
+                            <th>Formulas</th>
+                            <th>Actions</th>
                         </tr>
-                    }
-                </tbody>
-            </table>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _data.Items)
+                        {
+                            <tr>
+                                <td>@row.ModuleName (@row.ModuleCode)</td>
+                                <td><code>@row.ReturnCode</code></td>
+                                <td>@row.TemplateName</td>
+                                <td>@(row.CurrentVersionNumber?.ToString() ?? "-")</td>
+                                <td>@(row.DraftVersionNumber?.ToString() ?? "-") <small>@(row.DraftStatus ?? "")</small></td>
+                                <td>@row.FieldCount</td>
+                                <td>@row.FormulaCount</td>
+                                <td>
+                                    <div class="fc-tag-group">
+                                        <a class="fc-btn fc-btn--outline fc-btn--xs" href="/templates/@row.ReturnCode">View</a>
+                                        @if (row.DraftVersionId.HasValue)
+                                        {
+                                            <button class="fc-btn fc-btn--primary fc-btn--xs" @onclick="() => PublishDraft(row.TemplateId)">Publish Draft</button>
+                                        }
+                                        @if (row.CurrentVersionId.HasValue)
+                                        {
+                                            <button class="fc-btn fc-btn--xs fc-btn--danger-dark" @onclick="() => Deprecate(row.TemplateId, row.CurrentVersionId.Value)">Deprecate</button>
+                                        }
+                                        <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => LoadDiff(row.TemplateId, row.CurrentVersionId, row.DraftVersionId)">Diff</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 

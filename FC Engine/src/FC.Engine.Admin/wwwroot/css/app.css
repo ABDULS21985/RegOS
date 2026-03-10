@@ -9688,6 +9688,14 @@ a {
     background: rgba(0, 107, 63, 0.02);
 }
 
+/* Defensive reset: older motion.css builds injected anonymous table cells
+   via tbody row pseudo-elements, which shifts body columns off the header grid. */
+.fc-table tbody tr::before,
+.fc-table tbody tr::after {
+    content: none !important;
+    display: none !important;
+}
+
 /* ---- Portal Grid System ---- */
 .fc-grid {
     display: grid;
@@ -12048,6 +12056,11 @@ code.cmd-palette-preview-val {
     transition: background var(--transition-fast) var(--ease-standard);
 }
 
+/* Match sortable header padding on body cells so columns stay aligned */
+.fc-table td.fc-dt-col-sortable {
+    padding-right: calc(var(--space-4) + 18px);
+}
+
 .fc-dt-sortable:hover { background: rgba(200, 164, 21, 0.15); }
 
 .fc-dt-sort-icon {
@@ -12096,6 +12109,10 @@ code.cmd-palette-preview-val {
 }
 
 /* ── Checkbox Column ─────────────────────────────────────────── */
+.fc-dt-checkbox-col {
+    width: 44px;
+}
+
 .fc-dt-checkbox-cell {
     width: 44px !important;
     min-width: 44px !important;
@@ -14719,11 +14736,9 @@ img[loading="lazy"] {
     overscroll-behavior-y: contain;
 }
 
-/* Off-screen table rows: skip rendering */
-.fc-table-wrap tbody tr {
-    content-visibility: auto;
-    contain-intrinsic-block-size: 48px;
-}
+/* Off-screen table rows: removed content-visibility: auto because it breaks
+   column width calculations — browser skips layout for off-screen rows,
+   causing header-to-body column misalignment in table-layout: auto tables. */
 
 /* Contain layout within DataTable wrapper */
 .fc-dt-wrapper {

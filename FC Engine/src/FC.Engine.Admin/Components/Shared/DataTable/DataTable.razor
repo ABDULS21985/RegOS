@@ -67,13 +67,24 @@
         var sortedItems = GetSortedItems();
         var pagedItems = GetPagedItems(sortedItems);
         var visibleCols = GetVisibleColumns();
+        var useFixedLayout = visibleCols.All(HasExplicitWidth);
     }
 
     @* ── Skeleton Loading ── *@
     @if (Loading)
     {
         <div class="fc-table-wrap">
-            <table class="fc-table" role="table" aria-busy="true" aria-label="Loading data">
+            <table class="fc-table" role="table" aria-busy="true" aria-label="Loading data" style="@(useFixedLayout ? "table-layout:fixed" : "")">
+                <colgroup>
+                    @if (Selectable)
+                    {
+                        <col style="width:44px;min-width:44px;" />
+                    }
+                    @foreach (var col in visibleCols)
+                    {
+                        <col data-col-id="@col.Id" style="@GetColumnWidthStyle(col)" />
+                    }
+                </colgroup>
                 <thead>
                     <tr>
                         @if (Selectable) { <th class="fc-dt-checkbox-cell" scope="col"></th> }
@@ -140,7 +151,18 @@
             <table class="fc-table @(!Striped ? "fc-table--no-stripe" : "")"
                    role="table"
                    id="@(_tableId + "-tbl")"
-                   aria-rowcount="@sortedItems.Count">
+                   aria-rowcount="@sortedItems.Count"
+                   style="@(useFixedLayout ? "table-layout:fixed" : "")">
+                <colgroup>
+                    @if (Selectable)
+                    {
+                        <col style="width:44px;min-width:44px;" />
+                    }
+                    @foreach (var col in visibleCols)
+                    {
+                        <col data-col-id="@col.Id" style="@GetColumnWidthStyle(col)" />
+                    }
+                </colgroup>
                 <thead>
                     <tr>
                         @if (Selectable)
@@ -554,7 +576,7 @@
     private bool IsAllSelected(List<TItem> sorted) =>
         sorted.Count > 0 && sorted.All(i => _selectedItems.Contains(i));
 
-    private string GetHeaderStyle(DataColumn<TItem> col)
+    private string GetColumnWidthStyle(DataColumn<TItem> col)
     {
         var parts = new List<string>();
         if (_columnWidths.TryGetValue(col.Id, out var w))
@@ -565,10 +587,18 @@
         else
         {
             if (col.Width is not null) parts.Add($"width:{col.Width}");
+            else if (col.MinWidth is not null) parts.Add($"width:{col.MinWidth}");
             if (col.MinWidth is not null) parts.Add($"min-width:{col.MinWidth}");
         }
-        if (col.Align != "left") parts.Add($"text-align:{col.Align}");
         return string.Join(";", parts);
+    }
+
+    private bool HasExplicitWidth(DataColumn<TItem> col) =>
+        _columnWidths.ContainsKey(col.Id) || col.Width is not null || col.MinWidth is not null;
+
+    private string GetHeaderStyle(DataColumn<TItem> col)
+    {
+        return col.Align != "left" ? $"text-align:{col.Align}" : string.Empty;
     }
 
     private static string SkeletonWidth(DataColumn<TItem> col) => col.Width ?? "70%";
@@ -931,6 +961,7 @@
             if (!string.IsNullOrEmpty(col.CellClass)) tdCls.Add(col.CellClass);
             if (col.Align == "center") tdCls.Add("fc-dt-align-center");
             else if (col.Align == "right") tdCls.Add("fc-dt-align-right");
+            if (col.SortKey is not null && Sortable) tdCls.Add("fc-dt-col-sortable");
             if (tdCls.Count > 0) builder.AddAttribute(21, "class", string.Join(" ", tdCls));
 
             if (col.CellTemplate is not null)

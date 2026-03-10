@@ -11,6 +11,11 @@ window.dataTable = (function () {
         return document.getElementById(tableId);
     }
 
+    function getColumn(table, columnIndex) {
+        if (!table) return null;
+        return table.querySelectorAll('colgroup col')[columnIndex] || null;
+    }
+
     return {
         /**
          * Initialise keyboard navigation for a DataTable instance.
@@ -70,12 +75,17 @@ window.dataTable = (function () {
             const table = getTable(tableId);
             if (!table) return;
             const th = table.querySelectorAll('thead th')[columnIndex];
+            const col = getColumn(table, columnIndex);
             if (!th) return;
 
             const startWidth = th.getBoundingClientRect().width;
 
             const onMouseMove = function (e) {
                 const newWidth = Math.max(48, startWidth + (e.clientX - startX));
+                if (col) {
+                    col.style.width = newWidth + 'px';
+                    col.style.minWidth = newWidth + 'px';
+                }
                 th.style.width = newWidth + 'px';
                 th.style.minWidth = newWidth + 'px';
             };
@@ -90,7 +100,7 @@ window.dataTable = (function () {
 
                 // Notify .NET of the final width so it can be persisted
                 const finalWidth = Math.round(th.getBoundingClientRect().width);
-                const colId = th.dataset.colId;
+                const colId = (col && col.dataset.colId) || th.dataset.colId;
                 const inst = instances[tableId];
                 if (colId && inst && inst.dotnetRef) {
                     inst.dotnetRef.invokeMethodAsync('OnColumnResized', colId, finalWidth).catch(() => {});
@@ -131,6 +141,13 @@ window.dataTable = (function () {
         applyColumnWidths: function (tableId, widths) {
             const table = getTable(tableId);
             if (!table) return;
+            table.querySelectorAll('colgroup col[data-col-id]').forEach(col => {
+                const id = col.dataset.colId;
+                if (id && widths[id]) {
+                    col.style.width = widths[id] + 'px';
+                    col.style.minWidth = widths[id] + 'px';
+                }
+            });
             table.querySelectorAll('thead th[data-col-id]').forEach(th => {
                 const id = th.dataset.colId;
                 if (id && widths[id]) {
