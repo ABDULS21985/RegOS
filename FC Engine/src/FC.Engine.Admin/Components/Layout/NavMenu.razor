@@ -7,6 +7,7 @@
 @inject IEntitlementService EntitlementSvc
 @inject ITenantContext TenantContext
 @inject ITenantAccessContextResolver TenantAccessContextResolver
+@inject IPlatformRegulatorTenantResolver PlatformRegulatorTenantResolver
 @inject SidebarStateService SidebarState
 @inject NavigationManager Navigation
 @inject ToastService Toast
@@ -294,15 +295,27 @@
     {
         _hasRegulatorPortalAccess = false;
 
-        if (!TenantContext.CurrentTenantId.HasValue)
+        if (TenantContext.CurrentTenantId.HasValue)
+        {
+            try
+            {
+                var accessContext = await TenantAccessContextResolver.TryResolveAsync(TenantContext.CurrentTenantId.Value);
+                _hasRegulatorPortalAccess = accessContext?.TenantType == TenantType.Regulator;
+            }
+            catch
+            {
+                _hasRegulatorPortalAccess = false;
+            }
+        }
+
+        if (_hasRegulatorPortalAccess || !_isPlatformAdmin)
         {
             return;
         }
 
         try
         {
-            var accessContext = await TenantAccessContextResolver.TryResolveAsync(TenantContext.CurrentTenantId.Value);
-            _hasRegulatorPortalAccess = accessContext?.TenantType == TenantType.Regulator;
+            _hasRegulatorPortalAccess = await PlatformRegulatorTenantResolver.TryResolveAsync() is not null;
         }
         catch
         {
