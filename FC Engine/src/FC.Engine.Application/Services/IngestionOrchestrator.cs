@@ -1,6 +1,9 @@
 using System.Diagnostics;
+using System.Text;
+using System.Text.Json;
 using FC.Engine.Application.DTOs;
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Domain.DataRecord;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Events;
@@ -10,6 +13,11 @@ namespace FC.Engine.Application.Services;
 
 public class IngestionOrchestrator
 {
+    private static readonly JsonSerializerOptions SubmissionDataJsonOptions = new()
+    {
+        WriteIndented = true
+    };
+
     private readonly ITemplateMetadataCache _cache;
     private readonly IXsdGenerator _xsdGenerator;
     private readonly IGenericXmlParser _xmlParser;
@@ -106,6 +114,8 @@ public class IngestionOrchestrator
             var bufferedStream = new MemoryStream();
             await xmlStream.CopyToAsync(bufferedStream, ct);
             bufferedStream.Position = 0;
+            submission.StoreRawXml(await ReadBufferedXmlAsync(bufferedStream));
+            bufferedStream.Position = 0;
 
             // 3b. XSD validation
             var schemaErrors = await ValidateXsd(bufferedStream, returnCode, ct);
@@ -127,6 +137,7 @@ public class IngestionOrchestrator
             // 4. Reset stream and parse XML
             bufferedStream.Position = 0;
             var record = await _xmlParser.Parse(bufferedStream, returnCode, ct);
+            submission.StoreParsedDataJson(SerializeRecord(record));
 
             // 5. Run validation pipeline
             submission.MarkValidating();
@@ -337,6 +348,32 @@ public class IngestionOrchestrator
         }
 
         return errors;
+    }
+
+    private static async Task<string> ReadBufferedXmlAsync(Stream bufferedStream)
+    {
+        bufferedStream.Position = 0;
+        using var reader = new StreamReader(bufferedStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true, leaveOpen: true);
+        var rawXml = await reader.ReadToEndAsync();
+        bufferedStream.Position = 0;
+        return rawXml;
+    }
+
+    private static string SerializeRecord(ReturnDataRecord record)
+    {
+        var payload = new
+        {
+            record.ReturnCode,
+            record.TemplateVersionId,
+            Category = record.Category.ToString(),
+            Rows = record.Rows.Select(row => new
+            {
+                row.RowKey,
+                Fields = row.AllFields
+            })
+        };
+
+        return JsonSerializer.Serialize(payload, SubmissionDataJsonOptions);
     }
 
     private static SubmissionResultDto MapResult(Submission submission)

@@ -1,9 +1,12 @@
 @page "/submissions/{Id:int}"
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
+@using System.Text.Json
 @using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.DataRecord
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Domain.Enums
+@inject IGenericDataRepository GenericDataRepo
 @inject ISubmissionRepository SubmissionRepo
 @inject NavigationManager Nav
 
@@ -373,7 +376,7 @@
                 <div class="fc-section-header">
                     <h3>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-                        Raw Submission Data
+                        Submission Data
                     </h3>
                 </div>
                 <div class="fc-section-body">
@@ -385,12 +388,16 @@
                     {
                         <pre class="fc-detail-code-block">@_submission.ParsedDataJson</pre>
                     }
+                    else if (!string.IsNullOrEmpty(_fallbackSubmissionDataJson))
+                    {
+                        <pre class="fc-detail-code-block">@_fallbackSubmissionDataJson</pre>
+                    }
                     else
                     {
                         <div class="fc-detail-empty">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-                            <p class="fc-detail-empty-title">No raw data available</p>
-                            <p class="fc-detail-empty-text">The raw submission payload is not stored or has been purged.</p>
+                            <p class="fc-detail-empty-title">No submission data available</p>
+                            <p class="fc-detail-empty-text">Neither the stored payload nor the ingested submission rows are available for this record.</p>
                         </div>
                     }
                 </div>
@@ -405,10 +412,22 @@
     private bool _loading = true;
     private Submission? _submission;
     private string _activeTab = "overview";
+    private string? _fallbackSubmissionDataJson;
 
     protected override async Task OnInitializedAsync()
     {
         _submission = await SubmissionRepo.GetByIdWithReport(Id);
+        if (_submission is not null
+            && string.IsNullOrWhiteSpace(_submission.RawXml)
+            && string.IsNullOrWhiteSpace(_submission.ParsedDataJson))
+        {
+            var record = await GenericDataRepo.GetBySubmission(_submission.ReturnCode, _submission.Id);
+            if (record is not null)
+            {
+                _fallbackSubmissionDataJson = SerializeRecord(record);
+            }
+        }
+
         _loading = false;
     }
 
@@ -417,4 +436,24 @@
         SubmissionStatus.AcceptedWithWarnings => "Accepted with Warnings",
         _ => status.ToString()
     };
+
+    private static string SerializeRecord(ReturnDataRecord record)
+    {
+        var payload = new
+        {
+            record.ReturnCode,
+            record.TemplateVersionId,
+            Category = record.Category.ToString(),
+            Rows = record.Rows.Select(row => new
+            {
+                row.RowKey,
+                Fields = row.AllFields
+            })
+        };
+
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+    }
 }
