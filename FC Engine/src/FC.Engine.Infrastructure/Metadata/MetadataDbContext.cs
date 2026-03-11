@@ -101,6 +101,10 @@ public class MetadataDbContext : DbContext
     public DbSet<SanctionsCatalogSourceRecord> SanctionsCatalogSources => Set<SanctionsCatalogSourceRecord>();
     public DbSet<SanctionsCatalogEntryRecord> SanctionsCatalogEntries => Set<SanctionsCatalogEntryRecord>();
     public DbSet<SanctionsPackSectionRecord> SanctionsPackSections => Set<SanctionsPackSectionRecord>();
+    public DbSet<SanctionsScreeningRunRecord> SanctionsScreeningRuns => Set<SanctionsScreeningRunRecord>();
+    public DbSet<SanctionsScreeningResultRecord> SanctionsScreeningResults => Set<SanctionsScreeningResultRecord>();
+    public DbSet<SanctionsTransactionCheckRecord> SanctionsTransactionChecks => Set<SanctionsTransactionCheckRecord>();
+    public DbSet<SanctionsTransactionPartyResultRecord> SanctionsTransactionPartyResults => Set<SanctionsTransactionPartyResultRecord>();
     public DbSet<SanctionsFalsePositiveEntry> SanctionsFalsePositiveEntries => Set<SanctionsFalsePositiveEntry>();
     public DbSet<SanctionsDecisionAuditRecord> SanctionsDecisionAuditRecords => Set<SanctionsDecisionAuditRecord>();
     public DbSet<ModelApprovalWorkflowStateRecord> ModelApprovalWorkflowStates => Set<ModelApprovalWorkflowStateRecord>();

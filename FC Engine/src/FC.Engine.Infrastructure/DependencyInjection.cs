@@ -167,6 +167,7 @@ public static class DependencyInjection
         services.AddScoped<ModelRiskPackCatalogService>();
         services.AddScoped<SanctionsWatchlistCatalogService>();
         services.AddScoped<SanctionsPackCatalogService>();
+        services.AddScoped<SanctionsScreeningSessionStoreService>();
         services.AddScoped<SanctionsWorkflowStoreService>();
         services.AddScoped<ModelApprovalWorkflowStoreService>();
         services.AddScoped<ResilienceAssessmentStoreService>();

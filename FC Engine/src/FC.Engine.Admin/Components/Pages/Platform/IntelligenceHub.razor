@@ -1276,6 +1276,11 @@
                             <p>Structured AML / TFS sections assembled from the current screening state.</p>
                         </article>
                         <article class="fc-intel-card">
+                            <span class="fc-intel-card__label">Pack Materialized</span>
+                            <strong>@(_workspace.Sanctions.ReturnPackMaterializedAt?.ToString("dd MMM") ?? "Pending")</strong>
+                            <p>@(_workspace.Sanctions.ReturnPackMaterializedAt?.ToString("HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "The AML / TFS pack has not been written yet.")</p>
+                        </article>
+                        <article class="fc-intel-card">
                             <span class="fc-intel-card__label">Pack Attention</span>
                             <strong>@SanctionsPackAttentionCount</strong>
                             <p>Sections currently sitting in watch or critical posture before regulatory reporting.</p>
@@ -1288,7 +1293,10 @@
                                 <span class="fc-intel-card__label">AML / TFS Supervisory Pack</span>
                                 <h2>Structured sanctions, TFS, STR, and transaction-control pack from the live workflow</h2>
                             </div>
-                            <span class="fc-intel-chip">@_sanctionsPackRows.Count section(s)</span>
+                            <div class="fc-intel-inline-chips">
+                                <span class="fc-intel-chip">@_sanctionsPackRows.Count section(s)</span>
+                                <span class="fc-intel-chip">@(_workspace.Sanctions.ReturnPackMaterializedAt?.ToString("dd MMM HH:mm", CultureInfo.InvariantCulture) ?? "Pending")</span>
+                            </div>
                         </header>
                         @if (_sanctionsPackRows.Count == 0)
                         {
@@ -4632,6 +4640,7 @@
             InitializeInteractiveState();
             await LoadClientStateAsync();
             await SyncCapitalPackAsync();
+            await SyncSanctionsPackAsync();
         }
         catch (Exception ex)
         {
@@ -4716,6 +4725,7 @@
         ApplyPersistedSanctionsDecisions();
         NormalizeSelectedStrDraft();
         RebuildSanctionsPack();
+        await SyncSanctionsPackAsync();
         Toast.Success($"Screening complete: {_screeningRun.MatchCount} match(es) found.");
     }
 
@@ -4757,6 +4767,7 @@
 
         _transactionScreeningResult = await IntelligenceService.ScreenTransactionAsync(_transactionScreeningInput);
         RebuildSanctionsPack();
+        await SyncSanctionsPackAsync();
         Toast.Success($"Transaction screening complete: {_transactionScreeningResult.ControlDecision}.");
     }
 
@@ -4806,6 +4817,39 @@
             _screeningAuditTrail,
             _transactionScreeningResult,
             SuppressedFalsePositiveCount);
+    }
+
+    private async Task SyncSanctionsPackAsync()
+    {
+        if (_workspace is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var catalog = await IntelligenceService.MaterializeSanctionsPackAsync(
+                _sanctionsPackRows
+                    .Select(x => new SanctionsPackSectionInput
+                    {
+                        SectionCode = x.SectionCode,
+                        SectionName = x.SectionName,
+                        RowCount = x.RowCount,
+                        Signal = x.Signal,
+                        Coverage = x.Coverage,
+                        Commentary = x.Commentary,
+                        RecommendedAction = x.RecommendedAction
+                    })
+                    .ToList());
+
+            _workspace.Sanctions.ReturnPack = catalog.Sections.ToList();
+            _workspace.Sanctions.ReturnPackAttentionCount = catalog.Sections.Count(x => x.Signal is "Critical" or "Watch");
+            _workspace.Sanctions.ReturnPackMaterializedAt = catalog.MaterializedAt;
+        }
+        catch
+        {
+            // Keep the live in-memory pack visible even if the persistence refresh fails.
+        }
     }
 
     private async Task SyncCapitalPackAsync()
@@ -6255,6 +6299,7 @@
         await LoadSanctionsWorkflowStateAsync();
         NormalizeSelectedStrDraft();
         RebuildSanctionsPack();
+        await SyncSanctionsPackAsync();
     }
 
     private TfsReturnPreview ReviewedTfsPreview =>
@@ -7200,6 +7245,8 @@
             _screeningAuditTrail = [];
             RebuildSanctionsPack();
         }
+
+        await SyncSanctionsPackAsync();
     }
 
     private async Task LoadModelApprovalWorkflowStateAsync()

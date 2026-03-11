@@ -69,6 +69,7 @@ public sealed class PlatformIntelligenceService
     private readonly OpsResiliencePackCatalogService _opsResiliencePackCatalog;
     private readonly ModelRiskPackCatalogService _modelRiskPackCatalog;
     private readonly SanctionsWatchlistCatalogService _sanctionsWatchlistCatalog;
+    private readonly SanctionsPackCatalogService _sanctionsPackCatalog;
     private readonly SanctionsWorkflowStoreService _sanctionsWorkflowStore;
     private readonly ModelApprovalWorkflowStoreService _modelApprovalWorkflowStore;
     private readonly ResilienceAssessmentStoreService _resilienceAssessmentStore;
@@ -80,6 +81,7 @@ public sealed class PlatformIntelligenceService
         OpsResiliencePackCatalogService opsResiliencePackCatalog,
         ModelRiskPackCatalogService modelRiskPackCatalog,
         SanctionsWatchlistCatalogService sanctionsWatchlistCatalog,
+        SanctionsPackCatalogService sanctionsPackCatalog,
         SanctionsWorkflowStoreService sanctionsWorkflowStore,
         ModelApprovalWorkflowStoreService modelApprovalWorkflowStore,
         ResilienceAssessmentStoreService resilienceAssessmentStore)
@@ -90,6 +92,7 @@ public sealed class PlatformIntelligenceService
         _opsResiliencePackCatalog = opsResiliencePackCatalog;
         _modelRiskPackCatalog = modelRiskPackCatalog;
         _sanctionsWatchlistCatalog = sanctionsWatchlistCatalog;
+        _sanctionsPackCatalog = sanctionsPackCatalog;
         _sanctionsWorkflowStore = sanctionsWorkflowStore;
         _modelApprovalWorkflowStore = modelApprovalWorkflowStore;
         _resilienceAssessmentStore = resilienceAssessmentStore;
@@ -280,6 +283,7 @@ public sealed class PlatformIntelligenceService
         var sanctionsCatalog = await _sanctionsWatchlistCatalog.MaterializeAsync(
             BuildSanctionsCatalogRequest(),
             ct);
+        var sanctionsPackCatalog = await _sanctionsPackCatalog.LoadAsync(ct);
         var sanctionsWorkflowState = await _sanctionsWorkflowStore.LoadAsync(ct);
         var modelApprovalWorkflowState = await _modelApprovalWorkflowStore.LoadAsync(ct);
         var resilienceAssessmentState = await _resilienceAssessmentStore.LoadAsync(ct);
@@ -440,6 +444,9 @@ public sealed class PlatformIntelligenceService
                     && (x.FieldName.Contains("tfs", StringComparison.OrdinalIgnoreCase)
                         || x.FieldName.Contains("sanction", StringComparison.OrdinalIgnoreCase)
                         || x.FieldName.Contains("watchlist", StringComparison.OrdinalIgnoreCase))),
+                ReturnPack = sanctionsPackCatalog.Sections.ToList(),
+                ReturnPackAttentionCount = sanctionsPackCatalog.Sections.Count(x => x.Signal is "Critical" or "Watch"),
+                ReturnPackMaterializedAt = sanctionsPackCatalog.MaterializedAt,
                 Sources = sanctionsCatalog.Sources
                     .Select(x => new SanctionsWatchlistSource(
                         x.SourceCode,
@@ -747,6 +754,14 @@ public sealed class PlatformIntelligenceService
         IReadOnlyList<CapitalPackSectionInput> sections,
         CancellationToken ct = default) =>
         _capitalPackCatalog.MaterializeAsync(sections, ct);
+
+    public Task<SanctionsPackCatalogState> GetSanctionsPackCatalogStateAsync(CancellationToken ct = default) =>
+        _sanctionsPackCatalog.LoadAsync(ct);
+
+    public Task<SanctionsPackCatalogState> MaterializeSanctionsPackAsync(
+        IReadOnlyList<SanctionsPackSectionInput> sections,
+        CancellationToken ct = default) =>
+        _sanctionsPackCatalog.MaterializeAsync(sections, ct);
 
     private async Task<SanctionsCatalogState> LoadSanctionsCatalogAsync(CancellationToken ct)
     {
@@ -5142,6 +5157,9 @@ public sealed class SanctionsSnapshot
     public int PersistedReviewAuditCount { get; set; }
     public DateTime? LastReviewedAt { get; set; }
     public int TfsLinkedFieldCount { get; set; }
+    public List<SanctionsPackSectionState> ReturnPack { get; set; } = [];
+    public int ReturnPackAttentionCount { get; set; }
+    public DateTime? ReturnPackMaterializedAt { get; set; }
     public List<SanctionsWatchlistSource> Sources { get; set; } = [];
 }
 
