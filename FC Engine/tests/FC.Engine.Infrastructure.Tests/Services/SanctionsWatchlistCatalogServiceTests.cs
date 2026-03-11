@@ -82,6 +82,14 @@ public class SanctionsWatchlistCatalogServiceTests
         persistedEntries.Should().HaveCount(2);
         persistedSources.Should().Contain(x => x.SourceCode == "UN" && x.EntryCount == 1);
         persistedEntries.Should().Contain(x => x.EntryKey == "UN:ALQAIDA");
+
+        var state = await sut.LoadAsync();
+        state.Sources.Should().ContainSingle(x => x.SourceCode == "UN" && x.EntryCount == 1);
+        state.Entries.Should().ContainSingle(x =>
+            x.SourceCode == "UN"
+            && x.PrimaryName == "AL-QAIDA"
+            && x.Aliases.Contains("AL QAIDA")
+            && x.Aliases.Contains("ALQAIDA"));
     }
 
     private static MetadataDbContext CreateDb()

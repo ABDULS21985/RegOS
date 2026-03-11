@@ -56,6 +56,52 @@ public sealed class SanctionsWatchlistCatalogService
         };
     }
 
+    public async Task<SanctionsCatalogState> LoadAsync(CancellationToken ct = default)
+    {
+        await EnsureStoreAsync(ct);
+
+        var sources = await _db.SanctionsCatalogSources
+            .AsNoTracking()
+            .OrderBy(x => x.SourceCode)
+            .ToListAsync(ct);
+
+        var entries = await _db.SanctionsCatalogEntries
+            .AsNoTracking()
+            .OrderBy(x => x.SourceCode)
+            .ThenBy(x => x.PrimaryName)
+            .ToListAsync(ct);
+
+        return new SanctionsCatalogState
+        {
+            MaterializedAt = sources
+                .OrderByDescending(x => x.MaterializedAt)
+                .Select(x => (DateTime?)x.MaterializedAt)
+                .FirstOrDefault(),
+            Sources = sources
+                .Select(x => new SanctionsCatalogSourceState
+                {
+                    SourceCode = x.SourceCode,
+                    SourceName = x.SourceName,
+                    RefreshCadence = x.RefreshCadence,
+                    Status = x.Status,
+                    EntryCount = x.EntryCount,
+                    MaterializedAt = x.MaterializedAt
+                })
+                .ToList(),
+            Entries = entries
+                .Select(x => new SanctionsCatalogEntryState
+                {
+                    SourceCode = x.SourceCode,
+                    PrimaryName = x.PrimaryName,
+                    Aliases = DeserializeAliases(x.AliasesJson),
+                    Category = x.Category,
+                    RiskLevel = x.RiskLevel,
+                    MaterializedAt = x.MaterializedAt
+                })
+                .ToList()
+        };
+    }
+
     private async Task EnsureStoreAsync(CancellationToken ct)
     {
         if (!_db.Database.IsSqlServer())
@@ -206,6 +252,23 @@ public sealed class SanctionsWatchlistCatalogService
     private static string BuildEntryKey(string sourceCode, string primaryName) =>
         $"{Normalize(sourceCode)}:{Normalize(primaryName)}";
 
+    private static List<string> DeserializeAliases(string aliasesJson)
+    {
+        if (string.IsNullOrWhiteSpace(aliasesJson))
+        {
+            return [];
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<string>>(aliasesJson, JsonOptions) ?? [];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
     private static string Normalize(string value) =>
         new string((value ?? string.Empty)
             .Trim()
@@ -245,6 +308,13 @@ public sealed class SanctionsCatalogMaterializationResult
     public List<SanctionsCatalogSourceSummary> Sources { get; init; } = [];
 }
 
+public sealed class SanctionsCatalogState
+{
+    public DateTime? MaterializedAt { get; init; }
+    public List<SanctionsCatalogSourceState> Sources { get; init; } = [];
+    public List<SanctionsCatalogEntryState> Entries { get; init; } = [];
+}
+
 public sealed class SanctionsCatalogSourceSummary
 {
     public string SourceCode { get; init; } = string.Empty;
@@ -252,5 +322,25 @@ public sealed class SanctionsCatalogSourceSummary
     public string RefreshCadence { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
     public int EntryCount { get; init; }
+    public DateTime MaterializedAt { get; init; }
+}
+
+public sealed class SanctionsCatalogSourceState
+{
+    public string SourceCode { get; init; } = string.Empty;
+    public string SourceName { get; init; } = string.Empty;
+    public string RefreshCadence { get; init; } = string.Empty;
+    public string Status { get; init; } = string.Empty;
+    public int EntryCount { get; init; }
+    public DateTime MaterializedAt { get; init; }
+}
+
+public sealed class SanctionsCatalogEntryState
+{
+    public string SourceCode { get; init; } = string.Empty;
+    public string PrimaryName { get; init; } = string.Empty;
+    public List<string> Aliases { get; init; } = [];
+    public string Category { get; init; } = string.Empty;
+    public string RiskLevel { get; init; } = string.Empty;
     public DateTime MaterializedAt { get; init; }
 }

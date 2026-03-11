@@ -65,6 +65,7 @@ public sealed class PlatformIntelligenceService
 
     private readonly MetadataDbContext _db;
     private readonly KnowledgeGraphCatalogService _knowledgeGraphCatalog;
+    private readonly OpsResiliencePackCatalogService _opsResiliencePackCatalog;
     private readonly SanctionsWatchlistCatalogService _sanctionsWatchlistCatalog;
     private readonly SanctionsWorkflowStoreService _sanctionsWorkflowStore;
     private readonly ModelApprovalWorkflowStoreService _modelApprovalWorkflowStore;
@@ -73,6 +74,7 @@ public sealed class PlatformIntelligenceService
     public PlatformIntelligenceService(
         MetadataDbContext db,
         KnowledgeGraphCatalogService knowledgeGraphCatalog,
+        OpsResiliencePackCatalogService opsResiliencePackCatalog,
         SanctionsWatchlistCatalogService sanctionsWatchlistCatalog,
         SanctionsWorkflowStoreService sanctionsWorkflowStore,
         ModelApprovalWorkflowStoreService modelApprovalWorkflowStore,
@@ -80,6 +82,7 @@ public sealed class PlatformIntelligenceService
     {
         _db = db;
         _knowledgeGraphCatalog = knowledgeGraphCatalog;
+        _opsResiliencePackCatalog = opsResiliencePackCatalog;
         _sanctionsWatchlistCatalog = sanctionsWatchlistCatalog;
         _sanctionsWorkflowStore = sanctionsWorkflowStore;
         _modelApprovalWorkflowStore = modelApprovalWorkflowStore;
@@ -299,6 +302,20 @@ public sealed class PlatformIntelligenceService
             changeManagementControls,
             recoveryTimeTestingRows,
             resilienceBoardSummary);
+        var opsResiliencePackCatalog = await _opsResiliencePackCatalog.MaterializeAsync(
+            opsResilienceReturnPack
+                .Select(x => new OpsResiliencePackSheetInput
+                {
+                    SheetCode = x.SheetCode,
+                    SheetName = x.SheetName,
+                    RowCount = x.RowCount,
+                    Signal = x.Signal,
+                    Coverage = x.Coverage,
+                    Commentary = x.Commentary,
+                    RecommendedAction = x.RecommendedAction
+                })
+                .ToList(),
+            ct);
         var modelInventory = BuildModelInventory(fields, formulas, templates, modules, submissions, policyScenarios, historicalImpact);
         var modelChanges = BuildModelChangeRows(auditLog, fieldChanges);
         var modelValidationCalendar = BuildModelValidationCalendar(modelInventory);
@@ -420,8 +437,9 @@ public sealed class PlatformIntelligenceService
                 LastAssessmentUpdatedAt = resilienceAssessmentState.Responses
                     .OrderByDescending(x => x.AnsweredAtUtc)
                     .FirstOrDefault()?.AnsweredAtUtc,
-                ReturnPackReadyCount = opsResilienceReturnPack.Count(x => x.Signal == "Current"),
-                ReturnPackAttentionCount = opsResilienceReturnPack.Count(x => x.Signal is "Critical" or "Watch"),
+                ReturnPackReadyCount = opsResiliencePackCatalog.Sheets.Count(x => x.Signal == "Current"),
+                ReturnPackAttentionCount = opsResiliencePackCatalog.Sheets.Count(x => x.Signal is "Critical" or "Watch"),
+                ReturnPackMaterializedAt = opsResiliencePackCatalog.MaterializedAt,
                 CyberAssessmentScore = cyberAssessmentRows.Count == 0 ? 0m : Math.Round(cyberAssessmentRows.Average(x => x.Score), 1),
                 CyberAssessmentCriticalCount = cyberAssessmentRows.Count(x => x.Signal == "Critical"),
                 ImportantServiceCount = importantBusinessServices.Count,
@@ -436,7 +454,18 @@ public sealed class PlatformIntelligenceService
                 BusinessServices = importantBusinessServices,
                 ImpactTolerances = impactToleranceRows,
                 CyberAssessment = cyberAssessmentRows,
-                ReturnPack = opsResilienceReturnPack,
+                ReturnPack = opsResiliencePackCatalog.Sheets
+                    .Select(x => new OpsResilienceSheetRow
+                    {
+                        SheetCode = x.SheetCode,
+                        SheetName = x.SheetName,
+                        RowCount = x.RowCount,
+                        Signal = x.Signal,
+                        Coverage = x.Coverage,
+                        Commentary = x.Commentary,
+                        RecommendedAction = x.RecommendedAction
+                    })
+                    .ToList(),
                 ThirdPartyRegister = thirdPartyRiskRows,
                 BusinessContinuityPlans = businessContinuityPlans,
                 RecoveryTimeTests = recoveryTimeTestingRows,
@@ -504,20 +533,54 @@ public sealed class PlatformIntelligenceService
         };
     }
 
-    public Task<SanctionsScreeningRun> ScreenSubjectsAsync(IEnumerable<string> subjects, double threshold, CancellationToken ct = default)
+    public async Task<SanctionsScreeningRun> ScreenSubjectsAsync(IEnumerable<string> subjects, double threshold, CancellationToken ct = default)
     {
-        _ = ct;
-
         var cleanedSubjects = subjects
             .Select(x => (x ?? string.Empty).Trim())
             .Where(x => !string.IsNullOrWhiteSpace(x))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        var catalog = await LoadSanctionsCatalogAsync(ct);
+        var sourceNameByCode = catalog.Sources.ToDictionary(x => x.SourceCode, x => x.SourceName, StringComparer.OrdinalIgnoreCase);
+        var watchlistEntries = catalog.Entries
+            .Select(x => new SanctionsWatchlistEntry(
+                x.SourceCode,
+                x.PrimaryName,
+                x.Aliases,
+                x.Category,
+                x.RiskLevel))
+            .ToList();
+
+        if (watchlistEntries.Count == 0)
+        {
+            return new SanctionsScreeningRun
+            {
+                ThresholdPercent = Math.Round(threshold * 100d, 0),
+                ScreenedAt = DateTime.UtcNow,
+                TotalSubjects = cleanedSubjects.Count,
+                MatchCount = 0,
+                TfsPreview = new SanctionsTfsPreview(),
+                Results = cleanedSubjects
+                    .Select(subject => new SanctionsScreeningResultRow
+                    {
+                        Subject = subject,
+                        Disposition = "Clear",
+                        MatchScore = 0d,
+                        MatchedName = "No material match",
+                        SourceCode = "N/A",
+                        SourceName = "N/A",
+                        Category = "clear",
+                        RiskLevel = "low"
+                    })
+                    .ToList()
+            };
+        }
+
         var results = new List<SanctionsScreeningResultRow>();
         foreach (var subject in cleanedSubjects)
         {
-            var bestMatch = WatchlistEntries
+            var bestMatch = watchlistEntries
                 .Select(entry => ScoreSubject(subject, entry))
                 .OrderByDescending(x => x.Score)
                 .ThenBy(x => x.Entry.SourceCode, StringComparer.OrdinalIgnoreCase)
@@ -536,13 +599,15 @@ public sealed class PlatformIntelligenceService
                 MatchScore = Math.Round(bestMatch.Score * 100d, 1),
                 MatchedName = disposition == "Clear" ? "No material match" : bestMatch.MatchedAlias,
                 SourceCode = disposition == "Clear" ? "N/A" : bestMatch.Entry.SourceCode,
-                SourceName = disposition == "Clear" ? "N/A" : WatchlistSources.First(x => x.Code == bestMatch.Entry.SourceCode).Name,
+                SourceName = disposition == "Clear"
+                    ? "N/A"
+                    : sourceNameByCode.GetValueOrDefault(bestMatch.Entry.SourceCode, bestMatch.Entry.SourceCode),
                 Category = disposition == "Clear" ? "clear" : bestMatch.Entry.Category,
                 RiskLevel = disposition == "Clear" ? "low" : bestMatch.Entry.RiskLevel
             });
         }
 
-        return Task.FromResult(new SanctionsScreeningRun
+        return new SanctionsScreeningRun
         {
             ThresholdPercent = Math.Round(threshold * 100d, 0),
             ScreenedAt = DateTime.UtcNow,
@@ -550,7 +615,7 @@ public sealed class PlatformIntelligenceService
             MatchCount = results.Count(x => x.Disposition != "Clear"),
             TfsPreview = BuildTfsPreview(results),
             Results = results
-        });
+        };
     }
 
     public async Task<SanctionsTransactionScreeningResult> ScreenTransactionAsync(
@@ -638,6 +703,18 @@ public sealed class PlatformIntelligenceService
 
     public Task ResetResilienceAssessmentAsync(CancellationToken ct = default) =>
         _resilienceAssessmentStore.ResetAsync(ct);
+
+    private async Task<SanctionsCatalogState> LoadSanctionsCatalogAsync(CancellationToken ct)
+    {
+        var catalog = await _sanctionsWatchlistCatalog.LoadAsync(ct);
+        if (catalog.Entries.Count > 0 && catalog.Sources.Count > 0)
+        {
+            return catalog;
+        }
+
+        await _sanctionsWatchlistCatalog.MaterializeAsync(BuildSanctionsCatalogRequest(), ct);
+        return await _sanctionsWatchlistCatalog.LoadAsync(ct);
+    }
 
     private async Task<List<ChsScoreSnapshot>> GetLatestChsSnapshotsAsync(CancellationToken ct)
     {
@@ -5149,6 +5226,7 @@ public sealed class OperationalResilienceSnapshot
     public DateTime? LastAssessmentUpdatedAt { get; set; }
     public int ReturnPackReadyCount { get; set; }
     public int ReturnPackAttentionCount { get; set; }
+    public DateTime? ReturnPackMaterializedAt { get; set; }
     public decimal CyberAssessmentScore { get; set; }
     public int CyberAssessmentCriticalCount { get; set; }
     public int ImportantServiceCount { get; set; }
