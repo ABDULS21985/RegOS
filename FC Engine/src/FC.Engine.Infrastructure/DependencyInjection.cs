@@ -163,6 +163,7 @@ public static class DependencyInjection
         services.AddScoped<IInterModuleDataFlowEngine, InterModuleDataFlowEngine>();
         services.AddScoped<KnowledgeGraphCatalogService>();
         services.AddScoped<KnowledgeGraphDossierCatalogService>();
+        services.AddScoped<DashboardBriefingPackCatalogService>();
         services.AddScoped<CapitalActionCatalogService>();
         services.AddScoped<CapitalPlanningScenarioStoreService>();
         services.AddScoped<ModelInventoryCatalogService>();

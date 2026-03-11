@@ -8,6 +8,29 @@
 
 <div class="portal-page">
 
+    @if (_loading)
+    {
+        <div aria-busy="true" aria-label="Loading sandbox environment...">
+            <div class="portal-sandbox-hero" style="display:flex;flex-direction:column;align-items:center;gap:1rem">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Width="140px" Index="0" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Heading" Width="260px" Index="1" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Width="420px" Index="2" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Width="380px" Index="3" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Width="200px" Height="40px" Index="4" />
+            </div>
+            <div style="margin-top:2rem">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Heading" Width="220px" Index="5" />
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-top:1rem">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="6" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="7" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="8" />
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+
     <!-- Hero section with guided context -->
     <div class="portal-sandbox-hero">
         <div class="portal-sandbox-hero-badge" aria-label="Training environment">
@@ -192,9 +215,12 @@
         Need help? Visit the <a href="/help" style="color:var(--cbn-primary,#006B3F)">Help Centre</a>
         or contact your administrator.
     </div>
+
+    }
 </div>
 
 @code {
+    private bool _loading = true;
     private SandboxContext? _context;
     private SandboxProvisionResult? _provisionResult;
     private bool _busy;
@@ -203,8 +229,15 @@
 
     protected override async Task OnInitializedAsync()
     {
-        if (!TenantContext.CurrentTenantId.HasValue) return;
-        _context = await SandboxService.GetContext(TenantContext.CurrentTenantId.Value);
+        try
+        {
+            if (!TenantContext.CurrentTenantId.HasValue) return;
+            _context = await SandboxService.GetContext(TenantContext.CurrentTenantId.Value);
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private async Task CreateSandbox()

@@ -19,125 +19,154 @@
 </PageHeader>
 
 <SectionErrorBoundary Title="Couldn't load form data" ExternalError="@_loadException" OnRetry="ReloadAsync">
-    <div class="rg-card" style="padding:1.25rem;">
-        <div class="rg-cb-form-row">
-            <div class="rg-cb-field">
-                <label>Financial Group</label>
-                <select @bind="_selectedGroupId">
-                    <option value="0">-- Select group --</option>
-                    @foreach (var g in _groups)
-                    {
-                        <option value="@g.Id">@g.GroupName (@g.GroupCode)</option>
-                    }
-                </select>
-            </div>
-            <div class="rg-cb-field">
-                <label>Flow Code</label>
-                <input @bind="_def.FlowCode" placeholder="e.g. NG_GH_CAR" />
-            </div>
-            <div class="rg-cb-field">
-                <label>Flow Name</label>
-                <input @bind="_def.FlowName" placeholder="Nigeria -> Ghana CAR Transfer" />
-            </div>
-        </div>
-
-        <h4 class="rg-section-title" style="margin:1rem 0 0.5rem;">Source</h4>
-        <div class="rg-cb-form-row">
-            <div class="rg-cb-field">
-                <label>Source Jurisdiction</label>
-                <select @bind="_def.SourceJurisdiction">
-                    <option value="">-- Select --</option>
-                    @foreach (var j in _jurisdictions)
-                    {
-                        <option value="@j.JurisdictionCode">@j.CountryName (@j.JurisdictionCode)</option>
-                    }
-                </select>
-            </div>
-            <div class="rg-cb-field">
-                <label>Source Return Code</label>
-                <input @bind="_def.SourceReturnCode" placeholder="CBN_1000" />
-            </div>
-            <div class="rg-cb-field">
-                <label>Source Line Code</label>
-                <input @bind="_def.SourceLineCode" placeholder="L001" />
-            </div>
-        </div>
-
-        <h4 class="rg-section-title" style="margin:1rem 0 0.5rem;">Target</h4>
-        <div class="rg-cb-form-row">
-            <div class="rg-cb-field">
-                <label>Target Jurisdiction</label>
-                <select @bind="_def.TargetJurisdiction">
-                    <option value="">-- Select --</option>
-                    @foreach (var j in _jurisdictions)
-                    {
-                        <option value="@j.JurisdictionCode">@j.CountryName (@j.JurisdictionCode)</option>
-                    }
-                </select>
-            </div>
-            <div class="rg-cb-field">
-                <label>Target Return Code</label>
-                <input @bind="_def.TargetReturnCode" placeholder="BOG_2000" />
-            </div>
-            <div class="rg-cb-field">
-                <label>Target Line Code</label>
-                <input @bind="_def.TargetLineCode" placeholder="L001" />
-            </div>
-        </div>
-
-        <h4 class="rg-section-title" style="margin:1rem 0 0.5rem;">Transformation</h4>
-        <div class="rg-cb-form-row">
-            <div class="rg-cb-field">
-                <label>Transformation Type</label>
-                <select @bind="_def.Transformation">
-                    <option value="@DataFlowTransformation.Direct">Direct</option>
-                    <option value="@DataFlowTransformation.CurrencyConvert">Currency Convert</option>
-                    <option value="@DataFlowTransformation.Formula">Formula</option>
-                    <option value="@DataFlowTransformation.Proportional">Proportional</option>
-                </select>
-            </div>
-            <div class="rg-cb-field">
-                <label>Requires Currency Conversion</label>
-                <select @bind="_def.RequiresCurrencyConversion">
-                    <option value="true">Yes</option>
-                    <option value="false">No</option>
-                </select>
-            </div>
-            @if (_def.Transformation == DataFlowTransformation.Formula)
-            {
-                <div class="rg-cb-field">
-                    <label>Formula</label>
-                    <input @bind="_def.TransformationFormula" placeholder="e.g. SOURCE * 0.85" />
-                </div>
-            }
-        </div>
-
-        @* -- Preview -- *@
-        <div style="margin-top:1rem;padding:0.75rem;border-radius:8px;background:#f8fafc;border:1px solid var(--rg-border);">
-            <div class="rg-cb-flow-row" style="border:none;background:transparent;">
-                <FlagBadge Code="@_def.SourceJurisdiction" Label="@_def.SourceReturnCode" />
-                <span class="rg-cb-flow-arrow">-></span>
-                <span class="rg-cb-flow-transform">@_def.Transformation</span>
-                @if (_def.RequiresCurrencyConversion)
+    @if (_loading)
+    {
+        <div class="rg-card rg-cb-card-padded" role="status" aria-busy="true" aria-label="Loading form data">
+            <div class="rg-cb-form-row">
+                @for (var i = 0; i < 3; i++)
                 {
-                    <span class="rg-cb-flow-fx">FX</span>
+                    <div class="rg-cb-field">
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Index="i" />
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="36px" Index="i" />
+                    </div>
                 }
-                <span class="rg-cb-flow-arrow">-></span>
-                <FlagBadge Code="@_def.TargetJurisdiction" Label="@_def.TargetReturnCode" />
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Heading" />
+            <div class="rg-cb-form-row">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="rg-cb-field">
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Index="i" />
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="36px" Index="i" />
+                    </div>
+                }
             </div>
         </div>
+    }
+    else
+    {
+        <div class="rg-card rg-cb-card-padded">
+            <div class="rg-cb-form-row">
+                <div class="rg-cb-field">
+                    <label for="df-group">Financial Group</label>
+                    <select id="df-group" aria-label="Financial Group" @bind="_selectedGroupId">
+                        <option value="0">-- Select group --</option>
+                        @foreach (var g in _groups)
+                        {
+                            <option value="@g.Id">@g.GroupName (@g.GroupCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-code">Flow Code</label>
+                    <input id="df-code" aria-label="Flow Code" @bind="_def.FlowCode" placeholder="e.g. NG_GH_CAR" />
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-name">Flow Name</label>
+                    <input id="df-name" aria-label="Flow Name" @bind="_def.FlowName" placeholder="Nigeria -> Ghana CAR Transfer" />
+                </div>
+            </div>
 
-        <div class="rg-controls" style="margin-top:1rem;">
-            <button class="fc-btn fc-btn--primary" @onclick="CreateFlow" disabled="@(_saving || _selectedGroupId == 0)">
-                @(_saving ? "Creating..." : "Create Flow")
-            </button>
+            <h4 class="rg-section-title rg-cb-section-gap">Source</h4>
+            <div class="rg-cb-form-row">
+                <div class="rg-cb-field">
+                    <label for="df-src-jurisdiction">Source Jurisdiction</label>
+                    <select id="df-src-jurisdiction" aria-label="Source Jurisdiction" @bind="_def.SourceJurisdiction">
+                        <option value="">-- Select --</option>
+                        @foreach (var j in _jurisdictions)
+                        {
+                            <option value="@j.JurisdictionCode">@j.CountryName (@j.JurisdictionCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-src-return">Source Return Code</label>
+                    <input id="df-src-return" aria-label="Source Return Code" @bind="_def.SourceReturnCode" placeholder="CBN_1000" />
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-src-line">Source Line Code</label>
+                    <input id="df-src-line" aria-label="Source Line Code" @bind="_def.SourceLineCode" placeholder="L001" />
+                </div>
+            </div>
+
+            <h4 class="rg-section-title rg-cb-section-gap">Target</h4>
+            <div class="rg-cb-form-row">
+                <div class="rg-cb-field">
+                    <label for="df-tgt-jurisdiction">Target Jurisdiction</label>
+                    <select id="df-tgt-jurisdiction" aria-label="Target Jurisdiction" @bind="_def.TargetJurisdiction">
+                        <option value="">-- Select --</option>
+                        @foreach (var j in _jurisdictions)
+                        {
+                            <option value="@j.JurisdictionCode">@j.CountryName (@j.JurisdictionCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-tgt-return">Target Return Code</label>
+                    <input id="df-tgt-return" aria-label="Target Return Code" @bind="_def.TargetReturnCode" placeholder="BOG_2000" />
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-tgt-line">Target Line Code</label>
+                    <input id="df-tgt-line" aria-label="Target Line Code" @bind="_def.TargetLineCode" placeholder="L001" />
+                </div>
+            </div>
+
+            <h4 class="rg-section-title rg-cb-section-gap">Transformation</h4>
+            <div class="rg-cb-form-row">
+                <div class="rg-cb-field">
+                    <label for="df-transform">Transformation Type</label>
+                    <select id="df-transform" aria-label="Transformation Type" @bind="_def.Transformation">
+                        <option value="@DataFlowTransformation.Direct">Direct</option>
+                        <option value="@DataFlowTransformation.CurrencyConvert">Currency Convert</option>
+                        <option value="@DataFlowTransformation.Formula">Formula</option>
+                        <option value="@DataFlowTransformation.Proportional">Proportional</option>
+                    </select>
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-fx">Requires Currency Conversion</label>
+                    <select id="df-fx" aria-label="Requires Currency Conversion" @bind="_def.RequiresCurrencyConversion">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                </div>
+                @if (_def.Transformation == DataFlowTransformation.Formula)
+                {
+                    <div class="rg-cb-field">
+                        <label for="df-formula">Formula</label>
+                        <input id="df-formula" aria-label="Transformation Formula" @bind="_def.TransformationFormula" placeholder="e.g. SOURCE * 0.85" />
+                    </div>
+                }
+            </div>
+
+            @* -- Preview -- *@
+            <div class="rg-cb-flow-preview" aria-label="Flow preview">
+                <div class="rg-cb-flow-row rg-cb-flow-row--inline">
+                    <FlagBadge Code="@_def.SourceJurisdiction" Label="@_def.SourceReturnCode" />
+                    <span class="rg-cb-flow-arrow">-></span>
+                    <span class="rg-cb-flow-transform">@_def.Transformation</span>
+                    @if (_def.RequiresCurrencyConversion)
+                    {
+                        <span class="rg-cb-flow-fx">FX</span>
+                    }
+                    <span class="rg-cb-flow-arrow">-></span>
+                    <FlagBadge Code="@_def.TargetJurisdiction" Label="@_def.TargetReturnCode" />
+                </div>
+            </div>
+
+            <div class="rg-controls rg-cb-controls-top">
+                <button class="fc-btn fc-btn--primary" @onclick="CreateFlow" disabled="@(_saving || _selectedGroupId == 0)"
+                        aria-busy="@(_saving ? "true" : null)">
+                    @(_saving ? "Creating..." : "Create Flow")
+                </button>
+            </div>
         </div>
-    </div>
+    }
 </SectionErrorBoundary>
 
 @code {
     private int _selectedGroupId;
     private bool _saving;
+    private bool _loading = true;
     private Exception? _loadException;
     private DataFlowDefinition _def = new() { Transformation = DataFlowTransformation.Direct };
     private List<FinancialGroup> _groups = [];
@@ -147,6 +176,7 @@
 
     private async Task ReloadAsync()
     {
+        _loading = true;
         _loadException = null;
         try
         {
@@ -158,6 +188,10 @@
         catch (Exception ex)
         {
             _loadException = ex;
+        }
+        finally
+        {
+            _loading = false;
         }
     }
 

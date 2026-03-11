@@ -12,13 +12,11 @@
 <PageTitle>Modules — RegOS™ Portal</PageTitle>
 
 <div class="portal-page">
-    <div class="portal-page-header portal-page-header-split">
-        <div class="portal-page-header-main">
-            <h1 class="portal-page-title">Regulatory Modules</h1>
-            <p class="portal-page-subtitle">View all available regulatory modules and your entitlement status based on your licence types</p>
-        </div>
-        <div class="portal-page-header-actions">
-            @if (!_loading && !_allModules.Any() == false)
+    <PortalPageHeader Title="Regulatory Modules"
+                      Subtitle="View all available regulatory modules and your entitlement status based on your licence types"
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Modules", IsCurrent: true) })">
+        <SecondaryActions>
+            @if (!_loading && _allModules.Any())
             {
                 <button class="portal-btn portal-btn-ghost portal-btn-sm @(_customizeOrder ? "portal-btn-active" : "")"
                         @onclick="ToggleCustomizeOrder"
@@ -33,15 +31,29 @@
                     </button>
                 }
             }
-        </div>
-    </div>
+        </SecondaryActions>
+    </PortalPageHeader>
 
     @if (_loading)
     {
-        <div class="portal-loading">
-            <div class="portal-spinner" aria-hidden="true"></div>
-            <p>Loading modules...</p>
-        </div>
+        <SkeletonGuard OnRetry="ReloadAsync">
+            <div aria-busy="true" aria-label="Loading regulatory modules...">
+                <div class="fc-skel-stats-row fc-skel-section">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="1" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="2" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-top:1.5rem">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="4" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="5" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="6" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="7" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="8" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="9" />
+                </div>
+            </div>
+        </SkeletonGuard>
     }
     else if (_error != null)
     {
@@ -142,8 +154,12 @@
     private HashSet<string> _activeModules = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _requiredModules = new(StringComparer.OrdinalIgnoreCase);
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
     {
+        _loading = true;
+        _error = null;
         try
         {
             var tenantId = TenantContext.CurrentTenantId;

@@ -27,18 +27,26 @@
     @if (!string.IsNullOrEmpty(searchQuery))
     {
         <!-- Search Results -->
-        <div class="help-search-results">
+        <div class="help-search-results" role="region" aria-label="Search results">
             <h2 class="help-section-title">Search Results for "@searchQuery"</h2>
             @if (filteredTopics.Count == 0)
             {
-                <p class="help-empty-text">No results found. Try a different search term or browse the topics below.</p>
+                <div class="portal-empty-state" style="padding: 2rem;">
+                    <div class="portal-empty-state-icon" aria-hidden="true">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                    </div>
+                    <h3 class="portal-empty-state-title">No Results Found</h3>
+                    <p class="portal-empty-state-desc">Try a different search term or browse the topics below.</p>
+                </div>
             }
             else
             {
-                <div class="help-topics-grid">
+                <div class="help-topics-grid" role="list" aria-label="Matching help topics">
                     @foreach (var topic in filteredTopics)
                     {
-                        <a href="@topic.Link" class="help-topic-card">
+                        <a href="@topic.Link" class="help-topic-card" role="listitem">
                             <div class="help-topic-icon" aria-hidden="true">@((MarkupString)topic.Icon)</div>
                             <h3 class="help-topic-title">@HighlightMatch(topic.Title)</h3>
                             <p class="help-topic-desc">@HighlightMatch(topic.Description)</p>
@@ -51,7 +59,7 @@
     else
     {
         <!-- Quick Links -->
-        <div class="help-quick-links">
+        <div class="help-quick-links" role="navigation" aria-label="Quick links">
             <a href="/help/submission-guide" class="help-quick-link">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
@@ -87,11 +95,11 @@
         </div>
 
         <!-- Popular Topics -->
-        <h2 class="help-section-title">Popular Topics</h2>
-        <div class="help-topics-grid">
+        <h2 class="help-section-title" id="popular-topics-heading">Popular Topics</h2>
+        <div class="help-topics-grid" role="list" aria-labelledby="popular-topics-heading">
             @foreach (var topic in allTopics)
             {
-                <a href="@topic.Link" class="help-topic-card">
+                <a href="@topic.Link" class="help-topic-card" role="listitem">
                     <div class="help-topic-icon" aria-hidden="true">@((MarkupString)topic.Icon)</div>
                     <h3 class="help-topic-title">@topic.Title</h3>
                     <p class="help-topic-desc">@topic.Description</p>

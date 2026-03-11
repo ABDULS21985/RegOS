@@ -10,12 +10,10 @@
 <PageTitle>Notifications — RegOS™ Portal</PageTitle>
 
 <div class="portal-page">
-    <div class="portal-page-header">
-        <div class="portal-page-header-main">
-            <h1 class="portal-page-title">Notifications</h1>
-            <p class="portal-page-subtitle">Stay updated on submissions, approvals, and deadlines</p>
-        </div>
-        <div class="portal-page-header-actions">
+    <PortalPageHeader Title="Notifications"
+                      Subtitle="Stay updated on submissions, approvals, and deadlines"
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Notifications", IsCurrent: true) })">
+        <PrimaryAction>
             @if (model is not null && model.UnreadCount > 0)
             {
                 <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="MarkAllRead" disabled="@isMarkingAll">
@@ -23,12 +21,14 @@
                     Mark all as read
                 </button>
             }
+        </PrimaryAction>
+        <SecondaryActions>
             <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ClearOld" disabled="@isClearing"
                     title="Remove read notifications older than 30 days">
                 Clear old
             </button>
-        </div>
-    </div>
+        </SecondaryActions>
+    </PortalPageHeader>
 
     <!-- Filter Tabs with keyboard shortcut hints -->
     <div class="portal-notif-filter-tabs" role="tablist" aria-label="Filter notifications">
@@ -72,7 +72,7 @@
 
     @if (isLoading)
     {
-        <div class="portal-card" style="padding: 2rem; display:flex; flex-direction:column; gap:0.75rem;">
+        <div class="portal-card" style="padding: 2rem; display:flex; flex-direction:column; gap:0.75rem;" aria-busy="true" aria-label="Loading notifications">
             @for (int i = 0; i < 4; i++)
             {
                 <div class="portal-skeleton portal-skeleton-block" style="height: 96px; border-radius:10px;"></div>

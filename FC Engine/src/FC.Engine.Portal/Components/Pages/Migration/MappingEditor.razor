@@ -34,25 +34,17 @@
 </div>
 
 <div class="portal-page">
-    <div class="portal-breadcrumb">
-        <a href="/migration" class="portal-breadcrumb-link">Historical Migration</a>
-        <span class="portal-breadcrumb-sep">/</span>
-        <span class="portal-breadcrumb-current">Job #@ImportJobId — @(mappingEditor?.ReturnCode ?? "…")</span>
-    </div>
-
-    <div class="portal-detail-hero">
-        <div class="portal-detail-hero-main">
-            <h1 class="portal-detail-hero-title">Field Mapping Editor</h1>
-            <p class="portal-detail-hero-subtitle">Connect legacy source columns to RegOS™ schema fields, validate, preview, then commit.</p>
-        </div>
-        <div class="portal-detail-hero-actions">
+    <PortalPageHeader Title="Field Mapping Editor"
+                      Subtitle="Connect legacy source columns to RegOS™ schema fields, validate, preview, then commit."
+                      BackUrl="/migration"
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Migration", "/migration"), new($"Job #{ImportJobId} — {mappingEditor?.ReturnCode ?? "…"}", IsCurrent: true) })">
+        <SecondaryActions>
             @if (job is not null)
             {
                 <span class="portal-badge @GetStatusBadge(job.Status)">@job.Status</span>
             }
-            <a class="portal-btn portal-btn-ghost portal-btn-sm" href="/migration">← Back</a>
-        </div>
-    </div>
+        </SecondaryActions>
+    </PortalPageHeader>
 
     @if (!string.IsNullOrWhiteSpace(errorMessage))
     {
@@ -65,8 +57,27 @@
 
     @if (mappingEditor is null)
     {
-        <div class="portal-card" style="padding:1.5rem;">
-            <p class="portal-text-muted">Loading mapping editor…</p>
+        <div aria-busy="true" aria-label="Loading mapping editor">
+            <div class="portal-card" style="padding:1rem 1.25rem;">
+                <div class="fc-skel fc-skel--text" style="width:50%;margin-bottom:0.75rem;"></div>
+                <div class="fc-skel fc-skel--block" style="height:8px;border-radius:99px;margin-bottom:1rem;"></div>
+                <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+                    <div class="fc-skel fc-skel--block" style="width:100px;height:32px;border-radius:6px;"></div>
+                    <div class="fc-skel fc-skel--block" style="width:100px;height:32px;border-radius:6px;"></div>
+                </div>
+            </div>
+            <div class="portal-card" style="padding:1rem 1.25rem;margin-top:1rem;">
+                <div class="fc-skel fc-skel--text" style="width:25%;margin-bottom:0.75rem;"></div>
+                @for (int i = 0; i < 5; i++)
+                {
+                    <div style="display:flex;gap:1rem;margin-bottom:0.5rem;">
+                        <div class="fc-skel fc-skel--text" style="width:20%;"></div>
+                        <div class="fc-skel fc-skel--text" style="width:25%;"></div>
+                        <div class="fc-skel fc-skel--text" style="width:30%;"></div>
+                        <div class="fc-skel fc-skel--text" style="width:15%;"></div>
+                    </div>
+                }
+            </div>
         </div>
     }
     else

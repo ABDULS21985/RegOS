@@ -43,7 +43,7 @@
                     <option value="@module">@module</option>
                 }
             </select>
-            <button class="portal-btn portal-btn-primary portal-btn-sm fc-kb-search-btn" @onclick="Load" type="button">
+            <button class="portal-btn portal-btn-primary portal-btn-sm fc-kb-search-btn" @onclick="Load" type="button" aria-label="Search knowledge base">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                 </svg>
@@ -54,7 +54,7 @@
         <!-- Category chips -->
         @if (_categories.Count > 0)
         {
-            <div class="fc-kb-chips" aria-label="Quick category filters">
+            <div class="fc-kb-chips" role="toolbar" aria-label="Quick category filters">
                 <button class="fc-kb-chip @(string.IsNullOrEmpty(_category) ? "fc-kb-chip--active" : "")"
                         @onclick="() => SelectCategory(string.Empty)" type="button">All</button>
                 @foreach (var cat in _categories)
@@ -68,10 +68,10 @@
         <!-- Results -->
         @if (_loading)
         {
-            <div class="fc-kb-articles">
+            <div class="fc-kb-articles" aria-busy="true" aria-label="Loading knowledge base articles">
                 @for (int i = 0; i < 3; i++)
                 {
-                    <div class="fc-kb-article-card fc-kb-article-card--skel">
+                    <div class="fc-kb-article-card fc-kb-article-card--skel" aria-hidden="true">
                         <div class="fc-skel fc-skel--text" style="width: 60%; height: 1.1rem; margin-bottom: 0.5rem"></div>
                         <div class="fc-skel fc-skel--text" style="width: 30%; height: 0.75rem; margin-bottom: 0.75rem"></div>
                         <div class="fc-skel fc-skel--text" style="height: 0.875rem; margin-bottom: 0.375rem"></div>
@@ -82,11 +82,14 @@
         }
         else if (_articles.Count == 0)
         {
-            <div class="fc-kb-empty">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-                    <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
-                </svg>
-                <p>No articles found for this filter.</p>
+            <div class="portal-empty-state fc-kb-empty" style="padding: 2rem;">
+                <div class="portal-empty-state-icon" aria-hidden="true">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                    </svg>
+                </div>
+                <h3 class="portal-empty-state-title">No Articles Found</h3>
+                <p class="portal-empty-state-desc">No articles match the current filters. Try adjusting your search or category.</p>
                 <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="ClearFilters" type="button">Clear filters</button>
             </div>
         }

@@ -19,7 +19,23 @@
         </div>
     }
 
-    @if (_snapshot is null)
+    @if (_loading)
+    {
+        <div aria-busy="true" aria-label="Loading onboarding checklist...">
+            <div class="portal-card portal-onboarding-card">
+                <div class="portal-card-body" style="display:flex;flex-direction:column;gap:1rem">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Heading" Width="50%" Index="0" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Width="100%" Height="24px" Index="1" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Width="80%" Index="2" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Width="90%" Index="3" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Width="75%" Index="4" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Width="85%" Index="5" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Width="70%" Index="6" />
+                </div>
+            </div>
+        </div>
+    }
+    else if (_snapshot is null)
     {
         <div class="portal-card"><div class="portal-card-body">Checklist not found for this tenant.</div></div>
     }
@@ -80,21 +96,29 @@
     [SupplyParameterFromQuery(Name = "durationMs")]
     private long? durationMs { get; set; }
 
+    private bool _loading = true;
     private OnboardingChecklistSnapshot? _snapshot;
     private string? _tempPassword;
     private long _provisioningDurationMs;
 
     protected override async Task OnInitializedAsync()
     {
-        var effectiveTenantId = TenantId != Guid.Empty
-            ? TenantId
-            : TenantContext.CurrentTenantId ?? Guid.Empty;
-        _snapshot = effectiveTenantId == Guid.Empty
-            ? null
-            : await WizardService.GetChecklist(effectiveTenantId);
-        _tempPassword = string.IsNullOrWhiteSpace(tempPasswordEncoded)
-            ? null
-            : Uri.UnescapeDataString(tempPasswordEncoded);
-        _provisioningDurationMs = durationMs ?? 0;
+        try
+        {
+            var effectiveTenantId = TenantId != Guid.Empty
+                ? TenantId
+                : TenantContext.CurrentTenantId ?? Guid.Empty;
+            _snapshot = effectiveTenantId == Guid.Empty
+                ? null
+                : await WizardService.GetChecklist(effectiveTenantId);
+            _tempPassword = string.IsNullOrWhiteSpace(tempPasswordEncoded)
+                ? null
+                : Uri.UnescapeDataString(tempPasswordEncoded);
+            _provisioningDurationMs = durationMs ?? 0;
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 }

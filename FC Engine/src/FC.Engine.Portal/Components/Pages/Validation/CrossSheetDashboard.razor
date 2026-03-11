@@ -10,24 +10,24 @@
 
 @if (isLoading)
 {
-    <div class="xs-page">
+    <div class="xs-page" aria-busy="true" aria-label="Loading cross-sheet validation">
         <div class="xs-header">
-            <div class="skeleton skeleton-title" style="width: 320px; height: 24px"></div>
-            <div class="skeleton skeleton-text" style="width: 440px; height: 16px; margin-top: 0.5rem"></div>
+            <div class="portal-skeleton portal-skeleton-text" style="width: 320px; height: 24px"></div>
+            <div class="portal-skeleton portal-skeleton-text" style="width: 440px; height: 16px; margin-top: 0.5rem"></div>
         </div>
         <div class="xs-stat-row">
             @for (int i = 0; i < 4; i++)
             {
                 <div class="portal-card xs-stat-card">
-                    <div class="skeleton" style="width: 48px; height: 32px"></div>
-                    <div class="skeleton skeleton-text" style="width: 80px; height: 14px"></div>
+                    <div class="portal-skeleton" style="width: 48px; height: 32px"></div>
+                    <div class="portal-skeleton portal-skeleton-text" style="width: 80px; height: 14px"></div>
                 </div>
             }
         </div>
         <div class="portal-card" style="padding: 1.5rem">
             @for (int i = 0; i < 4; i++)
             {
-                <div class="skeleton" style="height: 52px; margin-bottom: 0.5rem; border-radius: 8px"></div>
+                <div class="portal-skeleton" style="height: 52px; margin-bottom: 0.5rem; border-radius: 8px"></div>
             }
         </div>
     </div>
@@ -46,13 +46,10 @@ else
 {
     <div class="xs-page @(_viewMode == ViewMode.Comparator ? "xs-page--wide" : "")">
 
-        <!-- ── Header ── -->
-        <div class="xs-header xs-header--v2">
-            <div class="xs-header-row">
-                <div class="xs-header-text">
-                    <h2 class="xs-title">Cross-Sheet Validation Status</h2>
-                    <p class="xs-desc">Consistency rules between return templates for @data.CurrentPeriod.</p>
-                </div>
+        <PortalPageHeader Title="Cross-Sheet Validation Status"
+                          Subtitle="@($"Consistency rules between return templates for {data.CurrentPeriod}.")"
+                          Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Validation", IsCurrent: true) })">
+            <SecondaryActions>
                 <div class="xs-header-actions">
                     <!-- View mode toggle -->
                     <div class="xs-view-toggle" role="tablist" aria-label="View mode">
@@ -106,7 +103,8 @@ else
                         Export Report
                     </button>
                 </div>
-            </div>
+            </SecondaryActions>
+        </PortalPageHeader>
             <p class="xs-summary">
                 <strong>@data.PassingCount</strong> of <strong>@data.TotalRules</strong> rules passing for current period
                 @if (data.NotEvaluatedCount > 0)
@@ -132,7 +130,6 @@ else
                     <span class="xs-stat-label">Not Evaluated</span>
                 </div>
             </div>
-        </div>
 
         <!-- ══════════════════════════════════════════════════════════
              OVERVIEW MODE

@@ -96,6 +96,7 @@ public class MetadataDbContext : DbContext
     public DbSet<KnowledgeGraphNode> KnowledgeGraphNodes => Set<KnowledgeGraphNode>();
     public DbSet<KnowledgeGraphEdge> KnowledgeGraphEdges => Set<KnowledgeGraphEdge>();
     public DbSet<KnowledgeGraphDossierSectionRecord> KnowledgeGraphDossierSections => Set<KnowledgeGraphDossierSectionRecord>();
+    public DbSet<DashboardBriefingPackSectionRecord> DashboardBriefingPackSections => Set<DashboardBriefingPackSectionRecord>();
     public DbSet<CapitalActionTemplateRecord> CapitalActionTemplates => Set<CapitalActionTemplateRecord>();
     public DbSet<CapitalPlanningScenarioRecord> CapitalPlanningScenarios => Set<CapitalPlanningScenarioRecord>();
     public DbSet<ModelInventoryDefinitionRecord> ModelInventoryDefinitions => Set<ModelInventoryDefinitionRecord>();

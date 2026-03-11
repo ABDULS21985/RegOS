@@ -3631,7 +3631,7 @@
                         @foreach (var lens in StakeholderLenses)
                         {
                             <button class="fc-intel-lens @(_stakeholderLens == lens.Id ? "is-active" : null)"
-                                    @onclick="() => _stakeholderLens = lens.Id"
+                                    @onclick="() => SetStakeholderLensAsync(lens.Id)"
                                     role="tab"
                                     aria-selected="@(_stakeholderLens == lens.Id)">
                                 <span>@lens.Label</span>
@@ -3724,7 +3724,10 @@
                                             <span class="fc-intel-card__label">Executive Briefing Pack</span>
                                             <h2>Institution-facing summary across filings, capital, resilience, and supervisory follow-up</h2>
                                         </div>
-                                        <span class="fc-intel-chip">@CurrentDashboardBriefingPack.Count section(s)</span>
+                                        <div class="fc-intel-inline-chips">
+                                            <span class="fc-intel-chip">@CurrentDashboardBriefingPack.Count section(s)</span>
+                                            <span class="fc-intel-chip">@(_dashboardBriefingPackMaterializedAt?.ToString("dd MMM HH:mm", CultureInfo.InvariantCulture) ?? "Pending")</span>
+                                        </div>
                                     </header>
                                     <div class="fc-intel-table-wrap">
                                         <table class="fc-intel-table">
@@ -4002,7 +4005,10 @@
                                         <span class="fc-intel-card__label">Stakeholder Briefing Pack</span>
                                         <h2>Lens-specific strategic sections assembled from the current supervisory workspace</h2>
                                     </div>
-                                    <span class="fc-intel-chip">@CurrentDashboardBriefingPack.Count section(s)</span>
+                                    <div class="fc-intel-inline-chips">
+                                        <span class="fc-intel-chip">@CurrentDashboardBriefingPack.Count section(s)</span>
+                                        <span class="fc-intel-chip">@(_dashboardBriefingPackMaterializedAt?.ToString("dd MMM HH:mm", CultureInfo.InvariantCulture) ?? "Pending")</span>
+                                    </div>
                                 </header>
                                 <div class="fc-intel-table-wrap">
                                     <table class="fc-intel-table">
@@ -4236,7 +4242,7 @@
                         @foreach (var lens in StakeholderLenses)
                         {
                             <button class="fc-intel-lens @(_stakeholderLens == lens.Id ? "is-active" : null)"
-                                    @onclick="() => _stakeholderLens = lens.Id"
+                                    @onclick="() => SetStakeholderLensAsync(lens.Id)"
                                     role="tab"
                                     aria-selected="@(_stakeholderLens == lens.Id)">
                                 <span>@lens.Label</span>
@@ -4645,6 +4651,7 @@
     private List<SanctionsSupervisoryPackRow> _sanctionsPackRows = [];
     private readonly Dictionary<string, string> _modelApprovalStages = new(StringComparer.OrdinalIgnoreCase);
     private List<ModelApprovalAuditEntry> _modelApprovalAuditTrail = [];
+    private DateTime? _dashboardBriefingPackMaterializedAt;
     private bool _clientStateLoaded;
     private CapitalProjectionInput _projectionInput = new();
     private CapitalStackOptimiserInput _capitalStackInput = new();
@@ -4673,6 +4680,8 @@
             await LoadClientStateAsync();
             await SyncCapitalPackAsync();
             await SyncSanctionsPackAsync();
+            await LoadDashboardBriefingPackStateAsync();
+            await SyncDashboardBriefingPackAsync();
         }
         catch (Exception ex)
         {
@@ -4691,6 +4700,7 @@
         _selectedNavigatorKey = _workspace?.KnowledgeGraph.Lineage.FirstOrDefault()?.NavigatorKey ?? string.Empty;
         _selectedResilienceIncidentKey = _workspace?.Resilience.IncidentTimelines.FirstOrDefault()?.IncidentKey ?? string.Empty;
         _selectedProfileInstitutionId = _workspace?.InstitutionScorecards.FirstOrDefault()?.InstitutionId;
+        _dashboardBriefingPackMaterializedAt = null;
         _selectedStrDraftId = string.Empty;
         _screeningDecisions.Clear();
         _screeningInput = string.Join(Environment.NewLine, new[]
@@ -4915,6 +4925,69 @@
         catch
         {
             // Keep the live in-memory pack visible even if the persistence refresh fails.
+        }
+    }
+
+    private async Task LoadDashboardBriefingPackStateAsync()
+    {
+        if (_workspace is null)
+        {
+            _dashboardBriefingPackMaterializedAt = null;
+            return;
+        }
+
+        if (_stakeholderLens == "executive" && CurrentDashboardPackInstitutionId is null)
+        {
+            _dashboardBriefingPackMaterializedAt = null;
+            return;
+        }
+
+        try
+        {
+            var state = await IntelligenceService.GetDashboardBriefingPackCatalogStateAsync(_stakeholderLens, CurrentDashboardPackInstitutionId);
+            _dashboardBriefingPackMaterializedAt = state.MaterializedAt;
+        }
+        catch
+        {
+            _dashboardBriefingPackMaterializedAt = null;
+        }
+    }
+
+    private async Task SyncDashboardBriefingPackAsync()
+    {
+        if (_workspace is null)
+        {
+            return;
+        }
+
+        if (_stakeholderLens == "executive" && CurrentDashboardPackInstitutionId is null)
+        {
+            _dashboardBriefingPackMaterializedAt = null;
+            return;
+        }
+
+        try
+        {
+            var state = await IntelligenceService.MaterializeDashboardBriefingPackAsync(
+                _stakeholderLens,
+                CurrentDashboardPackInstitutionId,
+                CurrentDashboardBriefingPack
+                    .Select(x => new DashboardBriefingPackSectionInput
+                    {
+                        SectionCode = x.SectionCode,
+                        SectionName = x.SectionName,
+                        Coverage = x.Coverage,
+                        Signal = x.Signal,
+                        Commentary = x.Commentary,
+                        RecommendedAction = x.RecommendedAction
+                    })
+                    .ToList());
+
+            _dashboardBriefingPackMaterializedAt = state.MaterializedAt;
+        }
+        catch
+        {
+            // Keep the live briefing pack visible even if persistence refresh fails.
         }
     }
 
@@ -6141,17 +6214,37 @@
             ? null
             : _workspace.InstitutionDetails.FirstOrDefault(x => x.InstitutionId == _selectedProfileInstitutionId.Value);
 
+    private int? CurrentDashboardPackInstitutionId =>
+        _stakeholderLens == "executive"
+            ? DashboardInstitutionProfile?.InstitutionId
+            : null;
+
     private void SelectInstitutionProfile(int institutionId)
     {
         _selectedProfileInstitutionId = institutionId;
     }
 
-    private void HandleDashboardInstitutionChanged(ChangeEventArgs args)
+    private async Task SetStakeholderLensAsync(string lensId)
+    {
+        if (string.Equals(_stakeholderLens, lensId, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _stakeholderLens = lensId;
+        await LoadDashboardBriefingPackStateAsync();
+        await SyncDashboardBriefingPackAsync();
+    }
+
+    private async Task HandleDashboardInstitutionChanged(ChangeEventArgs args)
     {
         var value = args.Value?.ToString();
         _selectedProfileInstitutionId = int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var institutionId)
             ? institutionId
             : null;
+
+        await LoadDashboardBriefingPackStateAsync();
+        await SyncDashboardBriefingPackAsync();
     }
 
     private IReadOnlyList<InterventionQueueRow> BuildExecutiveInterventions()

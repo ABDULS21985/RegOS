@@ -66,6 +66,7 @@ public sealed class PlatformIntelligenceService
     private readonly MetadataDbContext _db;
     private readonly KnowledgeGraphCatalogService _knowledgeGraphCatalog;
     private readonly KnowledgeGraphDossierCatalogService _knowledgeGraphDossierCatalog;
+    private readonly DashboardBriefingPackCatalogService _dashboardBriefingPackCatalog;
     private readonly CapitalActionCatalogService _capitalActionCatalog;
     private readonly CapitalPlanningScenarioStoreService _capitalPlanningScenarioStore;
     private readonly ModelInventoryCatalogService _modelInventoryCatalog;
@@ -83,6 +84,7 @@ public sealed class PlatformIntelligenceService
         MetadataDbContext db,
         KnowledgeGraphCatalogService knowledgeGraphCatalog,
         KnowledgeGraphDossierCatalogService knowledgeGraphDossierCatalog,
+        DashboardBriefingPackCatalogService dashboardBriefingPackCatalog,
         CapitalActionCatalogService capitalActionCatalog,
         CapitalPlanningScenarioStoreService capitalPlanningScenarioStore,
         ModelInventoryCatalogService modelInventoryCatalog,
@@ -99,6 +101,7 @@ public sealed class PlatformIntelligenceService
         _db = db;
         _knowledgeGraphCatalog = knowledgeGraphCatalog;
         _knowledgeGraphDossierCatalog = knowledgeGraphDossierCatalog;
+        _dashboardBriefingPackCatalog = dashboardBriefingPackCatalog;
         _capitalActionCatalog = capitalActionCatalog;
         _capitalPlanningScenarioStore = capitalPlanningScenarioStore;
         _modelInventoryCatalog = modelInventoryCatalog;
@@ -847,6 +850,19 @@ public sealed class PlatformIntelligenceService
         IReadOnlyList<CapitalPackSectionInput> sections,
         CancellationToken ct = default) =>
         _capitalPackCatalog.MaterializeAsync(sections, ct);
+
+    public Task<DashboardBriefingPackCatalogState> GetDashboardBriefingPackCatalogStateAsync(
+        string lens,
+        int? institutionId,
+        CancellationToken ct = default) =>
+        _dashboardBriefingPackCatalog.LoadAsync(lens, institutionId, ct);
+
+    public Task<DashboardBriefingPackCatalogState> MaterializeDashboardBriefingPackAsync(
+        string lens,
+        int? institutionId,
+        IReadOnlyList<DashboardBriefingPackSectionInput> sections,
+        CancellationToken ct = default) =>
+        _dashboardBriefingPackCatalog.MaterializeAsync(lens, institutionId, sections, ct);
 
     public Task<SanctionsPackCatalogState> GetSanctionsPackCatalogStateAsync(CancellationToken ct = default) =>
         _sanctionsPackCatalog.LoadAsync(ct);

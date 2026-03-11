@@ -10,23 +10,17 @@
 <div class="portal-page">
 
     <!-- ── Page Header ──────────────────────────────────────────── -->
-    <div class="portal-page-header">
-        <div class="portal-page-header-main">
-            <h1 class="portal-page-title">
-                Pending Approvals
-                @if (!_isLoading && _cards.Any())
-                {
-                    <span class="portal-badge portal-badge-danger" style="margin-left:0.5rem;vertical-align:middle;">@_cards.Count</span>
-                }
-            </h1>
-            <p class="portal-page-subtitle">Review and approve or reject submissions from your team</p>
-        </div>
-    </div>
+    <PortalPageHeader Title="@("Pending Approvals" + (!_isLoading && _cards.Any() ? $" ({_cards.Count})" : ""))"
+                      Subtitle="Review and approve or reject submissions from your team"
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Approvals", IsCurrent: true) })" />
 
     @if (_isLoading)
     {
-        <div class="portal-card" style="padding:2rem;">
-            <div class="portal-skeleton portal-skeleton-block" style="height:200px;"></div>
+        <div class="portal-card" style="padding:2rem;" aria-busy="true" aria-label="Loading pending approvals">
+            @for (var i = 0; i < 4; i++)
+            {
+                <div class="portal-skeleton portal-skeleton-block" style="height:96px;border-radius:10px;margin-bottom:0.75rem;"></div>
+            }
         </div>
     }
     else if (!_isCheckerOrAdmin)

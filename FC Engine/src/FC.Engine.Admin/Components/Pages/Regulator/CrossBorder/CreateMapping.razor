@@ -15,187 +15,230 @@
             BackUrl="/regulator/cross-border/mappings">
 </PageHeader>
 
-@* -- Wizard Steps -- *@
-<div class="rg-cb-wizard-steps">
-    <div class="rg-cb-wizard-step @(_step == 1 ? "rg-cb-wizard-step--active" : _step > 1 ? "rg-cb-wizard-step--done" : "")">1. Basic Info</div>
-    <div class="rg-cb-wizard-step @(_step == 2 ? "rg-cb-wizard-step--active" : _step > 2 ? "rg-cb-wizard-step--done" : "")">2. Jurisdictions</div>
-    <div class="rg-cb-wizard-step @(_step == 3 ? "rg-cb-wizard-step--active" : _step > 3 ? "rg-cb-wizard-step--done" : "")">3. Parameters</div>
-    <div class="rg-cb-wizard-step @(_step == 4 ? "rg-cb-wizard-step--active" : "")">4. Review</div>
-</div>
-
-<div class="rg-card" style="padding:1.25rem;">
-    @if (_step == 1)
+<SectionErrorBoundary Title="Couldn't load mapping form" ExternalError="@_loadException" OnRetry="ReloadAsync">
+    @if (_loading)
     {
-        <h3 class="rg-section-title">Basic Information</h3>
-        <div class="rg-cb-form-row">
-            <div class="rg-cb-field">
-                <label>Mapping Code</label>
-                <input @bind="_code" placeholder="e.g. CAR_MINIMUM" />
+        <div role="status" aria-busy="true" aria-label="Loading mapping form">
+            <div class="rg-cb-wizard-steps">
+                @for (var i = 1; i <= 4; i++)
+                {
+                    <div class="rg-cb-wizard-step">
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Index="i" />
+                    </div>
+                }
             </div>
-            <div class="rg-cb-field">
-                <label>Mapping Name</label>
-                <input @bind="_name" placeholder="e.g. Minimum Capital Adequacy Ratio" />
-            </div>
-        </div>
-        <div class="rg-cb-form-row">
-            <div class="rg-cb-field">
-                <label>Concept Domain</label>
-                <select @bind="_domain">
-                    <option value="CAPITAL_ADEQUACY">Capital Adequacy</option>
-                    <option value="LIQUIDITY">Liquidity</option>
-                    <option value="LEVERAGE">Leverage</option>
-                    <option value="FX">FX</option>
-                    <option value="RISK_MANAGEMENT">Risk Management</option>
-                </select>
-            </div>
-            <div class="rg-cb-field">
-                <label>Description (optional)</label>
-                <textarea @bind="_description" rows="2" placeholder="Describe this mapping..."></textarea>
-            </div>
-        </div>
-    }
-    else if (_step == 2)
-    {
-        <h3 class="rg-section-title">Select Jurisdictions</h3>
-        <p class="rg-muted" style="font-size:0.82rem;margin-bottom:0.75rem;">Choose jurisdictions to include in this mapping:</p>
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0.5rem;">
-            @foreach (var j in _jurisdictions)
-            {
-                var isSelected = _selectedJurisdictions.Contains(j.JurisdictionCode);
-                <label class="rg-card" style="padding:0.6rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-color:@(isSelected ? "var(--rg-primary)" : "var(--rg-border)");background:@(isSelected ? "#f0fdfa" : "#fff");">
-                    <input type="checkbox" checked="@isSelected"
-                           @onchange="e => ToggleJurisdiction(j.JurisdictionCode, (bool)(e.Value ?? false))" />
-                    <FlagBadge Code="@j.JurisdictionCode" Label="@j.CountryName" />
-                    <span style="font-size:0.72rem;color:var(--rg-muted);margin-left:auto;">@j.RegulatorCode</span>
-                </label>
-            }
-        </div>
-    }
-    else if (_step == 3)
-    {
-        <h3 class="rg-section-title">Define Parameters per Jurisdiction</h3>
-        @foreach (var jCode in _selectedJurisdictions)
-        {
-            var j = _jurisdictions.FirstOrDefault(x => x.JurisdictionCode == jCode);
-            var entry = _entries.FirstOrDefault(e => e.JurisdictionCode == jCode);
-            if (entry is null)
-            {
-                entry = new EquivalenceEntryInput { JurisdictionCode = jCode, ThresholdUnit = "PERCENTAGE", RegulatoryFramework = "BASEL_III" };
-                _entries.Add(entry);
-            }
-
-            <div class="rg-card" style="padding:0.75rem;margin-bottom:0.6rem;">
-                <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
-                    <FlagBadge Code="@jCode" Label="@(j?.CountryName ?? jCode)" />
-                    <span style="font-size:0.72rem;color:var(--rg-muted);">@(j?.RegulatorCode ?? "")</span>
-                </div>
+            <div class="rg-card rg-cb-card-padded">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Heading" />
                 <div class="rg-cb-form-row">
-                    <div class="rg-cb-field">
-                        <label>Parameter Code</label>
-                        <input @bind="entry.LocalParameterCode" placeholder="CAR_MIN" />
-                    </div>
-                    <div class="rg-cb-field">
-                        <label>Parameter Name</label>
-                        <input @bind="entry.LocalParameterName" placeholder="Minimum CAR" />
-                    </div>
-                    <div class="rg-cb-field">
-                        <label>Threshold</label>
-                        <input type="number" step="0.01" @bind="entry.LocalThreshold" />
-                    </div>
-                </div>
-                <div class="rg-cb-form-row">
-                    <div class="rg-cb-field">
-                        <label>Unit</label>
-                        <select @bind="entry.ThresholdUnit">
-                            <option value="PERCENTAGE">Percentage</option>
-                            <option value="AMOUNT">Amount</option>
-                            <option value="RATIO">Ratio</option>
-                        </select>
-                    </div>
-                    <div class="rg-cb-field">
-                        <label>Calculation Basis</label>
-                        <input @bind="entry.CalculationBasis" placeholder="Total RWA" />
-                    </div>
-                    <div class="rg-cb-field">
-                        <label>Framework</label>
-                        <select @bind="entry.RegulatoryFramework">
-                            <option value="BASEL_III">Basel III</option>
-                            <option value="BASEL_III_TRANSITIONAL">Basel III Transitional</option>
-                            <option value="BASEL_II">Basel II</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="rg-cb-form-row">
-                    <div class="rg-cb-field">
-                        <label>Return Form Code (optional)</label>
-                        <input @bind="entry.ReturnFormCode" />
-                    </div>
-                    <div class="rg-cb-field">
-                        <label>Return Line Reference (optional)</label>
-                        <input @bind="entry.ReturnLineReference" />
-                    </div>
-                </div>
-            </div>
-        }
-    }
-    else if (_step == 4)
-    {
-        <h3 class="rg-section-title">Review & Create</h3>
-        <div class="rg-cb-form-row">
-            <div class="rg-cb-field"><label>Code</label><div style="font-weight:600;">@_code</div></div>
-            <div class="rg-cb-field"><label>Name</label><div style="font-weight:600;">@_name</div></div>
-            <div class="rg-cb-field"><label>Domain</label><StatusPill Label="@_domain.Replace("_", " ")" Variant="info" /></div>
-        </div>
-        @if (!string.IsNullOrEmpty(_description))
-        {
-            <p style="font-size:0.84rem;color:var(--rg-muted);margin-bottom:0.5rem;">@_description</p>
-        }
-        <div class="rg-table-wrap">
-            <table class="rg-table">
-                <thead>
-                    <tr><th>Jurisdiction</th><th>Parameter</th><th>Threshold</th><th>Framework</th></tr>
-                </thead>
-                <tbody>
-                    @foreach (var e in _entries.Where(e => _selectedJurisdictions.Contains(e.JurisdictionCode)))
+                    @for (var i = 0; i < 2; i++)
                     {
-                        <tr>
-                            <td><FlagBadge Code="@e.JurisdictionCode" /></td>
-                            <td>@e.LocalParameterName</td>
-                            <td>@e.LocalThreshold@(e.ThresholdUnit == "PERCENTAGE" ? "%" : "")</td>
-                            <td><span class="rg-cb-framework rg-cb-framework--@(e.RegulatoryFramework.Contains("III") ? "basel-iii" : "basel-ii")">@e.RegulatoryFramework.Replace("_", " ")</span></td>
-                        </tr>
+                        <div class="rg-cb-field">
+                            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Index="i" />
+                            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="36px" Index="i" />
+                        </div>
                     }
-                </tbody>
-            </table>
+                </div>
+                <div class="rg-cb-form-row">
+                    @for (var i = 0; i < 2; i++)
+                    {
+                        <div class="rg-cb-field">
+                            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Index="i" />
+                            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="36px" Index="i" />
+                        </div>
+                    }
+                </div>
+            </div>
         </div>
     }
-</div>
-
-<div class="rg-cb-wizard-nav">
-    @if (_step > 1)
-    {
-        <button class="fc-btn fc-btn--outline" @onclick="() => _step--">← Previous</button>
-    }
     else
     {
-        <span></span>
-    }
+        @* -- Wizard Steps -- *@
+        <div class="rg-cb-wizard-steps" role="navigation" aria-label="Wizard steps">
+            <div class="rg-cb-wizard-step @(_step == 1 ? "rg-cb-wizard-step--active" : _step > 1 ? "rg-cb-wizard-step--done" : "")" aria-current="@(_step == 1 ? "step" : null)">1. Basic Info</div>
+            <div class="rg-cb-wizard-step @(_step == 2 ? "rg-cb-wizard-step--active" : _step > 2 ? "rg-cb-wizard-step--done" : "")" aria-current="@(_step == 2 ? "step" : null)">2. Jurisdictions</div>
+            <div class="rg-cb-wizard-step @(_step == 3 ? "rg-cb-wizard-step--active" : _step > 3 ? "rg-cb-wizard-step--done" : "")" aria-current="@(_step == 3 ? "step" : null)">3. Parameters</div>
+            <div class="rg-cb-wizard-step @(_step == 4 ? "rg-cb-wizard-step--active" : "")" aria-current="@(_step == 4 ? "step" : null)">4. Review</div>
+        </div>
 
-    @if (_step < 4)
-    {
-        <button class="fc-btn fc-btn--primary" @onclick="NextStep" disabled="@(!CanAdvance)">Next →</button>
+        <div class="rg-card rg-cb-card-padded">
+            @if (_step == 1)
+            {
+                <h3 class="rg-section-title">Basic Information</h3>
+                <div class="rg-cb-form-row">
+                    <div class="rg-cb-field">
+                        <label for="cm-code">Mapping Code</label>
+                        <input id="cm-code" aria-label="Mapping Code" @bind="_code" placeholder="e.g. CAR_MINIMUM" />
+                    </div>
+                    <div class="rg-cb-field">
+                        <label for="cm-name">Mapping Name</label>
+                        <input id="cm-name" aria-label="Mapping Name" @bind="_name" placeholder="e.g. Minimum Capital Adequacy Ratio" />
+                    </div>
+                </div>
+                <div class="rg-cb-form-row">
+                    <div class="rg-cb-field">
+                        <label for="cm-domain">Concept Domain</label>
+                        <select id="cm-domain" aria-label="Concept Domain" @bind="_domain">
+                            <option value="CAPITAL_ADEQUACY">Capital Adequacy</option>
+                            <option value="LIQUIDITY">Liquidity</option>
+                            <option value="LEVERAGE">Leverage</option>
+                            <option value="FX">FX</option>
+                            <option value="RISK_MANAGEMENT">Risk Management</option>
+                        </select>
+                    </div>
+                    <div class="rg-cb-field">
+                        <label for="cm-desc">Description (optional)</label>
+                        <textarea id="cm-desc" aria-label="Description" @bind="_description" rows="2" placeholder="Describe this mapping..."></textarea>
+                    </div>
+                </div>
+            }
+            else if (_step == 2)
+            {
+                <h3 class="rg-section-title">Select Jurisdictions</h3>
+                <p class="rg-muted rg-cb-hint">Choose jurisdictions to include in this mapping:</p>
+                <div class="rg-cb-jurisdiction-select-grid">
+                    @foreach (var j in _jurisdictions)
+                    {
+                        var isSelected = _selectedJurisdictions.Contains(j.JurisdictionCode);
+                        <label class="rg-card rg-cb-jurisdiction-option @(isSelected ? "rg-cb-jurisdiction-option--selected" : "")"
+                               aria-label="@j.CountryName jurisdiction">
+                            <input type="checkbox" checked="@isSelected"
+                                   @onchange="e => ToggleJurisdiction(j.JurisdictionCode, (bool)(e.Value ?? false))" />
+                            <FlagBadge Code="@j.JurisdictionCode" Label="@j.CountryName" />
+                            <span class="rg-cb-regulator-code">@j.RegulatorCode</span>
+                        </label>
+                    }
+                </div>
+            }
+            else if (_step == 3)
+            {
+                <h3 class="rg-section-title">Define Parameters per Jurisdiction</h3>
+                @foreach (var jCode in _selectedJurisdictions)
+                {
+                    var j = _jurisdictions.FirstOrDefault(x => x.JurisdictionCode == jCode);
+                    var entry = _entries.FirstOrDefault(e => e.JurisdictionCode == jCode);
+                    if (entry is null)
+                    {
+                        entry = new EquivalenceEntryInput { JurisdictionCode = jCode, ThresholdUnit = "PERCENTAGE", RegulatoryFramework = "BASEL_III" };
+                        _entries.Add(entry);
+                    }
+
+                    <div class="rg-card rg-cb-param-card" aria-label="Parameters for @(j?.CountryName ?? jCode)">
+                        <div class="rg-cb-param-card-head">
+                            <FlagBadge Code="@jCode" Label="@(j?.CountryName ?? jCode)" />
+                            <span class="rg-cb-regulator-code">@(j?.RegulatorCode ?? "")</span>
+                        </div>
+                        <div class="rg-cb-form-row">
+                            <div class="rg-cb-field">
+                                <label for="param-code-@jCode">Parameter Code</label>
+                                <input id="param-code-@jCode" aria-label="Parameter Code for @jCode" @bind="entry.LocalParameterCode" placeholder="CAR_MIN" />
+                            </div>
+                            <div class="rg-cb-field">
+                                <label for="param-name-@jCode">Parameter Name</label>
+                                <input id="param-name-@jCode" aria-label="Parameter Name for @jCode" @bind="entry.LocalParameterName" placeholder="Minimum CAR" />
+                            </div>
+                            <div class="rg-cb-field">
+                                <label for="param-threshold-@jCode">Threshold</label>
+                                <input id="param-threshold-@jCode" aria-label="Threshold for @jCode" type="number" step="0.01" @bind="entry.LocalThreshold" />
+                            </div>
+                        </div>
+                        <div class="rg-cb-form-row">
+                            <div class="rg-cb-field">
+                                <label for="param-unit-@jCode">Unit</label>
+                                <select id="param-unit-@jCode" aria-label="Unit for @jCode" @bind="entry.ThresholdUnit">
+                                    <option value="PERCENTAGE">Percentage</option>
+                                    <option value="AMOUNT">Amount</option>
+                                    <option value="RATIO">Ratio</option>
+                                </select>
+                            </div>
+                            <div class="rg-cb-field">
+                                <label for="param-basis-@jCode">Calculation Basis</label>
+                                <input id="param-basis-@jCode" aria-label="Calculation Basis for @jCode" @bind="entry.CalculationBasis" placeholder="Total RWA" />
+                            </div>
+                            <div class="rg-cb-field">
+                                <label for="param-framework-@jCode">Framework</label>
+                                <select id="param-framework-@jCode" aria-label="Framework for @jCode" @bind="entry.RegulatoryFramework">
+                                    <option value="BASEL_III">Basel III</option>
+                                    <option value="BASEL_III_TRANSITIONAL">Basel III Transitional</option>
+                                    <option value="BASEL_II">Basel II</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="rg-cb-form-row">
+                            <div class="rg-cb-field">
+                                <label for="param-form-@jCode">Return Form Code (optional)</label>
+                                <input id="param-form-@jCode" aria-label="Return Form Code for @jCode" @bind="entry.ReturnFormCode" />
+                            </div>
+                            <div class="rg-cb-field">
+                                <label for="param-line-@jCode">Return Line Reference (optional)</label>
+                                <input id="param-line-@jCode" aria-label="Return Line Reference for @jCode" @bind="entry.ReturnLineReference" />
+                            </div>
+                        </div>
+                    </div>
+                }
+            }
+            else if (_step == 4)
+            {
+                <h3 class="rg-section-title">Review & Create</h3>
+                <div class="rg-cb-form-row">
+                    <div class="rg-cb-field"><label>Code</label><div class="rg-cb-review-value">@_code</div></div>
+                    <div class="rg-cb-field"><label>Name</label><div class="rg-cb-review-value">@_name</div></div>
+                    <div class="rg-cb-field"><label>Domain</label><StatusPill Label="@_domain.Replace("_", " ")" Variant="info" /></div>
+                </div>
+                @if (!string.IsNullOrEmpty(_description))
+                {
+                    <p class="rg-muted rg-cb-review-desc">@_description</p>
+                }
+                <div class="rg-table-wrap">
+                    <table class="rg-table" aria-label="Mapping entries review">
+                        <thead>
+                            <tr><th>Jurisdiction</th><th>Parameter</th><th>Threshold</th><th>Framework</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var e in _entries.Where(e => _selectedJurisdictions.Contains(e.JurisdictionCode)))
+                            {
+                                <tr>
+                                    <td><FlagBadge Code="@e.JurisdictionCode" /></td>
+                                    <td>@e.LocalParameterName</td>
+                                    <td>@e.LocalThreshold@(e.ThresholdUnit == "PERCENTAGE" ? "%" : "")</td>
+                                    <td><span class="rg-cb-framework rg-cb-framework--@(e.RegulatoryFramework.Contains("III") ? "basel-iii" : "basel-ii")">@e.RegulatoryFramework.Replace("_", " ")</span></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        <div class="rg-cb-wizard-nav" role="navigation" aria-label="Wizard navigation">
+            @if (_step > 1)
+            {
+                <button class="fc-btn fc-btn--outline" @onclick="() => _step--" aria-label="Go to previous step">Previous</button>
+            }
+            else
+            {
+                <span></span>
+            }
+
+            @if (_step < 4)
+            {
+                <button class="fc-btn fc-btn--primary" @onclick="NextStep" disabled="@(!CanAdvance)" aria-label="Go to next step">Next</button>
+            }
+            else
+            {
+                <button class="fc-btn fc-btn--primary" @onclick="SubmitMapping" disabled="@_saving"
+                        aria-busy="@(_saving ? "true" : null)">
+                    @(_saving ? "Creating..." : "Create Mapping")
+                </button>
+            }
+        </div>
     }
-    else
-    {
-        <button class="fc-btn fc-btn--primary" @onclick="SubmitMapping" disabled="@_saving">
-            @(_saving ? "Creating..." : "Create Mapping")
-        </button>
-    }
-</div>
+</SectionErrorBoundary>
 
 @code {
     private int _step = 1;
     private bool _saving;
+    private bool _loading = true;
+    private Exception? _loadException;
 
     private string _code = "";
     private string _name = "";
@@ -214,15 +257,30 @@
         _ => true
     };
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
     {
-        using var scope = ScopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
-        _jurisdictions = await db.RegulatoryJurisdictions
-            .AsNoTracking()
-            .Where(j => j.IsActive)
-            .OrderBy(j => j.CountryName)
-            .ToListAsync();
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
+            _jurisdictions = await db.RegulatoryJurisdictions
+                .AsNoTracking()
+                .Where(j => j.IsActive)
+                .OrderBy(j => j.CountryName)
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+        }
+        finally
+        {
+            _loading = false;
+        }
     }
 
     private void ToggleJurisdiction(string code, bool selected)

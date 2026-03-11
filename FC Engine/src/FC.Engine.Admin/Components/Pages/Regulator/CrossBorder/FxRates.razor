@@ -11,35 +11,37 @@
             BackUrl="/regulator/cross-border" />
 
 @* -- Tabs -- *@
-<div class="rg-cb-tabs">
-    <button class="rg-cb-tab @(_tab == "matrix" ? "rg-cb-tab--active" : "")" @onclick='() => _tab = "matrix"'>Cross-Rate Matrix</button>
-    <button class="rg-cb-tab @(_tab == "convert" ? "rg-cb-tab--active" : "")" @onclick='() => _tab = "convert"'>Convert</button>
-    <button class="rg-cb-tab @(_tab == "add" ? "rg-cb-tab--active" : "")" @onclick='() => _tab = "add"'>Add Rate</button>
-    <button class="rg-cb-tab @(_tab == "history" ? "rg-cb-tab--active" : "")" @onclick='() => _tab = "history"'>History</button>
+<div class="rg-cb-tabs" role="tablist" aria-label="FX rate management tabs">
+    <button class="rg-cb-tab @(_tab == "matrix" ? "rg-cb-tab--active" : "")" role="tab" aria-selected="@(_tab == "matrix")" aria-controls="tab-matrix" @onclick='() => _tab = "matrix"'>Cross-Rate Matrix</button>
+    <button class="rg-cb-tab @(_tab == "convert" ? "rg-cb-tab--active" : "")" role="tab" aria-selected="@(_tab == "convert")" aria-controls="tab-convert" @onclick='() => _tab = "convert"'>Convert</button>
+    <button class="rg-cb-tab @(_tab == "add" ? "rg-cb-tab--active" : "")" role="tab" aria-selected="@(_tab == "add")" aria-controls="tab-add" @onclick='() => _tab = "add"'>Add Rate</button>
+    <button class="rg-cb-tab @(_tab == "history" ? "rg-cb-tab--active" : "")" role="tab" aria-selected="@(_tab == "history")" aria-controls="tab-history" @onclick='() => _tab = "history"'>History</button>
 </div>
 
 @if (_tab == "matrix")
 {
     @* -- Cross-Rate Matrix -- *@
     <SectionErrorBoundary Title="Couldn't load rate matrix" ExternalError="@_matrixException" OnRetry="LoadMatrix">
-        <div class="rg-card" style="padding:1rem;">
+        <div id="tab-matrix" role="tabpanel" class="rg-card rg-cb-card-padded">
             <div class="rg-cb-section-head">
                 <h3 class="rg-cb-section-title">Cross-Rate Matrix</h3>
-                <div class="rg-cb-filters" style="margin-bottom:0;">
-                    <label style="font-size:0.78rem;color:var(--rg-muted);">Date:</label>
-                    <input type="date" class="rg-cb-filter-input" style="width:140px;" @bind="_matrixDate" />
-                    <button class="fc-btn fc-btn--outline" @onclick="LoadMatrix">Load</button>
+                <div class="rg-cb-filters rg-cb-filters--flush">
+                    <label for="fx-matrix-date" class="rg-cb-filter-label">Date:</label>
+                    <input id="fx-matrix-date" type="date" class="rg-cb-filter-input rg-cb-filter-input--narrow" aria-label="Matrix date" @bind="_matrixDate" />
+                    <button class="fc-btn fc-btn--outline" @onclick="LoadMatrix" aria-label="Load rate matrix">Load</button>
                 </div>
             </div>
 
             @if (_matrixLoading)
             {
-                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="6" />
+                <div role="status" aria-busy="true" aria-label="Loading rate matrix">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="6" />
+                </div>
             }
             else
             {
                 <div class="rg-cb-matrix-wrap">
-                    <table class="rg-cb-matrix">
+                    <table class="rg-cb-matrix" aria-label="Cross-rate matrix">
                         <thead>
                             <tr>
                                 <th></th>
@@ -79,36 +81,36 @@
 else if (_tab == "convert")
 {
     @* -- Converter -- *@
-    <div class="rg-card" style="padding:1rem;">
+    <div id="tab-convert" role="tabpanel" class="rg-card rg-cb-card-padded">
         <h3 class="rg-section-title">Currency Converter</h3>
         <div class="rg-cb-form-row">
             <div class="rg-cb-field">
-                <label>From</label>
-                <select @bind="_convertFrom">
+                <label for="fx-conv-from">From</label>
+                <select id="fx-conv-from" aria-label="Source currency" @bind="_convertFrom">
                     @foreach (var c in _currencies) { <option value="@c">@c</option> }
                 </select>
             </div>
             <div class="rg-cb-field">
-                <label>To</label>
-                <select @bind="_convertTo">
+                <label for="fx-conv-to">To</label>
+                <select id="fx-conv-to" aria-label="Target currency" @bind="_convertTo">
                     @foreach (var c in _currencies) { <option value="@c">@c</option> }
                 </select>
             </div>
             <div class="rg-cb-field">
-                <label>Amount</label>
-                <input type="number" step="0.01" @bind="_convertAmount" />
+                <label for="fx-conv-amount">Amount</label>
+                <input id="fx-conv-amount" aria-label="Amount to convert" type="number" step="0.01" @bind="_convertAmount" />
             </div>
-            <div class="rg-cb-field" style="justify-content:flex-end;">
-                <button class="fc-btn fc-btn--primary" @onclick="ConvertCurrency">Convert</button>
+            <div class="rg-cb-field rg-cb-field--end">
+                <button class="fc-btn fc-btn--primary" @onclick="ConvertCurrency" aria-label="Convert currency">Convert</button>
             </div>
         </div>
 
         @if (_convertResult is not null)
         {
-            <div style="margin-top:1rem;padding:1rem;border-radius:10px;background:#f0fdfa;border:1px solid #99f6e4;text-align:center;">
-                <div style="font-size:0.78rem;color:var(--rg-muted);">@_convertResult.SourceAmount.ToString("N2") @_convertResult.SourceCurrency =</div>
-                <div style="font-size:1.65rem;font-weight:800;color:var(--rg-primary);">@_convertResult.ConvertedValue.ToString("N2") @_convertResult.TargetCurrency</div>
-                <div style="font-size:0.74rem;color:var(--rg-muted);">
+            <div class="rg-cb-convert-result" role="status" aria-live="polite">
+                <div class="rg-cb-convert-source">@_convertResult.SourceAmount.ToString("N2") @_convertResult.SourceCurrency =</div>
+                <div class="rg-cb-convert-value">@_convertResult.ConvertedValue.ToString("N2") @_convertResult.TargetCurrency</div>
+                <div class="rg-cb-convert-meta">
                     Rate: @_convertResult.FxRate.ToString("F6") · @_convertResult.RateSource · @_convertResult.RateDate.ToString("dd MMM yyyy")
                 </div>
             </div>
@@ -118,46 +120,47 @@ else if (_tab == "convert")
 else if (_tab == "add")
 {
     @* -- Add Rate -- *@
-    <div class="rg-card" style="padding:1rem;">
+    <div id="tab-add" role="tabpanel" class="rg-card rg-cb-card-padded">
         <h3 class="rg-section-title">Insert / Update FX Rate</h3>
         <div class="rg-cb-form-row">
             <div class="rg-cb-field">
-                <label>Base Currency</label>
-                <select @bind="_addBase">
+                <label for="fx-add-base">Base Currency</label>
+                <select id="fx-add-base" aria-label="Base Currency" @bind="_addBase">
                     @foreach (var c in _currencies) { <option value="@c">@c</option> }
                 </select>
             </div>
             <div class="rg-cb-field">
-                <label>Quote Currency</label>
-                <select @bind="_addQuote">
+                <label for="fx-add-quote">Quote Currency</label>
+                <select id="fx-add-quote" aria-label="Quote Currency" @bind="_addQuote">
                     @foreach (var c in _currencies) { <option value="@c">@c</option> }
                 </select>
             </div>
             <div class="rg-cb-field">
-                <label>Rate Date</label>
-                <input type="date" @bind="_addDate" />
+                <label for="fx-add-date">Rate Date</label>
+                <input id="fx-add-date" aria-label="Rate Date" type="date" @bind="_addDate" />
             </div>
         </div>
         <div class="rg-cb-form-row">
             <div class="rg-cb-field">
-                <label>Rate</label>
-                <input type="number" step="0.000001" @bind="_addRate" />
+                <label for="fx-add-rate">Rate</label>
+                <input id="fx-add-rate" aria-label="Exchange Rate" type="number" step="0.000001" @bind="_addRate" />
             </div>
             <div class="rg-cb-field">
-                <label>Source</label>
-                <input @bind="_addSource" placeholder="CBN_OFFICIAL" />
+                <label for="fx-add-source">Source</label>
+                <input id="fx-add-source" aria-label="Rate Source" @bind="_addSource" placeholder="CBN_OFFICIAL" />
             </div>
             <div class="rg-cb-field">
-                <label>Rate Type</label>
-                <select @bind="_addType">
+                <label for="fx-add-type">Rate Type</label>
+                <select id="fx-add-type" aria-label="Rate Type" @bind="_addType">
                     <option value="@FxRateType.PeriodEnd">Period End</option>
                     <option value="@FxRateType.Average">Average</option>
                     <option value="@FxRateType.Spot">Spot</option>
                 </select>
             </div>
         </div>
-        <div class="rg-controls" style="margin-top:0.5rem;">
-            <button class="fc-btn fc-btn--primary" @onclick="AddRate" disabled="@_addSaving">
+        <div class="rg-controls rg-cb-controls-top">
+            <button class="fc-btn fc-btn--primary" @onclick="AddRate" disabled="@_addSaving"
+                    aria-busy="@(_addSaving ? "true" : null)">
                 @(_addSaving ? "Saving..." : "Save Rate")
             </button>
         </div>
@@ -166,38 +169,44 @@ else if (_tab == "add")
 else if (_tab == "history")
 {
     @* -- Rate History -- *@
-    <div class="rg-card" style="padding:1rem;">
+    <div id="tab-history" role="tabpanel" class="rg-card rg-cb-card-padded">
         <h3 class="rg-section-title">Rate History</h3>
         <div class="rg-cb-form-row">
             <div class="rg-cb-field">
-                <label>Base</label>
-                <select @bind="_histBase">
+                <label for="fx-hist-base">Base</label>
+                <select id="fx-hist-base" aria-label="History base currency" @bind="_histBase">
                     @foreach (var c in _currencies) { <option value="@c">@c</option> }
                 </select>
             </div>
             <div class="rg-cb-field">
-                <label>Quote</label>
-                <select @bind="_histQuote">
+                <label for="fx-hist-quote">Quote</label>
+                <select id="fx-hist-quote" aria-label="History quote currency" @bind="_histQuote">
                     @foreach (var c in _currencies) { <option value="@c">@c</option> }
                 </select>
             </div>
             <div class="rg-cb-field">
-                <label>From</label>
-                <input type="date" @bind="_histFrom" />
+                <label for="fx-hist-from">From</label>
+                <input id="fx-hist-from" aria-label="History start date" type="date" @bind="_histFrom" />
             </div>
             <div class="rg-cb-field">
-                <label>To</label>
-                <input type="date" @bind="_histTo" />
+                <label for="fx-hist-to">To</label>
+                <input id="fx-hist-to" aria-label="History end date" type="date" @bind="_histTo" />
             </div>
-            <div class="rg-cb-field" style="justify-content:flex-end;">
-                <button class="fc-btn fc-btn--primary" @onclick="LoadHistory">Load</button>
+            <div class="rg-cb-field rg-cb-field--end">
+                <button class="fc-btn fc-btn--primary" @onclick="LoadHistory" aria-label="Load rate history">Load</button>
             </div>
         </div>
 
-        @if (_historyRates.Count > 0)
+        @if (_historyLoading)
         {
-            <div class="rg-table-wrap" style="margin-top:0.75rem;">
-                <table class="rg-table">
+            <div role="status" aria-busy="true" aria-label="Loading rate history">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="5" />
+            </div>
+        }
+        else if (_historyRates.Count > 0)
+        {
+            <div class="rg-table-wrap rg-cb-table-wrap-top">
+                <table class="rg-table" aria-label="Rate history">
                     <thead>
                         <tr>
                             <th>Date</th>
@@ -212,8 +221,8 @@ else if (_tab == "history")
                         {
                             <tr>
                                 <td>@r.RateDate.ToString("dd MMM yyyy")</td>
-                                <td style="font-family:monospace;font-weight:600;">@r.Rate.ToString("F6")</td>
-                                <td style="font-family:monospace;">@r.InverseRate.ToString("F6")</td>
+                                <td class="rg-cb-mono rg-cb-mono--bold">@r.Rate.ToString("F6")</td>
+                                <td class="rg-cb-mono">@r.InverseRate.ToString("F6")</td>
                                 <td>@r.RateSource</td>
                                 <td><StatusPill Label="@r.RateType" Variant="info" /></td>
                             </tr>
@@ -260,6 +269,7 @@ else if (_tab == "history")
     private DateOnly _histFrom = DateOnly.FromDateTime(DateTime.UtcNow.AddMonths(-3));
     private DateOnly _histTo = DateOnly.FromDateTime(DateTime.UtcNow);
     private List<FxRateDto> _historyRates = [];
+    private bool _historyLoading;
 
     protected override async Task OnInitializedAsync() => await LoadMatrix();
 
@@ -330,6 +340,8 @@ else if (_tab == "history")
 
     private async Task LoadHistory()
     {
+        _historyLoading = true;
+        StateHasChanged();
         try
         {
             _historyRates = (await FxEngine.GetRateHistoryAsync(_histBase, _histQuote, _histFrom, _histTo)).ToList();
@@ -338,6 +350,10 @@ else if (_tab == "history")
         {
             _historyRates = [];
             Toast.Error("Failed to load history: " + ex.Message);
+        }
+        finally
+        {
+            _historyLoading = false;
         }
         StateHasChanged();
     }
