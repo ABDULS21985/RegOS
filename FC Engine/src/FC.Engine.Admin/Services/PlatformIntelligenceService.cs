@@ -66,6 +66,7 @@ public sealed class PlatformIntelligenceService
     private readonly MetadataDbContext _db;
     private readonly KnowledgeGraphCatalogService _knowledgeGraphCatalog;
     private readonly OpsResiliencePackCatalogService _opsResiliencePackCatalog;
+    private readonly ModelRiskPackCatalogService _modelRiskPackCatalog;
     private readonly SanctionsWatchlistCatalogService _sanctionsWatchlistCatalog;
     private readonly SanctionsWorkflowStoreService _sanctionsWorkflowStore;
     private readonly ModelApprovalWorkflowStoreService _modelApprovalWorkflowStore;
@@ -75,6 +76,7 @@ public sealed class PlatformIntelligenceService
         MetadataDbContext db,
         KnowledgeGraphCatalogService knowledgeGraphCatalog,
         OpsResiliencePackCatalogService opsResiliencePackCatalog,
+        ModelRiskPackCatalogService modelRiskPackCatalog,
         SanctionsWatchlistCatalogService sanctionsWatchlistCatalog,
         SanctionsWorkflowStoreService sanctionsWorkflowStore,
         ModelApprovalWorkflowStoreService modelApprovalWorkflowStore,
@@ -83,6 +85,7 @@ public sealed class PlatformIntelligenceService
         _db = db;
         _knowledgeGraphCatalog = knowledgeGraphCatalog;
         _opsResiliencePackCatalog = opsResiliencePackCatalog;
+        _modelRiskPackCatalog = modelRiskPackCatalog;
         _sanctionsWatchlistCatalog = sanctionsWatchlistCatalog;
         _sanctionsWorkflowStore = sanctionsWorkflowStore;
         _modelApprovalWorkflowStore = modelApprovalWorkflowStore;
@@ -335,6 +338,20 @@ public sealed class PlatformIntelligenceService
             modelApprovalQueue,
             modelRiskAppetiteRows,
             modelRiskReportingPack);
+        var modelRiskPackCatalog = await _modelRiskPackCatalog.MaterializeAsync(
+            modelRiskReturnPack
+                .Select(x => new ModelRiskPackSheetInput
+                {
+                    SheetCode = x.SheetCode,
+                    SheetName = x.SheetName,
+                    RowCount = x.RowCount,
+                    Signal = x.Signal,
+                    Coverage = x.Coverage,
+                    Commentary = x.Commentary,
+                    RecommendedAction = x.RecommendedAction
+                })
+                .ToList(),
+            ct);
         var institutionScorecards = BuildInstitutionScorecards(institutions, institutionObligationRows, capitalRows, incidents, securityAlerts, modelChanges);
         var activityTimeline = BuildActivityTimeline(submissions, institutions, incidents, securityAlerts, auditLog, fieldChanges);
         var interventions = BuildInterventionQueue(institutionObligationRows, capitalRows, resilienceActions, modelChanges);
@@ -511,8 +528,9 @@ public sealed class PlatformIntelligenceService
                 InAppetiteCount = modelRiskAppetiteRows.Count(x => x.AppetiteStatus == "Within Appetite"),
                 WatchCount = modelRiskAppetiteRows.Count(x => x.AppetiteStatus == "Watch"),
                 BreachCount = modelRiskAppetiteRows.Count(x => x.AppetiteStatus == "Breach"),
-                ReturnPackReadyCount = modelRiskReturnPack.Count(x => x.Signal == "Current"),
-                ReturnPackAttentionCount = modelRiskReturnPack.Count(x => x.Signal is "Critical" or "Watch"),
+                ReturnPackReadyCount = modelRiskPackCatalog.Sheets.Count(x => x.Signal == "Current"),
+                ReturnPackAttentionCount = modelRiskPackCatalog.Sheets.Count(x => x.Signal is "Critical" or "Watch"),
+                ReturnPackMaterializedAt = modelRiskPackCatalog.MaterializedAt,
                 PersistedApprovalAuditCount = modelApprovalWorkflowState.AuditTrail.Count,
                 LastApprovalWorkflowChangeAt = modelApprovalWorkflowState.AuditTrail.FirstOrDefault()?.ChangedAtUtc,
                 ValidationCalendar = modelValidationCalendar,
@@ -521,7 +539,18 @@ public sealed class PlatformIntelligenceService
                 MonitoringSummary = modelMonitoringRows,
                 AppetiteRegister = modelRiskAppetiteRows,
                 ReportingPack = modelRiskReportingPack,
-                ReturnPack = modelRiskReturnPack,
+                ReturnPack = modelRiskPackCatalog.Sheets
+                    .Select(x => new ModelRiskSheetRow
+                    {
+                        SheetCode = x.SheetCode,
+                        SheetName = x.SheetName,
+                        RowCount = x.RowCount,
+                        Signal = x.Signal,
+                        Coverage = x.Coverage,
+                        Commentary = x.Commentary,
+                        RecommendedAction = x.RecommendedAction
+                    })
+                    .ToList(),
                 ApprovalQueue = modelApprovalQueue,
                 RecentChanges = modelChanges,
                 Inventory = modelInventory
@@ -5472,6 +5501,7 @@ public sealed class ModelRiskSnapshot
     public int BreachCount { get; set; }
     public int ReturnPackReadyCount { get; set; }
     public int ReturnPackAttentionCount { get; set; }
+    public DateTime? ReturnPackMaterializedAt { get; set; }
     public int PersistedApprovalAuditCount { get; set; }
     public DateTime? LastApprovalWorkflowChangeAt { get; set; }
     public List<ModelValidationScheduleRow> ValidationCalendar { get; set; } = [];
