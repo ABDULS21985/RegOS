@@ -792,6 +792,11 @@
                             <p>Policy and what-if scenarios already alive in the platform.</p>
                         </article>
                         <article class="fc-intel-card">
+                            <span class="fc-intel-card__label">Scenario Saved</span>
+                            <strong>@(_workspace.Capital.LastScenarioUpdatedAt?.ToString("dd MMM") ?? "Pending")</strong>
+                            <p>@(_workspace.Capital.LastScenarioUpdatedAt?.ToString("HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? "The live capital planning scenario has not been saved yet.")</p>
+                        </article>
+                        <article class="fc-intel-card">
                             <span class="fc-intel-card__label">Pack Sections</span>
                             <strong>@_capitalPackRows.Count</strong>
                             <p>Structured capital-management sections assembled from the current live scenario.</p>
@@ -868,7 +873,10 @@
                                     <span class="fc-intel-card__label">Capital Planning</span>
                                     <h2>4-8 quarter CAR projection</h2>
                                 </div>
-                                <span class="fc-intel-chip">@_projectionRows.Count quarter(s)</span>
+                                <div class="fc-intel-inline-chips">
+                                    <span class="fc-intel-chip">@_projectionRows.Count quarter(s)</span>
+                                    <span class="fc-intel-chip">@(_workspace.Capital.LastScenarioUpdatedAt?.ToString("dd MMM HH:mm", CultureInfo.InvariantCulture) ?? "Pending")</span>
+                                </div>
                             </header>
                             <div class="fc-intel-form-grid">
                                 <label>
@@ -4782,6 +4790,7 @@
     private async Task RebuildProjectionAsync()
     {
         RecalculateProjection();
+        await SaveCapitalScenarioAsync();
         await SyncCapitalPackAsync();
     }
 
@@ -7200,11 +7209,107 @@
 
     private async Task LoadClientStateAsync()
     {
+        await LoadCapitalScenarioStateAsync();
         await LoadSanctionsScreeningStateAsync();
         await LoadSanctionsWorkflowStateAsync();
         await LoadModelApprovalWorkflowStateAsync();
         await LoadResilienceClientStateAsync();
         _clientStateLoaded = true;
+    }
+
+    private async Task LoadCapitalScenarioStateAsync()
+    {
+        try
+        {
+            var state = await IntelligenceService.GetCapitalPlanningScenarioStateAsync();
+            if (state is null)
+            {
+                if (_workspace is not null)
+                {
+                    _workspace.Capital.LastScenarioUpdatedAt = null;
+                }
+
+                return;
+            }
+
+            _projectionInput = new CapitalProjectionInput
+            {
+                CurrentCarPercent = state.CurrentCarPercent,
+                CurrentRwaBn = state.CurrentRwaBn,
+                QuarterlyRwaGrowthPercent = state.QuarterlyRwaGrowthPercent,
+                QuarterlyRetainedEarningsBn = state.QuarterlyRetainedEarningsBn,
+                CapitalActionBn = state.CapitalActionBn,
+                MinimumRequirementPercent = state.MinimumRequirementPercent,
+                ConservationBufferPercent = state.ConservationBufferPercent,
+                CountercyclicalBufferPercent = state.CountercyclicalBufferPercent,
+                DsibBufferPercent = state.DsibBufferPercent,
+                RwaOptimisationPercent = state.RwaOptimisationPercent
+            };
+
+            _capitalStackInput = new CapitalStackOptimiserInput
+            {
+                TargetCarPercent = state.TargetCarPercent,
+                Cet1CostPercent = state.Cet1CostPercent,
+                At1CostPercent = state.At1CostPercent,
+                Tier2CostPercent = state.Tier2CostPercent,
+                MaxAt1SharePercent = state.MaxAt1SharePercent,
+                MaxTier2SharePercent = state.MaxTier2SharePercent,
+                StepPercent = state.StepPercent
+            };
+
+            RecalculateProjection();
+
+            if (_workspace is not null)
+            {
+                _workspace.Capital.LastScenarioUpdatedAt = state.SavedAtUtc;
+            }
+        }
+        catch
+        {
+            if (_workspace is not null)
+            {
+                _workspace.Capital.LastScenarioUpdatedAt = null;
+            }
+        }
+    }
+
+    private async Task SaveCapitalScenarioAsync()
+    {
+        if (_workspace is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var state = await IntelligenceService.RecordCapitalPlanningScenarioAsync(new CapitalPlanningScenarioCommand
+            {
+                CurrentCarPercent = _projectionInput.CurrentCarPercent,
+                CurrentRwaBn = _projectionInput.CurrentRwaBn,
+                QuarterlyRwaGrowthPercent = _projectionInput.QuarterlyRwaGrowthPercent,
+                QuarterlyRetainedEarningsBn = _projectionInput.QuarterlyRetainedEarningsBn,
+                CapitalActionBn = _projectionInput.CapitalActionBn,
+                MinimumRequirementPercent = _projectionInput.MinimumRequirementPercent,
+                ConservationBufferPercent = _projectionInput.ConservationBufferPercent,
+                CountercyclicalBufferPercent = _projectionInput.CountercyclicalBufferPercent,
+                DsibBufferPercent = _projectionInput.DsibBufferPercent,
+                RwaOptimisationPercent = _projectionInput.RwaOptimisationPercent,
+                TargetCarPercent = _capitalStackInput.TargetCarPercent,
+                Cet1CostPercent = _capitalStackInput.Cet1CostPercent,
+                At1CostPercent = _capitalStackInput.At1CostPercent,
+                Tier2CostPercent = _capitalStackInput.Tier2CostPercent,
+                MaxAt1SharePercent = _capitalStackInput.MaxAt1SharePercent,
+                MaxTier2SharePercent = _capitalStackInput.MaxTier2SharePercent,
+                StepPercent = _capitalStackInput.StepPercent,
+                SavedAtUtc = DateTime.UtcNow
+            });
+
+            _workspace.Capital.LastScenarioUpdatedAt = state.SavedAtUtc;
+        }
+        catch
+        {
+            // Keep the live scenario interactive even if persistence is temporarily unavailable.
+        }
     }
 
     private async Task LoadSanctionsScreeningStateAsync()

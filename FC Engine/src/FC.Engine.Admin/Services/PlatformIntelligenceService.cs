@@ -65,6 +65,7 @@ public sealed class PlatformIntelligenceService
 
     private readonly MetadataDbContext _db;
     private readonly KnowledgeGraphCatalogService _knowledgeGraphCatalog;
+    private readonly CapitalPlanningScenarioStoreService _capitalPlanningScenarioStore;
     private readonly CapitalPackCatalogService _capitalPackCatalog;
     private readonly OpsResiliencePackCatalogService _opsResiliencePackCatalog;
     private readonly ModelRiskPackCatalogService _modelRiskPackCatalog;
@@ -78,6 +79,7 @@ public sealed class PlatformIntelligenceService
     public PlatformIntelligenceService(
         MetadataDbContext db,
         KnowledgeGraphCatalogService knowledgeGraphCatalog,
+        CapitalPlanningScenarioStoreService capitalPlanningScenarioStore,
         CapitalPackCatalogService capitalPackCatalog,
         OpsResiliencePackCatalogService opsResiliencePackCatalog,
         ModelRiskPackCatalogService modelRiskPackCatalog,
@@ -90,6 +92,7 @@ public sealed class PlatformIntelligenceService
     {
         _db = db;
         _knowledgeGraphCatalog = knowledgeGraphCatalog;
+        _capitalPlanningScenarioStore = capitalPlanningScenarioStore;
         _capitalPackCatalog = capitalPackCatalog;
         _opsResiliencePackCatalog = opsResiliencePackCatalog;
         _modelRiskPackCatalog = modelRiskPackCatalog;
@@ -286,6 +289,7 @@ public sealed class PlatformIntelligenceService
         var sanctionsCatalog = await _sanctionsWatchlistCatalog.MaterializeAsync(
             BuildSanctionsCatalogRequest(),
             ct);
+        var capitalPlanningScenario = await _capitalPlanningScenarioStore.LoadAsync(ct);
         var sanctionsPackCatalog = await _sanctionsPackCatalog.LoadAsync(ct);
         var sanctionsWorkflowState = await _sanctionsWorkflowStore.LoadAsync(ct);
         var modelApprovalWorkflowState = await _modelApprovalWorkflowStore.LoadAsync(ct);
@@ -430,6 +434,7 @@ public sealed class PlatformIntelligenceService
                 ActiveScenarioCount = policyScenarios.Count(x => x.Status != PolicyStatus.Enacted),
                 ActionTemplates = CapitalActionTemplates.ToList(),
                 Watchlist = capitalRows.Take(10).ToList(),
+                LastScenarioUpdatedAt = capitalPlanningScenario?.SavedAtUtc,
                 ReturnPack = capitalPackCatalog.Sections.ToList(),
                 ReturnPackAttentionCount = capitalPackCatalog.Sections.Count(x => x.Signal is "Critical" or "Watch"),
                 ReturnPackMaterializedAt = capitalPackCatalog.MaterializedAt
@@ -771,6 +776,14 @@ public sealed class PlatformIntelligenceService
 
     public Task<CapitalPackCatalogState> GetCapitalPackCatalogStateAsync(CancellationToken ct = default) =>
         _capitalPackCatalog.LoadAsync(ct);
+
+    public Task<CapitalPlanningScenarioState?> GetCapitalPlanningScenarioStateAsync(CancellationToken ct = default) =>
+        _capitalPlanningScenarioStore.LoadAsync(ct);
+
+    public Task<CapitalPlanningScenarioState> RecordCapitalPlanningScenarioAsync(
+        CapitalPlanningScenarioCommand command,
+        CancellationToken ct = default) =>
+        _capitalPlanningScenarioStore.SaveAsync(command, ct);
 
     public Task<CapitalPackCatalogState> MaterializeCapitalPackAsync(
         IReadOnlyList<CapitalPackSectionInput> sections,
@@ -5169,6 +5182,7 @@ public sealed class CapitalManagementSnapshot
     public decimal MedianCapitalScore { get; set; }
     public int CapitalWatchlistCount { get; set; }
     public int ActiveScenarioCount { get; set; }
+    public DateTime? LastScenarioUpdatedAt { get; set; }
     public List<CapitalActionTemplate> ActionTemplates { get; set; } = [];
     public List<CapitalWatchlistRow> Watchlist { get; set; } = [];
     public List<CapitalPackSectionState> ReturnPack { get; set; } = [];
