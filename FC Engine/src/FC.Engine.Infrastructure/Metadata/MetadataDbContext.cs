@@ -93,6 +93,15 @@ public class MetadataDbContext : DbContext
     public DbSet<ImportMapping> ImportMappings => Set<ImportMapping>();
     public DbSet<MigrationModuleSignOff> MigrationModuleSignOffs => Set<MigrationModuleSignOff>();
     public DbSet<KnowledgeBaseArticle> KnowledgeBaseArticles => Set<KnowledgeBaseArticle>();
+    public DbSet<KnowledgeGraphNode> KnowledgeGraphNodes => Set<KnowledgeGraphNode>();
+    public DbSet<KnowledgeGraphEdge> KnowledgeGraphEdges => Set<KnowledgeGraphEdge>();
+    public DbSet<SanctionsCatalogSourceRecord> SanctionsCatalogSources => Set<SanctionsCatalogSourceRecord>();
+    public DbSet<SanctionsCatalogEntryRecord> SanctionsCatalogEntries => Set<SanctionsCatalogEntryRecord>();
+    public DbSet<SanctionsFalsePositiveEntry> SanctionsFalsePositiveEntries => Set<SanctionsFalsePositiveEntry>();
+    public DbSet<SanctionsDecisionAuditRecord> SanctionsDecisionAuditRecords => Set<SanctionsDecisionAuditRecord>();
+    public DbSet<ModelApprovalWorkflowStateRecord> ModelApprovalWorkflowStates => Set<ModelApprovalWorkflowStateRecord>();
+    public DbSet<ModelApprovalAuditRecord> ModelApprovalAuditRecords => Set<ModelApprovalAuditRecord>();
+    public DbSet<ResilienceAssessmentResponseRecord> ResilienceAssessmentResponses => Set<ResilienceAssessmentResponseRecord>();
 
     // Direct regulatory submissions (RG-34 legacy)
     public DbSet<DirectSubmission> DirectSubmissions => Set<DirectSubmission>();

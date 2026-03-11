@@ -53,6 +53,7 @@ builder.Services.AddScoped<FC.Engine.Admin.Services.SessionService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.KeyboardShortcutService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.HealthAlertService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.RegulatorSessionService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformIntelligenceService>();
 builder.Services.AddScoped<FC.Engine.Infrastructure.Charts.ChartJsInterop>();
 builder.Services.AddScoped<IAuthorizationHandler, RegulatorTenantAccessHandler>();
 

@@ -74,6 +74,8 @@ public sealed class CommandPaletteService
                 """<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>"""));
             _commands.Add(Nav("Platform Health", "/platform/health", "System health and monitoring", "health,monitoring,status,uptime",
                 """<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>"""));
+            _commands.Add(Nav("Intelligence Workspace", "/platform/intelligence", "Unified workspace for graph, capital, screening, resilience, and model governance", "intelligence,knowledge graph,capital,sanctions,resilience,model risk",
+                """<circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="12" cy="17" r="3"/><path d="M9.5 9.5l1.8 4"/><path d="M14.5 9.5l-1.8 4"/>"""));
             _commands.Add(Nav("Module Analytics", "/platform/module-analytics", "Module usage analytics", "module,analytics,usage,statistics",
                 """<rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/>"""));
             _commands.Add(Nav("Feature Flags", "/platform/feature-flags", "Toggle platform feature flags", "feature,flag,toggle,switch",
