@@ -35,6 +35,8 @@ public class AnomalyDetectionServiceTests
         var currentTenant = SeedTenant(db, "Current Bank", "current-bank");
         AttachLicence(db, currentTenant.TenantId, licenceType);
         var currentInstitution = SeedInstitution(db, currentTenant.TenantId, 99, "Current Bank");
+        var olderPeriod = SeedPeriod(db, currentTenant.TenantId, 399, module, 2025, 9, 3, new DateTime(2025, 9, 30, 0, 0, 0, DateTimeKind.Utc));
+        SeedSubmission(db, currentTenant.TenantId, currentInstitution, olderPeriod, 980m, 830m, 780m, 620m, 18.5m);
         var previousPeriod = SeedPeriod(db, currentTenant.TenantId, 400, module, 2025, 12, 4, new DateTime(2025, 12, 31, 0, 0, 0, DateTimeKind.Utc));
         SeedSubmission(db, currentTenant.TenantId, currentInstitution, previousPeriod, 1025m, 860m, 805m, 635m, 17.5m);
 
@@ -163,6 +165,8 @@ public class AnomalyDetectionServiceTests
         var currentTenant = SeedTenant(db, "Target", "target");
         AttachLicence(db, currentTenant.TenantId, licenceType);
         var institutionTarget = SeedInstitution(db, currentTenant.TenantId, 900, "Target Institution");
+        var olderPeriodTarget = SeedPeriod(db, currentTenant.TenantId, 600, module, 2025, 9, 3, new DateTime(2025, 9, 30, 0, 0, 0, DateTimeKind.Utc));
+        SeedSubmission(db, currentTenant.TenantId, institutionTarget, olderPeriodTarget, 990m, 835m, 785m, 615m, 18.2m);
         var previousPeriodTarget = SeedPeriod(db, currentTenant.TenantId, 601, module, 2025, 12, 4, new DateTime(2025, 12, 31, 0, 0, 0, DateTimeKind.Utc));
         SeedSubmission(db, currentTenant.TenantId, institutionTarget, previousPeriodTarget, 1015m, 850m, 800m, 630m, 17m);
 

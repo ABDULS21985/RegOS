@@ -8,7 +8,7 @@ namespace FC.Engine.Infrastructure.Services;
 
 internal static class AnomalySupport
 {
-    internal static readonly SubmissionStatus[] AcceptedStatuses =
+    internal static readonly IReadOnlyList<SubmissionStatus> AcceptedStatuses = new List<SubmissionStatus>
     {
         SubmissionStatus.Accepted,
         SubmissionStatus.AcceptedWithWarnings,
