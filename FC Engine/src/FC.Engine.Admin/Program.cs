@@ -71,6 +71,9 @@ builder.Services.AddSingleton<FC.Engine.Admin.Services.Scenarios.IScenarioTempla
 builder.Services.AddScoped<FC.Engine.Admin.Services.Capital.RwaOptimizationService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.Capital.CapitalStackOptimizerService>();
 
+// Compliance & Knowledge Graph
+builder.Services.AddScoped<FC.Engine.Admin.Services.Compliance.ComplianceGraphService>();
+
 // Platform Admin services
 builder.Services.AddScoped<FC.Engine.Admin.Services.TenantManagementService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformAdminService>();

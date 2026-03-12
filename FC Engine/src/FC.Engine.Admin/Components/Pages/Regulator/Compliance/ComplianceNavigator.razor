@@ -1,0 +1,332 @@
+@page "/regulator/compliance/navigator"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject FC.Engine.Admin.Services.Compliance.ComplianceGraphService GraphService
+@inject FC.Engine.Admin.Services.ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>Compliance Navigator</PageTitle>
+
+<PageHeader Title="Compliance Navigator"
+            Subtitle="Trace from Regulation to Module to Return to Field to Institution — drill into any compliance path."
+            BackUrl="/regulator"
+            CountBadge="@(!_loading ? _data?.NavigatorDetails.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load compliance graph" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <div class="rg-comp-kpi-strip">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="rg-comp-kpi"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="88px" /></div>
+                }
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
+        }
+        else if (_data is null)
+        {
+            <EmptyState Context="data" Heading="No knowledge graph data" Description="Materialise the knowledge graph via the Intelligence Hub first." />
+        }
+        else
+        {
+            <div class="rg-comp-kpi-strip">
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@_data.OntologyCoverage.Count</div>
+                    <div class="rg-comp-kpi-label">Regulators</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@_data.RequirementRegister.Count</div>
+                    <div class="rg-comp-kpi-label">Requirements</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@_data.Lineage.Count</div>
+                    <div class="rg-comp-kpi-label">Traced Paths</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@_data.NavigatorDetails.Count</div>
+                    <div class="rg-comp-kpi-label">Navigator Details</div>
+                </div>
+            </div>
+
+            @* Ontology Coverage *@
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">Regulatory Ontology Coverage</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="KnowledgeGraphOntologyCoverageRow"
+                               Items="@_data.OntologyCoverage"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="ontology-coverage">
+                        <ChildContent>
+                            <DataColumn TItem="KnowledgeGraphOntologyCoverageRow" Title="Regulator" SortKey="@(x => x.RegulatorCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--info">@context.RegulatorCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphOntologyCoverageRow" Title="Regulation Families" Width="130px" SortKey="@(x => x.RegulationFamilyCount)">
+                                <CellTemplate>@context.RegulationFamilyCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphOntologyCoverageRow" Title="Requirements" Width="120px" SortKey="@(x => x.RequirementCount)">
+                                <CellTemplate>@context.RequirementCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphOntologyCoverageRow" Title="Modules" Width="100px" SortKey="@(x => x.ModuleCount)">
+                                <CellTemplate>@context.ModuleCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphOntologyCoverageRow" Title="Returns" Width="100px" SortKey="@(x => x.ReturnCount)">
+                                <CellTemplate>@context.ReturnCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphOntologyCoverageRow" Title="Institutions" Width="110px" SortKey="@(x => x.InstitutionCount)">
+                                <CellTemplate>@context.InstitutionCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphOntologyCoverageRow" Title="Obligations" Width="110px" SortKey="@(x => x.ObligationCount)">
+                                <CellTemplate>@context.ObligationCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphOntologyCoverageRow" Title="Filing Path" SortKey="@(x => x.PrimaryFilingPath)">
+                                <CellTemplate><span class="fc-text-muted-sm">@context.PrimaryFilingPath</span></CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+
+            @* Requirement Register *@
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">Requirement Register</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="KnowledgeGraphRequirementRegisterRow"
+                               Items="@_data.RequirementRegister"
+                               PageSize="15"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="requirement-register"
+                               Clickable="true"
+                               OnRowClick="@(r => SelectRequirement(r))">
+                        <ChildContent>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Regulatory Ref" SortKey="@(x => x.RegulatoryReference)">
+                                <CellTemplate>
+                                    <strong>@context.RegulatoryReference</strong>
+                                    <div class="fc-text-muted-sm">@context.RegulationFamily</div>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Regulator" Width="100px" SortKey="@(x => x.RegulatorCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.RegulatorCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Module" Width="120px" SortKey="@(x => x.ModuleCode)">
+                                <CellTemplate>@context.ModuleCode</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Filed Via" SortKey="@(x => x.FiledViaReturns)">
+                                <CellTemplate><span class="fc-text-muted-sm">@context.FiledViaReturns</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Licences" Width="120px" SortKey="@(x => x.AppliesToLicenceTypes)">
+                                <CellTemplate><span class="fc-text-muted-sm">@context.AppliesToLicenceTypes</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Institutions" Width="100px" SortKey="@(x => x.InstitutionCount)">
+                                <CellTemplate>@context.InstitutionCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Fields" Width="80px" SortKey="@(x => x.FieldCount)">
+                                <CellTemplate>@context.FieldCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Frequency" Width="100px" SortKey="@(x => x.FrequencyProfile)">
+                                <CellTemplate>@context.FrequencyProfile</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphRequirementRegisterRow" Title="Next Deadline" Width="120px" SortKey="@(x => x.NextDeadline)">
+                                <CellTemplate>@context.NextDeadline.ToString("dd MMM yyyy")</CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+
+            @* Navigator Detail Panel *@
+            @if (_selectedDetail is not null)
+            {
+                <div class="fc-card fc-card--mb">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Navigator Detail: @_selectedDetail.RegulatoryReference</h2>
+                    </div>
+                    <div class="fc-card__body">
+                        <div class="rg-comp-breadcrumb-trace">
+                            <span class="rg-comp-trace-node rg-comp-trace-node--regulator">@_selectedDetail.RegulatorCode</span>
+                            <span class="rg-comp-trace-arrow">&rarr;</span>
+                            <span class="rg-comp-trace-node rg-comp-trace-node--module">@_selectedDetail.ModuleCode</span>
+                            <span class="rg-comp-trace-arrow">&rarr;</span>
+                            <span class="rg-comp-trace-node rg-comp-trace-node--return">@_selectedDetail.ReturnCode</span>
+                            <span class="rg-comp-trace-arrow">&rarr;</span>
+                            <span class="rg-comp-trace-node rg-comp-trace-node--field">@_selectedDetail.FieldCode</span>
+                        </div>
+
+                        <div class="rg-comp-kpi-strip" style="margin-top:var(--space-4);">
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedDetail.ImpactedTemplates</div>
+                                <div class="rg-comp-kpi-label">Impacted Templates</div>
+                            </div>
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedDetail.ImpactedFields</div>
+                                <div class="rg-comp-kpi-label">Impacted Fields</div>
+                            </div>
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedDetail.RuleSurfaceCount</div>
+                                <div class="rg-comp-kpi-label">Rule Surface</div>
+                            </div>
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedDetail.AffectedInstitutionCount</div>
+                                <div class="rg-comp-kpi-label">Affected Institutions</div>
+                            </div>
+                        </div>
+
+                        @if (_selectedDetail.AffectedInstitutions.Count > 0)
+                        {
+                            <h3 class="fc-card__title" style="margin-top:var(--space-6);">Affected Institutions</h3>
+                            <DataTable TItem="KnowledgeGraphNavigatorInstitutionRow"
+                                       Items="@_selectedDetail.AffectedInstitutions"
+                                       Sortable="true">
+                                <ChildContent>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Institution" SortKey="@(x => x.InstitutionName)">
+                                        <CellTemplate><strong>@context.InstitutionName</strong></CellTemplate>
+                                    </DataColumn>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Licence" Width="120px" SortKey="@(x => x.LicenceType)">
+                                        <CellTemplate>@context.LicenceType</CellTemplate>
+                                    </DataColumn>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Status" Width="130px" SortKey="@(x => x.Status)">
+                                        <CellTemplate>
+                                            <span class="fc-badge @ObligationStatusBadge(context.Status)">@context.Status</span>
+                                        </CellTemplate>
+                                    </DataColumn>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Last Submitted" Width="130px" SortKey="@(x => x.LastSubmittedAt)">
+                                        <CellTemplate>
+                                            @if (context.LastSubmittedAt.HasValue)
+                                            {
+                                                @context.LastSubmittedAt.Value.ToString("dd MMM yyyy")
+                                            }
+                                            else
+                                            {
+                                                <span class="fc-text-muted">—</span>
+                                            }
+                                        </CellTemplate>
+                                    </DataColumn>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Next Deadline" Width="130px" SortKey="@(x => x.NextDeadline)">
+                                        <CellTemplate>@context.NextDeadline.ToString("dd MMM yyyy")</CellTemplate>
+                                    </DataColumn>
+                                </ChildContent>
+                            </DataTable>
+                        }
+
+                        @if (_selectedDetail.RecentSubmissions.Count > 0)
+                        {
+                            <h3 class="fc-card__title" style="margin-top:var(--space-6);">Recent Submissions</h3>
+                            <DataTable TItem="KnowledgeGraphNavigatorSubmissionRow"
+                                       Items="@_selectedDetail.RecentSubmissions"
+                                       Sortable="true">
+                                <ChildContent>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorSubmissionRow" Title="Submission" SortKey="@(x => x.SubmissionId)">
+                                        <CellTemplate><strong>#@context.SubmissionId</strong></CellTemplate>
+                                    </DataColumn>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorSubmissionRow" Title="Institution" SortKey="@(x => x.InstitutionName)">
+                                        <CellTemplate>@context.InstitutionName</CellTemplate>
+                                    </DataColumn>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorSubmissionRow" Title="Status" Width="130px" SortKey="@(x => x.Status)">
+                                        <CellTemplate>
+                                            <span class="fc-badge @ObligationStatusBadge(context.Status)">@context.Status</span>
+                                        </CellTemplate>
+                                    </DataColumn>
+                                    <DataColumn TItem="KnowledgeGraphNavigatorSubmissionRow" Title="Submitted" Width="130px" SortKey="@(x => x.SubmittedAt)">
+                                        <CellTemplate>@context.SubmittedAt.ToString("dd MMM yyyy")</CellTemplate>
+                                    </DataColumn>
+                                </ChildContent>
+                            </DataTable>
+                        }
+                    </div>
+                </div>
+            }
+
+            @* Full Lineage Table *@
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Compliance Lineage Traces</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="KnowledgeGraphLineageRow"
+                               Items="@_data.Lineage"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="compliance-lineage"
+                               Clickable="true"
+                               OnRowClick="@(r => SelectLineage(r))">
+                        <ChildContent>
+                            <DataColumn TItem="KnowledgeGraphLineageRow" Title="Regulatory Ref" SortKey="@(x => x.RegulatoryReference)">
+                                <CellTemplate><strong>@context.RegulatoryReference</strong></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphLineageRow" Title="Regulator" Width="100px" SortKey="@(x => x.RegulatorCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.RegulatorCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphLineageRow" Title="Module" Width="120px" SortKey="@(x => x.ModuleCode)">
+                                <CellTemplate>@context.ModuleCode</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphLineageRow" Title="Return" Width="120px" SortKey="@(x => x.ReturnCode)">
+                                <CellTemplate>@context.ReturnCode</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphLineageRow" Title="Template" SortKey="@(x => x.TemplateName)">
+                                <CellTemplate>@context.TemplateName</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphLineageRow" Title="Field" SortKey="@(x => x.FieldName)">
+                                <CellTemplate>
+                                    @context.FieldName
+                                    <div class="fc-text-muted-sm">@context.FieldCode</div>
+                                </CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true;
+    private Exception? _loadException;
+    private ComplianceNavigatorData? _data;
+    private KnowledgeGraphNavigatorDetail? _selectedDetail;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            _data = await GraphService.GetNavigatorDataAsync();
+        }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _loading = false; }
+    }
+
+    private void SelectRequirement(KnowledgeGraphRequirementRegisterRow req)
+    {
+        _selectedDetail = _data?.NavigatorDetails
+            .FirstOrDefault(d => d.RegulatoryReference == req.RegulatoryReference);
+        StateHasChanged();
+    }
+
+    private void SelectLineage(KnowledgeGraphLineageRow row)
+    {
+        _selectedDetail = _data?.NavigatorDetails
+            .FirstOrDefault(d => d.NavigatorKey == row.NavigatorKey);
+        StateHasChanged();
+    }
+
+    private static string ObligationStatusBadge(string status) => status switch
+    {
+        "Filed" => "fc-badge--success",
+        "Pending Approval" => "fc-badge--info",
+        "In Progress" => "fc-badge--info",
+        "Due Soon" => "fc-badge--warning",
+        "Attention Required" => "fc-badge--warning",
+        "Overdue" => "fc-badge--danger",
+        "Approved" => "fc-badge--success",
+        "Rejected" => "fc-badge--danger",
+        "Draft" => "fc-badge--neutral",
+        _ => "fc-badge--neutral"
+    };
+}

@@ -1,0 +1,365 @@
+@page "/regulator/compliance/impact"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject FC.Engine.Admin.Services.Compliance.ComplianceGraphService GraphService
+@inject FC.Engine.Admin.Services.ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>Impact Propagation</PageTitle>
+
+<PageHeader Title="Impact Propagation"
+            Subtitle="Select a regulatory reference and trace its cascade across templates, fields, rules, and institutions."
+            BackUrl="/regulator"
+            CountBadge="@(!_loading ? _data?.ImpactPropagation.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load impact data" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <div class="rg-comp-kpi-strip">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="rg-comp-kpi"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="88px" /></div>
+                }
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
+        }
+        else if (_data is null || (_data.ImpactSurfaces.Count == 0 && _data.ImpactPropagation.Count == 0))
+        {
+            <EmptyState Context="data" Heading="No impact data available" Description="Materialise the knowledge graph via the Intelligence Hub to analyse impact propagation." />
+        }
+        else
+        {
+            var totalTemplates = _data.ImpactSurfaces.Sum(i => i.ImpactedTemplates);
+            var totalFields = _data.ImpactSurfaces.Sum(i => i.ImpactedFields);
+            var totalRules = _data.ImpactSurfaces.Sum(i => i.ImpactedFormulas + i.ImpactedCrossSheetRules + i.ImpactedBusinessRules);
+            var criticalCount = _data.ImpactPropagation.Count(i => i.Signal == "Critical");
+
+            <div class="rg-comp-kpi-strip">
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@_data.ImpactSurfaces.Count</div>
+                    <div class="rg-comp-kpi-label">Impact Surfaces</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@totalTemplates</div>
+                    <div class="rg-comp-kpi-label">Impacted Templates</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@totalRules</div>
+                    <div class="rg-comp-kpi-label">Rule Dependencies</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value @(criticalCount > 0 ? "rg-comp-kpi-value--red" : "rg-comp-kpi-value--green")">@criticalCount</div>
+                    <div class="rg-comp-kpi-label">Critical Signals</div>
+                </div>
+            </div>
+
+            @* Impact Surface Overview *@
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">Impact Surface Overview</h2></div>
+                <div class="fc-card__body">
+                    <div class="rg-grid rg-grid-2">
+                        <div><canvas id="impactSurfaceChart"></canvas></div>
+                        <div><canvas id="impactDistributionChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            @* Impact Propagation Table *@
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">Impact Propagation Register</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="KnowledgeGraphImpactPropagationRow"
+                               Items="@_data.ImpactPropagation"
+                               PageSize="15"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="impact-propagation"
+                               Clickable="true"
+                               OnRowClick="@(r => SelectImpact(r))">
+                        <ChildContent>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Regulatory Reference" SortKey="@(x => x.RegulatoryReference)">
+                                <CellTemplate>
+                                    <strong>@context.RegulatoryReference</strong>
+                                    <div class="fc-text-muted-sm">@context.RegulationFamily</div>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Regulator" Width="90px" SortKey="@(x => x.RegulatorCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.RegulatorCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Return" Width="110px" SortKey="@(x => x.PrimaryReturnCode)">
+                                <CellTemplate>@context.PrimaryReturnCode</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Templates" Width="90px" SortKey="@(x => x.ImpactedTemplates)">
+                                <CellTemplate>@context.ImpactedTemplates</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Fields" Width="80px" SortKey="@(x => x.ImpactedFields)">
+                                <CellTemplate>@context.ImpactedFields</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Rules" Width="80px" SortKey="@(x => x.RuleSurfaceCount)">
+                                <CellTemplate>@context.RuleSurfaceCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Institutions" Width="100px" SortKey="@(x => x.AffectedInstitutions)">
+                                <CellTemplate>
+                                    @context.AffectedInstitutions
+                                    @if (context.FilingAttentionCount > 0)
+                                    {
+                                        <span class="fc-badge fc-badge--danger" style="margin-left:var(--space-1);">@context.FilingAttentionCount attention</span>
+                                    }
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Signal" Width="100px" SortKey="@(x => x.Signal)">
+                                <CellTemplate>
+                                    <span class="fc-badge @SignalBadge(context.Signal)">@context.Signal</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactPropagationRow" Title="Next Deadline" Width="120px" SortKey="@(x => x.NextDeadline)">
+                                <CellTemplate>@context.NextDeadline.ToString("dd MMM yyyy")</CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+
+            @* Selected Impact Detail *@
+            @if (_selectedImpact is not null)
+            {
+                <div class="fc-card fc-card--mb">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Impact Detail: @_selectedImpact.RegulatoryReference</h2>
+                        <span class="fc-badge @SignalBadge(_selectedImpact.Signal)" style="margin-left:var(--space-2);">@_selectedImpact.Signal</span>
+                    </div>
+                    <div class="fc-card__body">
+                        <div class="rg-comp-kpi-strip rg-comp-kpi-strip--compact">
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedImpact.ImpactedTemplates</div>
+                                <div class="rg-comp-kpi-label">Templates</div>
+                            </div>
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedImpact.ImpactedFields</div>
+                                <div class="rg-comp-kpi-label">Fields</div>
+                            </div>
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedImpact.RuleSurfaceCount</div>
+                                <div class="rg-comp-kpi-label">Rules Affected</div>
+                            </div>
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedImpact.AffectedInstitutions</div>
+                                <div class="rg-comp-kpi-label">Institutions</div>
+                            </div>
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value">@_selectedImpact.FiledInstitutionCount</div>
+                                <div class="rg-comp-kpi-label">Filed</div>
+                            </div>
+                            <div class="rg-comp-kpi">
+                                <div class="rg-comp-kpi-value rg-comp-kpi-value--red">@_selectedImpact.FilingAttentionCount</div>
+                                <div class="rg-comp-kpi-label">Attention Required</div>
+                            </div>
+                        </div>
+
+                        <div class="rg-comp-impact-detail" style="margin-top:var(--space-4);">
+                            <div class="rg-comp-impact-row">
+                                <strong>Commentary:</strong> @_selectedImpact.Commentary
+                            </div>
+                            <div class="rg-comp-impact-row">
+                                <strong>Recommended Action:</strong> @_selectedImpact.RecommendedAction
+                            </div>
+                        </div>
+
+                        @if (_selectedNavigator is not null)
+                        {
+                            <div class="rg-comp-breadcrumb-trace" style="margin-top:var(--space-4);">
+                                <span class="rg-comp-trace-node rg-comp-trace-node--regulator">@_selectedNavigator.RegulatorCode</span>
+                                <span class="rg-comp-trace-arrow">&rarr;</span>
+                                <span class="rg-comp-trace-node rg-comp-trace-node--module">@_selectedNavigator.ModuleCode</span>
+                                <span class="rg-comp-trace-arrow">&rarr;</span>
+                                <span class="rg-comp-trace-node rg-comp-trace-node--return">@_selectedNavigator.ReturnCode</span>
+                                <span class="rg-comp-trace-arrow">&rarr;</span>
+                                <span class="rg-comp-trace-node rg-comp-trace-node--field">@_selectedNavigator.FieldCode</span>
+                            </div>
+
+                            @if (_selectedNavigator.AffectedInstitutions.Count > 0)
+                            {
+                                <h3 class="fc-card__title" style="margin-top:var(--space-6);">Affected Institutions</h3>
+                                <DataTable TItem="KnowledgeGraphNavigatorInstitutionRow"
+                                           Items="@_selectedNavigator.AffectedInstitutions"
+                                           Sortable="true">
+                                    <ChildContent>
+                                        <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Institution" SortKey="@(x => x.InstitutionName)">
+                                            <CellTemplate><strong>@context.InstitutionName</strong></CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Licence" Width="120px" SortKey="@(x => x.LicenceType)">
+                                            <CellTemplate>@context.LicenceType</CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Status" Width="140px" SortKey="@(x => x.Status)">
+                                            <CellTemplate>
+                                                <span class="fc-badge @StatusBadge(context.Status)">@context.Status</span>
+                                            </CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Last Submitted" Width="130px" SortKey="@(x => x.LastSubmittedAt)">
+                                            <CellTemplate>
+                                                @if (context.LastSubmittedAt.HasValue)
+                                                {
+                                                    @context.LastSubmittedAt.Value.ToString("dd MMM yyyy")
+                                                }
+                                                else
+                                                {
+                                                    <span class="fc-text-muted">—</span>
+                                                }
+                                            </CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="KnowledgeGraphNavigatorInstitutionRow" Title="Next Deadline" Width="130px" SortKey="@(x => x.NextDeadline)">
+                                            <CellTemplate>@context.NextDeadline.ToString("dd MMM yyyy")</CellTemplate>
+                                        </DataColumn>
+                                    </ChildContent>
+                                </DataTable>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+
+            @* Impact Summary (raw surfaces) *@
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Impact Surfaces by Regulatory Reference</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="KnowledgeGraphImpactRow"
+                               Items="@_data.ImpactSurfaces"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="impact-surfaces">
+                        <ChildContent>
+                            <DataColumn TItem="KnowledgeGraphImpactRow" Title="Regulatory Reference" SortKey="@(x => x.RegulatoryReference)">
+                                <CellTemplate><strong>@context.RegulatoryReference</strong></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactRow" Title="Templates" Width="100px" SortKey="@(x => x.ImpactedTemplates)">
+                                <CellTemplate>@context.ImpactedTemplates</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactRow" Title="Fields" Width="90px" SortKey="@(x => x.ImpactedFields)">
+                                <CellTemplate>@context.ImpactedFields</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactRow" Title="Formulas" Width="90px" SortKey="@(x => x.ImpactedFormulas)">
+                                <CellTemplate>@context.ImpactedFormulas</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactRow" Title="Cross-Sheet" Width="100px" SortKey="@(x => x.ImpactedCrossSheetRules)">
+                                <CellTemplate>@context.ImpactedCrossSheetRules</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactRow" Title="Business Rules" Width="110px" SortKey="@(x => x.ImpactedBusinessRules)">
+                                <CellTemplate>@context.ImpactedBusinessRules</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactRow" Title="Tenants" Width="80px" SortKey="@(x => x.AffectedTenants)">
+                                <CellTemplate>@context.AffectedTenants</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphImpactRow" Title="Institutions" Width="100px" SortKey="@(x => x.AffectedInstitutions)">
+                                <CellTemplate>@context.AffectedInstitutions</CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private Exception? _loadException;
+    private ImpactPropagationData? _data;
+    private KnowledgeGraphImpactPropagationRow? _selectedImpact;
+    private KnowledgeGraphNavigatorDetail? _selectedNavigator;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loading && !_chartsRendered && _data is not null && _data.ImpactSurfaces.Count > 0)
+        {
+            _chartsRendered = true;
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        _chartsRendered = false;
+        try
+        {
+            _data = await GraphService.GetImpactDataAsync();
+        }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _loading = false; }
+    }
+
+    private void SelectImpact(KnowledgeGraphImpactPropagationRow row)
+    {
+        _selectedImpact = row;
+        _selectedNavigator = _data?.NavigatorDetails
+            .FirstOrDefault(d => d.NavigatorKey == row.NavigatorKey
+                              || d.RegulatoryReference == row.RegulatoryReference);
+        StateHasChanged();
+    }
+
+    private async Task RenderChartsAsync()
+    {
+        if (_data is null) return;
+        try
+        {
+            // Impact surface bar chart — top references by total impact
+            var topSurfaces = _data.ImpactSurfaces
+                .OrderByDescending(s => s.ImpactedTemplates + s.ImpactedFields)
+                .Take(8)
+                .ToList();
+
+            await JS.InvokeVoidAsync("fcCharts.renderBar", "impactSurfaceChart", new
+            {
+                labels = topSurfaces.Select(s => s.RegulatoryReference.Length > 20
+                    ? s.RegulatoryReference[..20] + "..."
+                    : s.RegulatoryReference).ToArray(),
+                datasets = new object[]
+                {
+                    new { label = "Templates", data = topSurfaces.Select(s => s.ImpactedTemplates).ToArray(), backgroundColor = "#0284c7" },
+                    new { label = "Fields", data = topSurfaces.Select(s => s.ImpactedFields).ToArray(), backgroundColor = "#7c3aed" },
+                    new { label = "Rules", data = topSurfaces.Select(s => s.ImpactedFormulas + s.ImpactedCrossSheetRules + s.ImpactedBusinessRules).ToArray(), backgroundColor = "#d97706" }
+                }
+            });
+
+            // Signal distribution doughnut
+            var critical = _data.ImpactPropagation.Count(i => i.Signal == "Critical");
+            var watch = _data.ImpactPropagation.Count(i => i.Signal == "Watch");
+            var current = _data.ImpactPropagation.Count(i => i.Signal == "Current");
+
+            await JS.InvokeVoidAsync("fcCharts.renderDoughnut", "impactDistributionChart", new
+            {
+                labels = new[] { "Critical", "Watch", "Current" },
+                data = new[] { critical, watch, current },
+                colors = new[] { "#dc2626", "#d97706", "#059669" }
+            });
+        }
+        catch { }
+    }
+
+    private static string SignalBadge(string signal) => signal switch
+    {
+        "Critical" => "fc-badge--danger",
+        "Watch" => "fc-badge--warning",
+        "Current" => "fc-badge--success",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "Filed" => "fc-badge--success",
+        "Pending Approval" => "fc-badge--info",
+        "In Progress" => "fc-badge--info",
+        "Due Soon" => "fc-badge--warning",
+        "Attention Required" => "fc-badge--warning",
+        "Overdue" => "fc-badge--danger",
+        _ => "fc-badge--neutral"
+    };
+}

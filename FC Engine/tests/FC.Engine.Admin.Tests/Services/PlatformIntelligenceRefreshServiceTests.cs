@@ -120,12 +120,14 @@ public class PlatformIntelligenceRefreshServiceTests
         loader.Verify(x => x.MaterializeDashboardBriefingPackAsync(
             "governor",
             null,
-            It.Is<IReadOnlyList<DashboardBriefingPackSectionInput>>(sections => sections.Count == 5),
+            It.Is<IReadOnlyList<DashboardBriefingPackSectionInput>>(sections =>
+                sections.Count == 6 && sections.Any(row => row.SectionCode == "GOV-06")),
             It.IsAny<CancellationToken>()), Times.Once);
         loader.Verify(x => x.MaterializeDashboardBriefingPackAsync(
             "director",
             null,
-            It.Is<IReadOnlyList<DashboardBriefingPackSectionInput>>(sections => sections.Count == 5),
+            It.Is<IReadOnlyList<DashboardBriefingPackSectionInput>>(sections =>
+                sections.Count == 6 && sections.Any(row => row.SectionCode == "DIR-06")),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -241,7 +243,9 @@ public class PlatformIntelligenceRefreshServiceTests
             "executive",
             44,
             It.Is<IReadOnlyList<DashboardBriefingPackSectionInput>>(sections =>
-                sections.Count == 5 && sections.Any(row => row.SectionCode == "EXE-01")),
+                sections.Count == 6
+                && sections.Any(row => row.SectionCode == "EXE-01")
+                && sections.Any(row => row.SectionCode == "EXE-06")),
             It.IsAny<CancellationToken>()), Times.Once);
     }
 

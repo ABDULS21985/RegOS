@@ -20,6 +20,7 @@ public sealed class DashboardBriefingPackBuilder
         var criticalDrafts = strDraftCatalog?.Drafts.Count(x => x.Priority == "Critical") ?? 0;
         var filteredInterventions = FilterInterventions(workspace, normalizedLens, institutionId);
         var concentrationRows = BuildPortfolioConcentrationRows(workspace);
+        var freshnessSummary = BuildFreshnessSummary(workspace.Refresh.CatalogFreshness);
 
         if (normalizedLens == "executive")
         {
@@ -71,7 +72,12 @@ public sealed class DashboardBriefingPackBuilder
                     $"{executivePeerBenchmarks.Count} peer institution(s)",
                     executivePeerBenchmarks.Any(x => x.Priority is "Critical" or "High") ? "Watch" : "Current",
                     "Peer posture compares this institution against the same licence segment using the cross-track pressure model.",
-                    "Benchmark against peer pressure and use deviations to set management actions.")
+                    "Benchmark against peer pressure and use deviations to set management actions."),
+                Create("EXE-06", "Data & Intelligence Freshness",
+                    freshnessSummary.Coverage,
+                    freshnessSummary.Signal,
+                    freshnessSummary.Commentary,
+                    "Refresh stale intelligence artifacts before relying on this pack for executive decisions.")
             ];
         }
 
@@ -110,7 +116,12 @@ public sealed class DashboardBriefingPackBuilder
                     topConcentration is null ? "No segment view available" : $"{topConcentration.LicenceType} leads current concentration pressure",
                     topConcentration?.Signal ?? "Current",
                     topConcentration?.Commentary ?? "No licence-segment concentration currently leads the supervisory view.",
-                    topConcentration is null ? "Maintain current population segmentation." : $"Review concentration in the {topConcentration.LicenceType} segment and rebalance leadership attention.")
+                    topConcentration is null ? "Maintain current population segmentation." : $"Review concentration in the {topConcentration.LicenceType} segment and rebalance leadership attention."),
+                Create("GOV-06", "Intelligence Freshness",
+                    freshnessSummary.Coverage,
+                    freshnessSummary.Signal,
+                    freshnessSummary.Commentary,
+                    "Treat stale intelligence artifacts as a governance issue and force refresh before the next executive review.")
             ];
         }
 
@@ -142,7 +153,12 @@ public sealed class DashboardBriefingPackBuilder
                     $"{tfsPreview.PotentialMatches} pending | {criticalDrafts} critical STR draft(s)",
                     criticalDrafts > 0 ? "Critical" : tfsPreview.PotentialMatches > 0 ? "Watch" : "Current",
                     tfsPreview.Narrative,
-                    "Close analyst reviews and escalate critical STR drafts through compliance governance.")
+                    "Close analyst reviews and escalate critical STR drafts through compliance governance."),
+                Create("DPY-06", "Intelligence Freshness",
+                    freshnessSummary.Coverage,
+                    freshnessSummary.Signal,
+                    freshnessSummary.Commentary,
+                    "Sequence platform refresh and remediation work so supervisory packs stay inside freshness thresholds.")
             ];
         }
 
@@ -172,7 +188,12 @@ public sealed class DashboardBriefingPackBuilder
                 $"{workspace.ModelRisk.ChangeReviewCount} review item(s)",
                 workspace.ModelRisk.ChangeReviewCount > 0 ? "Watch" : "Current",
                 "Recent model-affecting changes require governance challenge before closure.",
-                "Complete change review, backtesting challenge, and workflow updates for open model items.")
+                "Complete change review, backtesting challenge, and workflow updates for open model items."),
+            Create("DIR-06", "Intelligence Freshness",
+                freshnessSummary.Coverage,
+                freshnessSummary.Signal,
+                freshnessSummary.Commentary,
+                "Refresh stale catalogs before closing supervisory decisions that depend on them.")
         ];
     }
 
@@ -320,6 +341,42 @@ public sealed class DashboardBriefingPackBuilder
             : $"{workspace.Capital.CapitalWatchlistCount} institution(s) remain on the capital watchlist and should be scenario-tested for buffer protection.";
     }
 
+    private static DashboardFreshnessSummary BuildFreshnessSummary(
+        IReadOnlyList<PlatformIntelligenceCatalogFreshnessRow> freshnessRows)
+    {
+        if (freshnessRows.Count == 0)
+        {
+            return new DashboardFreshnessSummary(
+                "No freshness telemetry",
+                "Watch",
+                "No catalog freshness telemetry is currently available for this briefing pack.");
+        }
+
+        var staleCount = freshnessRows.Count(x => x.Status == "Stale");
+        var watchCount = freshnessRows.Count(x => x.Status == "Watch");
+        var pendingCount = freshnessRows.Count(x => x.Status == "Pending");
+        var signal = staleCount > 0
+            ? "Critical"
+            : watchCount > 0 || pendingCount > 0
+                ? "Watch"
+                : "Current";
+
+        var lead = freshnessRows.FirstOrDefault(x => x.Status == "Stale")
+                   ?? freshnessRows.FirstOrDefault(x => x.Status == "Watch")
+                   ?? freshnessRows.FirstOrDefault(x => x.Status == "Pending")
+                   ?? freshnessRows.First();
+
+        var coverage = staleCount > 0 || watchCount > 0 || pendingCount > 0
+            ? $"{staleCount} stale | {watchCount} watch | {pendingCount} pending"
+            : $"{freshnessRows.Count} artifact(s) current";
+
+        var commentary = signal == "Current"
+            ? "Tracked intelligence artifacts are currently materialized inside their freshness thresholds."
+            : $"{lead.Artifact} is {lead.Status.ToLowerInvariant()} at {lead.AgeLabel} against {lead.ThresholdLabel}. {lead.Commentary}";
+
+        return new DashboardFreshnessSummary(coverage, signal, commentary);
+    }
+
     private static int DashboardPriorityRank(string value) => value.ToLowerInvariant() switch
     {
         "critical" => 3,
@@ -344,4 +401,9 @@ public sealed class DashboardBriefingPackBuilder
         public int FalsePositiveCount { get; set; }
         public string Narrative { get; set; } = "The current screening run does not contain confirmed sanctions hits.";
     }
+
+    private sealed record DashboardFreshnessSummary(
+        string Coverage,
+        string Signal,
+        string Commentary);
 }
