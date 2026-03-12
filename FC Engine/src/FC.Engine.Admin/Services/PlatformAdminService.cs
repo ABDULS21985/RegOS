@@ -17,7 +17,7 @@ namespace FC.Engine.Admin.Services;
 
 public class PlatformAdminService
 {
-    private readonly MetadataDbContext _db;
+    private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
     private readonly IDashboardService _dashboardService;
     private readonly ISubscriptionService _subscriptionService;
     private readonly ITemplateRepository _templateRepository;
@@ -27,7 +27,7 @@ public class PlatformAdminService
     private readonly IFeatureFlagService _featureFlagService;
 
     public PlatformAdminService(
-        MetadataDbContext db,
+        IDbContextFactory<MetadataDbContext> dbFactory,
         IDashboardService dashboardService,
         ISubscriptionService subscriptionService,
         ITemplateRepository templateRepository,
@@ -36,7 +36,7 @@ public class PlatformAdminService
         INotificationOrchestrator notificationOrchestrator,
         IFeatureFlagService featureFlagService)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _dashboardService = dashboardService;
         _subscriptionService = subscriptionService;
         _templateRepository = templateRepository;
@@ -48,34 +48,35 @@ public class PlatformAdminService
 
     public async Task<PlatformTenantListResult> GetTenantList(PlatformTenantListQuery query, CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var now = DateTime.UtcNow;
 
-        var tenants = await _db.Tenants
+        var tenants = await db.Tenants
             .AsNoTracking()
             .OrderBy(t => t.TenantName)
             .ToListAsync(ct);
 
-        var subscriptionRows = await _db.Subscriptions
+        var subscriptionRows = await db.Subscriptions
             .AsNoTracking()
             .Include(s => s.Plan)
             .Include(s => s.Modules)
             .ToListAsync(ct);
 
-        var userCounts = await _db.InstitutionUsers
+        var userCounts = await db.InstitutionUsers
             .AsNoTracking()
             .Where(u => u.IsActive)
             .GroupBy(u => u.TenantId)
             .Select(g => new { TenantId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.TenantId, x => x.Count, ct);
 
-        var entityCounts = await _db.Institutions
+        var entityCounts = await db.Institutions
             .AsNoTracking()
             .Where(i => i.IsActive)
             .GroupBy(i => i.TenantId)
             .Select(g => new { TenantId = g.Key, Count = g.Count() })
             .ToDictionaryAsync(x => x.TenantId, x => x.Count, ct);
 
-        var licenceNames = await _db.TenantLicenceTypes
+        var licenceNames = await db.TenantLicenceTypes
             .AsNoTracking()
             .Include(t => t.LicenceType)
             .Where(t => t.IsActive)
@@ -91,7 +92,7 @@ public class PlatformAdminService
             x => x.TenantId,
             x => string.Join(", ", x.Names.Distinct().OrderBy(n => n)));
 
-        var activeTenantLicenceRows = await _db.TenantLicenceTypes
+        var activeTenantLicenceRows = await db.TenantLicenceTypes
             .AsNoTracking()
             .Where(x => x.IsActive)
             .Select(x => new { x.TenantId, x.LicenceTypeId })
@@ -104,7 +105,7 @@ public class PlatformAdminService
 
         var licenceModuleRows = activeLicenceIds.Count == 0
             ? new List<LicenceModuleSummaryRow>()
-            : await _db.LicenceModuleMatrix
+            : await db.LicenceModuleMatrix
                 .AsNoTracking()
                 .Where(x => activeLicenceIds.Contains(x.LicenceTypeId))
                 .Select(x => new LicenceModuleSummaryRow(x.LicenceTypeId, x.ModuleId))
@@ -118,8 +119,8 @@ public class PlatformAdminService
         var planModuleRows = planIds.Count == 0
             ? new List<PlanModuleSummaryRow>()
             : await (
-                from pricing in _db.PlanModulePricing.AsNoTracking()
-                join module in _db.Modules.AsNoTracking() on pricing.ModuleId equals module.Id
+                from pricing in db.PlanModulePricing.AsNoTracking()
+                join module in db.Modules.AsNoTracking() on pricing.ModuleId equals module.Id
                 where planIds.Contains(pricing.PlanId) && module.IsActive
                 select new PlanModuleSummaryRow(pricing.PlanId, pricing.ModuleId, pricing.IsIncludedInBase))
                 .ToListAsync(ct);
@@ -136,7 +137,7 @@ public class PlatformAdminService
             .GroupBy(x => x.PlanId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        var entitlementAuditRows = await _db.AuditLog
+        var entitlementAuditRows = await db.AuditLog
             .AsNoTracking()
             .Where(x => x.Action == "TenantModulesReconciled"
                      || x.Action == "TenantLicenceAssigned"
@@ -324,7 +325,8 @@ public class PlatformAdminService
 
     public async Task ActivateTenant(Guid tenantId, string actor, CancellationToken ct = default)
     {
-        var tenant = await _db.Tenants
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var tenant = await db.Tenants
             .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Tenant {tenantId} not found.");
 
@@ -341,7 +343,7 @@ public class PlatformAdminService
             throw new InvalidOperationException($"Tenant cannot be activated from status {tenant.Status}.");
         }
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
         await _auditLogger.Log(
             "Tenant",
@@ -360,7 +362,8 @@ public class PlatformAdminService
 
     public async Task SuspendTenant(Guid tenantId, string actor, string reason = "Platform admin action", CancellationToken ct = default)
     {
-        var tenant = await _db.Tenants
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var tenant = await db.Tenants
             .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Tenant {tenantId} not found.");
 
@@ -370,7 +373,7 @@ public class PlatformAdminService
         }
 
         tenant.Suspend(reason);
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
         await _auditLogger.Log(
             "Tenant",
@@ -442,7 +445,8 @@ public class PlatformAdminService
 
     public async Task<PlatformTenantDetailData?> GetTenantDetail(Guid tenantId, CancellationToken ct = default)
     {
-        var tenant = await _db.Tenants
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var tenant = await db.Tenants
             .AsNoTracking()
             .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct);
         if (tenant is null)
@@ -450,7 +454,7 @@ public class PlatformAdminService
             return null;
         }
 
-        var subscriptionRows = await _db.Subscriptions
+        var subscriptionRows = await db.Subscriptions
             .AsNoTracking()
             .Include(s => s.Plan)
             .Include(s => s.Modules)
@@ -466,7 +470,7 @@ public class PlatformAdminService
                               || s.Status == SubscriptionStatus.Suspended)
             ?? subscriptionRows.FirstOrDefault();
 
-        var activeTenantLicences = await _db.TenantLicenceTypes
+        var activeTenantLicences = await db.TenantLicenceTypes
             .AsNoTracking()
             .Include(x => x.LicenceType)
             .Where(x => x.TenantId == tenantId && x.IsActive)
@@ -479,7 +483,7 @@ public class PlatformAdminService
 
         var licenceModuleRows = activeLicenceIds.Count == 0
             ? new List<LicenceModuleMatrix>()
-            : await _db.LicenceModuleMatrix
+            : await db.LicenceModuleMatrix
                 .AsNoTracking()
                 .Include(x => x.LicenceType)
                 .Include(x => x.Module)
@@ -488,13 +492,13 @@ public class PlatformAdminService
 
         var currentPlanPricingRows = currentSubscription is null
             ? new List<PlanModulePricing>()
-            : await _db.PlanModulePricing
+            : await db.PlanModulePricing
                 .AsNoTracking()
                 .Include(x => x.Module)
                 .Where(x => x.PlanId == currentSubscription.PlanId)
                 .ToListAsync(ct);
 
-        var entitlementActivity = (await _db.AuditLog
+        var entitlementActivity = (await db.AuditLog
                 .AsNoTracking()
                 .Where(x => x.Action == "TenantModulesReconciled"
                          || x.Action == "TenantLicenceAssigned"
@@ -516,13 +520,13 @@ public class PlatformAdminService
 
         var dashboard = await _dashboardService.GetAdminDashboard(tenantId, ct);
 
-        var institutionUsers = await _db.InstitutionUsers
+        var institutionUsers = await db.InstitutionUsers
             .AsNoTracking()
             .Where(u => u.TenantId == tenantId)
             .OrderByDescending(u => u.LastLoginAt)
             .ToListAsync(ct);
 
-        var entities = await _db.Institutions
+        var entities = await db.Institutions
             .AsNoTracking()
             .Where(i => i.TenantId == tenantId)
             .OrderBy(i => i.InstitutionName)
@@ -533,7 +537,7 @@ public class PlatformAdminService
             .GroupBy(e => e.ParentInstitutionId!.Value)
             .ToDictionary(g => g.Key, g => g.Count());
 
-        var periods = await _db.ReturnPeriods
+        var periods = await db.ReturnPeriods
             .AsNoTracking()
             .Include(rp => rp.Module)
             .Where(rp => rp.TenantId == tenantId)
@@ -544,7 +548,7 @@ public class PlatformAdminService
             .ToListAsync(ct);
 
         var periodIds = periods.Select(p => p.Id).ToList();
-        var submissions = await _db.Submissions
+        var submissions = await db.Submissions
             .AsNoTracking()
             .Where(s => s.TenantId == tenantId && periodIds.Contains(s.ReturnPeriodId))
             .GroupBy(s => s.ReturnPeriodId)
@@ -553,28 +557,28 @@ public class PlatformAdminService
 
         var submissionLookup = submissions.ToDictionary(s => s.ReturnPeriodId, s => s);
 
-        var audits = await _db.AuditLog
+        var audits = await db.AuditLog
             .AsNoTracking()
             .Where(a => a.TenantId == tenantId)
             .OrderByDescending(a => a.PerformedAt)
             .Take(200)
             .ToListAsync(ct);
 
-        var supportTickets = await _db.PartnerSupportTickets
+        var supportTickets = await db.PartnerSupportTickets
             .AsNoTracking()
             .Where(t => t.TenantId == tenantId)
             .OrderByDescending(t => t.CreatedAt)
             .Take(100)
             .ToListAsync(ct);
 
-        var invoices = await _db.Invoices
+        var invoices = await db.Invoices
             .AsNoTracking()
             .Where(i => i.TenantId == tenantId)
             .OrderByDescending(i => i.CreatedAt)
             .Take(100)
             .ToListAsync(ct);
 
-        var payments = await _db.Payments
+        var payments = await db.Payments
             .AsNoTracking()
             .Where(p => p.TenantId == tenantId)
             .OrderByDescending(p => p.CreatedAt)
@@ -701,7 +705,8 @@ public class PlatformAdminService
 
     public async Task<TemplateConsoleData> GetTemplateConsole(CancellationToken ct = default)
     {
-        var templates = await _db.ReturnTemplates
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var templates = await db.ReturnTemplates
             .AsNoTracking()
             .Include(t => t.Module)
             .Include(t => t.Versions)
@@ -877,7 +882,8 @@ public class PlatformAdminService
 
     public async Task<PlatformBillingOpsData> GetBillingOps(CancellationToken ct = default)
     {
-        // Compute all billing metrics directly from _db to avoid shared-DbContext
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        // Compute all billing metrics directly to avoid shared-DbContext
         // threading issues that arise when delegating to DashboardService (which also
         // uses the same scoped MetadataDbContext via IMemoryCache.GetOrCreateAsync).
 
@@ -886,7 +892,7 @@ public class PlatformAdminService
         var rollingStart = monthStart.AddMonths(-2);
 
         // ── Subscriptions for MRR / ARR / revenue breakdown ──────────────────────
-        var subscriptions = await _db.Subscriptions
+        var subscriptions = await db.Subscriptions
             .AsNoTracking()
             .Include(s => s.Plan)
             .Include(s => s.Modules)
@@ -895,7 +901,7 @@ public class PlatformAdminService
                      || s.Status == SubscriptionStatus.Suspended)
             .ToListAsync(ct);
 
-        var moduleMap = await _db.Modules
+        var moduleMap = await db.Modules
             .AsNoTracking()
             .ToDictionaryAsync(m => m.Id, ct);
 
@@ -945,29 +951,29 @@ public class PlatformAdminService
 
         // ── Tenant counts for ARPU / churn ────────────────────────────────────────
         var activeTenantCount = Math.Max(1,
-            await _db.Tenants.AsNoTracking()
+            await db.Tenants.AsNoTracking()
                 .CountAsync(t => t.Status == TenantStatus.Active, ct));
 
-        var churnNumerator = await _db.Tenants
+        var churnNumerator = await db.Tenants
             .AsNoTracking()
             .CountAsync(t => (t.Status == TenantStatus.Deactivated || t.Status == TenantStatus.Archived)
                              && t.DeactivatedAt != null
                              && t.DeactivatedAt >= monthStart, ct);
 
-        var churnRolling = await _db.Tenants
+        var churnRolling = await db.Tenants
             .AsNoTracking()
             .CountAsync(t => (t.Status == TenantStatus.Deactivated || t.Status == TenantStatus.Archived)
                              && t.DeactivatedAt != null
                              && t.DeactivatedAt >= rollingStart, ct);
 
         // ── Invoices ──────────────────────────────────────────────────────────────
-        var invoices = await _db.Invoices
+        var invoices = await db.Invoices
             .AsNoTracking()
             .OrderByDescending(i => i.CreatedAt)
             .Take(200)
             .ToListAsync(ct);
 
-        var tenants = await _db.Tenants
+        var tenants = await db.Tenants
             .AsNoTracking()
             .ToDictionaryAsync(t => t.TenantId, t => t.TenantName, ct);
 
@@ -996,7 +1002,8 @@ public class PlatformAdminService
 
     public async Task RecordManualPayment(int invoiceId, string actor, CancellationToken ct = default)
     {
-        var invoice = await _db.Invoices
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var invoice = await db.Invoices
             .AsNoTracking()
             .FirstOrDefaultAsync(i => i.Id == invoiceId, ct)
             ?? throw new InvalidOperationException($"Invoice {invoiceId} not found.");
@@ -1027,7 +1034,8 @@ public class PlatformAdminService
 
     public async Task SendDunningReminder(int invoiceId, string actor, CancellationToken ct = default)
     {
-        var invoice = await _db.Invoices
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var invoice = await db.Invoices
             .AsNoTracking()
             .FirstOrDefaultAsync(i => i.Id == invoiceId, ct)
             ?? throw new InvalidOperationException($"Invoice {invoiceId} not found.");
@@ -1070,22 +1078,23 @@ public class PlatformAdminService
 
     public async Task<PlatformHealthData> GetPlatformHealth(CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var dashboard = await _dashboardService.GetPlatformDashboard(ct);
 
-        var queuedNotifications = await _db.NotificationDeliveries
+        var queuedNotifications = await db.NotificationDeliveries
             .AsNoTracking()
             .CountAsync(d => d.Status == DeliveryStatus.Queued, ct);
 
-        var queuedExports = await _db.ExportRequests
+        var queuedExports = await db.ExportRequests
             .AsNoTracking()
             .CountAsync(e => e.Status == ExportRequestStatus.Queued, ct);
 
-        var queuedImports = await _db.ImportJobs
+        var queuedImports = await db.ImportJobs
             .AsNoTracking()
             .CountAsync(i => i.Status != ImportJobStatus.Committed && i.Status != ImportJobStatus.Failed, ct);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        await _db.Tenants.AsNoTracking().Select(t => t.TenantId).FirstOrDefaultAsync(ct);
+        await db.Tenants.AsNoTracking().Select(t => t.TenantId).FirstOrDefaultAsync(ct);
         sw.Stop();
 
         var serviceProbes = await CheckServiceHealth(sw.ElapsedMilliseconds, queuedNotifications + queuedExports, ct);
@@ -1154,14 +1163,15 @@ public class PlatformAdminService
 
     public async Task<ModuleAnalyticsData> GetModuleAnalytics(CancellationToken ct = default)
     {
-        var modules = await _db.Modules
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var modules = await db.Modules
             .AsNoTracking()
             .Where(m => m.IsActive)
             .OrderBy(m => m.DisplayOrder)
             .ThenBy(m => m.ModuleCode)
             .ToListAsync(ct);
 
-        var moduleTemplates = await _db.ReturnTemplates
+        var moduleTemplates = await db.ReturnTemplates
             .AsNoTracking()
             .Where(t => t.ModuleId != null)
             .Select(t => new { t.ModuleId, t.ReturnCode })
@@ -1171,7 +1181,7 @@ public class PlatformAdminService
             .GroupBy(x => x.ReturnCode, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First().ModuleId!.Value, StringComparer.OrdinalIgnoreCase);
 
-        var activeModuleTenants = await _db.SubscriptionModules
+        var activeModuleTenants = await db.SubscriptionModules
             .AsNoTracking()
             .Where(sm => sm.IsActive)
             .Where(sm => sm.Subscription != null
@@ -1191,7 +1201,7 @@ public class PlatformAdminService
             x => x.ModuleId,
             x => x.Tenants.ToHashSet());
 
-        var submissions = await _db.Submissions
+        var submissions = await db.Submissions
             .AsNoTracking()
             .Where(s => s.Status != SubmissionStatus.Draft)
             .Select(s => new { s.Id, s.TenantId, s.ReturnCode })
@@ -1202,14 +1212,14 @@ public class PlatformAdminService
             .GroupBy(s => templateMap[s.ReturnCode])
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        var reportsBySubmission = await _db.ValidationReports
+        var reportsBySubmission = await db.ValidationReports
             .AsNoTracking()
             .Select(r => new { r.SubmissionId, r.Id })
             .ToListAsync(ct);
 
         var reportLookup = reportsBySubmission.ToDictionary(x => x.SubmissionId, x => x.Id);
 
-        var validationErrors = await _db.ValidationErrors
+        var validationErrors = await db.ValidationErrors
             .AsNoTracking()
             .ToListAsync(ct);
 
@@ -1226,7 +1236,7 @@ public class PlatformAdminService
             var submissionCount = moduleSubs.Count;
             var uniqueTenants = tenants.Count;
 
-            var activeUsers = await _db.InstitutionUsers
+            var activeUsers = await db.InstitutionUsers
                 .AsNoTracking()
                 .Where(u => u.IsActive && tenants.Contains(u.TenantId))
                 .CountAsync(ct);

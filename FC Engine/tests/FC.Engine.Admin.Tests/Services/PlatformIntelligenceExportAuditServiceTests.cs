@@ -1,5 +1,6 @@
 using System.Text.Json;
 using FC.Engine.Admin.Services;
+using FC.Engine.Admin.Tests.Infrastructure;
 using FC.Engine.Infrastructure.Metadata;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
@@ -12,7 +13,8 @@ public class PlatformIntelligenceExportAuditServiceTests
     [Fact]
     public async Task GetRecentExportsAsync_Parses_And_Orders_Recent_Export_Audit_Rows()
     {
-        await using var db = CreateDbContext();
+        var factory = CreateDbContextFactory();
+        await using var db = factory.CreateDbContext();
         db.AuditLog.AddRange(
             new AuditLogEntry
             {
@@ -64,7 +66,7 @@ public class PlatformIntelligenceExportAuditServiceTests
             });
         await db.SaveChangesAsync();
 
-        var sut = new PlatformIntelligenceExportAuditService(db);
+        var sut = new PlatformIntelligenceExportAuditService(factory);
 
         var rows = await sut.GetRecentExportsAsync(area: null, format: null, action: null, take: 10);
 
@@ -83,7 +85,8 @@ public class PlatformIntelligenceExportAuditServiceTests
     [Fact]
     public async Task GetRecentExportsAsync_Filters_By_Area_Format_And_Action()
     {
-        await using var db = CreateDbContext();
+        var factory = CreateDbContextFactory();
+        await using var db = factory.CreateDbContext();
         db.AuditLog.AddRange(
             CreateAuditEntry(
                 "DashboardBriefingPackExported",
@@ -99,7 +102,7 @@ public class PlatformIntelligenceExportAuditServiceTests
                 new DateTime(2026, 3, 12, 8, 0, 0, DateTimeKind.Utc)));
         await db.SaveChangesAsync();
 
-        var sut = new PlatformIntelligenceExportAuditService(db);
+        var sut = new PlatformIntelligenceExportAuditService(factory);
 
         var rows = await sut.GetRecentExportsAsync("Dashboards", "pdf", "DashboardBriefingPackExported", take: 10);
 
@@ -123,12 +126,5 @@ public class PlatformIntelligenceExportAuditServiceTests
             SequenceNumber = performedAt.Ticks
         };
 
-    private static MetadataDbContext CreateDbContext()
-    {
-        var options = new DbContextOptionsBuilder<MetadataDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-
-        return new MetadataDbContext(options);
-    }
+    private static TestMetadataDbContextFactory CreateDbContextFactory() => new(Guid.NewGuid().ToString());
 }

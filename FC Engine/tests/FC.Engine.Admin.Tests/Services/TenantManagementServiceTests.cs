@@ -1,4 +1,5 @@
 using FC.Engine.Admin.Services;
+using FC.Engine.Admin.Tests.Infrastructure;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
@@ -17,10 +18,11 @@ public class TenantManagementServiceTests
     [Fact]
     public async Task PreviewAssignLicenceAsync_Shows_Module_Activation_Without_Mutating_Subscriptions()
     {
-        await using var db = CreateDbContext(nameof(PreviewAssignLicenceAsync_Shows_Module_Activation_Without_Mutating_Subscriptions));
+        var factory = CreateDbContextFactory(nameof(PreviewAssignLicenceAsync_Shows_Module_Activation_Without_Mutating_Subscriptions));
+        await using var db = factory.CreateDbContext();
         var seed = await SeedTenantSubscriptionAsync(db);
 
-        var sut = CreateSut(db);
+        var sut = CreateSut(factory, db);
 
         var preview = await sut.PreviewAssignLicenceAsync(seed.TenantId, seed.LicenceTypeId);
 
@@ -38,7 +40,8 @@ public class TenantManagementServiceTests
     [Fact]
     public async Task PreviewRemoveLicenceAsync_Shows_Module_Deactivation_Without_Mutating_Subscriptions()
     {
-        await using var db = CreateDbContext(nameof(PreviewRemoveLicenceAsync_Shows_Module_Deactivation_Without_Mutating_Subscriptions));
+        var factory = CreateDbContextFactory(nameof(PreviewRemoveLicenceAsync_Shows_Module_Deactivation_Without_Mutating_Subscriptions));
+        await using var db = factory.CreateDbContext();
         var seed = await SeedTenantSubscriptionAsync(db);
 
         db.TenantLicenceTypes.Add(new TenantLicenceType
@@ -60,7 +63,7 @@ public class TenantManagementServiceTests
         });
         await db.SaveChangesAsync();
 
-        var sut = CreateSut(db);
+        var sut = CreateSut(factory, db);
 
         var preview = await sut.PreviewRemoveLicenceAsync(seed.TenantId, seed.LicenceTypeId);
 
@@ -79,7 +82,8 @@ public class TenantManagementServiceTests
     [Fact]
     public async Task AssignLicenceAsync_Activates_Included_Modules_And_Returns_Reconciliation()
     {
-        await using var db = CreateDbContext(nameof(AssignLicenceAsync_Activates_Included_Modules_And_Returns_Reconciliation));
+        var factory = CreateDbContextFactory(nameof(AssignLicenceAsync_Activates_Included_Modules_And_Returns_Reconciliation));
+        await using var db = factory.CreateDbContext();
         var seed = await SeedTenantSubscriptionAsync(db);
 
         var entitlementMock = new Mock<IEntitlementService>();
@@ -91,7 +95,7 @@ public class TenantManagementServiceTests
             NullLogger<SubscriptionModuleEntitlementBootstrapService>.Instance);
 
         var sut = new TenantManagementService(
-            db,
+            factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
             bootstrap,
@@ -119,7 +123,8 @@ public class TenantManagementServiceTests
     [Fact]
     public async Task RemoveLicenceAsync_Deactivates_No_Longer_Eligible_Modules_And_Returns_Reconciliation()
     {
-        await using var db = CreateDbContext(nameof(RemoveLicenceAsync_Deactivates_No_Longer_Eligible_Modules_And_Returns_Reconciliation));
+        var factory = CreateDbContextFactory(nameof(RemoveLicenceAsync_Deactivates_No_Longer_Eligible_Modules_And_Returns_Reconciliation));
+        await using var db = factory.CreateDbContext();
         var seed = await SeedTenantSubscriptionAsync(db);
 
         db.TenantLicenceTypes.Add(new TenantLicenceType
@@ -150,7 +155,7 @@ public class TenantManagementServiceTests
             NullLogger<SubscriptionModuleEntitlementBootstrapService>.Instance);
 
         var sut = new TenantManagementService(
-            db,
+            factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
             bootstrap,
@@ -173,7 +178,8 @@ public class TenantManagementServiceTests
     [Fact]
     public async Task ReconcileTenantModulesAsync_Activates_Pending_Included_Modules()
     {
-        await using var db = CreateDbContext(nameof(ReconcileTenantModulesAsync_Activates_Pending_Included_Modules));
+        var factory = CreateDbContextFactory(nameof(ReconcileTenantModulesAsync_Activates_Pending_Included_Modules));
+        await using var db = factory.CreateDbContext();
         var seed = await SeedTenantSubscriptionAsync(db);
 
         db.TenantLicenceTypes.Add(new TenantLicenceType
@@ -195,7 +201,7 @@ public class TenantManagementServiceTests
             NullLogger<SubscriptionModuleEntitlementBootstrapService>.Instance);
 
         var sut = new TenantManagementService(
-            db,
+            factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
             bootstrap,
@@ -223,7 +229,8 @@ public class TenantManagementServiceTests
     [Fact]
     public async Task ReconcileTenantModulesAsync_For_Multiple_Tenants_Aggregates_Results()
     {
-        await using var db = CreateDbContext(nameof(ReconcileTenantModulesAsync_For_Multiple_Tenants_Aggregates_Results));
+        var factory = CreateDbContextFactory(nameof(ReconcileTenantModulesAsync_For_Multiple_Tenants_Aggregates_Results));
+        await using var db = factory.CreateDbContext();
         var seedA = await SeedTenantSubscriptionAsync(db, "tenant-a", "OPS_A", "OPS_RESILIENCE_A");
         var seedB = await SeedTenantSubscriptionAsync(db, "tenant-b", "OPS_B", "OPS_RESILIENCE_B");
 
@@ -255,7 +262,7 @@ public class TenantManagementServiceTests
             NullLogger<SubscriptionModuleEntitlementBootstrapService>.Instance);
 
         var sut = new TenantManagementService(
-            db,
+            factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
             bootstrap,
@@ -277,7 +284,7 @@ public class TenantManagementServiceTests
         entitlementMock.Verify(x => x.InvalidateCache(seedB.TenantId), Times.AtLeastOnce());
     }
 
-    private static TenantManagementService CreateSut(MetadataDbContext db)
+    private static TenantManagementService CreateSut(TestMetadataDbContextFactory factory, MetadataDbContext db)
     {
         var entitlementMock = new Mock<IEntitlementService>();
         entitlementMock.Setup(x => x.InvalidateCache(It.IsAny<Guid>())).Returns(Task.CompletedTask);
@@ -288,7 +295,7 @@ public class TenantManagementServiceTests
             NullLogger<SubscriptionModuleEntitlementBootstrapService>.Instance);
 
         return new TenantManagementService(
-            db,
+            factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
             bootstrap,
@@ -379,14 +386,7 @@ public class TenantManagementServiceTests
         return new SeededTenantData(tenant.TenantId, licenceType.Id, module.Id, subscription.Id);
     }
 
-    private static MetadataDbContext CreateDbContext(string name)
-    {
-        var options = new DbContextOptionsBuilder<MetadataDbContext>()
-            .UseInMemoryDatabase(name)
-            .Options;
-
-        return new MetadataDbContext(options);
-    }
+    private static TestMetadataDbContextFactory CreateDbContextFactory(string name) => new(name);
 
     private sealed record SeededTenantData(Guid TenantId, int LicenceTypeId, int ModuleId, int SubscriptionId);
 

@@ -1,4 +1,5 @@
 using FC.Engine.Admin.Services;
+using FC.Engine.Admin.Tests.Infrastructure;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
@@ -17,7 +18,8 @@ public class PlatformAdminServiceTests
     [Fact]
     public async Task GetTenantList_And_Detail_Surface_Entitlement_Audit_Activity()
     {
-        await using var db = CreateDbContext(nameof(GetTenantList_And_Detail_Surface_Entitlement_Audit_Activity));
+        var factory = CreateDbContextFactory(nameof(GetTenantList_And_Detail_Surface_Entitlement_Audit_Activity));
+        await using var db = factory.CreateDbContext();
 
         var tenant = Tenant.Create("Tenant Gamma", "tenant-gamma", TenantType.Institution, "gamma@example.com");
         tenant.Activate();
@@ -90,7 +92,7 @@ public class PlatformAdminServiceTests
             });
 
         var sut = new PlatformAdminService(
-            db,
+            factory,
             dashboardMock.Object,
             Mock.Of<ISubscriptionService>(),
             Mock.Of<ITemplateRepository>(),
@@ -116,7 +118,8 @@ public class PlatformAdminServiceTests
     [Fact]
     public async Task GetTenantList_Computes_And_Filters_Pending_Reconciliation_Modules()
     {
-        await using var db = CreateDbContext(nameof(GetTenantList_Computes_And_Filters_Pending_Reconciliation_Modules));
+        var factory = CreateDbContextFactory(nameof(GetTenantList_Computes_And_Filters_Pending_Reconciliation_Modules));
+        await using var db = factory.CreateDbContext();
 
         var healthyTenant = Tenant.Create("Healthy Tenant", "healthy-tenant", TenantType.Institution, "healthy@example.com");
         healthyTenant.Activate();
@@ -289,7 +292,7 @@ public class PlatformAdminServiceTests
             });
 
         var sut = new PlatformAdminService(
-            db,
+            factory,
             dashboardMock.Object,
             Mock.Of<ISubscriptionService>(),
             Mock.Of<ITemplateRepository>(),
@@ -320,7 +323,8 @@ public class PlatformAdminServiceTests
     [Fact]
     public async Task GetTenantList_Filters_Only_Stale_Reconciliation_Tenants()
     {
-        await using var db = CreateDbContext(nameof(GetTenantList_Filters_Only_Stale_Reconciliation_Tenants));
+        var factory = CreateDbContextFactory(nameof(GetTenantList_Filters_Only_Stale_Reconciliation_Tenants));
+        await using var db = factory.CreateDbContext();
 
         var staleTenant = Tenant.Create("Stale Tenant", "stale-tenant", TenantType.Institution, "stale@example.com");
         staleTenant.Activate();
@@ -451,7 +455,7 @@ public class PlatformAdminServiceTests
             });
 
         var sut = new PlatformAdminService(
-            db,
+            factory,
             dashboardMock.Object,
             Mock.Of<ISubscriptionService>(),
             Mock.Of<ITemplateRepository>(),
@@ -474,7 +478,8 @@ public class PlatformAdminServiceTests
     [Fact]
     public async Task GetTenantDetail_Returns_Module_Entitlement_Register_With_Reconciliation_Gaps()
     {
-        await using var db = CreateDbContext(nameof(GetTenantDetail_Returns_Module_Entitlement_Register_With_Reconciliation_Gaps));
+        var factory = CreateDbContextFactory(nameof(GetTenantDetail_Returns_Module_Entitlement_Register_With_Reconciliation_Gaps));
+        await using var db = factory.CreateDbContext();
 
         var tenant = Tenant.Create("Tenant Beta", "tenant-beta", TenantType.Institution, "beta@example.com");
         tenant.Activate();
@@ -608,7 +613,7 @@ public class PlatformAdminServiceTests
             });
 
         var sut = new PlatformAdminService(
-            db,
+            factory,
             dashboardMock.Object,
             Mock.Of<ISubscriptionService>(),
             Mock.Of<ITemplateRepository>(),
@@ -638,12 +643,5 @@ public class PlatformAdminServiceTests
         pendingRow.Coverage.Should().Contain("OPS (Optional)");
     }
 
-    private static MetadataDbContext CreateDbContext(string name)
-    {
-        var options = new DbContextOptionsBuilder<MetadataDbContext>()
-            .UseInMemoryDatabase(name)
-            .Options;
-
-        return new MetadataDbContext(options);
-    }
+    private static TestMetadataDbContextFactory CreateDbContextFactory(string name) => new(name);
 }

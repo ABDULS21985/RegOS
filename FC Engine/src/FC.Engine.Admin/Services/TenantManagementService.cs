@@ -86,6 +86,7 @@ public class TenantManagementService
 
     public async Task ReactivateTenantAsync(Guid tenantId, CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var tenant = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
             ?? throw new InvalidOperationException("Tenant not found");
         tenant.Reactivate();
@@ -95,6 +96,7 @@ public class TenantManagementService
 
     public async Task DeactivateTenantAsync(Guid tenantId, CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var tenant = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
             ?? throw new InvalidOperationException("Tenant not found");
         tenant.Deactivate();
@@ -104,6 +106,7 @@ public class TenantManagementService
 
     public async Task<List<TenantLicenceType>> GetTenantLicencesAsync(Guid tenantId, CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.TenantLicenceTypes
             .Include(tlt => tlt.LicenceType)
             .Where(tlt => tlt.TenantId == tenantId)
@@ -126,6 +129,7 @@ public class TenantManagementService
         DateTime? effectiveDate = null,
         CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         _ = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
             ?? throw new InvalidOperationException("Tenant not found");
 
@@ -192,6 +196,7 @@ public class TenantManagementService
 
     public async Task<TenantLicenceChangeResult> RemoveLicenceAsync(Guid tenantId, int licenceTypeId, CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var tenantLicence = await db.TenantLicenceTypes
             .FirstOrDefaultAsync(x => x.TenantId == tenantId && x.LicenceTypeId == licenceTypeId && x.IsActive, ct)
             ?? throw new InvalidOperationException("Active tenant licence not found");
@@ -215,6 +220,7 @@ public class TenantManagementService
         Guid tenantId,
         CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         _ = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
             ?? throw new InvalidOperationException("Tenant not found");
 
@@ -238,6 +244,7 @@ public class TenantManagementService
             return new TenantModuleReconciliationBatchResult();
         }
 
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var existingTenantIds = await db.Tenants
             .AsNoTracking()
             .Where(x => requestedTenantIds.Contains(x.TenantId))
@@ -275,6 +282,7 @@ public class TenantManagementService
 
     public async Task<List<LicenceType>> GetAllLicenceTypesAsync(CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.LicenceTypes
             .Where(lt => lt.IsActive)
             .OrderBy(lt => lt.DisplayOrder)
@@ -283,6 +291,7 @@ public class TenantManagementService
 
     public async Task<List<Module>> GetAllModulesAsync(CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.Modules
             .Where(m => m.IsActive)
             .OrderBy(m => m.DisplayOrder)
@@ -291,6 +300,7 @@ public class TenantManagementService
 
     public async Task<string?> GetTenantName(Guid tenantId, CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         return await db.Tenants
             .AsNoTracking()
             .Where(t => t.TenantId == tenantId)
@@ -304,6 +314,7 @@ public class TenantManagementService
         bool activate,
         CancellationToken ct)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
         _ = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
             ?? throw new InvalidOperationException("Tenant not found");
 
