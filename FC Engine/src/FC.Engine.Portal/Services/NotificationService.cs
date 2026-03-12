@@ -19,6 +19,7 @@ public class NotificationService
     private readonly IInstitutionRepository _institutionRepo;
     private readonly ITenantContext _tenantContext;
     private readonly ITenantBrandingService _brandingService;
+    private readonly ITemplateMetadataCache _templateCache;
 
     public NotificationService(
         IPortalNotificationRepository notificationRepo,
@@ -26,7 +27,8 @@ public class NotificationService
         IInstitutionUserRepository userRepo,
         IInstitutionRepository institutionRepo,
         ITenantContext tenantContext,
-        ITenantBrandingService brandingService)
+        ITenantBrandingService brandingService,
+        ITemplateMetadataCache templateCache)
     {
         _notificationRepo = notificationRepo;
         _notificationOrchestrator = notificationOrchestrator;
@@ -34,6 +36,7 @@ public class NotificationService
         _institutionRepo = institutionRepo;
         _tenantContext = tenantContext;
         _brandingService = brandingService;
+        _templateCache = templateCache;
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -187,7 +190,7 @@ public class NotificationService
             Message = $"{templateName} is due in {daysRemaining} day(s) on {deadline:d MMM yyyy}. Submit your return before the deadline.",
             Priority = daysRemaining <= 1 ? NotificationPriority.Critical : NotificationPriority.Normal,
             IsMandatory = deadlineEvent == NotificationEvents.DeadlineOverdue,
-            ActionUrl = "/submit",
+            ActionUrl = await ResolveSubmitActionUrlAsync(returnCode, ct),
             RecipientInstitutionId = institutionId,
             Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
             {
@@ -361,6 +364,19 @@ public class NotificationService
             ?? throw new InvalidOperationException($"Institution {institutionId} not found.");
 
         return institution.TenantId;
+    }
+
+    private async Task<string> ResolveSubmitActionUrlAsync(string returnCode, CancellationToken ct)
+    {
+        try
+        {
+            var template = await _templateCache.GetPublishedTemplate(returnCode, ct);
+            return PortalSubmissionLinkBuilder.BuildSubmitHref(returnCode, template.ModuleCode);
+        }
+        catch
+        {
+            return PortalSubmissionLinkBuilder.BuildSubmitHref(returnCode, null);
+        }
     }
 
     /// <summary>

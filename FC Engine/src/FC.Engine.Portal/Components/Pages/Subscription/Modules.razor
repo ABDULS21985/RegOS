@@ -164,6 +164,13 @@
 
                             @* Footer actions *@
                             <footer class="portal-sub-module-actions">
+                                @if (HasWorkspace(module.ModuleCode))
+                                {
+                                    <a class="portal-btn portal-btn-ghost portal-btn-sm"
+                                       href="@GetWorkspaceHref(module.ModuleCode)">
+                                        @(module.IsActive ? "Open Workspace" : "Preview Workflow")
+                                    </a>
+                                }
                                 @if (!module.IsEligible)
                                 {
                                     <span class="portal-sub-caption">Not licence-eligible</span>
@@ -360,6 +367,10 @@
         if (!module.IsAvailableOnPlan) return "Upgrade Required";
         return "Available";
     }
+
+    private static bool HasWorkspace(string moduleCode) => PortalModuleWorkspaceCatalog.HasWorkspace(moduleCode);
+
+    private static string GetWorkspaceHref(string moduleCode) => PortalModuleWorkspaceCatalog.GetWorkspaceHref(moduleCode);
 
     private static string FormatCurrency(decimal value) => value.ToString("N2");
 }

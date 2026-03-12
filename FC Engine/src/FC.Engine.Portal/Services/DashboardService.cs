@@ -13,6 +13,8 @@ public class DashboardService
 {
     private readonly ISubmissionRepository _submissionRepo;
     private readonly ITemplateMetadataCache _templateCache;
+    private readonly IEntitlementService _entitlementService;
+    private readonly ITenantContext _tenantContext;
     private readonly IMemoryCache _cache;
 
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
@@ -20,10 +22,14 @@ public class DashboardService
     public DashboardService(
         ISubmissionRepository submissionRepo,
         ITemplateMetadataCache templateCache,
+        IEntitlementService entitlementService,
+        ITenantContext tenantContext,
         IMemoryCache cache)
     {
         _submissionRepo = submissionRepo;
         _templateCache = templateCache;
+        _entitlementService = entitlementService;
+        _tenantContext = tenantContext;
         _cache = cache;
     }
 
@@ -35,9 +41,10 @@ public class DashboardService
         int institutionId, string institutionName, string institutionCode,
         int dateRangeDays = 30, DateTime? customFrom = null, DateTime? customTo = null)
     {
+        var tenantCacheKey = _tenantContext.CurrentTenantId?.ToString() ?? "global";
         var cacheKey = customFrom.HasValue
-            ? $"dashboard:{institutionId}:custom:{customFrom:yyyyMMdd}:{customTo:yyyyMMdd}"
-            : $"dashboard:{institutionId}:{dateRangeDays}";
+            ? $"dashboard:{tenantCacheKey}:{institutionId}:custom:{customFrom:yyyyMMdd}:{customTo:yyyyMMdd}"
+            : $"dashboard:{tenantCacheKey}:{institutionId}:{dateRangeDays}";
 
         if (_cache.TryGetValue(cacheKey, out DashboardData? cached) && cached is not null)
             return cached;
@@ -59,11 +66,14 @@ public class DashboardService
             InstitutionCode = institutionCode
         };
 
-        // Get all published templates
-        var allTemplates = await _templateCache.GetAllPublishedTemplates();
+        var allTemplates = await GetScopedTemplatesAsync();
+        var templateLookup = allTemplates.ToDictionary(t => t.ReturnCode, StringComparer.OrdinalIgnoreCase);
+        var templateCodes = templateLookup.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         // Get all submissions for this institution (includes ReturnPeriod and ValidationReport)
-        var submissions = await _submissionRepo.GetByInstitution(institutionId);
+        var submissions = (await _submissionRepo.GetByInstitution(institutionId))
+            .Where(s => templateCodes.Contains(s.ReturnCode))
+            .ToList();
 
         var now = DateTime.UtcNow;
         var currentMonth = new DateTime(now.Year, now.Month, 1);
@@ -156,6 +166,10 @@ public class DashboardService
             {
                 ReturnCode = template.ReturnCode,
                 ReturnName = template.Name,
+                ModuleCode = template.ModuleCode,
+                ModuleName = PortalSubmissionLinkBuilder.ResolveModuleName(template.ModuleCode),
+                WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(template.ModuleCode),
+                StartHref = PortalSubmissionLinkBuilder.BuildSubmitHref(template.ReturnCode, template.ModuleCode),
                 DueDate = dueDate,
                 DaysRemaining = daysRemaining,
                 Status = status,
@@ -171,12 +185,6 @@ public class DashboardService
             .ToList();
 
         // ── Recent Submissions (last 10) ─────────────────────────
-        // Build template name lookup
-        var templateNameLookup = allTemplates.ToDictionary(
-            t => t.ReturnCode,
-            t => t.Name,
-            StringComparer.OrdinalIgnoreCase);
-
         dashboard.RecentSubmissions = submissions
             .OrderByDescending(s => s.SubmittedAt)
             .Take(10)
@@ -184,7 +192,10 @@ public class DashboardService
             {
                 SubmissionId = s.Id,
                 ReturnCode = s.ReturnCode,
-                ReturnName = templateNameLookup.GetValueOrDefault(s.ReturnCode, ""),
+                ReturnName = templateLookup.GetValueOrDefault(s.ReturnCode)?.Name ?? string.Empty,
+                ModuleCode = templateLookup.GetValueOrDefault(s.ReturnCode)?.ModuleCode,
+                ModuleName = PortalSubmissionLinkBuilder.ResolveModuleName(templateLookup.GetValueOrDefault(s.ReturnCode)?.ModuleCode),
+                WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(templateLookup.GetValueOrDefault(s.ReturnCode)?.ModuleCode),
                 Period = FormatPeriod(s),
                 SubmittedDate = s.SubmittedAt,
                 Status = s.Status,
@@ -235,6 +246,9 @@ public class DashboardService
 
         // ── Top Modules (horizontal bar chart) ───────────────────
         dashboard.TopModules = BuildTopModules(submissions, allTemplates, rangeStart, rangeEnd);
+
+        // ── Module Workspaces (quick institution launch surface) ─
+        dashboard.ModuleWorkspaces = BuildModuleWorkspaceLaunches(allTemplates, submissions, deadlines);
 
         // ── Heatmap (last 90 days) ────────────────────────────────
         dashboard.HeatmapData = BuildHeatmap(submissions, now);
@@ -432,23 +446,105 @@ public class DashboardService
         DateTime rangeStart, DateTime rangeEnd)
     {
         var periodSubs = submissions.Where(s => s.SubmittedAt >= rangeStart && s.SubmittedAt <= rangeEnd).ToList();
-        var lookup = templates.ToDictionary(t => t.ReturnCode, t => t.Name, StringComparer.OrdinalIgnoreCase);
+        var lookup = templates.ToDictionary(t => t.ReturnCode, StringComparer.OrdinalIgnoreCase);
 
         return periodSubs
             .GroupBy(s => s.ReturnCode, StringComparer.OrdinalIgnoreCase)
             .Select(g =>
             {
                 var accepted = g.Count(s => s.Status == SubmissionStatus.Accepted || s.Status == SubmissionStatus.AcceptedWithWarnings);
+                var template = lookup.GetValueOrDefault(g.Key);
                 return new ModuleRankItem
                 {
                     ReturnCode = g.Key,
-                    ReturnName = lookup.GetValueOrDefault(g.Key, g.Key),
+                    ReturnName = template?.Name ?? g.Key,
+                    ModuleCode = template?.ModuleCode,
+                    ModuleName = PortalSubmissionLinkBuilder.ResolveModuleName(template?.ModuleCode),
+                    WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(template?.ModuleCode),
+                    SubmitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(g.Key, template?.ModuleCode),
                     SubmissionCount = g.Count(),
                     ComplianceRate = g.Count() > 0 ? Math.Round(accepted * 100m / g.Count(), 1) : 0m
                 };
             })
             .OrderByDescending(m => m.SubmissionCount)
             .Take(5)
+            .ToList();
+    }
+
+    private async Task<IReadOnlyList<CachedTemplate>> GetScopedTemplatesAsync(CancellationToken ct = default)
+    {
+        if (_tenantContext.CurrentTenantId is not { } tenantId)
+        {
+            return await _templateCache.GetAllPublishedTemplates(ct);
+        }
+
+        var entitlement = await _entitlementService.ResolveEntitlements(tenantId, ct);
+        var activeModuleIds = entitlement.ActiveModules
+            .Select(x => x.ModuleId)
+            .Distinct()
+            .ToHashSet();
+        var activeModuleCodes = entitlement.ActiveModules
+            .Select(x => x.ModuleCode)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (activeModuleIds.Count == 0 && activeModuleCodes.Count == 0)
+        {
+            return Array.Empty<CachedTemplate>();
+        }
+
+        var templates = await _templateCache.GetAllPublishedTemplates(tenantId, ct);
+        return templates
+            .Where(template =>
+                (template.ModuleId.HasValue && activeModuleIds.Contains(template.ModuleId.Value))
+                || (!string.IsNullOrWhiteSpace(template.ModuleCode) && activeModuleCodes.Contains(template.ModuleCode)))
+            .ToList();
+    }
+
+    private static List<ModuleWorkspaceLaunchItem> BuildModuleWorkspaceLaunches(
+        IReadOnlyList<CachedTemplate> templates,
+        IReadOnlyList<Submission> submissions,
+        IReadOnlyList<DeadlineItem> deadlines)
+    {
+        var now = DateTime.UtcNow;
+
+        return templates
+            .Where(template => PortalModuleWorkspaceCatalog.TryGetDefinition(template.ModuleCode, out _))
+            .GroupBy(template => template.ModuleCode!, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                PortalModuleWorkspaceCatalog.TryGetDefinition(group.Key, out var definition);
+
+                var returnCodes = group
+                    .Select(template => template.ReturnCode)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                var moduleDeadlines = deadlines
+                    .Where(deadline => string.Equals(deadline.ModuleCode, group.Key, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                var moduleSubmissions = submissions
+                    .Where(submission => returnCodes.Contains(submission.ReturnCode))
+                    .ToList();
+
+                return new ModuleWorkspaceLaunchItem
+                {
+                    ModuleCode = group.Key,
+                    ModuleName = definition?.Title ?? group.Key,
+                    Eyebrow = definition?.Eyebrow ?? "Institution workflow",
+                    Summary = definition?.Summary ?? "Open the module workspace to manage filing readiness and submissions.",
+                    WorkspaceHref = PortalModuleWorkspaceCatalog.GetWorkspaceHref(group.Key),
+                    SubmitHref = $"/submit?module={Uri.EscapeDataString(group.Key)}",
+                    TemplateCount = group.Count(),
+                    DueSoonCount = moduleDeadlines.Count(deadline => deadline.Status != DeadlineStatus.Submitted && deadline.DaysRemaining <= 14),
+                    PendingCount = moduleSubmissions.Count(submission => submission.Status is SubmissionStatus.PendingApproval or SubmissionStatus.Draft or SubmissionStatus.ApprovalRejected or SubmissionStatus.Rejected),
+                    RecentSubmissionCount = moduleSubmissions.Count(submission => submission.SubmittedAt >= now.AddDays(-30))
+                };
+            })
+            .OrderByDescending(workspace => workspace.PendingCount)
+            .ThenByDescending(workspace => workspace.DueSoonCount)
+            .ThenBy(workspace => workspace.ModuleName, StringComparer.OrdinalIgnoreCase)
+            .Take(3)
             .ToList();
     }
 
@@ -561,7 +657,8 @@ public class DashboardService
         int institutionId, string institutionName, string institutionCode,
         string? returnCodeFilter = null, string? frequencyFilter = null)
     {
-        var cacheKey = $"compliance-dash:{institutionId}:{returnCodeFilter}:{frequencyFilter}";
+        var tenantCacheKey = _tenantContext.CurrentTenantId?.ToString() ?? "global";
+        var cacheKey = $"compliance-dash:{tenantCacheKey}:{institutionId}:{returnCodeFilter}:{frequencyFilter}";
         if (_cache.TryGetValue(cacheKey, out ComplianceDashboardData? cached) && cached is not null)
             return cached;
 
@@ -576,8 +673,13 @@ public class DashboardService
         int institutionId, string institutionName, string institutionCode,
         string? returnCodeFilter, string? frequencyFilter)
     {
-        var allTemplates = await _templateCache.GetAllPublishedTemplates();
-        var submissions  = await _submissionRepo.GetByInstitution(institutionId);
+        var allTemplates = await GetScopedTemplatesAsync();
+        var entitledTemplateCodes = allTemplates
+            .Select(t => t.ReturnCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var submissions  = (await _submissionRepo.GetByInstitution(institutionId))
+            .Where(s => entitledTemplateCodes.Contains(s.ReturnCode))
+            .ToList();
         var now          = DateTime.UtcNow;
         var currentMonth = new DateTime(now.Year, now.Month, 1);
 
@@ -750,60 +852,77 @@ public class DashboardService
     /// </summary>
     public async Task<NavBadgeCounts> GetNavBadgeCountsAsync(int institutionId)
     {
-        var cacheKey = $"nav-badges:{institutionId}";
+        var tenantCacheKey = _tenantContext.CurrentTenantId?.ToString() ?? "global";
+        var cacheKey = $"nav-badges:{tenantCacheKey}:{institutionId}";
         if (_cache.TryGetValue(cacheKey, out NavBadgeCounts? cached) && cached is not null)
             return cached;
 
-        var submissions = await _submissionRepo.GetByInstitution(institutionId);
+        var templates = await GetScopedTemplatesAsync();
+        var templateLookup = templates.ToDictionary(t => t.ReturnCode, StringComparer.OrdinalIgnoreCase);
+        var templateCodes = templateLookup.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var submissions = (await _submissionRepo.GetByInstitution(institutionId))
+            .Where(s => templateCodes.Contains(s.ReturnCode))
+            .ToList();
+
         var now = DateTime.UtcNow;
         var in7Days = now.AddDays(7);
+        var rangeStart = new DateTime(now.Year, now.Month, 1).AddMonths(-11);
 
-        var finalStatuses = new HashSet<SubmissionStatus>
+        var submissionLookup = submissions
+            .GroupBy(s => $"{s.ReturnCode}|{CalendarService.GetPeriodKey(s)}", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(s => s.CreatedAt).First(),
+                StringComparer.OrdinalIgnoreCase);
+
+        var overdueCount = 0;
+        var calendarDue7Days = 0;
+        foreach (var template in templates)
         {
-            SubmissionStatus.Accepted,
-            SubmissionStatus.AcceptedWithWarnings,
-            SubmissionStatus.Historical
-        };
+            var dueDates = CalendarService.GetDueDatesForRange(template.Frequency, rangeStart, in7Days);
+            foreach (var dueDate in dueDates)
+            {
+                var periodKey = $"{template.ReturnCode}|{dueDate:yyyy-MM}";
+                submissionLookup.TryGetValue(periodKey, out var existingSubmission);
 
-        // Overdue: periods past their effective deadline with no final accepted submission
-        var acceptedPeriods = submissions
-            .Where(s => finalStatuses.Contains(s.Status))
-            .Select(s => s.ReturnPeriodId)
-            .ToHashSet();
+                var status = CalendarService.DetermineStatus(existingSubmission, dueDate);
+                if (status == CalendarEntryStatus.Overdue)
+                {
+                    overdueCount++;
+                }
 
-        var overdueCount = submissions
-            .Where(s => s.ReturnPeriod is not null
-                        && s.ReturnPeriod.EffectiveDeadline < now
-                        && !acceptedPeriods.Contains(s.ReturnPeriodId)
-                        && !finalStatuses.Contains(s.Status))
-            .Select(s => s.ReturnPeriodId)
-            .Distinct()
-            .Count();
+                if (dueDate.Date >= now.Date
+                    && dueDate.Date <= in7Days.Date
+                    && status != CalendarEntryStatus.Submitted)
+                {
+                    calendarDue7Days++;
+                }
+            }
+        }
 
         // Pending approvals awaiting checker action
         var pendingApprovalCount = submissions
             .Count(s => s.Status == SubmissionStatus.PendingApproval);
 
-        // Calendar: open return periods with deadline within the next 7 days, not yet accepted
-        var calendarDue7Days = submissions
-            .Where(s => s.ReturnPeriod is not null
-                        && s.ReturnPeriod.EffectiveDeadline >= now
-                        && s.ReturnPeriod.EffectiveDeadline <= in7Days
-                        && !finalStatuses.Contains(s.Status))
-            .Select(s => s.ReturnPeriodId)
-            .Distinct()
-            .Count();
-
-        // 5 most recently submitted return codes (for Quick Submit dropdown)
-        var recentReturnCodes = submissions
+        // 5 most recently used entitled returns (for Quick Submit dropdown)
+        var recentReturnActions = submissions
             .Where(s => s.Status != SubmissionStatus.Draft)
             .OrderByDescending(s => s.SubmittedAt)
-            .Select(s => s.ReturnCode)
-            .Distinct()
+            .GroupBy(s => s.ReturnCode, StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var submission = g.First();
+                var template = templateLookup.GetValueOrDefault(submission.ReturnCode);
+                return new NavQuickSubmitItem(
+                    submission.ReturnCode,
+                    template?.ModuleCode,
+                    PortalSubmissionLinkBuilder.ResolveModuleName(template?.ModuleCode),
+                    PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, template?.ModuleCode));
+            })
             .Take(5)
             .ToList();
 
-        var counts = new NavBadgeCounts(overdueCount, pendingApprovalCount, calendarDue7Days, recentReturnCodes);
+        var counts = new NavBadgeCounts(overdueCount, pendingApprovalCount, calendarDue7Days, recentReturnActions);
         _cache.Set(cacheKey, counts, CacheDuration);
         return counts;
     }
@@ -814,9 +933,15 @@ public record NavBadgeCounts(
     int OverdueCount,
     int PendingApprovalCount,
     int CalendarDue7Days,
-    IReadOnlyList<string> RecentReturnCodes
+    IReadOnlyList<NavQuickSubmitItem> RecentReturnActions
 )
 {
     public static readonly NavBadgeCounts Empty =
-        new(0, 0, 0, Array.Empty<string>());
+        new(0, 0, 0, Array.Empty<NavQuickSubmitItem>());
 }
+
+public record NavQuickSubmitItem(
+    string ReturnCode,
+    string? ModuleCode,
+    string? ModuleName,
+    string Href);

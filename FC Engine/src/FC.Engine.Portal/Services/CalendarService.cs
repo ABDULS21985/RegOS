@@ -12,13 +12,19 @@ public class CalendarService
 {
     private readonly ITemplateMetadataCache _templateCache;
     private readonly ISubmissionRepository _submissionRepo;
+    private readonly IEntitlementService _entitlementService;
+    private readonly ITenantContext _tenantContext;
 
     public CalendarService(
         ITemplateMetadataCache templateCache,
-        ISubmissionRepository submissionRepo)
+        ISubmissionRepository submissionRepo,
+        IEntitlementService entitlementService,
+        ITenantContext tenantContext)
     {
         _templateCache = templateCache;
         _submissionRepo = submissionRepo;
+        _entitlementService = entitlementService;
+        _tenantContext = tenantContext;
     }
 
     /// <summary>
@@ -32,8 +38,8 @@ public class CalendarService
         string? frequencyFilter = null,
         CancellationToken ct = default)
     {
-        // Step 1: Get all published templates
-        var allTemplates = await _templateCache.GetAllPublishedTemplates(ct);
+        // Step 1: Get entitled published templates for the current tenant
+        var allTemplates = await GetScopedTemplatesAsync(ct);
 
         // Apply frequency filter if provided
         IEnumerable<CachedTemplate> filteredTemplates = allTemplates;
@@ -73,6 +79,8 @@ public class CalendarService
                 {
                     ReturnCode = template.ReturnCode,
                     TemplateName = template.Name,
+                    ModuleCode = template.ModuleCode,
+                    ModuleName = PortalSubmissionLinkBuilder.ResolveModuleName(template.ModuleCode),
                     Frequency = template.Frequency.ToString(),
                     DueDate = dueDate,
                     PeriodLabel = FormatPeriodLabel(dueDate, template.Frequency),
@@ -80,6 +88,8 @@ public class CalendarService
                     Status = status,
                     SubmissionId = existingSub?.Id,
                     DaysUntilDue = (dueDate.Date - DateTime.UtcNow.Date).Days,
+                    StartHref = PortalSubmissionLinkBuilder.BuildSubmitHref(template.ReturnCode, template.ModuleCode),
+                    WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(template.ModuleCode),
                     DeadlineDescription = FormatDeadlineDescription(dueDate, template.Frequency)
                 });
             }
@@ -113,9 +123,39 @@ public class CalendarService
         };
     }
 
+    private async Task<IReadOnlyList<CachedTemplate>> GetScopedTemplatesAsync(CancellationToken ct)
+    {
+        if (_tenantContext.CurrentTenantId is not { } tenantId)
+        {
+            return await _templateCache.GetAllPublishedTemplates(ct);
+        }
+
+        var entitlement = await _entitlementService.ResolveEntitlements(tenantId, ct);
+        var activeModuleIds = entitlement.ActiveModules
+            .Select(x => x.ModuleId)
+            .Distinct()
+            .ToHashSet();
+        var activeModuleCodes = entitlement.ActiveModules
+            .Select(x => x.ModuleCode)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (activeModuleIds.Count == 0 && activeModuleCodes.Count == 0)
+        {
+            return Array.Empty<CachedTemplate>();
+        }
+
+        var templates = await _templateCache.GetAllPublishedTemplates(tenantId, ct);
+        return templates
+            .Where(template =>
+                (template.ModuleId.HasValue && activeModuleIds.Contains(template.ModuleId.Value))
+                || (!string.IsNullOrWhiteSpace(template.ModuleCode) && activeModuleCodes.Contains(template.ModuleCode)))
+            .ToList();
+    }
+
     // ── Due Date Computation ─────────────────────────────────────
 
-    private static List<DateTime> GetDueDatesForRange(
+    internal static List<DateTime> GetDueDatesForRange(
         ReturnFrequency frequency,
         DateTime rangeStart,
         DateTime rangeEnd)
@@ -181,7 +221,7 @@ public class CalendarService
 
     // ── Status Determination ─────────────────────────────────────
 
-    private static CalendarEntryStatus DetermineStatus(Submission? submission, DateTime dueDate)
+    internal static CalendarEntryStatus DetermineStatus(Submission? submission, DateTime dueDate)
     {
         if (submission is null)
         {
@@ -212,7 +252,7 @@ public class CalendarService
     /// Extract a period key string from a submission for lookup matching.
     /// Uses ReturnPeriod navigation (Year, Month) to produce "yyyy-MM".
     /// </summary>
-    private static string GetPeriodKey(Submission s)
+    internal static string GetPeriodKey(Submission s)
     {
         if (s.ReturnPeriod is not null)
             return $"{s.ReturnPeriod.Year}-{s.ReturnPeriod.Month:D2}";
@@ -244,4 +284,5 @@ public class CalendarService
             ReturnFrequency.SemiAnnual => "Semi-annual end",
             _                          => BusinessDayHelper.DescribeDeadline(dueDate)
         };
+
 }

@@ -347,7 +347,7 @@ public sealed class ModuleWorkspaceTemplateRow
     public string ReturnCode { get; set; } = string.Empty;
     public string TemplateName { get; set; } = string.Empty;
     public string Frequency { get; set; } = string.Empty;
-    public StructuralCategory StructuralCategory { get; set; }
+    public string StructuralCategory { get; set; } = string.Empty;
     public int FieldCount { get; set; }
     public int FormulaCount { get; set; }
     public int? LastSubmissionId { get; set; }

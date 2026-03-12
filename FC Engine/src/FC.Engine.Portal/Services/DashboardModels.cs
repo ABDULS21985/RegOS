@@ -31,6 +31,7 @@ public class DashboardData
 
     // Recent submissions
     public List<RecentSubmissionItem> RecentSubmissions { get; set; } = new();
+    public List<ModuleWorkspaceLaunchItem> ModuleWorkspaces { get; set; } = new();
 
     // Compliance trend (last 6 months)
     public List<ComplianceTrendItem> ComplianceTrend { get; set; } = new();
@@ -55,6 +56,10 @@ public class DeadlineItem
 {
     public string ReturnCode { get; set; } = "";
     public string ReturnName { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string? ModuleName { get; set; }
+    public string? WorkspaceHref { get; set; }
+    public string StartHref { get; set; } = "/submit";
     public DateTime DueDate { get; set; }
     public int DaysRemaining { get; set; }
     public DeadlineStatus Status { get; set; }
@@ -78,6 +83,9 @@ public class RecentSubmissionItem
     public int SubmissionId { get; set; }
     public string ReturnCode { get; set; } = "";
     public string ReturnName { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string? ModuleName { get; set; }
+    public string? WorkspaceHref { get; set; }
     public string Period { get; set; } = "";
     public DateTime SubmittedDate { get; set; }
     public SubmissionStatus Status { get; set; }
@@ -146,8 +154,26 @@ public class ModuleRankItem
 {
     public string ReturnCode { get; set; } = "";
     public string ReturnName { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string? ModuleName { get; set; }
+    public string? WorkspaceHref { get; set; }
+    public string SubmitHref { get; set; } = "/submit";
     public int SubmissionCount { get; set; }
     public decimal ComplianceRate { get; set; }
+}
+
+public class ModuleWorkspaceLaunchItem
+{
+    public string ModuleCode { get; set; } = "";
+    public string ModuleName { get; set; } = "";
+    public string Eyebrow { get; set; } = "";
+    public string Summary { get; set; } = "";
+    public string WorkspaceHref { get; set; } = "";
+    public string SubmitHref { get; set; } = "";
+    public int TemplateCount { get; set; }
+    public int DueSoonCount { get; set; }
+    public int PendingCount { get; set; }
+    public int RecentSubmissionCount { get; set; }
 }
 
 /// <summary>

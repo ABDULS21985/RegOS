@@ -16,7 +16,7 @@ public static class PortalModuleWorkspaceCatalog
                     "Review capital buffers and planning scenarios before the filing window tightens.",
                     "Launch return preparation straight from the module queue instead of hunting across generic screens.",
                     "Keep recent filings, open periods, and operating guidance in one place."
-                ]);
+                ]),
             ["OPS_RESILIENCE"] = new(
                 ModuleCode: "OPS_RESILIENCE",
                 Slug: "ops-resilience",
@@ -28,7 +28,7 @@ public static class PortalModuleWorkspaceCatalog
                     "Track open resilience periods, service inventories, and filing deadlines together.",
                     "Route teams from readiness checks directly into templates and submissions.",
                     "Keep incident, recovery, and board-ready evidence visible during the filing cycle."
-                ]);
+                ]),
             ["MODEL_RISK"] = new(
                 ModuleCode: "MODEL_RISK",
                 Slug: "model-risk",
@@ -48,7 +48,6 @@ public static class PortalModuleWorkspaceCatalog
             .SelectMany(definition => new[]
             {
                 new KeyValuePair<string, string>(definition.ModuleCode, definition.ModuleCode),
-                new KeyValuePair<string, string>(definition.ModuleCode.ToLowerInvariant(), definition.ModuleCode),
                 new KeyValuePair<string, string>(definition.Slug, definition.ModuleCode)
             })
             .ToDictionary(x => x.Key, x => x.Value, StringComparer.OrdinalIgnoreCase);

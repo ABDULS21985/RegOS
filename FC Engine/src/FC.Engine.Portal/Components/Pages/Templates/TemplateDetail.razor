@@ -1,6 +1,7 @@
 @page "/templates/{ReturnCode}"
 @attribute [Authorize(Policy = "InstitutionUser")]
 @using FC.Engine.Infrastructure.DragDrop
+@using FC.Engine.Portal.Services
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject DragDropInterop DragDrop
@@ -29,7 +30,7 @@
         <PortalPageHeader BackUrl="/templates"
                           Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Templates", "/templates"), new(template.ReturnCode, IsCurrent: true) })">
             <PrimaryAction>
-                <a href="/submit?returnCode=@template.ReturnCode" class="portal-btn portal-btn-primary portal-btn-sm">
+                <a href="@PortalSubmissionLinkBuilder.BuildSubmitHref(template.ReturnCode, template.ModuleCode)" class="portal-btn portal-btn-primary portal-btn-sm">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                         <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                     </svg>
@@ -50,6 +51,12 @@
                 </div>
                 <p class="portal-detail-hero-subtitle">@template.TemplateName</p>
                 <div class="portal-detail-hero-meta">
+                    @if (!string.IsNullOrWhiteSpace(template.ModuleCode))
+                    {
+                        <span class="portal-detail-meta-item">
+                            <strong>@(PortalSubmissionLinkBuilder.ResolveModuleName(template.ModuleCode) ?? template.ModuleCode)</strong> workflow
+                        </span>
+                    }
                     <span class="portal-detail-meta-item">
                         <strong>@template.FieldCount</strong> fields
                     </span>
@@ -387,7 +394,7 @@
                     {
                         <div class="portal-empty-state portal-card" style="padding: 2rem;">
                             <p class="portal-empty-state-desc">No submissions found for this template.</p>
-                            <a href="/submit?returnCode=@template.ReturnCode" class="portal-btn portal-btn-primary portal-btn-sm" style="margin-top: 1rem;">
+                            <a href="@PortalSubmissionLinkBuilder.BuildSubmitHref(template.ReturnCode, template.ModuleCode)" class="portal-btn portal-btn-primary portal-btn-sm" style="margin-top: 1rem;">
                                 Submit Your First Return
                             </a>
                         </div>

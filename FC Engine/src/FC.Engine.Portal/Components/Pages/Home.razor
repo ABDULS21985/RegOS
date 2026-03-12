@@ -174,6 +174,57 @@ else if (data is not null)
             </div>
         </div>
 
+        @if (data.ModuleWorkspaces.Any())
+        {
+            <section class="portal-widget" id="widget-workspaces" data-widget-id="workspaces">
+                <div class="portal-dash-section-header">
+                    <h2 class="portal-dash-section-title">Operational Workspaces</h2>
+                    <a href="/modules" class="portal-dash-section-link">View Modules</a>
+                </div>
+                <div class="portal-card-grid">
+                    @foreach (var workspace in data.ModuleWorkspaces)
+                    {
+                        <article class="portal-card">
+                            <div class="portal-card-header">
+                                <div class="portal-card-title-row">
+                                    <div>
+                                        <div class="portal-sub-kicker" style="margin-bottom:0.35rem;">@workspace.Eyebrow</div>
+                                        <h3 class="portal-card-title">@workspace.ModuleName</h3>
+                                    </div>
+                                    <span class="portal-badge portal-badge-success">@workspace.ModuleCode</span>
+                                </div>
+                            </div>
+                            <div class="portal-card-body">
+                                <p class="portal-page-subtitle" style="margin:0 0 1rem; font-size:0.95rem;">@workspace.Summary</p>
+                                <div class="portal-card-meta">
+                                    <div class="portal-card-meta-item">
+                                        <span class="portal-card-meta-label">Templates</span>
+                                        <span class="portal-card-meta-value">@workspace.TemplateCount</span>
+                                    </div>
+                                    <div class="portal-card-meta-item">
+                                        <span class="portal-card-meta-label">Due Soon</span>
+                                        <span class="portal-card-meta-value">@workspace.DueSoonCount</span>
+                                    </div>
+                                    <div class="portal-card-meta-item">
+                                        <span class="portal-card-meta-label">Pending</span>
+                                        <span class="portal-card-meta-value">@workspace.PendingCount</span>
+                                    </div>
+                                    <div class="portal-card-meta-item">
+                                        <span class="portal-card-meta-label">Recent 30d</span>
+                                        <span class="portal-card-meta-value">@workspace.RecentSubmissionCount</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="portal-card-footer" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0 1.5rem 1.5rem;">
+                                <a href="@workspace.WorkspaceHref" class="portal-btn portal-btn-primary portal-btn-sm">Open Workspace</a>
+                                <a href="@workspace.SubmitHref" class="portal-btn portal-btn-outline portal-btn-sm">Start Filing</a>
+                            </div>
+                        </article>
+                    }
+                </div>
+            </section>
+        }
+
         <!-- ═══════════════════════════════════════════════════════════
              SECTION 2.5: Upcoming Deadlines — Prominent Widget
              ═══════════════════════════════════════════════════════════ -->
@@ -366,7 +417,7 @@ else if (data is not null)
                                 }
                                 else
                                 {
-                                    <a href="/submit" class="portal-btn portal-btn-xs portal-btn-primary">Submit Now</a>
+                                    <a href="@dl.StartHref" class="portal-btn portal-btn-xs portal-btn-primary">Submit Now</a>
                                 }
                             </div>
                         </div>
@@ -616,7 +667,7 @@ else if (data is not null)
                                     }
                                     else
                                     {
-                                        <a href="/submit" class="portal-btn portal-btn-xs portal-btn-primary">Submit</a>
+                                        <a href="@deadline.StartHref" class="portal-btn portal-btn-xs portal-btn-primary">Submit</a>
                                     }
                                 </div>
                             </div>
@@ -708,7 +759,13 @@ else if (data is not null)
                             @foreach (var sub in data.RecentSubmissions)
                             {
                                 <tr class="portal-table-row-clickable" @onclick="() => NavigateToSubmission(sub.SubmissionId)">
-                                    <td><span class="portal-table-primary">@sub.ReturnCode</span></td>
+                                    <td>
+                                        <span class="portal-table-primary">@sub.ReturnCode</span>
+                                        @if (!string.IsNullOrWhiteSpace(sub.ModuleCode))
+                                        {
+                                            <div class="portal-table-secondary">@FormatModuleLabel(sub.ModuleCode)</div>
+                                        }
+                                    </td>
                                     <td>@sub.Period</td>
                                     <td>@sub.SubmittedDate.ToString("d MMM yyyy HH:mm")</td>
                                     <td><span class="portal-badge @GetStatusBadgeClass(sub.Status)">@GetStatusLabel(sub.Status)</span></td>
@@ -1277,6 +1334,18 @@ else
             "annual" or "annually" or "yearly" => $"FY {date.Year}",
             _           => date.ToString("MMM yyyy")
         };
+    }
+
+    private static string FormatModuleLabel(string? moduleCode)
+    {
+        if (string.IsNullOrWhiteSpace(moduleCode))
+        {
+            return string.Empty;
+        }
+
+        return PortalModuleWorkspaceCatalog.TryGetDefinition(moduleCode, out var definition)
+            ? definition.Title
+            : moduleCode.Replace('_', ' ');
     }
 
     [JSInvokable]

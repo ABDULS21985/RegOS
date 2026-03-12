@@ -345,6 +345,39 @@
                             <span class="portal-nav-label">Modules</span>
                         </NavLink>
                     </li>
+                    @if (HasModule("CAPITAL_SUPERVISION"))
+                    {
+                        <li>
+                            <NavLink href="@GetModuleWorkspaceHref("CAPITAL_SUPERVISION")" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M4 19h16"/><path d="M6 16V8"/><path d="M12 16V5"/><path d="M18 16v-3"/>
+                                </svg>
+                                <span class="portal-nav-label">Capital Supervision</span>
+                            </NavLink>
+                        </li>
+                    }
+                    @if (HasModule("OPS_RESILIENCE"))
+                    {
+                        <li>
+                            <NavLink href="@GetModuleWorkspaceHref("OPS_RESILIENCE")" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M12 3l7 4v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V7l7-4z"/>
+                                </svg>
+                                <span class="portal-nav-label">Operational Resilience</span>
+                            </NavLink>
+                        </li>
+                    }
+                    @if (HasModule("MODEL_RISK"))
+                    {
+                        <li>
+                            <NavLink href="@GetModuleWorkspaceHref("MODEL_RISK")" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M9 2h6"/><path d="M12 14V6"/><path d="M7 14l5 8 5-8"/><circle cx="12" cy="14" r="2"/>
+                                </svg>
+                                <span class="portal-nav-label">Model Risk</span>
+                            </NavLink>
+                        </li>
+                    }
                     <li>
                         <NavLink href="/subscription/my-plan" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -564,17 +597,21 @@
                     @if (_quickSubmitOpen)
                     {
                         <div class="portal-quick-submit-dropdown" role="menu">
-                            @if (_navBadges.RecentReturnCodes.Count > 0)
+                            @if (_navBadges.RecentReturnActions.Count > 0)
                             {
                                 <div class="portal-quick-submit-section-label">Recently used</div>
-                                @foreach (var code in _navBadges.RecentReturnCodes)
+                                @foreach (var item in _navBadges.RecentReturnActions)
                                 {
-                                    var c = code;
-                                    <a href="/submit?returnCode=@c" class="portal-quick-submit-item" role="menuitem" @onclick="CloseQuickSubmit">
+                                    var quickAction = item;
+                                    <a href="@quickAction.Href" class="portal-quick-submit-item" role="menuitem" @onclick="CloseQuickSubmit">
                                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
                                             <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
                                         </svg>
-                                        @c
+                                        <span>@quickAction.ReturnCode</span>
+                                        @if (!string.IsNullOrWhiteSpace(quickAction.ModuleName))
+                                        {
+                                            <span class="portal-text-muted" style="margin-left:auto;font-size:11px;">@quickAction.ModuleName</span>
+                                        }
                                     </a>
                                 }
                                 <div class="portal-quick-submit-divider"></div>
@@ -780,6 +817,7 @@
 
     private bool HasAnyModuleAccess() => _activeModules.Count > 0;
     private bool HasModule(string moduleCode) => _activeModules.Contains(moduleCode);
+    private static string GetModuleWorkspaceHref(string moduleCode) => PortalModuleWorkspaceCatalog.GetWorkspaceHref(moduleCode);
 
     // ── IDisposable ──────────────────────────────────────────────────────────
 

@@ -99,11 +99,6 @@ public class KnowledgeBaseService
     private async Task EnsureSeedData(CancellationToken ct)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        if (await db.KnowledgeBaseArticles.AnyAsync(ct))
-        {
-            return;
-        }
-
         var now = DateTime.UtcNow;
         var seed = new List<KnowledgeBaseArticle>
         {
@@ -167,10 +162,65 @@ public class KnowledgeBaseService
                 Tags = "[\"bulk upload\",\"excel\",\"csv\"]",
                 DisplayOrder = 5,
                 CreatedAt = now
+            },
+            new()
+            {
+                Title = "Capital Supervision Filing Workflow",
+                Category = "module_guide",
+                ModuleCode = "CAPITAL_SUPERVISION",
+                Content = """
+                    Start from the Capital Supervision workspace, review open periods and due-soon items, then launch the relevant return directly into the submission wizard.
+                    Use the module dashboard to confirm the latest period status before resubmitting a capital return.
+                    """,
+                Tags = "[\"capital\",\"buffers\",\"rwa\",\"workflow\"]",
+                DisplayOrder = 6,
+                CreatedAt = now
+            },
+            new()
+            {
+                Title = "Operational Resilience Evidence Checklist",
+                Category = "module_guide",
+                ModuleCode = "OPS_RESILIENCE",
+                Content = """
+                    Confirm important business services, impact tolerances, recent resilience tests, and incident evidence before filing OPS_RESILIENCE sheets.
+                    Use the workspace to verify recovery timelines and open actions before submitting.
+                    """,
+                Tags = "[\"resilience\",\"incident\",\"recovery\",\"testing\"]",
+                DisplayOrder = 7,
+                CreatedAt = now
+            },
+            new()
+            {
+                Title = "Model Risk Return Preparation",
+                Category = "module_guide",
+                ModuleCode = "MODEL_RISK",
+                Content = """
+                    Review inventory completeness, upcoming validations, approval workflow status, and backtesting evidence before filing model risk returns.
+                    The module workspace keeps recent submissions and approval-state items in one queue for faster preparation.
+                    """,
+                Tags = "[\"model risk\",\"validation\",\"approval\",\"backtesting\"]",
+                DisplayOrder = 8,
+                CreatedAt = now
             }
         };
 
-        db.KnowledgeBaseArticles.AddRange(seed);
+        var existingKeys = await db.KnowledgeBaseArticles
+            .AsNoTracking()
+            .Select(x => new { x.Title, x.ModuleCode })
+            .ToListAsync(ct);
+
+        var missing = seed
+            .Where(article => !existingKeys.Any(existing =>
+                existing.Title == article.Title &&
+                existing.ModuleCode == article.ModuleCode))
+            .ToList();
+
+        if (missing.Count == 0)
+        {
+            return;
+        }
+
+        db.KnowledgeBaseArticles.AddRange(missing);
         await db.SaveChangesAsync(ct);
     }
 

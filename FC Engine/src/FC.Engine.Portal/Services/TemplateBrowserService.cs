@@ -154,6 +154,7 @@ public class TemplateBrowserService
         {
             ReturnCode = template.ReturnCode,
             TemplateName = template.Name,
+            ModuleCode = template.ModuleCode,
             Frequency = template.Frequency.ToString(),
             StructuralCategory = template.StructuralCategory,
             XmlNamespace = template.XmlNamespace,
@@ -389,6 +390,7 @@ public class TemplateDetailModel
 {
     public string ReturnCode { get; set; } = "";
     public string TemplateName { get; set; } = "";
+    public string? ModuleCode { get; set; }
     public string Frequency { get; set; } = "";
     public string StructuralCategory { get; set; } = "";
     public string XmlNamespace { get; set; } = "";

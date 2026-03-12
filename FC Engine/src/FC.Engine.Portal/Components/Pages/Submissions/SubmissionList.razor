@@ -848,28 +848,32 @@
                 StringComparer.OrdinalIgnoreCase
             );
 
-            submissions = rawSubmissions.Select(s => new SubmissionListItem
+            submissions = rawSubmissions.Select(s =>
             {
-                Id = s.Id,
-                ReturnCode = s.ReturnCode,
-                TemplateName = templateMetaMap.TryGetValue(s.ReturnCode, out var templateMeta) ? templateMeta.Name : s.ReturnCode,
-                ModuleCode = templateMetaMap.TryGetValue(s.ReturnCode, out templateMeta) ? templateMeta.ModuleCode : null,
-                PeriodLabel = s.ReturnPeriod is not null
-                    ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month, 1).ToString("MMM yyyy")
-                    : "—",
-                SubmittedAt = s.SubmittedAt,
-                Status = s.Status.ToString(),
-                ErrorCount = s.ValidationReport?.ErrorCount ?? 0,
-                WarningCount = s.ValidationReport?.WarningCount ?? 0,
-                ProcessingDurationMs = s.ProcessingDurationMs,
-                // Derive initials from return code (first 2 alpha chars)
-                AssigneeInitials = new string(s.ReturnCode.Where(char.IsLetter).Take(2).ToArray()).ToUpperInvariant() is { Length: > 0 } ini ? ini : "ME",
-                IsCurrentUser = true,
-                // Deadline: use period end-of-month + 15 days if available, else null
-                DeadlineDate = s.ReturnPeriod is not null
-                    ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month,
-                        DateTime.DaysInMonth(s.ReturnPeriod.Year, s.ReturnPeriod.Month)).AddDays(15)
-                    : null
+                templateMetaMap.TryGetValue(s.ReturnCode, out var templateMeta);
+                return new SubmissionListItem
+                {
+                    Id = s.Id,
+                    ReturnCode = s.ReturnCode,
+                    TemplateName = templateMeta?.Name ?? s.ReturnCode,
+                    ModuleCode = templateMeta?.ModuleCode,
+                    PeriodLabel = s.ReturnPeriod is not null
+                        ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month, 1).ToString("MMM yyyy")
+                        : "—",
+                    SubmittedAt = s.SubmittedAt,
+                    Status = s.Status.ToString(),
+                    ErrorCount = s.ValidationReport?.ErrorCount ?? 0,
+                    WarningCount = s.ValidationReport?.WarningCount ?? 0,
+                    ProcessingDurationMs = s.ProcessingDurationMs,
+                    // Derive initials from return code (first 2 alpha chars)
+                    AssigneeInitials = new string(s.ReturnCode.Where(char.IsLetter).Take(2).ToArray()).ToUpperInvariant() is { Length: > 0 } ini ? ini : "ME",
+                    IsCurrentUser = true,
+                    // Deadline: use period end-of-month + 15 days if available, else null
+                    DeadlineDate = s.ReturnPeriod is not null
+                        ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month,
+                            DateTime.DaysInMonth(s.ReturnPeriod.Year, s.ReturnPeriod.Month)).AddDays(15)
+                        : null
+                };
             }).OrderByDescending(s => s.SubmittedAt).ToList();
 
             availableReturnCodes = submissions

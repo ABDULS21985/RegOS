@@ -1,6 +1,7 @@
 @page "/templates"
 @attribute [Authorize(Policy = "InstitutionUser")]
 @implements IAsyncDisposable
+@using FC.Engine.Portal.Services
 @inject TemplateBrowserService BrowserSvc
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -250,6 +251,20 @@
         }
     }
 
+    @if (!string.IsNullOrWhiteSpace(_moduleFocusCode) && _moduleWorkspaceDefinition is not null)
+    {
+        <div class="portal-validation-banner portal-validation-banner-info" style="margin: 1rem 0;" role="status">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/><path d="M12 8h.01"/><path d="M11 12h1v4h1"/>
+            </svg>
+            <div>
+                <strong>@_moduleWorkspaceDefinition.Title templates</strong> — this browser view is scoped to the
+                <strong>@_moduleWorkspaceDefinition.Title</strong> workflow.
+                <a href="/templates" class="portal-inline-link">Show all entitled templates</a>
+            </div>
+        </div>
+    }
+
     <!-- ═══════════════════════════════════════════════════════════════
          MAIN LAYOUT: SIDEBAR + RESULTS
          ═══════════════════════════════════════════════════════════════ -->
@@ -410,6 +425,13 @@
                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
                     }
+                    @if (!string.IsNullOrWhiteSpace(_moduleFocusCode) && _moduleWorkspaceDefinition is not null)
+                    {
+                        <button class="portal-tb-chip" @onclick="ClearModuleFocus">
+                            @_moduleWorkspaceDefinition.Title
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    }
                     @if (_showFavoritesOnly)
                     {
                         <button class="portal-tb-chip portal-tb-chip--star" @onclick='() => _showFavoritesOnly = false'>
@@ -535,7 +557,7 @@
                                 <!-- Row 5: action buttons -->
                                 <div class="portal-tb-card-actions">
                                     <button class="portal-btn portal-btn-primary portal-btn-xs"
-                                            @onclick="() => StartSubmission(tCopy.ReturnCode)" @onclick:stopPropagation>
+                                            @onclick="() => StartSubmission(tCopy)" @onclick:stopPropagation>
                                         Start Submission
                                     </button>
                                     <a href="/templates/@t.ReturnCode" class="portal-btn portal-btn-ghost portal-btn-xs"
@@ -609,7 +631,7 @@
                                         </td>
                                         <td class="portal-table-th-actions" @onclick:stopPropagation>
                                             <button class="portal-btn portal-btn-primary portal-btn-xs"
-                                                    @onclick="() => StartSubmission(tCopy.ReturnCode)">
+                                                    @onclick="() => StartSubmission(tCopy)">
                                                 Submit
                                             </button>
                                             <a href="/templates/@t.ReturnCode" class="portal-btn portal-btn-ghost portal-btn-xs">Details</a>
@@ -640,6 +662,8 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "module")] public string? ModuleParam { get; set; }
+
     // ── Auth ──────────────────────────────────────────────────────
     [CascadingParameter] private Task<AuthenticationState> AuthStateTask { get; set; } = default!;
     private int _institutionId;
@@ -654,6 +678,8 @@
     private HashSet<string> _filterFrequencies = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string> _filterCategories = new(StringComparer.OrdinalIgnoreCase);
     private bool _showFavoritesOnly;
+    private string? _moduleFocusCode;
+    private PortalModuleWorkspaceDefinition? _moduleWorkspaceDefinition;
     private string _viewMode = "card";
     private bool _sidebarCollapsed;
     private HashSet<string> _expandedGroups = new() { "body", "freq", "type" };
@@ -691,7 +717,7 @@
     // ── Computed ──────────────────────────────────────────────────
     private bool _hasActiveFilters =>
         _filterBodies.Count > 0 || _filterFrequencies.Count > 0 ||
-        _filterCategories.Count > 0 || _showFavoritesOnly;
+        _filterCategories.Count > 0 || _showFavoritesOnly || !string.IsNullOrWhiteSpace(_moduleFocusCode);
 
     private IEnumerable<TemplateBrowseItem> FilteredTemplates
     {
@@ -715,6 +741,8 @@
                 source = source.Where(t => _filterCategories.Contains(t.StructuralCategory));
             if (_showFavoritesOnly)
                 source = source.Where(t => _favorites.Contains(t.ReturnCode));
+            if (!string.IsNullOrWhiteSpace(_moduleFocusCode))
+                source = source.Where(t => string.Equals(t.ModuleCode, _moduleFocusCode, StringComparison.OrdinalIgnoreCase));
 
             return source;
         }
@@ -749,6 +777,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        _moduleFocusCode = PortalModuleWorkspaceCatalog.ResolveModuleCode(ModuleParam);
+        PortalModuleWorkspaceCatalog.TryGetDefinition(_moduleFocusCode, out _moduleWorkspaceDefinition);
+
         var authState = await AuthStateTask;
         var user = authState.User;
         _institutionId = int.TryParse(
@@ -902,6 +933,19 @@
         _filterCategories.Clear();
         _showFavoritesOnly = false;
         _searchQuery = "";
+        if (!string.IsNullOrWhiteSpace(_moduleFocusCode))
+        {
+            _moduleFocusCode = null;
+            _moduleWorkspaceDefinition = null;
+            Navigation.NavigateTo("/templates", replace: true);
+        }
+    }
+
+    private void ClearModuleFocus()
+    {
+        _moduleFocusCode = null;
+        _moduleWorkspaceDefinition = null;
+        Navigation.NavigateTo("/templates", replace: true);
     }
 
     private void ToggleSidebarGroup(string key)
@@ -935,9 +979,9 @@
 
     private void CloseDrawer() => _drawerCode = null;
 
-    private void StartSubmission(string code)
+    private void StartSubmission(TemplateBrowseItem template)
     {
-        Navigation.NavigateTo($"/submissions/new?returnCode={Uri.EscapeDataString(code)}");
+        Navigation.NavigateTo(PortalSubmissionLinkBuilder.BuildSubmitHref(template.ReturnCode, template.ModuleCode));
     }
 
     // ── Helpers ───────────────────────────────────────────────────

@@ -16,6 +16,8 @@ public class CalendarEntry
 {
     public string ReturnCode { get; set; } = "";
     public string TemplateName { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string? ModuleName { get; set; }
     public string Frequency { get; set; } = "";
     public DateTime DueDate { get; set; }
     public string PeriodLabel { get; set; } = "";
@@ -23,6 +25,8 @@ public class CalendarEntry
     public CalendarEntryStatus Status { get; set; }
     public int? SubmissionId { get; set; }
     public int DaysUntilDue { get; set; }
+    public string StartHref { get; set; } = "/submit";
+    public string? WorkspaceHref { get; set; }
     /// <summary>Human-readable deadline description e.g. "Month-end", "5th BD", "Quarter-end".</summary>
     public string DeadlineDescription { get; set; } = "";
 }

@@ -138,6 +138,21 @@
                             <span class="portal-badge portal-badge-outline">Required</span>
                         }
                     </div>
+                    @if (HasWorkspace(module))
+                    {
+                        <div class="portal-card-footer" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0 1.5rem 1.5rem;">
+                            @if (_activeModules.Contains(module.ModuleCode))
+                            {
+                                <a href="@GetWorkspaceHref(module.ModuleCode)" class="portal-btn portal-btn-primary portal-btn-sm">Open Workspace</a>
+                                <a href="/submit?module=@Uri.EscapeDataString(module.ModuleCode)" class="portal-btn portal-btn-outline portal-btn-sm">Start Filing</a>
+                            }
+                            else if (_eligibleModules.Contains(module.ModuleCode))
+                            {
+                                <a href="@GetWorkspaceHref(module.ModuleCode)" class="portal-btn portal-btn-outline portal-btn-sm">Preview Workflow</a>
+                                <a href="/subscription/modules" class="portal-btn portal-btn-primary portal-btn-sm">Activate Module</a>
+                            }
+                        </div>
+                    }
                 </div>
             }
         </div>
@@ -244,6 +259,12 @@
 
     private bool IsRequired(ModuleViewModel module) =>
         _requiredModules.Contains(module.ModuleCode);
+
+    private static bool HasWorkspace(ModuleViewModel module) =>
+        PortalModuleWorkspaceCatalog.HasWorkspace(module.ModuleCode);
+
+    private static string GetWorkspaceHref(string moduleCode) =>
+        PortalModuleWorkspaceCatalog.GetWorkspaceHref(moduleCode);
 
     private static string GetCardClass(string status) => status switch
     {

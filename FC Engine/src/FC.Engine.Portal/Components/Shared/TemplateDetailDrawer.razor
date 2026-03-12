@@ -1,6 +1,7 @@
 @implements IAsyncDisposable
 @inject TemplateBrowserService BrowserSvc
 @inject NavigationManager Navigation
+@using FC.Engine.Portal.Services
 
 @if (ReturnCode is not null)
 {
@@ -263,8 +264,10 @@
 
     private void StartSubmission()
     {
-        if (ReturnCode is not null)
-            Navigation.NavigateTo($"/submissions/new?returnCode={Uri.EscapeDataString(ReturnCode)}");
+        if (_detail is not null)
+        {
+            Navigation.NavigateTo(PortalSubmissionLinkBuilder.BuildSubmitHref(_detail.ReturnCode, _detail.ModuleCode));
+        }
     }
 
     public async ValueTask DisposeAsync()
