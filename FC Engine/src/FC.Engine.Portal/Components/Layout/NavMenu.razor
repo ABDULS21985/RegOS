@@ -8,6 +8,7 @@
 @inject ITenantContext TenantContext
 @inject ITenantBrandingService BrandingService
 @inject FC.Engine.Portal.Services.PartnerPortalService PartnerPortalService
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @implements IDisposable
@@ -113,7 +114,7 @@
                     @if (HasAnyModuleAccess())
                     {
                         <li>
-                            <NavLink href="/submit" class="portal-nav-item">
+                            <NavLink href="@_primarySubmitHref" class="portal-nav-item portal-nav-primary-submit">
                                 <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
                                     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                                     <polyline points="17 8 12 3 7 8"/>
@@ -616,7 +617,7 @@
                                 }
                                 <div class="portal-quick-submit-divider"></div>
                             }
-                            <a href="/submit" class="portal-quick-submit-item portal-quick-submit-item--browse" role="menuitem" @onclick="CloseQuickSubmit">
+                            <a href="@_primarySubmitHref" class="portal-quick-submit-item portal-quick-submit-item--browse" role="menuitem" @onclick="CloseQuickSubmit">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
                                     <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
                                 </svg>
@@ -648,6 +649,7 @@
     private List<(string Href, string Label)> _recentPages = new();
     private bool _quickSubmitOpen;
     private bool _afterRenderInit;
+    private string _primarySubmitHref = "/submit";
 
     // ── Lifecycle ────────────────────────────────────────────────────────────
 
@@ -675,6 +677,7 @@
                 _activeModules = entitlement.ActiveModules
                     .Select(m => m.ModuleCode)
                     .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync(tenantId.Value)).Href;
             }
 
             // 5-minute auto-refresh timer

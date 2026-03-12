@@ -36,7 +36,7 @@ public static class GuidedTourCatalog
                 },
                 new()
                 {
-                    TargetSelector = "a[href='/submit']",
+                    TargetSelector = ".portal-nav-primary-submit, .portal-mobile-nav-primary-submit",
                     Title = "Create Return",
                     Description = "Start XML upload or manual form-based data entry for a return template.",
                     Position = "right"

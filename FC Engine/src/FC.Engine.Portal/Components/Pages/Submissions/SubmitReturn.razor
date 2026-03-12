@@ -560,7 +560,7 @@
                     </p>
                 }
                 <div class="portal-submit-success-actions">
-                    <a href="/submit" class="portal-btn portal-btn-outline" @onclick="ResetWizard" @onclick:preventDefault>
+                    <a href="@SubmitScopeHref" class="portal-btn portal-btn-outline" @onclick="ResetWizard" @onclick:preventDefault>
                         Submit Another Return
                     </a>
                     <a href="/" class="portal-btn portal-btn-ghost">
@@ -590,11 +590,13 @@
     private Task<AuthenticationState>? AuthState { get; set; }
     [SupplyParameterFromQuery(Name = "returnCode")] public string? ReturnCodeParam { get; set; }
     [SupplyParameterFromQuery(Name = "module")] public string? ModuleCodeParam { get; set; }
+    [SupplyParameterFromQuery(Name = "periodId")] public int? ReturnPeriodIdParam { get; set; }
     private int institutionId;
     private int? userId;
     private bool requiresApproval;
     private PortalModuleWorkspaceDefinition? _moduleDefinition;
     private bool _presetSelectionApplied;
+    private string SubmitScopeHref => PortalSubmissionLinkBuilder.BuildSubmitHref(returnCode: null, moduleCode: ModuleCodeParam);
 
     // ── Step 1: Template Selection ───────────────────────────────
     private List<TemplateSelectItem> templates = new();
@@ -711,6 +713,16 @@
 
         SelectTemplate(template);
         await GoToStep2();
+
+        if (ReturnPeriodIdParam is > 0)
+        {
+            var period = availablePeriods.FirstOrDefault(x => x.ReturnPeriodId == ReturnPeriodIdParam.Value);
+            if (period is not null)
+            {
+                SelectPeriod(period);
+                currentStep = 2;
+            }
+        }
     }
 
     private void SelectTemplate(TemplateSelectItem template)

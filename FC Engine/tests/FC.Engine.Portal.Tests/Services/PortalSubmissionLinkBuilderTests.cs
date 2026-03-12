@@ -29,4 +29,12 @@ public class PortalSubmissionLinkBuilderTests
 
         href.Should().Be("/submit?module=OPS_RESILIENCE");
     }
+
+    [Fact]
+    public void BuildSubmitHref_Includes_Period_When_Period_Is_Provided()
+    {
+        var href = PortalSubmissionLinkBuilder.BuildSubmitHref("CAP_BUF", "CAPITAL_SUPERVISION", 243);
+
+        href.Should().Be("/submit?module=CAPITAL_SUPERVISION&returnCode=CAP_BUF&periodId=243");
+    }
 }

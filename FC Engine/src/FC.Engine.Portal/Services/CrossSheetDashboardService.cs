@@ -53,6 +53,10 @@ public class CrossSheetDashboardService
             t => t.ReturnCode,
             t => t.Name,
             StringComparer.OrdinalIgnoreCase);
+        var templateModuleLookup = allTemplates.ToDictionary(
+            t => t.ReturnCode,
+            t => t.ModuleCode,
+            StringComparer.OrdinalIgnoreCase);
 
         var now = DateTime.UtcNow;
         var currentMonth = new DateTime(now.Year, now.Month, 1);
@@ -175,6 +179,7 @@ public class CrossSheetDashboardService
         {
             ReturnCode = code,
             Name = templateNameLookup.GetValueOrDefault(code, code),
+            ModuleCode = templateModuleLookup.GetValueOrDefault(code),
             IsSubmitted = submittedCodes.Contains(code)
         }).OrderBy(n => n.ReturnCode).ToList();
 
@@ -208,6 +213,7 @@ public class CrossSheetDashboardService
         {
             ReturnCode = code,
             Name = templateNameLookup.GetValueOrDefault(code, code),
+            ModuleCode = templateModuleLookup.GetValueOrDefault(code),
             RequiredByRules = ruleStatuses
                 .Where(r => r.InvolvedTemplates.Any(t => t.ReturnCode.Equals(code, StringComparison.OrdinalIgnoreCase)))
                 .Select(r => r.RuleCode)
@@ -372,6 +378,7 @@ public class DependencyNode
 {
     public string ReturnCode { get; set; } = "";
     public string Name { get; set; } = "";
+    public string? ModuleCode { get; set; }
     public bool IsSubmitted { get; set; }
 }
 
@@ -387,6 +394,7 @@ public class MissingDependency
 {
     public string ReturnCode { get; set; } = "";
     public string Name { get; set; } = "";
+    public string? ModuleCode { get; set; }
     public List<string> RequiredByRules { get; set; } = new();
 }
 

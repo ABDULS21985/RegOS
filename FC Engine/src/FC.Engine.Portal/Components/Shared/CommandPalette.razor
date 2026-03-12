@@ -5,6 +5,7 @@
 @inject NavigationManager Navigation
 @inject AuthenticationStateProvider AuthProvider
 @inject ISubmissionRepository SubmissionRepo
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 
 @if (_isOpen)
 {
@@ -138,6 +139,7 @@
     private List<CmdItem> _submissions = [];
     private readonly List<string> _recentRoutes = [];
     private bool _subsLoaded;
+    private string _primarySubmitHref = "/submit";
     private DotNetObjectReference<CommandPalette>? _dotNetRef;
 
     // ── Static Page Index (all 57 routes) ────────────────────────────
@@ -242,6 +244,7 @@
         _query = "";
         _selectedIndex = 0;
         _loading = !_subsLoaded;
+        _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
         BuildResults();
         await InvokeAsync(StateHasChanged);
         await JS.InvokeVoidAsync("portalCommandPalette.focusInput", "portal-cmd-input");
@@ -424,7 +427,7 @@
     private void Navigate(string route)
     {
         Close();
-        Navigation.NavigateTo(route);
+        Navigation.NavigateTo(route == "/submit" ? _primarySubmitHref : route);
     }
 
     private void Close()

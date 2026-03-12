@@ -6,6 +6,7 @@
 @inject ITenantBrandingService BrandingService
 @inject ITenantContext TenantContext
 @inject SandboxService SandboxService
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 @inject TourStateService TourState
 @inject FC.Engine.Portal.Services.PartnerViewAsService ViewAsService
 @inject OnboardingStateService OnboardingState
@@ -219,7 +220,7 @@
         </svg>
         <span>Home</span>
     </NavLink>
-    <NavLink href="/submit" class="portal-mobile-nav-item">
+    <NavLink href="@_primarySubmitHref" class="portal-mobile-nav-item portal-mobile-nav-primary-submit">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
             <polyline points="17 8 12 3 7 8"/>
@@ -296,6 +297,7 @@
     private SandboxContext? _sandboxContext;
     private bool _sandboxBusy;
     private string? _sandboxMessage;
+    private string _primarySubmitHref = "/submit";
     private DotNetObjectReference<PortalLayout>? _shortcutsRef;
     private bool _isDark;
 
@@ -349,6 +351,7 @@
         {
             _branding = await BrandingService.GetBrandingConfig(TenantContext.CurrentTenantId.Value);
             _sandboxContext = await SandboxService.GetContext(TenantContext.CurrentTenantId.Value);
+            _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync(TenantContext.CurrentTenantId.Value)).Href;
         }
     }
 
@@ -374,7 +377,14 @@
 
     // ── JSInvokable: called from portalShortcuts.js ────────────────────────────
     [JSInvokable]
-    public void OnNavigationShortcut(string route) => Navigation.NavigateTo(route);
+    public async Task OnNavigationShortcut(string route)
+    {
+        var resolvedRoute = route == "/submit"
+            ? (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href
+            : route;
+
+        Navigation.NavigateTo(resolvedRoute);
+    }
 
     [JSInvokable]
     public async Task OnGlobalShortcut(string shortcutId)

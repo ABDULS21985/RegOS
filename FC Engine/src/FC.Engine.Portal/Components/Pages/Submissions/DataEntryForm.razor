@@ -20,7 +20,7 @@
         <div class="portal-empty-state portal-card" style="padding: 3rem;">
             <h3 class="portal-empty-state-title">Template Not Found</h3>
             <p class="portal-empty-state-desc">The template "@ReturnCode" does not exist or is not published.</p>
-            <a href="/submit" class="portal-btn portal-btn-primary">Back to Submit</a>
+            <a href="@ModuleScopedSubmitHref" class="portal-btn portal-btn-primary">Back to Submit</a>
         </div>
     }
     else if (submissionComplete)
@@ -107,7 +107,7 @@
                         Review &amp; Fix Errors
                     </a>
                 }
-                <a href="/submit" class="portal-btn portal-btn-ghost">Submit Another</a>
+                <a href="@ModuleScopedSubmitHref" class="portal-btn portal-btn-ghost">Submit Another</a>
             </div>
         </div>
     }
@@ -132,14 +132,14 @@
         {
             new("Home", "/"),
             new("Submissions", "/submissions"),
-            new("Submit Return", "/submit"),
+            new("Submit Return", CurrentReturnSubmitHref),
             new(ReturnCode, IsCurrent: _periodChipLabel is null)
         };
         if (_periodChipLabel is not null)
         {
             _bcItems.Add(new(_periodChipLabel, IsCurrent: true, ChipTooltip: _deadlineTooltip, HasStatusDot: true));
         }
-        <PortalPageHeader BackUrl="/submit"
+        <PortalPageHeader BackUrl="@CurrentReturnSubmitHref"
                           Breadcrumb="@_bcItems" />
 
         <!-- ═══════════════════════════════════════════════════════════
@@ -221,7 +221,7 @@
                         }
                     </span>
                 }
-                <a href="/submit" class="portal-btn portal-btn-outline portal-btn-sm">Switch to XML Upload</a>
+                <a href="@CurrentReturnSubmitHref" class="portal-btn portal-btn-outline portal-btn-sm">Switch to XML Upload</a>
             </div>
         </div>
 
@@ -1333,6 +1333,11 @@
     private int _animatingSectionIndex = -1;
     private string PresenceKey => $"form:{ReturnCode}:{selectedPeriodId}";
     private int _errorCount => fieldErrors.Count + serverErrors.Count(e => e.Severity == "Error");
+    private int? SelectedOrPresetPeriodId => selectedPeriodId > 0 ? selectedPeriodId : PreselectedPeriodId;
+    private string ModuleScopedSubmitHref =>
+        PortalSubmissionLinkBuilder.BuildSubmitHref(returnCode: null, moduleCode: templateDetail?.ModuleCode);
+    private string CurrentReturnSubmitHref =>
+        PortalSubmissionLinkBuilder.BuildSubmitHref(ReturnCode, templateDetail?.ModuleCode, SelectedOrPresetPeriodId);
     private enum SectionStatus { Untouched, Error, Warning, Complete }
 
     // ── Lifecycle ─────────────────────────────────────────────────

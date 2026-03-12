@@ -58,14 +58,15 @@ public sealed class PortalSubmissionLaunchService
 
         if (candidate is not null)
         {
-            var module = activeModules[candidate.ModuleCode];
+            var moduleCode = candidate.ModuleCode!;
+            var module = activeModules[moduleCode];
             return new PortalSubmissionLaunchTarget
             {
-                Href = PortalSubmissionLinkBuilder.BuildSubmitHref(candidate.ReturnCode, candidate.ModuleCode),
+                Href = PortalSubmissionLinkBuilder.BuildSubmitHref(candidate.ReturnCode, moduleCode),
                 ReturnCode = candidate.ReturnCode,
-                ModuleCode = candidate.ModuleCode,
+                ModuleCode = moduleCode,
                 ModuleName = module.ModuleName,
-                WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(candidate.ModuleCode)
+                WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(moduleCode)
             };
         }
 

@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "InstitutionUser")]
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 @using Microsoft.AspNetCore.Components.Forms
 
 <PageTitle>Reporting Calendar — RegOS™ Portal</PageTitle>
@@ -29,7 +30,7 @@
             </button>
         </SecondaryActions>
         <PrimaryAction>
-            <a href="/submit" class="portal-btn portal-btn-primary">
+            <a href="@_primarySubmitHref" class="portal-btn portal-btn-primary portal-calendar-primary-submit">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
@@ -816,6 +817,7 @@
     private string frequencyFilter = "All";
     private CalendarDay? selectedDay;
     private DateTime weekStart;
+    private string _primarySubmitHref = "/submit";
 
     // ── Agenda ───────────────────────────────────────────────────
     private string _agendaSort = "date";
@@ -909,6 +911,7 @@
             if (_qYear.HasValue && _qMonth.HasValue)
                 currentDate = new DateTime(_qYear.Value, Math.Clamp(_qMonth.Value, 1, 12), 1);
         }
+        _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
         weekStart = currentDate.Date;
         await LoadCalendarData();
         await LoadRemindersFromStorage();

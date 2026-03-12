@@ -3,6 +3,7 @@
 @using FC.Engine.Infrastructure.DragDrop
 @inject ISubmissionRepository SubmissionRepo
 @inject ITemplateMetadataCache TemplateCache
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 @inject NavigationManager Navigation
 @inject DragDropInterop DragDrop
 @inject IJSRuntime JS
@@ -32,7 +33,7 @@
             </div>
         </SecondaryActions>
         <PrimaryAction>
-            <a href="/submit" class="portal-btn portal-btn-primary">
+            <a href="@_primarySubmitHref" class="portal-btn portal-btn-primary portal-submissions-primary-submit">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                 </svg>
@@ -191,7 +192,7 @@
                 }
                 else
                 {
-                    <a href="/submit" class="portal-btn portal-btn-primary portal-btn-sm">Start your first return</a>
+                    <a href="@_primarySubmitHref" class="portal-btn portal-btn-primary portal-btn-sm portal-submissions-primary-submit">Start your first return</a>
                 }
             </Actions>
         </PortalEmptyState>
@@ -708,6 +709,7 @@
     {
         _dotNetRef = DotNetObjectReference.Create(this);
         _initialized = true;
+        _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
 
         // Restore all filter state from URL params (makes every filtered view bookmarkable)
         bool hasUrlParams = !string.IsNullOrEmpty(Q) || !string.IsNullOrEmpty(StatusParam)
@@ -1186,6 +1188,7 @@
     }
 
     private record KanbanColumnDef(string Id, string Title, string[] Statuses, int? WipLimit = null, string Color = "gray");
+    private string _primarySubmitHref = "/submit";
 
     // ── Tour definitions ─────────────────────────────────────────────────────
 
@@ -1193,7 +1196,7 @@
     [
         new(".portal-toolbar",              "Filter & Search",
             "Narrow submissions by status, template, or date to quickly find what you need.", "bottom"),
-        new("a[href='/submit']",            "New Submission",
+        new(".portal-submissions-primary-submit", "New Submission",
             "Start a fresh regulatory return — select a template and begin data entry.", "bottom"),
         new(".portal-view-toggle",          "Switch Views",
             "Toggle between the table list and a kanban board to visualise progress by status.", "bottom"),
@@ -1203,7 +1206,7 @@
     [
         new() { TargetSelector = ".portal-toolbar",     Title = "Filter & Search",
                 Description = "Use the search bar and filters to locate submissions by status, template, or date range.", Position = "bottom" },
-        new() { TargetSelector = "a[href='/submit']",   Title = "Create a Return",
+        new() { TargetSelector = ".portal-submissions-primary-submit",   Title = "Create a Return",
                 Description = "Start a new submission. You can upload XML or use the guided data-entry form.", Position = "bottom" },
         new() { TargetSelector = ".portal-view-toggle", Title = "Switch Views",
                 Description = "Use table view for bulk actions or kanban view to track submissions through workflow stages.", Position = "bottom" },

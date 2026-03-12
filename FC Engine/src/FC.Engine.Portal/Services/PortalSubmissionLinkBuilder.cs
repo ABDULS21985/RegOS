@@ -2,21 +2,28 @@ namespace FC.Engine.Portal.Services;
 
 public static class PortalSubmissionLinkBuilder
 {
-    public static string BuildSubmitHref(string? returnCode, string? moduleCode)
+    public static string BuildSubmitHref(string? returnCode, string? moduleCode, int? periodId = null)
     {
-        if (string.IsNullOrWhiteSpace(moduleCode) && string.IsNullOrWhiteSpace(returnCode))
+        var query = new List<string>();
+
+        if (!string.IsNullOrWhiteSpace(moduleCode))
         {
-            return "/submit";
+            query.Add($"module={Uri.EscapeDataString(moduleCode)}");
         }
 
-        if (string.IsNullOrWhiteSpace(returnCode))
+        if (!string.IsNullOrWhiteSpace(returnCode))
         {
-            return $"/submit?module={Uri.EscapeDataString(moduleCode!)}";
+            query.Add($"returnCode={Uri.EscapeDataString(returnCode)}");
         }
 
-        return string.IsNullOrWhiteSpace(moduleCode)
-            ? $"/submit?returnCode={Uri.EscapeDataString(returnCode)}"
-            : $"/submit?module={Uri.EscapeDataString(moduleCode)}&returnCode={Uri.EscapeDataString(returnCode)}";
+        if (periodId is > 0)
+        {
+            query.Add($"periodId={periodId.Value}");
+        }
+
+        return query.Count == 0
+            ? "/submit"
+            : $"/submit?{string.Join("&", query)}";
     }
 
     public static string? ResolveWorkspaceHref(string? moduleCode) =>

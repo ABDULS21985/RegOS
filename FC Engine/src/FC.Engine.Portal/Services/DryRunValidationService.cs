@@ -470,7 +470,8 @@ public class DryRunValidationService
         {
             ReturnCode = t.ReturnCode,
             Name = t.Name,
-            Frequency = t.Frequency.ToString()
+            Frequency = t.Frequency.ToString(),
+            ModuleCode = t.ModuleCode
         }).OrderBy(t => t.ReturnCode).ToList();
     }
 
@@ -758,4 +759,5 @@ public class TemplateOption
     public string ReturnCode { get; set; } = "";
     public string Name { get; set; } = "";
     public string Frequency { get; set; } = "";
+    public string? ModuleCode { get; set; }
 }
