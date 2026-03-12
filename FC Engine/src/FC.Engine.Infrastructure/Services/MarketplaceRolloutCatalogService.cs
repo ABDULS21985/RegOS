@@ -81,12 +81,31 @@ public sealed class MarketplaceRolloutCatalogService
             })
             .ToList();
 
-        await ClearExistingCatalogAsync(ct);
+        if (_db.Database.IsSqlServer())
+        {
+            var strategy = _db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+                await AcquireMaterializationLockAsync("meta.marketplace_rollout_catalog_materialize", ct);
+                await ClearExistingCatalogAsync(ct);
 
-        _db.MarketplaceRolloutModules.AddRange(moduleRecords);
-        _db.MarketplaceRolloutPlanCoverage.AddRange(planRecords);
-        _db.MarketplaceRolloutReconciliationQueue.AddRange(queueRecords);
-        await _db.SaveChangesAsync(ct);
+                _db.MarketplaceRolloutModules.AddRange(moduleRecords);
+                _db.MarketplaceRolloutPlanCoverage.AddRange(planRecords);
+                _db.MarketplaceRolloutReconciliationQueue.AddRange(queueRecords);
+                await _db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            });
+        }
+        else
+        {
+            await ClearExistingCatalogAsync(ct);
+
+            _db.MarketplaceRolloutModules.AddRange(moduleRecords);
+            _db.MarketplaceRolloutPlanCoverage.AddRange(planRecords);
+            _db.MarketplaceRolloutReconciliationQueue.AddRange(queueRecords);
+            await _db.SaveChangesAsync(ct);
+        }
 
         return new MarketplaceRolloutCatalogState
         {
@@ -107,6 +126,27 @@ public sealed class MarketplaceRolloutCatalogService
                 .Select(MapQueue)
                 .ToList()
         };
+    }
+
+    private Task AcquireMaterializationLockAsync(string resource, CancellationToken ct)
+    {
+        if (!_db.Database.IsSqlServer())
+        {
+            return Task.CompletedTask;
+        }
+
+        return _db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            DECLARE @result INT;
+            EXEC @result = sp_getapplock
+                @Resource = {resource},
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction',
+                @LockTimeout = 60000;
+            IF @result < 0
+                THROW 51000, 'Unable to acquire marketplace rollout catalog materialization lock.', 1;
+            """,
+            ct);
     }
 
     public async Task<MarketplaceRolloutCatalogState> LoadAsync(CancellationToken ct = default)

@@ -27,11 +27,29 @@ public sealed class KnowledgeGraphCatalogService
         var nodes = BuildNodes(request, materializedAt);
         var edges = BuildEdges(request, materializedAt);
 
-        await ClearExistingCatalogAsync(ct);
+        if (_db.Database.IsSqlServer())
+        {
+            var strategy = _db.Database.CreateExecutionStrategy();
+            await strategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _db.Database.BeginTransactionAsync(ct);
+                await AcquireMaterializationLockAsync("meta.kg_catalog_materialize", ct);
+                await ClearExistingCatalogAsync(ct);
 
-        _db.KnowledgeGraphNodes.AddRange(nodes);
-        _db.KnowledgeGraphEdges.AddRange(edges);
-        await _db.SaveChangesAsync(ct);
+                _db.KnowledgeGraphNodes.AddRange(nodes);
+                _db.KnowledgeGraphEdges.AddRange(edges);
+                await _db.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            });
+        }
+        else
+        {
+            await ClearExistingCatalogAsync(ct);
+
+            _db.KnowledgeGraphNodes.AddRange(nodes);
+            _db.KnowledgeGraphEdges.AddRange(edges);
+            await _db.SaveChangesAsync(ct);
+        }
 
         return new KnowledgeGraphCatalogMaterializationResult
         {
@@ -51,6 +69,27 @@ public sealed class KnowledgeGraphCatalogService
                 .Select(x => new KnowledgeGraphCatalogTypeCount(x.Key, x.Count()))
                 .ToList()
         };
+    }
+
+    private Task AcquireMaterializationLockAsync(string resource, CancellationToken ct)
+    {
+        if (!_db.Database.IsSqlServer())
+        {
+            return Task.CompletedTask;
+        }
+
+        return _db.Database.ExecuteSqlInterpolatedAsync(
+            $"""
+            DECLARE @result INT;
+            EXEC @result = sp_getapplock
+                @Resource = {resource},
+                @LockMode = 'Exclusive',
+                @LockOwner = 'Transaction',
+                @LockTimeout = 60000;
+            IF @result < 0
+                THROW 51000, 'Unable to acquire knowledge graph catalog materialization lock.', 1;
+            """,
+            ct);
     }
 
     public async Task<KnowledgeGraphCatalogState> LoadAsync(CancellationToken ct = default)
