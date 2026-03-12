@@ -46,6 +46,7 @@ builder.Services.AddScoped<FC.Engine.Admin.Services.CommandPaletteService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.SidebarStateService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.DataTableExportService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformIntelligenceExportService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformIntelligenceExportAuditService>();
 builder.Services.AddSingleton<FC.Engine.Admin.Services.ITablePresetService, FC.Engine.Admin.Services.InMemoryTablePresetService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.HelpService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.DataCacheService>();
@@ -538,19 +539,47 @@ app.MapGet("/api/intelligence/overview", async (
     });
 }).RequireAuthorization("Authenticated");
 
+app.MapGet("/api/intelligence/exports/activity", async (
+    string? area,
+    string? format,
+    string? action,
+    int? take,
+    FC.Engine.Admin.Services.PlatformIntelligenceExportAuditService exportAuditService,
+    CancellationToken ct) =>
+{
+    var rows = await exportAuditService.GetRecentExportsAsync(
+        area,
+        format,
+        action,
+        FC.Engine.Admin.Services.PlatformIntelligenceApiRequestMapper.NormalizeTake(take, 25, 100),
+        ct);
+
+    return Results.Ok(new
+    {
+        Total = rows.Count,
+        Rows = rows
+    });
+}).RequireAuthorization("Authenticated");
+
 app.MapGet("/api/intelligence/overview/export.csv", async (
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     var file = await exportService.ExportOverviewCsvAsync(ct);
+    await AuditIntelligenceExportAsync(context, auditLogger, "OverviewExported", "Overview", "csv", file, null, null, ct);
     return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
 app.MapGet("/api/intelligence/overview/export.pdf", async (
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     var file = await exportService.ExportOverviewPdfAsync(ct);
+    await AuditIntelligenceExportAsync(context, auditLogger, "OverviewExported", "Overview", "pdf", file, null, null, ct);
     return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
@@ -577,23 +606,15 @@ app.MapGet("/api/intelligence/export-bundle.zip", async (
         return Results.NotFound();
     }
 
-    var performedBy = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                      ?? context.User.Identity?.Name
-                      ?? "platform-intelligence-api";
-
-    await auditLogger.Log(
-        "PlatformIntelligence",
-        0,
+    await AuditIntelligenceExportAsync(
+        context,
+        auditLogger,
         "BundleExported",
-        null,
-        new
-        {
-            query.Lens,
-            query.InstitutionId,
-            file.FileName,
-            SizeBytes = file.Content.Length
-        },
-        performedBy,
+        "Bundle",
+        "zip",
+        file,
+        query.Lens,
+        query.InstitutionId,
         ct);
 
     return Results.File(file.Content, file.ContentType, file.FileName);
@@ -875,7 +896,9 @@ app.MapGet("/api/intelligence/dashboards/briefing-pack", async (
 app.MapGet("/api/intelligence/dashboards/briefing-pack/export.csv", async (
     string? lens,
     int? institutionId,
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     if (!FC.Engine.Admin.Services.PlatformIntelligenceApiRequestMapper.TryNormalizeDashboardBriefingPackQuery(
@@ -888,13 +911,21 @@ app.MapGet("/api/intelligence/dashboards/briefing-pack/export.csv", async (
     }
 
     var file = await exportService.ExportDashboardBriefingPackCsvAsync(query.Lens, query.InstitutionId, ct);
-    return file is null ? Results.NotFound() : Results.File(file.Content, file.ContentType, file.FileName);
+    if (file is null)
+    {
+        return Results.NotFound();
+    }
+
+    await AuditIntelligenceExportAsync(context, auditLogger, "DashboardBriefingPackExported", "Dashboards", "csv", file, query.Lens, query.InstitutionId, ct);
+    return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
 app.MapGet("/api/intelligence/dashboards/briefing-pack/export.pdf", async (
     string? lens,
     int? institutionId,
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     if (!FC.Engine.Admin.Services.PlatformIntelligenceApiRequestMapper.TryNormalizeDashboardBriefingPackQuery(
@@ -907,7 +938,13 @@ app.MapGet("/api/intelligence/dashboards/briefing-pack/export.pdf", async (
     }
 
     var file = await exportService.ExportDashboardBriefingPackPdfAsync(query.Lens, query.InstitutionId, ct);
-    return file is null ? Results.NotFound() : Results.File(file.Content, file.ContentType, file.FileName);
+    if (file is null)
+    {
+        return Results.NotFound();
+    }
+
+    await AuditIntelligenceExportAsync(context, auditLogger, "DashboardBriefingPackExported", "Dashboards", "pdf", file, query.Lens, query.InstitutionId, ct);
+    return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
 app.MapGet("/api/intelligence/knowledge/obligations", async (
@@ -974,10 +1011,13 @@ app.MapGet("/api/intelligence/knowledge/dossier", async (
 }).RequireAuthorization("Authenticated");
 
 app.MapGet("/api/intelligence/knowledge/dossier/export.csv", async (
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     var file = await exportService.ExportKnowledgeDossierCsvAsync(ct);
+    await AuditIntelligenceExportAsync(context, auditLogger, "KnowledgeDossierExported", "Knowledge", "csv", file, null, null, ct);
     return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
@@ -1015,10 +1055,13 @@ app.MapGet("/api/intelligence/resilience/pack", async (
 }).RequireAuthorization("Authenticated");
 
 app.MapGet("/api/intelligence/resilience/pack/export.csv", async (
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     var file = await exportService.ExportResiliencePackCsvAsync(ct);
+    await AuditIntelligenceExportAsync(context, auditLogger, "ResiliencePackExported", "Resilience", "csv", file, null, null, ct);
     return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
@@ -1116,10 +1159,13 @@ app.MapGet("/api/intelligence/model-risk/pack", async (
 }).RequireAuthorization("Authenticated");
 
 app.MapGet("/api/intelligence/model-risk/pack/export.csv", async (
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     var file = await exportService.ExportModelRiskPackCsvAsync(ct);
+    await AuditIntelligenceExportAsync(context, auditLogger, "ModelRiskPackExported", "Model Risk", "csv", file, null, null, ct);
     return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
@@ -1216,10 +1262,13 @@ app.MapGet("/api/intelligence/capital/scenario", async (
 }).RequireAuthorization("Authenticated");
 
 app.MapGet("/api/intelligence/capital/pack/export.csv", async (
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     var file = await exportService.ExportCapitalPackCsvAsync(ct);
+    await AuditIntelligenceExportAsync(context, auditLogger, "CapitalPackExported", "Capital", "csv", file, null, null, ct);
     return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
@@ -1310,10 +1359,13 @@ app.MapPost("/api/intelligence/sanctions/screen", async (
 }).RequireAuthorization("Authenticated");
 
 app.MapGet("/api/intelligence/sanctions/pack/export.csv", async (
+    HttpContext context,
     FC.Engine.Admin.Services.PlatformIntelligenceExportService exportService,
+    IAuditLogger auditLogger,
     CancellationToken ct) =>
 {
     var file = await exportService.ExportSanctionsPackCsvAsync(ct);
+    await AuditIntelligenceExportAsync(context, auditLogger, "SanctionsPackExported", "Sanctions", "csv", file, null, null, ct);
     return Results.File(file.Content, file.ContentType, file.FileName);
 }).RequireAuthorization("Authenticated");
 
@@ -1447,6 +1499,41 @@ app.MapGet("/regulator/stress-test/report/pdf", async (
     var fileName = $"stress-test-{scenarioType}-{DateTime.UtcNow:yyyyMMddHHmmss}.pdf";
     return Results.File(pdf, "application/pdf", fileName);
 }).RequireAuthorization("RegulatorOnly");
+
+static async Task AuditIntelligenceExportAsync(
+    HttpContext context,
+    IAuditLogger auditLogger,
+    string action,
+    string area,
+    string format,
+    FC.Engine.Admin.Services.IntelligenceExportFile file,
+    string? lens,
+    int? institutionId,
+    CancellationToken ct)
+{
+    await auditLogger.Log(
+        "PlatformIntelligence",
+        0,
+        action,
+        null,
+        new
+        {
+            Area = area,
+            Format = format,
+            file.FileName,
+            Lens = lens,
+            InstitutionId = institutionId,
+            SizeBytes = file.Content.Length,
+            ExportedAtUtc = DateTime.UtcNow
+        },
+        ResolveApiPerformedBy(context),
+        ct);
+}
+
+static string ResolveApiPerformedBy(HttpContext context) =>
+    context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+    ?? context.User.Identity?.Name
+    ?? "platform-intelligence-api";
 
 app.MapRazorComponents<FC.Engine.Admin.Components.App>()
     .AddInteractiveServerRenderMode();
