@@ -1,5 +1,6 @@
 @page "/help/submission-guide"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "InstitutionUser")]
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 
 <PageTitle>Submission Guide — Help Center — RegOS™ Portal</PageTitle>
 
@@ -255,7 +256,7 @@ Examples:
                 As an alternative to uploading XML, you can use the online form to fill in your return data directly:
             </p>
             <ol>
-                <li>Select a template and reporting period on the <a href="/submit">Submit Return</a> page</li>
+                <li>Select a template and reporting period on the <a href="@_primarySubmitHref">Submit Return</a> page</li>
                 <li>Choose <strong>"Fill Online Form"</strong> instead of XML upload</li>
                 <li>Enter values for each field in the form</li>
                 <li>The form will convert your input to XML and submit it for validation</li>
@@ -293,3 +294,12 @@ Examples:
         <HelpRating ArticleId="submission-guide" />
     </div>
 </HelpLayout>
+
+@code {
+    private string _primarySubmitHref = "/submit";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
+    }
+}

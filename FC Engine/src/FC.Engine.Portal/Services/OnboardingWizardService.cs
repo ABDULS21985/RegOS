@@ -21,6 +21,7 @@ public class OnboardingWizardService
     private readonly ISubscriptionService _subscriptionService;
     private readonly ITenantBrandingService _brandingService;
     private readonly InstitutionAuthService _institutionAuthService;
+    private readonly PortalSubmissionLaunchService _submissionLaunchService;
     private readonly INotificationOrchestrator? _notificationOrchestrator;
     private readonly IAuditLogger? _auditLogger;
     private readonly ILogger<OnboardingWizardService> _logger;
@@ -31,6 +32,7 @@ public class OnboardingWizardService
         ISubscriptionService subscriptionService,
         ITenantBrandingService brandingService,
         InstitutionAuthService institutionAuthService,
+        PortalSubmissionLaunchService submissionLaunchService,
         ILogger<OnboardingWizardService> logger,
         INotificationOrchestrator? notificationOrchestrator = null,
         IAuditLogger? auditLogger = null)
@@ -40,6 +42,7 @@ public class OnboardingWizardService
         _subscriptionService = subscriptionService;
         _brandingService = brandingService;
         _institutionAuthService = institutionAuthService;
+        _submissionLaunchService = submissionLaunchService;
         _logger = logger;
         _notificationOrchestrator = notificationOrchestrator;
         _auditLogger = auditLogger;
@@ -350,6 +353,8 @@ public class OnboardingWizardService
             .AsNoTracking()
             .AnyAsync(x => x.TenantId == tenantId && x.Action == "GUIDED_TOUR_COMPLETED", ct);
 
+        var primarySubmit = await _submissionLaunchService.ResolvePrimarySubmitAsync(tenantId, ct);
+
         var items = new List<OnboardingChecklistItemState>
         {
             new()
@@ -376,7 +381,7 @@ public class OnboardingWizardService
                 Title = "Create first return (dry run)",
                 Description = "Run one submission through validation.",
                 ActionLabel = "Start Return",
-                ActionUrl = "/submit",
+                ActionUrl = primarySubmit.Href,
                 IsComplete = hasSubmission
             },
             new()

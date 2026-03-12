@@ -5,6 +5,7 @@
 @using Microsoft.AspNetCore.Components.Forms
 @using System.Security.Claims
 @inject FC.Engine.Portal.Services.DryRunValidationService DryRunSvc
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 
 <PageTitle>Quick Validate — RegOS™ Portal</PageTitle>
 
@@ -366,7 +367,7 @@
                 @if (dryRunResult.ErrorCount == 0)
                 {
                     <div class="qv-submit-cta">
-                        <a href="/submit" class="portal-btn portal-btn-primary">
+                        <a href="@ProceedToSubmitHref" class="portal-btn portal-btn-primary">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                                 <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
@@ -412,12 +413,25 @@
     private long fileSize;
     private byte[]? fileContent;
     private int institutionId;
+    private string _primarySubmitHref = "/submit";
 
     // Results
     private DryRunResult? dryRunResult;
     private List<ValidationPhase> validationPhases = new();
 
     private bool CanValidate => !string.IsNullOrEmpty(selectedReturnCode) && fileContent is not null;
+    private string ProceedToSubmitHref
+    {
+        get
+        {
+            var selectedTemplate = templates.FirstOrDefault(x => string.Equals(x.ReturnCode, selectedReturnCode, StringComparison.OrdinalIgnoreCase));
+            return PortalSubmissionLinkBuilder.BuildSubmitHref(selectedReturnCode, selectedTemplate?.ModuleCode) switch
+            {
+                "/submit" => _primarySubmitHref,
+                var href => href
+            };
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {
@@ -430,6 +444,7 @@
 
         try
         {
+            _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
             templates = await DryRunSvc.GetAvailableTemplatesAsync();
         }
         catch

@@ -1,6 +1,7 @@
 @page "/help/getting-started"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "InstitutionUser")]
 @inject IJSRuntime JS
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 
 <PageTitle>Getting Started — Help Center — RegOS™ Portal</PageTitle>
 
@@ -71,7 +72,7 @@
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                 <div>
                     <strong>Guide complete!</strong> You're ready to submit your first return.
-                    <a href="/submit" style="margin-left: 0.5rem">Submit a Return →</a>
+                    <a href="@_primarySubmitHref" style="margin-left: 0.5rem">Submit a Return →</a>
                 </div>
             </div>
         }
@@ -197,7 +198,7 @@
                         else if (stepId == "step-upload")
                         {
                             <ol>
-                                <li>Go to <a href="/submit">Submit Return</a></li>
+                                <li>Go to <a href="@_primarySubmitHref">Submit Return</a></li>
                                 <li>Select the return template from the list</li>
                                 <li>Choose the reporting period</li>
                                 <li>Upload your XML file or fill in the online form</li>
@@ -273,6 +274,12 @@
         "Review Validation Results",
         "Approval Process (if applicable)"
     };
+    private string _primarySubmitHref = "/submit";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

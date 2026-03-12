@@ -1,6 +1,7 @@
 @page "/onboarding/sandbox"
 @attribute [Authorize]
 @inject SandboxService SandboxService
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 @inject ITenantContext TenantContext
 @inject NavigationManager Navigation
 
@@ -98,7 +99,7 @@
             <div class="portal-sandbox-step-num">1</div>
             <p class="portal-sandbox-step-title">Submit a sample return</p>
             <p class="portal-sandbox-step-desc">
-                Go to <a href="/submit">Submit Return</a> and fill in the pre-populated data form.
+                Go to <a href="@_primarySubmitHref">Submit Return</a> and fill in the pre-populated data form.
                 See how validation and auto-save work without any real consequences.
             </p>
         </div>
@@ -226,11 +227,13 @@
     private bool _busy;
     private string? _message;
     private string? _error;
+    private string _primarySubmitHref = "/submit";
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
+            _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
             if (!TenantContext.CurrentTenantId.HasValue) return;
             _context = await SandboxService.GetContext(TenantContext.CurrentTenantId.Value);
         }

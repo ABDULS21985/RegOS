@@ -2,10 +2,22 @@ namespace FC.Engine.Portal.Services;
 
 public static class PortalSubmissionLinkBuilder
 {
-    public static string BuildSubmitHref(string returnCode, string? moduleCode) =>
-        string.IsNullOrWhiteSpace(moduleCode)
+    public static string BuildSubmitHref(string? returnCode, string? moduleCode)
+    {
+        if (string.IsNullOrWhiteSpace(moduleCode) && string.IsNullOrWhiteSpace(returnCode))
+        {
+            return "/submit";
+        }
+
+        if (string.IsNullOrWhiteSpace(returnCode))
+        {
+            return $"/submit?module={Uri.EscapeDataString(moduleCode!)}";
+        }
+
+        return string.IsNullOrWhiteSpace(moduleCode)
             ? $"/submit?returnCode={Uri.EscapeDataString(returnCode)}"
             : $"/submit?module={Uri.EscapeDataString(moduleCode)}&returnCode={Uri.EscapeDataString(returnCode)}";
+    }
 
     public static string? ResolveWorkspaceHref(string? moduleCode) =>
         PortalModuleWorkspaceCatalog.TryGetDefinition(moduleCode, out var definition)

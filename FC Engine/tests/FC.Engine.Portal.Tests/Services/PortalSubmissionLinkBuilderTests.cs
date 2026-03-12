@@ -21,4 +21,12 @@ public class PortalSubmissionLinkBuilderTests
 
         href.Should().Be("/submit?returnCode=NFIU_TFS");
     }
+
+    [Fact]
+    public void BuildSubmitHref_Uses_Module_Only_When_Return_Code_Is_Not_Known()
+    {
+        var href = PortalSubmissionLinkBuilder.BuildSubmitHref(null, "OPS_RESILIENCE");
+
+        href.Should().Be("/submit?module=OPS_RESILIENCE");
+    }
 }

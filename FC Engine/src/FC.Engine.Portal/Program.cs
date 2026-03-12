@@ -50,6 +50,7 @@ builder.Services.AddScoped<FC.Engine.Portal.Services.WorkflowService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.InstitutionManagementService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.NotificationService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.ModuleWorkspaceService>();
+builder.Services.AddScoped<FC.Engine.Portal.Services.PortalSubmissionLaunchService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.CrossSheetDashboardService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.ExportService>();
 builder.Services.AddScoped<FC.Engine.Portal.Services.DryRunValidationService>();

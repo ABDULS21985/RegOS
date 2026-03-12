@@ -5,6 +5,7 @@
 @using DeadlineStatus = FC.Engine.Portal.Services.DeadlineStatus
 @using FC.Engine.Infrastructure.DragDrop
 @inject DashboardService DashboardService
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 @inject ChartJsInterop Charts
 @inject DragDropInterop DragDrop
 @inject FC.Engine.Portal.Services.OverdueAlertService OverdueAlertSvc
@@ -74,7 +75,7 @@ else if (data is not null)
                         </div>
                     }
                 </div>
-                <a href="/submit" class="portal-btn portal-btn-primary">
+                <a href="@_primarySubmitHref" class="portal-btn portal-btn-primary">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                         <polyline points="17 8 12 3 7 8"/>
@@ -798,7 +799,7 @@ else if (data is not null)
             {
                 <div class="portal-empty-state">
                     <p>No submissions yet.</p>
-                    <a href="/submit" class="portal-btn portal-btn-primary">Submit Your First Return</a>
+                    <a href="@_primarySubmitHref" class="portal-btn portal-btn-primary">Submit Your First Return</a>
                 </div>
             }
         </div>
@@ -994,6 +995,7 @@ else
     private int institutionId;
     private string institutionName = "";
     private string institutionCode = "";
+    private string _primarySubmitHref = "/submit";
 
     // ── Lifecycle ────────────────────────────────────────────────
 
@@ -1013,6 +1015,7 @@ else
         institutionName = user.FindFirst("InstitutionName")?.Value ?? "Unknown Institution";
         institutionCode = institutionIdStr ?? "";
         int.TryParse(institutionIdStr, out institutionId);
+        _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
 
         await LoadDashboard();
     }

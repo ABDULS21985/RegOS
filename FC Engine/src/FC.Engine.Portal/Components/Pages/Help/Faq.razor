@@ -1,5 +1,6 @@
 @page "/help/faq"
 @attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "InstitutionUser")]
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 
 <PageTitle>FAQ — Help Center — RegOS™ Portal</PageTitle>
 
@@ -74,7 +75,7 @@
 
             <AccordionPanel Title="How do I submit a return?">
                 <p>
-                    Navigate to <a href="/submit">Submit Return</a>, select a template and reporting period,
+                    Navigate to <a href="@_primarySubmitHref">Submit Return</a>, select a template and reporting period,
                     then either upload your XML file or fill in the online form.
                     See the <a href="/help/submission-guide">Submission Guide</a> for detailed instructions.
                 </p>
@@ -294,3 +295,12 @@
         <HelpRating ArticleId="faq" />
     </div>
 </HelpLayout>
+
+@code {
+    private string _primarySubmitHref = "/submit";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
+    }
+}
