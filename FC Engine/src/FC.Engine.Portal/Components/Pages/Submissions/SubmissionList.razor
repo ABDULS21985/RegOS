@@ -136,6 +136,15 @@
                         </svg>
                     </button>
                 }
+                @if (!string.IsNullOrEmpty(filterModuleCode))
+                {
+                    <button class="portal-chip portal-chip-removable" @onclick="() => { filterModuleCode = string.Empty; ApplyFilters(); }">
+                        Module: @FormatModuleLabel(filterModuleCode)
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true">
+                            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                    </button>
+                }
                 @if (sortBy != "date-desc")
                 {
                     <button class="portal-chip portal-chip-removable" @onclick='() => { sortBy = "date-desc"; ApplyFilters(); }'>
@@ -600,6 +609,7 @@
     [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
     [SupplyParameterFromQuery(Name = "status")] public string? StatusParam { get; set; }
     [SupplyParameterFromQuery(Name = "template")] public string? TemplateParam { get; set; }
+    [SupplyParameterFromQuery(Name = "module")] public string? ModuleParam { get; set; }
     [SupplyParameterFromQuery(Name = "sort")] public string? SortParam { get; set; }
     [SupplyParameterFromQuery(Name = "page")] public int? PageParam { get; set; }
     [SupplyParameterFromQuery(Name = "view")] public string? ViewParam { get; set; }
@@ -615,6 +625,7 @@
     private string searchQuery = "";
     private string filterStatus = "";
     private string filterReturnCode = "";
+    private string filterModuleCode = "";
     private string sortBy = "date-desc";
     private string viewMode = "table";
     private bool colReorderInitialized = false;
@@ -633,12 +644,14 @@
         !string.IsNullOrEmpty(searchQuery) ||
         !string.IsNullOrEmpty(filterStatus) ||
         !string.IsNullOrEmpty(filterReturnCode) ||
+        !string.IsNullOrEmpty(filterModuleCode) ||
         sortBy != "date-desc";
 
     private int ActiveFilterCount =>
         (string.IsNullOrEmpty(searchQuery) ? 0 : 1) +
         (string.IsNullOrEmpty(filterStatus) ? 0 : 1) +
         (string.IsNullOrEmpty(filterReturnCode) ? 0 : 1) +
+        (string.IsNullOrEmpty(filterModuleCode) ? 0 : 1) +
         (sortBy == "date-desc" ? 0 : 1);
     private string BulkBarCss => _selectedIds.Any() ? "portal-bulk-bar portal-bulk-bar--visible" : "portal-bulk-bar";
 
@@ -698,7 +711,7 @@
 
         // Restore all filter state from URL params (makes every filtered view bookmarkable)
         bool hasUrlParams = !string.IsNullOrEmpty(Q) || !string.IsNullOrEmpty(StatusParam)
-            || !string.IsNullOrEmpty(TemplateParam) || !string.IsNullOrEmpty(SortParam)
+            || !string.IsNullOrEmpty(TemplateParam) || !string.IsNullOrEmpty(ModuleParam) || !string.IsNullOrEmpty(SortParam)
             || PageParam.HasValue || !string.IsNullOrEmpty(ViewParam);
 
         if (hasUrlParams)
@@ -706,6 +719,7 @@
             if (!string.IsNullOrEmpty(Q)) searchQuery = Q;
             if (!string.IsNullOrEmpty(StatusParam)) filterStatus = StatusParam;
             if (!string.IsNullOrEmpty(TemplateParam)) filterReturnCode = TemplateParam;
+            if (!string.IsNullOrEmpty(ModuleParam)) filterModuleCode = ModuleParam.Trim().ToUpperInvariant();
             if (!string.IsNullOrEmpty(SortParam)) sortBy = SortParam;
             if (PageParam is > 0) currentPage = PageParam.Value;
             if (!string.IsNullOrEmpty(ViewParam)) viewMode = ViewParam;
@@ -828,9 +842,9 @@
             var rawSubmissions = await SubmissionRepo.GetByInstitution(institutionId);
 
             var allTemplates = await TemplateCache.GetAllPublishedTemplates();
-            var templateNameMap = allTemplates.ToDictionary(
+            var templateMetaMap = allTemplates.ToDictionary(
                 t => t.ReturnCode,
-                t => t.Name,
+                t => new { t.Name, t.ModuleCode },
                 StringComparer.OrdinalIgnoreCase
             );
 
@@ -838,7 +852,8 @@
             {
                 Id = s.Id,
                 ReturnCode = s.ReturnCode,
-                TemplateName = templateNameMap.GetValueOrDefault(s.ReturnCode, s.ReturnCode),
+                TemplateName = templateMetaMap.TryGetValue(s.ReturnCode, out var templateMeta) ? templateMeta.Name : s.ReturnCode,
+                ModuleCode = templateMetaMap.TryGetValue(s.ReturnCode, out templateMeta) ? templateMeta.ModuleCode : null,
                 PeriodLabel = s.ReturnPeriod is not null
                     ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month, 1).ToString("MMM yyyy")
                     : "—",
@@ -904,6 +919,11 @@
             query = query.Where(s => s.ReturnCode.Equals(filterReturnCode, StringComparison.OrdinalIgnoreCase));
         }
 
+        if (!string.IsNullOrEmpty(filterModuleCode))
+        {
+            query = query.Where(s => string.Equals(s.ModuleCode, filterModuleCode, StringComparison.OrdinalIgnoreCase));
+        }
+
         query = sortBy switch
         {
             "date-asc" => query.OrderBy(s => s.SubmittedAt),
@@ -927,6 +947,7 @@
         searchQuery = "";
         filterStatus = "";
         filterReturnCode = "";
+        filterModuleCode = "";
         sortBy = "date-desc";
         _smartDefaultApplied = false;
         Navigation.NavigateTo("/submissions", replace: true);
@@ -939,6 +960,7 @@
         ["q"] = searchQuery,
         ["status"] = filterStatus,
         ["template"] = filterReturnCode,
+        ["module"] = filterModuleCode,
         ["sort"] = sortBy == "date-desc" ? "" : sortBy,
         ["view"] = viewMode == "table" ? "" : viewMode
     };
@@ -949,6 +971,7 @@
         searchQuery = filters.GetValueOrDefault("q", "");
         filterStatus = filters.GetValueOrDefault("status", "");
         filterReturnCode = filters.GetValueOrDefault("template", "");
+        filterModuleCode = filters.GetValueOrDefault("module", "");
         sortBy = filters.GetValueOrDefault("sort") is { Length: > 0 } s ? s : "date-desc";
         viewMode = filters.GetValueOrDefault("view") is { Length: > 0 } v ? v : "table";
         _smartDefaultApplied = false;
@@ -1062,6 +1085,7 @@
         if (!string.IsNullOrEmpty(searchQuery)) parts.Add($"q={Uri.EscapeDataString(searchQuery)}");
         if (!string.IsNullOrEmpty(filterStatus)) parts.Add($"status={Uri.EscapeDataString(filterStatus)}");
         if (!string.IsNullOrEmpty(filterReturnCode)) parts.Add($"template={Uri.EscapeDataString(filterReturnCode)}");
+        if (!string.IsNullOrEmpty(filterModuleCode)) parts.Add($"module={Uri.EscapeDataString(filterModuleCode)}");
         if (sortBy != "date-desc") parts.Add($"sort={Uri.EscapeDataString(sortBy)}");
         if (currentPage > 1) parts.Add($"page={currentPage}");
         if (viewMode != "table") parts.Add($"view={Uri.EscapeDataString(viewMode)}");
@@ -1128,6 +1152,9 @@
         return status;
     }
 
+    private static string FormatModuleLabel(string moduleCode) =>
+        moduleCode.Replace("_", " ", StringComparison.Ordinal).Trim();
+
     private static string FormatDuration(int? durationMs)
     {
         if (durationMs is null) return "—";
@@ -1140,6 +1167,7 @@
     {
         public int Id { get; set; }
         public string ReturnCode { get; set; } = "";
+        public string? ModuleCode { get; set; }
         public string TemplateName { get; set; } = "";
         public string PeriodLabel { get; set; } = "";
         public DateTime SubmittedAt { get; set; }

@@ -9,6 +9,7 @@ public class TemplateSelectItem
     public string TemplateName { get; set; } = "";
     public string Frequency { get; set; } = "";
     public string StructuralCategory { get; set; } = "";
+    public string? ModuleCode { get; set; }
     public bool AlreadySubmitted { get; set; }
 }
 

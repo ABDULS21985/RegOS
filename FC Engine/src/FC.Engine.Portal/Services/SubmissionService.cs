@@ -16,6 +16,8 @@ using Microsoft.EntityFrameworkCore;
 public class SubmissionService
 {
     private readonly TemplateService _templateService;
+    private readonly IEntitlementService _entitlementService;
+    private readonly ITenantContext _tenantContext;
     private readonly ISubmissionRepository _submissionRepo;
     private readonly ISubmissionApprovalRepository _approvalRepo;
     private readonly IngestionOrchestrator _orchestrator;
@@ -25,6 +27,8 @@ public class SubmissionService
 
     public SubmissionService(
         TemplateService templateService,
+        IEntitlementService entitlementService,
+        ITenantContext tenantContext,
         ISubmissionRepository submissionRepo,
         ISubmissionApprovalRepository approvalRepo,
         IngestionOrchestrator orchestrator,
@@ -33,6 +37,8 @@ public class SubmissionService
         IFilingCalendarService filingCalendarService)
     {
         _templateService = templateService;
+        _entitlementService = entitlementService;
+        _tenantContext = tenantContext;
         _submissionRepo = submissionRepo;
         _approvalRepo = approvalRepo;
         _orchestrator = orchestrator;
@@ -44,10 +50,66 @@ public class SubmissionService
     /// <summary>
     /// Gets all published templates with "already submitted" status for the current period.
     /// </summary>
-    public async Task<List<TemplateSelectItem>> GetTemplatesForInstitution(int institutionId)
+    public async Task<List<TemplateSelectItem>> GetTemplatesForInstitution(int institutionId, string? moduleCode = null)
     {
-        var allTemplates = await _templateService.GetAllTemplates();
-        var publishedTemplates = allTemplates.Where(t => t.PublishedVersionId.HasValue).ToList();
+        var normalizedModuleCode = string.IsNullOrWhiteSpace(moduleCode)
+            ? null
+            : moduleCode.Trim().ToUpperInvariant();
+
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        List<TemplateSelectItem> publishedTemplates;
+        if (_tenantContext.CurrentTenantId is { } tenantId)
+        {
+            var entitlement = await _entitlementService.ResolveEntitlements(tenantId);
+            var activeModuleIds = entitlement.ActiveModules
+                .Select(x => x.ModuleId)
+                .Distinct()
+                .ToList();
+
+            if (activeModuleIds.Count == 0)
+            {
+                return new List<TemplateSelectItem>();
+            }
+
+            var moduleCodeMap = await db.Modules
+                .AsNoTracking()
+                .Where(x => activeModuleIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, x => x.ModuleCode);
+
+            var entitledTemplates = await _templateService.GetEntitledTemplates(tenantId);
+            publishedTemplates = entitledTemplates
+                .Where(x => x.CurrentPublishedVersion is not null)
+                .Select(x => new TemplateSelectItem
+                {
+                    ReturnCode = x.ReturnCode,
+                    TemplateName = x.Name,
+                    Frequency = x.Frequency.ToString(),
+                    StructuralCategory = x.StructuralCategory.ToString(),
+                    ModuleCode = x.ModuleId.HasValue && moduleCodeMap.TryGetValue(x.ModuleId.Value, out var resolvedModuleCode)
+                        ? resolvedModuleCode
+                        : null
+                })
+                .Where(x => normalizedModuleCode is null
+                    || string.Equals(x.ModuleCode, normalizedModuleCode, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(x => x.ReturnCode)
+                .ToList();
+        }
+        else
+        {
+            var allTemplates = await _templateService.GetAllTemplates();
+            publishedTemplates = allTemplates
+                .Where(x => x.PublishedVersionId.HasValue)
+                .Select(x => new TemplateSelectItem
+                {
+                    ReturnCode = x.ReturnCode,
+                    TemplateName = x.Name,
+                    Frequency = x.Frequency,
+                    StructuralCategory = x.StructuralCategory
+                })
+                .OrderBy(x => x.ReturnCode)
+                .ToList();
+        }
 
         var submissions = await _submissionRepo.GetByInstitution(institutionId);
         var now = DateTime.UtcNow;
@@ -61,14 +123,13 @@ public class SubmissionService
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-        return publishedTemplates.Select(t => new TemplateSelectItem
-        {
-            ReturnCode = t.ReturnCode,
-            TemplateName = t.Name,
-            Frequency = t.Frequency,
-            StructuralCategory = t.StructuralCategory,
-            AlreadySubmitted = submittedReturnCodes.Contains(t.ReturnCode)
-        }).OrderBy(t => t.ReturnCode).ToList();
+        return publishedTemplates
+            .Select(t =>
+            {
+                t.AlreadySubmitted = submittedReturnCodes.Contains(t.ReturnCode);
+                return t;
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -77,8 +138,26 @@ public class SubmissionService
     public async Task<List<PeriodSelectItem>> GetOpenPeriods(int institutionId, string returnCode)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var periods = await db.ReturnPeriods
-            .Where(rp => rp.IsOpen)
+
+        var query = db.ReturnPeriods
+            .AsNoTracking()
+            .Where(rp => rp.IsOpen);
+
+        if (_tenantContext.CurrentTenantId is { } tenantId)
+        {
+            query = query.Where(rp => rp.TenantId == tenantId);
+
+            var entitledTemplates = await _templateService.GetEntitledTemplates(tenantId);
+            var template = entitledTemplates.FirstOrDefault(x =>
+                x.ReturnCode.Equals(returnCode, StringComparison.OrdinalIgnoreCase));
+
+            if (template?.ModuleId is int moduleId)
+            {
+                query = query.Where(rp => rp.ModuleId == moduleId);
+            }
+        }
+
+        var periods = await query
             .OrderByDescending(rp => rp.Year)
             .ThenByDescending(rp => rp.Month)
             .ToListAsync();

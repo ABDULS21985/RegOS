@@ -49,6 +49,19 @@
             <h2 class="portal-wizard-panel-title">Select Return Template</h2>
             <p class="portal-wizard-panel-desc">Choose the return you want to submit from the templates assigned to your institution.</p>
 
+            @if (_moduleDefinition is not null)
+            {
+                <div class="portal-validation-banner portal-validation-banner-info" style="margin-bottom: 1rem;" role="status">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/><path d="M12 8h.01"/><path d="M11 12h1v4h1"/>
+                    </svg>
+                    <div>
+                        <strong>@_moduleDefinition.Title workflow</strong> — the template list is scoped to <strong>@_moduleDefinition.Title</strong>.
+                        <a href="/submit" class="portal-inline-link">Show all entitled returns</a>
+                    </div>
+                </div>
+            }
+
             <div class="portal-form-group">
                 <div class="portal-input-wrapper">
                     <span class="portal-input-icon" aria-hidden="true">
@@ -575,9 +588,13 @@
     // ── Auth ─────────────────────────────────────────────────────
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
+    [SupplyParameterFromQuery(Name = "returnCode")] public string? ReturnCodeParam { get; set; }
+    [SupplyParameterFromQuery(Name = "module")] public string? ModuleCodeParam { get; set; }
     private int institutionId;
     private int? userId;
     private bool requiresApproval;
+    private PortalModuleWorkspaceDefinition? _moduleDefinition;
+    private bool _presetSelectionApplied;
 
     // ── Step 1: Template Selection ───────────────────────────────
     private List<TemplateSelectItem> templates = new();
@@ -651,8 +668,10 @@
         var isMaker = role.Equals("Maker", StringComparison.OrdinalIgnoreCase);
         var makerCheckerEnabled = await SubmissionService.IsMakerCheckerEnabled(institutionId);
         requiresApproval = isMaker && makerCheckerEnabled;
+        PortalModuleWorkspaceCatalog.TryGetDefinition(ModuleCodeParam, out _moduleDefinition);
 
         await LoadTemplates();
+        await ApplyPresetSelectionAsync();
     }
 
     // ── Step 1: Template Loading & Selection ─────────────────────
@@ -661,7 +680,7 @@
         isLoadingTemplates = true;
         try
         {
-            templates = await SubmissionService.GetTemplatesForInstitution(institutionId);
+            templates = await SubmissionService.GetTemplatesForInstitution(institutionId, ModuleCodeParam);
         }
         catch
         {
@@ -671,6 +690,27 @@
         {
             isLoadingTemplates = false;
         }
+    }
+
+    private async Task ApplyPresetSelectionAsync()
+    {
+        if (_presetSelectionApplied || string.IsNullOrWhiteSpace(ReturnCodeParam))
+        {
+            return;
+        }
+
+        _presetSelectionApplied = true;
+
+        var template = templates.FirstOrDefault(x =>
+            x.ReturnCode.Equals(ReturnCodeParam.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        if (template is null)
+        {
+            return;
+        }
+
+        SelectTemplate(template);
+        await GoToStep2();
     }
 
     private void SelectTemplate(TemplateSelectItem template)

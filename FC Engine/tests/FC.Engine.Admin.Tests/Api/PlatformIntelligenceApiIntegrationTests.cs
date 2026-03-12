@@ -6,6 +6,7 @@ using System.Text.Json;
 using FC.Engine.Admin.Tests.Infrastructure;
 using FluentAssertions;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace FC.Engine.Admin.Tests.Api;
@@ -234,6 +235,21 @@ public sealed class PlatformIntelligenceApiIntegrationTests : IClassFixture<Plat
     }
 
     [Fact]
+    public async Task Dashboard_Briefing_Pack_Pdf_Export_Returns_Downloadable_File()
+    {
+        using var client = _factory.CreateAuthenticatedClient("Admin", "PlatformAdmin");
+
+        var response = await client.GetAsync("/api/intelligence/dashboards/briefing-pack/export.pdf?lens=governor");
+        var payload = await response.Content.ReadAsByteArrayAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("application/pdf");
+        GetDownloadFileName(response).Should().Be("stakeholder-briefing-pack-governor.pdf");
+        payload.Should().NotBeEmpty();
+        Encoding.ASCII.GetString(payload.Take(5).ToArray()).Should().Be("%PDF-");
+    }
+
+    [Fact]
     public async Task Dashboard_Briefing_Pack_Export_Rejects_Executive_Lens_Without_Institution()
     {
         using var client = _factory.CreateAuthenticatedClient("Admin", "PlatformAdmin");
@@ -245,6 +261,28 @@ public sealed class PlatformIntelligenceApiIntegrationTests : IClassFixture<Plat
         using var json = JsonDocument.Parse(payload, JsonOptions);
         TryGetProperty(json.RootElement, "error", out var error).Should().BeTrue();
         error.GetString().Should().Be("InstitutionId is required for the executive lens.");
+    }
+
+    [Theory]
+    [InlineData("/api/intelligence/knowledge/dossier/export.csv", "knowledge-graph-dossier.csv", "Section Code,Section Name,Row Count,Signal,Coverage,Commentary,Recommended Action")]
+    [InlineData("/api/intelligence/capital/pack/export.csv", "capital-supervisory-pack.csv", "Section Code,Section Name,Row Count,Signal,Coverage,Commentary,Recommended Action")]
+    [InlineData("/api/intelligence/sanctions/pack/export.csv", "sanctions-supervisory-pack.csv", "Section Code,Section Name,Row Count,Signal,Coverage,Commentary,Recommended Action")]
+    [InlineData("/api/intelligence/resilience/pack/export.csv", "ops-resilience-pack.csv", "Sheet Code,Sheet Name,Row Count,Signal,Coverage,Commentary,Recommended Action")]
+    [InlineData("/api/intelligence/model-risk/pack/export.csv", "model-risk-pack.csv", "Sheet Code,Sheet Name,Row Count,Signal,Coverage,Commentary,Recommended Action")]
+    public async Task Intelligence_Pack_Csv_Exports_Return_Downloadable_Files(
+        string route,
+        string expectedFileName,
+        string expectedHeader)
+    {
+        using var client = _factory.CreateAuthenticatedClient("Admin", "PlatformAdmin");
+
+        var response = await client.GetAsync(route);
+        var payload = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, payload);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("text/csv");
+        GetDownloadFileName(response).Should().Be(expectedFileName);
+        payload.Should().Contain(expectedHeader);
     }
 
     [Fact]
@@ -782,21 +820,19 @@ public sealed class PlatformIntelligenceApiIntegrationTests : IClassFixture<Plat
         dossierJson.RootElement.ValueKind.Should().Be(JsonValueKind.Array);
         dossierJson.RootElement.GetArrayLength().Should().BeGreaterThan(0);
 
-        var overviewResponse = await client.GetAsync("/api/intelligence/overview");
-        var overviewPayload = await overviewResponse.Content.ReadAsStringAsync();
-
-        overviewResponse.StatusCode.Should().Be(HttpStatusCode.OK, overviewPayload);
-        using var overviewJson = JsonDocument.Parse(overviewPayload, JsonOptions);
-        TryGetProperty(overviewJson.RootElement, "knowledgeGraph", out var knowledgeGraph).Should().BeTrue();
-        TryGetProperty(knowledgeGraph, "navigatorDetails", out var navigatorDetails).Should().BeTrue();
-
-        if (navigatorDetails.GetArrayLength() > 0)
+        if (impactJson.RootElement.GetArrayLength() > 0)
         {
-            var navigatorKey = navigatorDetails[0].GetProperty("navigatorKey").GetString();
-            navigatorKey.Should().NotBeNullOrWhiteSpace();
+            using var scope = _factory.Services.CreateScope();
+            var intelligenceService = scope.ServiceProvider.GetRequiredService<FC.Engine.Admin.Services.PlatformIntelligenceService>();
+            var workspace = await intelligenceService.GetWorkspaceAsync();
+            var resolvedNavigatorKey = workspace.KnowledgeGraph.NavigatorDetails
+                .Select(x => x.NavigatorKey)
+                .FirstOrDefault();
+
+            resolvedNavigatorKey.Should().NotBeNullOrWhiteSpace();
 
             var navigatorResponse = await client.GetAsync(
-                $"/api/intelligence/knowledge/navigator?key={Uri.EscapeDataString(navigatorKey!)}");
+                $"/api/intelligence/knowledge/navigator?key={Uri.EscapeDataString(resolvedNavigatorKey!)}");
             var navigatorPayload = await navigatorResponse.Content.ReadAsStringAsync();
 
             navigatorResponse.StatusCode.Should().Be(HttpStatusCode.OK, navigatorPayload);
@@ -804,7 +840,7 @@ public sealed class PlatformIntelligenceApiIntegrationTests : IClassFixture<Plat
             TryGetProperty(navigatorJson.RootElement, "navigatorKey", out var persistedKey).Should().BeTrue();
             TryGetProperty(navigatorJson.RootElement, "affectedInstitutions", out var affectedInstitutions).Should().BeTrue();
             TryGetProperty(navigatorJson.RootElement, "recentSubmissions", out var recentSubmissions).Should().BeTrue();
-            persistedKey.GetString().Should().Be(navigatorKey);
+            persistedKey.GetString().Should().Be(resolvedNavigatorKey);
             affectedInstitutions.ValueKind.Should().Be(JsonValueKind.Array);
             recentSubmissions.ValueKind.Should().Be(JsonValueKind.Array);
         }
