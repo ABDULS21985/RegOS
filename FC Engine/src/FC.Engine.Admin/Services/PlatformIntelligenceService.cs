@@ -504,10 +504,29 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
                 RecommendedAction = x.RecommendedAction
             })
             .ToList();
+        var refreshRunState = await _platformIntelligenceRefreshRunStore.LoadLatestAsync(ct);
+        var governorDashboardPackCatalog = await _dashboardBriefingPackCatalog.LoadAsync("governor", null, ct);
+        var operationalFreshnessRows = BuildCatalogFreshnessRows(
+                refreshRunState,
+                rolloutCatalog.MaterializedAt,
+                knowledgeCatalog.MaterializedAt,
+                knowledgeDossierCatalog.MaterializedAt,
+                capitalPackCatalog.MaterializedAt,
+                sanctionsCatalog.MaterializedAt,
+                sanctionsPackCatalog.MaterializedAt,
+                sanctionsStrDraftCatalog.MaterializedAt,
+                opsResiliencePackCatalog.MaterializedAt,
+                modelInventoryCatalog.MaterializedAt,
+                modelRiskPackCatalog.MaterializedAt,
+                institutionCatalogMaterializedAt: null,
+                operationsCatalogMaterializedAt: null,
+                governorDashboardPackCatalog.MaterializedAt)
+            .Where(x => x.Area is not "Institutions" and not "Operations")
+            .ToList();
         var operationsCatalog = await _platformOperationsCatalog.MaterializeAsync(
             new PlatformOperationsCatalogInput
             {
-                Interventions = BuildInterventionQueue(institutionObligationRows, capitalRows, resilienceActions, modelChanges, rolloutQueueRows)
+                Interventions = BuildInterventionQueue(institutionObligationRows, capitalRows, resilienceActions, modelChanges, rolloutQueueRows, operationalFreshnessRows)
                     .Select(x => new PlatformInterventionInput
                     {
                         Domain = x.Domain,
@@ -519,7 +538,7 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
                         OwnerLane = x.OwnerLane
                     })
                     .ToList(),
-                Timeline = BuildActivityTimeline(submissions, institutions, incidents, securityAlerts, auditLog, entitlementAuditRows, fieldChanges)
+                Timeline = BuildActivityTimeline(submissions, institutions, incidents, securityAlerts, auditLog, entitlementAuditRows, fieldChanges, operationalFreshnessRows)
                     .Select(x => new PlatformActivityTimelineInput
                     {
                         TenantId = x.TenantId,
@@ -648,12 +667,27 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
             })
             .ToList();
 
-        var refreshRunState = await _platformIntelligenceRefreshRunStore.LoadLatestAsync(ct);
+        var recentRefreshRuns = await _platformIntelligenceRefreshRunStore.LoadRecentAsync(8, ct);
+        var refreshFreshness = BuildCatalogFreshnessRows(
+            refreshRunState,
+            rolloutCatalog.MaterializedAt,
+            knowledgeCatalog.MaterializedAt,
+            knowledgeDossierCatalog.MaterializedAt,
+            capitalPackCatalog.MaterializedAt,
+            sanctionsCatalog.MaterializedAt,
+            sanctionsPackCatalog.MaterializedAt,
+            sanctionsStrDraftCatalog.MaterializedAt,
+            opsResiliencePackCatalog.MaterializedAt,
+            modelInventoryCatalog.MaterializedAt,
+            modelRiskPackCatalog.MaterializedAt,
+            institutionCatalog.MaterializedAt,
+            operationsCatalog.MaterializedAt,
+            governorDashboardPackCatalog.MaterializedAt);
 
         return new PlatformIntelligenceWorkspace
         {
             GeneratedAt = DateTime.UtcNow,
-            Refresh = BuildRefreshSnapshot(refreshRunState),
+            Refresh = BuildRefreshSnapshot(refreshRunState, recentRefreshRuns, refreshFreshness),
             Hero = new PlatformIntelligenceHero
             {
                 KnowledgeGraphNodes = knowledgeCatalog.NodeCount > 0 ? knowledgeCatalog.NodeCount : referencedRows.Count,
@@ -930,7 +964,10 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
         };
     }
 
-    private PlatformIntelligenceRefreshSnapshot BuildRefreshSnapshot(PlatformIntelligenceRefreshRunState? state)
+    private PlatformIntelligenceRefreshSnapshot BuildRefreshSnapshot(
+        PlatformIntelligenceRefreshRunState? state,
+        IReadOnlyList<PlatformIntelligenceRefreshRunState> recentRuns,
+        IReadOnlyList<PlatformIntelligenceCatalogFreshnessRow> freshnessRows)
     {
         if (state is null)
         {
@@ -938,7 +975,9 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
             {
                 Status = "Pending",
                 Commentary = "Background refresh has not completed yet. The live page is available, but the scheduled precompute has not produced a durable run record.",
-                StaleAfterMinutes = (int)_refreshStaleAfter.TotalMinutes
+                StaleAfterMinutes = (int)_refreshStaleAfter.TotalMinutes,
+                RecentRuns = recentRuns.Select(MapRefreshHistoryRow).ToList(),
+                CatalogFreshness = freshnessRows.ToList()
             };
         }
 
@@ -972,9 +1011,129 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
             DashboardPacksMaterialized = state.DashboardPacksMaterialized,
             FailureMessage = state.FailureMessage,
             StaleAfterMinutes = (int)_refreshStaleAfter.TotalMinutes,
+            RecentSuccessCount = recentRuns.Count(x => x.Succeeded),
+            RecentFailureCount = recentRuns.Count(x => !x.Succeeded),
+            Commentary = commentary,
+            RecentRuns = recentRuns.Select(MapRefreshHistoryRow).ToList(),
+            CatalogFreshness = freshnessRows.ToList()
+        };
+    }
+
+    private static PlatformIntelligenceRefreshHistoryRow MapRefreshHistoryRow(PlatformIntelligenceRefreshRunState state) =>
+        new()
+        {
+            Status = state.Status,
+            CompletedAtUtc = state.CompletedAtUtc,
+            GeneratedAtUtc = state.GeneratedAtUtc,
+            DurationMilliseconds = state.DurationMilliseconds,
+            InstitutionCount = state.InstitutionCount,
+            InterventionCount = state.InterventionCount,
+            TimelineCount = state.TimelineCount,
+            DashboardPacksMaterialized = state.DashboardPacksMaterialized,
+            FailureMessage = state.FailureMessage
+        };
+
+    private List<PlatformIntelligenceCatalogFreshnessRow> BuildCatalogFreshnessRows(
+        PlatformIntelligenceRefreshRunState? refreshRunState,
+        DateTime? rolloutCatalogMaterializedAt,
+        DateTime? knowledgeCatalogMaterializedAt,
+        DateTime? knowledgeDossierMaterializedAt,
+        DateTime? capitalPackMaterializedAt,
+        DateTime? sanctionsCatalogMaterializedAt,
+        DateTime? sanctionsPackMaterializedAt,
+        DateTime? sanctionsStrDraftCatalogMaterializedAt,
+        DateTime? resiliencePackMaterializedAt,
+        DateTime? modelInventoryCatalogMaterializedAt,
+        DateTime? modelRiskPackMaterializedAt,
+        DateTime? institutionCatalogMaterializedAt,
+        DateTime? operationsCatalogMaterializedAt,
+        DateTime? dashboardPackMaterializedAt)
+    {
+        return new List<PlatformIntelligenceCatalogFreshnessRow>
+        {
+            BuildFreshnessRow("Scheduler", "Background refresh cycle", refreshRunState?.CompletedAtUtc, _refreshStaleAfter),
+            BuildFreshnessRow("Rollout", "Marketplace rollout catalog", rolloutCatalogMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Knowledge", "Knowledge graph catalog", knowledgeCatalogMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Knowledge", "Compliance dossier", knowledgeDossierMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Capital", "Capital supervisory pack", capitalPackMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Sanctions", "Watchlist catalog", sanctionsCatalogMaterializedAt, TimeSpan.FromHours(36)),
+            BuildFreshnessRow("Sanctions", "AML / TFS supervisory pack", sanctionsPackMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Sanctions", "STR draft catalog", sanctionsStrDraftCatalogMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Resilience", "OPS_RESILIENCE pack", resiliencePackMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Model Risk", "Model inventory catalog", modelInventoryCatalogMaterializedAt, TimeSpan.FromHours(24)),
+            BuildFreshnessRow("Model Risk", "RG-50 supervisory pack", modelRiskPackMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Institutions", "Supervisory institution catalog", institutionCatalogMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Operations", "Intervention and timeline catalog", operationsCatalogMaterializedAt, _refreshStaleAfter),
+            BuildFreshnessRow("Dashboards", "Governor briefing pack", dashboardPackMaterializedAt, _refreshStaleAfter)
+        }
+        .OrderByDescending(x => FreshnessPriorityRank(x.Status))
+        .ThenBy(x => x.Area, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+    }
+
+    private PlatformIntelligenceCatalogFreshnessRow BuildFreshnessRow(
+        string area,
+        string artifact,
+        DateTime? materializedAt,
+        TimeSpan staleAfter)
+    {
+        if (!materializedAt.HasValue)
+        {
+            return new PlatformIntelligenceCatalogFreshnessRow
+            {
+                Area = area,
+                Artifact = artifact,
+                Status = "Pending",
+                ThresholdLabel = FormatAgeThreshold(staleAfter),
+                Commentary = "No materialized record exists yet. Run the scheduler or use the manual refresh control to populate this artifact."
+            };
+        }
+
+        var age = DateTime.UtcNow - materializedAt.Value;
+        var status = age > staleAfter
+            ? "Stale"
+            : age > TimeSpan.FromTicks(staleAfter.Ticks / 2)
+                ? "Watch"
+                : "Current";
+
+        var commentary = status switch
+        {
+            "Current" => $"Artifact is inside its expected refresh window ({FormatAgeThreshold(staleAfter)}).",
+            "Watch" => $"Artifact is aging toward the refresh threshold ({FormatAgeThreshold(staleAfter)}). Recompute soon to avoid stale supervision data.",
+            _ => $"Artifact has exceeded its freshness threshold ({FormatAgeThreshold(staleAfter)}). Re-run the workspace refresh and confirm the background job is healthy."
+        };
+
+        return new PlatformIntelligenceCatalogFreshnessRow
+        {
+            Area = area,
+            Artifact = artifact,
+            Status = status,
+            MaterializedAt = materializedAt,
+            AgeLabel = FormatAgeLabel(age),
+            ThresholdLabel = FormatAgeThreshold(staleAfter),
             Commentary = commentary
         };
     }
+
+    private static int FreshnessPriorityRank(string status) => status switch
+    {
+        "Stale" => 3,
+        "Watch" => 2,
+        "Pending" => 1,
+        _ => 0
+    };
+
+    private static string FormatAgeThreshold(TimeSpan threshold) =>
+        threshold.TotalHours >= 24
+            ? $"{Math.Round(threshold.TotalHours / 24d, 1):0.#} day(s)"
+            : $"{Math.Round(threshold.TotalMinutes, MidpointRounding.AwayFromZero):0} min";
+
+    private static string FormatAgeLabel(TimeSpan age) =>
+        age.TotalHours >= 24
+            ? $"{Math.Round(age.TotalHours / 24d, 1):0.#} day(s)"
+            : age.TotalHours >= 1
+                ? $"{Math.Round(age.TotalHours, 1):0.#} hr"
+                : $"{Math.Round(age.TotalMinutes, MidpointRounding.AwayFromZero):0} min";
 
     private static string SerializeInstitutionCatalogJson<T>(IReadOnlyList<T> rows) =>
         JsonSerializer.Serialize(rows ?? []);
@@ -4126,7 +4285,8 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
         IReadOnlyList<SecurityAlert> securityAlerts,
         IReadOnlyList<AuditLogEntry> auditLog,
         IReadOnlyList<AuditLogEntry> entitlementAuditRows,
-        IReadOnlyList<FieldChangeHistory> fieldChanges)
+        IReadOnlyList<FieldChangeHistory> fieldChanges,
+        IReadOnlyList<PlatformIntelligenceCatalogFreshnessRow> freshnessRows)
     {
         var institutionById = institutions.ToDictionary(x => x.Id);
 
@@ -4216,12 +4376,29 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
             Severity = change.ChangeSource.Equals("System", StringComparison.OrdinalIgnoreCase) ? "Medium" : "Low"
         });
 
+        var freshnessItems = freshnessRows
+            .Where(x => x.Status is "Stale" or "Watch" or "Pending")
+            .Select(row => new ActivityTimelineRow
+            {
+                Domain = "Freshness",
+                Title = $"{row.Artifact} {row.Status}",
+                Detail = $"{row.Area} · {row.Commentary}",
+                HappenedAt = row.MaterializedAt ?? DateTime.UtcNow,
+                Severity = row.Status switch
+                {
+                    "Stale" => "High",
+                    "Watch" => "Medium",
+                    _ => "Low"
+                }
+            });
+
         return submissionItems
             .Concat(incidentItems)
             .Concat(alertItems)
             .Concat(auditItems)
             .Concat(rolloutItems)
             .Concat(fieldItems)
+            .Concat(freshnessItems)
             .OrderByDescending(x => x.HappenedAt)
             .Take(24)
             .ToList();
@@ -4567,7 +4744,8 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
         IReadOnlyList<CapitalWatchlistRow> capitalRows,
         IReadOnlyList<ResilienceActionRow> resilienceActions,
         IReadOnlyList<ModelChangeRow> modelChanges,
-        IReadOnlyList<MarketplaceReconciliationQueueRow> rolloutQueue)
+        IReadOnlyList<MarketplaceReconciliationQueueRow> rolloutQueue,
+        IReadOnlyList<PlatformIntelligenceCatalogFreshnessRow> freshnessRows)
     {
         var filingInterventions = institutionObligations
             .Where(x => x.Status is "Overdue" or "Attention Required" or "Due Soon")
@@ -4647,11 +4825,35 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
                 OwnerLane = "Platform Ops"
             });
 
+        var freshnessInterventions = freshnessRows
+            .Where(x => x.Status is "Stale" or "Watch" or "Pending")
+            .Select(x => new InterventionQueueRow
+            {
+                Domain = "Freshness",
+                Subject = x.Artifact,
+                Signal = $"{x.Area} is {x.Status}",
+                Priority = x.Status switch
+                {
+                    "Stale" => "High",
+                    "Watch" => "Medium",
+                    _ => "Low"
+                },
+                NextAction = x.Commentary,
+                DueDate = DateTime.UtcNow.Date.AddDays(x.Status switch
+                {
+                    "Stale" => 1,
+                    "Watch" => 3,
+                    _ => 7
+                }),
+                OwnerLane = "Platform Intelligence Ops"
+            });
+
         return filingInterventions
             .Concat(capitalInterventions)
             .Concat(resilienceInterventions)
             .Concat(modelInterventions)
             .Concat(rolloutInterventions)
+            .Concat(freshnessInterventions)
             .OrderByDescending(x => InterventionPriorityRank(x.Priority))
             .ThenBy(x => x.DueDate)
             .Take(24)
@@ -5782,6 +5984,34 @@ public sealed class PlatformIntelligenceRefreshSnapshot
     public int DashboardPacksMaterialized { get; set; }
     public string? FailureMessage { get; set; }
     public int StaleAfterMinutes { get; set; }
+    public int RecentSuccessCount { get; set; }
+    public int RecentFailureCount { get; set; }
+    public string Commentary { get; set; } = string.Empty;
+    public List<PlatformIntelligenceRefreshHistoryRow> RecentRuns { get; set; } = [];
+    public List<PlatformIntelligenceCatalogFreshnessRow> CatalogFreshness { get; set; } = [];
+}
+
+public sealed class PlatformIntelligenceRefreshHistoryRow
+{
+    public string Status { get; set; } = string.Empty;
+    public DateTime CompletedAtUtc { get; set; }
+    public DateTime? GeneratedAtUtc { get; set; }
+    public int DurationMilliseconds { get; set; }
+    public int InstitutionCount { get; set; }
+    public int InterventionCount { get; set; }
+    public int TimelineCount { get; set; }
+    public int DashboardPacksMaterialized { get; set; }
+    public string? FailureMessage { get; set; }
+}
+
+public sealed class PlatformIntelligenceCatalogFreshnessRow
+{
+    public string Area { get; set; } = string.Empty;
+    public string Artifact { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public DateTime? MaterializedAt { get; set; }
+    public string AgeLabel { get; set; } = string.Empty;
+    public string ThresholdLabel { get; set; } = string.Empty;
     public string Commentary { get; set; } = string.Empty;
 }
 

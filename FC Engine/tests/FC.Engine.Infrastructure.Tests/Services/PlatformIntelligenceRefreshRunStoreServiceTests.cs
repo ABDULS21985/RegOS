@@ -39,6 +39,7 @@ public class PlatformIntelligenceRefreshRunStoreServiceTests
         });
 
         var loaded = await sut.LoadLatestAsync();
+        var recent = await sut.LoadRecentAsync();
 
         loaded.Should().NotBeNull();
         loaded!.Succeeded.Should().BeFalse();
@@ -47,6 +48,11 @@ public class PlatformIntelligenceRefreshRunStoreServiceTests
         loaded.LastSuccessfulCompletedAtUtc.Should().Be(successCompletedAt);
         loaded.LastFailedCompletedAtUtc.Should().Be(failureCompletedAt);
         loaded.FailureMessage.Should().Contain("scheduler timeout");
+        recent.Should().HaveCount(2);
+        recent[0].CompletedAtUtc.Should().Be(failureCompletedAt);
+        recent[0].Succeeded.Should().BeFalse();
+        recent[1].CompletedAtUtc.Should().Be(successCompletedAt);
+        recent[1].Succeeded.Should().BeTrue();
         (await db.PlatformIntelligenceRefreshRuns.AsNoTracking().CountAsync()).Should().Be(2);
     }
 

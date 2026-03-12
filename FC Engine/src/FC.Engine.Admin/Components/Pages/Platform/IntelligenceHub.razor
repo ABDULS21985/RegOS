@@ -5,6 +5,7 @@
 @using FC.Engine.Admin.Services
 @using FC.Engine.Infrastructure.Services
 @inject PlatformIntelligenceService IntelligenceService
+@inject PlatformIntelligenceRefreshService RefreshService
 @inject DashboardBriefingPackBuilder DashboardBriefingPackBuilder
 @inject ToastService Toast
 @inject DataTableExportService ExportService
@@ -27,6 +28,9 @@
                 <path d="M20.49 15A9 9 0 1 1 18.36 5.64L23 10"></path>
             </svg>
             Refresh
+        </button>
+        <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="RunRefreshNowAsync" disabled="@(_loading || _refreshingWorkspace)">
+            @(_refreshingWorkspace ? "Refreshing..." : "Run Refresh Now")
         </button>
     </SecondaryActions>
 </PageHeader>
@@ -242,6 +246,131 @@
                             <p>Change paths that need action before the next supervisory filing window closes.</p>
                         </article>
                     </div>
+
+                    <article class="fc-intel-card fc-intel-card--table">
+                        <header class="fc-intel-card__header">
+                            <div>
+                                <span class="fc-intel-card__label">Refresh Telemetry</span>
+                                <h2>Background cadence, manual recompute control, and catalog freshness</h2>
+                            </div>
+                            <div class="fc-intel-inline-chips">
+                                <span class="fc-intel-chip">@_workspace.Refresh.RecentRuns.Count run(s)</span>
+                                <span class="fc-intel-chip">stale after @_workspace.Refresh.StaleAfterMinutes min</span>
+                            </div>
+                        </header>
+
+                        <div class="fc-intel-pill-grid">
+                            <article class="fc-intel-metric-tile">
+                                <span class="fc-intel-card__label">Current Status</span>
+                                <strong>@_workspace.Refresh.Status</strong>
+                                <p>@(_workspace.Refresh.CompletedAtUtc.HasValue ? $"Last attempt {FormatTimestamp(_workspace.Refresh.CompletedAtUtc.Value)}." : "No refresh attempt recorded yet.")</p>
+                            </article>
+                            <article class="fc-intel-metric-tile">
+                                <span class="fc-intel-card__label">Recent Healthy Runs</span>
+                                <strong>@_workspace.Refresh.RecentSuccessCount</strong>
+                                <p>Successful refresh cycles captured in recent telemetry.</p>
+                            </article>
+                            <article class="fc-intel-metric-tile">
+                                <span class="fc-intel-card__label">Recent Failed Runs</span>
+                                <strong>@_workspace.Refresh.RecentFailureCount</strong>
+                                <p>Failures recorded in the same recent run window.</p>
+                            </article>
+                            <article class="fc-intel-metric-tile">
+                                <span class="fc-intel-card__label">Last Packs Materialized</span>
+                                <strong>@_workspace.Refresh.DashboardPacksMaterialized</strong>
+                                <p>Dashboard briefing packs written by the last completed cycle.</p>
+                            </article>
+                        </div>
+
+                        <div class="fc-intel-grid fc-intel-grid--two">
+                            <article class="fc-intel-card fc-intel-card--table">
+                                <header class="fc-intel-card__header">
+                                    <div>
+                                        <span class="fc-intel-card__label">Recent Runs</span>
+                                        <h2>Latest background refresh attempts</h2>
+                                    </div>
+                                    <span class="fc-intel-chip">@_workspace.Refresh.RecentRuns.Count row(s)</span>
+                                </header>
+                                @if (_workspace.Refresh.RecentRuns.Count == 0)
+                                {
+                                    <div class="fc-intel-empty">
+                                        <h3>No refresh runs recorded yet</h3>
+                                        <p>Use the manual refresh action or wait for the scheduler to populate telemetry.</p>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="fc-intel-table-wrap">
+                                        <table class="fc-intel-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Status</th>
+                                                    <th>Completed</th>
+                                                    <th>Duration</th>
+                                                    <th>Snapshot</th>
+                                                    <th>Coverage</th>
+                                                    <th>Packs</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @foreach (var row in _workspace.Refresh.RecentRuns)
+                                                {
+                                                    <tr>
+                                                        <td><span class="fc-intel-status fc-intel-status--@StatusClass(row.Status)">@row.Status</span></td>
+                                                        <td>@FormatTimestamp(row.CompletedAtUtc)</td>
+                                                        <td>@row.DurationMilliseconds.ToString("N0", CultureInfo.InvariantCulture) ms</td>
+                                                        <td>@(row.GeneratedAtUtc.HasValue ? FormatTimestamp(row.GeneratedAtUtc.Value) : "Unavailable")</td>
+                                                        <td>@row.InstitutionCount institution(s) · @row.InterventionCount queue · @row.TimelineCount timeline</td>
+                                                        <td>@row.DashboardPacksMaterialized</td>
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                }
+                            </article>
+
+                            <article class="fc-intel-card fc-intel-card--table">
+                                <header class="fc-intel-card__header">
+                                    <div>
+                                        <span class="fc-intel-card__label">Catalog Freshness</span>
+                                        <h2>Materialization health across persisted intelligence artifacts</h2>
+                                    </div>
+                                    <span class="fc-intel-chip">@_workspace.Refresh.CatalogFreshness.Count row(s)</span>
+                                </header>
+                                <div class="fc-intel-table-wrap">
+                                    <table class="fc-intel-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Area</th>
+                                                <th>Artifact</th>
+                                                <th>Status</th>
+                                                <th>Materialized</th>
+                                                <th>Age</th>
+                                                <th>Threshold</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var row in _workspace.Refresh.CatalogFreshness)
+                                            {
+                                                <tr>
+                                                    <td>@row.Area</td>
+                                                    <td>
+                                                        <strong>@row.Artifact</strong>
+                                                        <div class="fc-intel-table__sub">@row.Commentary</div>
+                                                    </td>
+                                                    <td><span class="fc-intel-status fc-intel-status--@StatusClass(row.Status)">@row.Status</span></td>
+                                                    <td>@(row.MaterializedAt.HasValue ? FormatTimestamp(row.MaterializedAt.Value) : "Pending")</td>
+                                                    <td>@(string.IsNullOrWhiteSpace(row.AgeLabel) ? "Pending" : row.AgeLabel)</td>
+                                                    <td>@row.ThresholdLabel</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </article>
+                        </div>
+                    </article>
 
                     <article class="fc-intel-card fc-intel-card--table">
                         <header class="fc-intel-card__header">
@@ -4876,6 +5005,7 @@
     private PlatformIntelligenceWorkspace? _workspace;
     private Exception? _error;
     private bool _loading = true;
+    private bool _refreshingWorkspace;
     private string _activeTab = "overview";
     private string _stakeholderLens = "governor";
     private string _knowledgeQuery = string.Empty;
@@ -4938,6 +5068,32 @@
         finally
         {
             _loading = false;
+        }
+    }
+
+    private async Task RunRefreshNowAsync()
+    {
+        if (_refreshingWorkspace)
+        {
+            return;
+        }
+
+        _refreshingWorkspace = true;
+        StateHasChanged();
+
+        try
+        {
+            var result = await RefreshService.RefreshAsync();
+            Toast.Success($"Platform intelligence refresh completed in {result.DurationMilliseconds:N0} ms.");
+            await ReloadAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Platform intelligence refresh failed: {ex.Message}");
+        }
+        finally
+        {
+            _refreshingWorkspace = false;
         }
     }
 
@@ -7280,6 +7436,9 @@
                                  ?? _workspace.KnowledgeGraph.DossierPack.FirstOrDefault(x => x.Signal == "Watch");
         var topRolloutGap = _workspace.Rollout.ModuleRollout.FirstOrDefault(x => x.Signal == "Critical")
                             ?? _workspace.Rollout.ModuleRollout.FirstOrDefault(x => x.Signal == "Watch");
+        var topFreshnessIssue = _workspace.Refresh.CatalogFreshness.FirstOrDefault(x => x.Status == "Stale")
+                                ?? _workspace.Refresh.CatalogFreshness.FirstOrDefault(x => x.Status == "Watch")
+                                ?? _workspace.Refresh.CatalogFreshness.FirstOrDefault(x => x.Status == "Pending");
         var topHotspot = _workspace.Resilience.Hotspots.FirstOrDefault();
         var topCyberAssessment = _workspace.Resilience.CyberAssessment.FirstOrDefault(x => x.Signal == "Critical")
                                  ?? _workspace.Resilience.CyberAssessment.FirstOrDefault(x => x.Signal == "Watch");
@@ -7292,6 +7451,7 @@
         [
             new ExecutiveBriefRow("Snapshot Generated", FormatTimestamp(_workspace.GeneratedAt), "Current UTC timestamp for the intelligence pack."),
             new ExecutiveBriefRow("Refresh Health", _workspace.Refresh.Status, _workspace.Refresh.Commentary),
+            new ExecutiveBriefRow("Catalog Freshness", topFreshnessIssue?.Artifact ?? "No freshness telemetry", topFreshnessIssue is null ? "No catalog freshness telemetry is currently available." : $"{topFreshnessIssue.Area} is {topFreshnessIssue.Status.ToLowerInvariant()} with threshold {topFreshnessIssue.ThresholdLabel}. {topFreshnessIssue.Commentary}"),
             new ExecutiveBriefRow("Rollout & Entitlements", _workspace.Rollout.PendingEntitlementCount.ToString(CultureInfo.InvariantCulture), topRolloutGap is not null ? $"{topRolloutGap.ModuleCode} is currently {topRolloutGap.Signal.ToLowerInvariant()} with {topRolloutGap.PendingEntitlements} pending entitlement gap(s). {topRolloutGap.RecommendedAction}" : _workspace.Rollout.PendingTenantCount == 0 ? "Tracked supervisory pack rollout is currently synchronized across eligible tenants." : $"{_workspace.Rollout.PendingTenantCount} tenant(s) still require reconciliation across the tracked packs."),
             new ExecutiveBriefRow("Knowledge Graph", _workspace.KnowledgeGraph.PersistedNodeCount > 0 ? _workspace.KnowledgeGraph.PersistedNodeCount.ToString(CultureInfo.InvariantCulture) : _workspace.KnowledgeGraph.ReferencedFieldCount.ToString(CultureInfo.InvariantCulture), topKnowledgeDossier is not null ? $"{topKnowledgeDossier.SectionName} is currently {topKnowledgeDossier.Signal.ToLowerInvariant()}; {_workspace.KnowledgeGraph.PersistedEdgeCount} persisted graph edge(s) are available for trace and impact work. {topKnowledgeDossier.RecommendedAction}" : $"{FilteredImpactPropagationRows.Count} prioritized change path(s), {_workspace.KnowledgeGraph.ObligationCount} licence-driven obligations, and {_workspace.KnowledgeGraph.PersistedEdgeCount} persisted graph edge(s) are currently mapped."),
             new ExecutiveBriefRow("Top Filing Signal", topObligation is null ? "No active obligation" : $"{topObligation.InstitutionName} · {topObligation.ReturnCode}", topObligation is null ? "No institution-specific obligation data is currently available." : $"{topObligation.Status} for {topObligation.PeriodLabel}; next deadline {topObligation.NextDeadline:dd MMM yyyy}."),
@@ -8005,6 +8165,7 @@
         "running" => "warning",
         "current" => "success",
         "draft" => "neutral",
+        "pending" => "neutral",
         "due" => "warning",
         "overdue" => "danger",
         "attention required" => "danger",

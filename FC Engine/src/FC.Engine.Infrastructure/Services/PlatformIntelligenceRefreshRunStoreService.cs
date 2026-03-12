@@ -44,6 +44,21 @@ public sealed class PlatformIntelligenceRefreshRunStoreService
         return MapState(latest, lastSuccessfulCompletedAtUtc, lastFailedCompletedAtUtc);
     }
 
+    public async Task<IReadOnlyList<PlatformIntelligenceRefreshRunState>> LoadRecentAsync(int take = 8, CancellationToken ct = default)
+    {
+        await EnsureStoreAsync(ct);
+
+        var rows = await _db.PlatformIntelligenceRefreshRuns
+            .AsNoTracking()
+            .OrderByDescending(x => x.CompletedAtUtc)
+            .Take(Math.Max(1, take))
+            .ToListAsync(ct);
+
+        return rows
+            .Select(x => MapState(x, null, null))
+            .ToList();
+    }
+
     public async Task<PlatformIntelligenceRefreshRunState> RecordSuccessAsync(
         PlatformIntelligenceRefreshRunSuccessCommand command,
         CancellationToken ct = default)
