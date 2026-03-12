@@ -20,7 +20,7 @@ public class ModuleMarketplaceBootstrapServiceTests
 
         var result = await sut.EnsurePricingAsync();
 
-        result.PricingCreated.Should().Be(12);
+        result.PricingCreated.Should().Be(18);
         result.PricingUpdated.Should().Be(0);
 
         var pricing = await db.PlanModulePricing
@@ -28,8 +28,10 @@ public class ModuleMarketplaceBootstrapServiceTests
             .Include(x => x.Module)
             .ToListAsync();
 
+        pricing.Should().ContainSingle(x => x.Plan!.PlanCode == "STARTER" && x.Module!.ModuleCode == "CAPITAL_SUPERVISION" && x.PriceMonthly == 90000m && x.PriceAnnual == 900000m && !x.IsIncludedInBase);
         pricing.Should().ContainSingle(x => x.Plan!.PlanCode == "STARTER" && x.Module!.ModuleCode == "OPS_RESILIENCE" && x.PriceMonthly == 70000m && x.PriceAnnual == 700000m && !x.IsIncludedInBase);
         pricing.Should().ContainSingle(x => x.Plan!.PlanCode == "PROFESSIONAL" && x.Module!.ModuleCode == "MODEL_RISK" && x.PriceMonthly == 70000m && x.PriceAnnual == 700000m && !x.IsIncludedInBase);
+        pricing.Should().ContainSingle(x => x.Plan!.PlanCode == "REGULATOR" && x.Module!.ModuleCode == "CAPITAL_SUPERVISION" && x.PriceMonthly == 0m && x.IsIncludedInBase);
         pricing.Should().ContainSingle(x => x.Plan!.PlanCode == "REGULATOR" && x.Module!.ModuleCode == "OPS_RESILIENCE" && x.PriceMonthly == 0m && x.IsIncludedInBase);
         pricing.Should().ContainSingle(x => x.Plan!.PlanCode == "WHITE_LABEL" && x.Module!.ModuleCode == "MODEL_RISK" && x.PriceMonthly == 0m && x.IsIncludedInBase);
     }
@@ -59,7 +61,7 @@ public class ModuleMarketplaceBootstrapServiceTests
         var first = await sut.EnsurePricingAsync();
         var second = await sut.EnsurePricingAsync();
 
-        first.PricingCreated.Should().Be(11);
+        first.PricingCreated.Should().Be(17);
         first.PricingUpdated.Should().Be(1);
         second.PricingCreated.Should().Be(0);
         second.PricingUpdated.Should().Be(0);
@@ -77,6 +79,16 @@ public class ModuleMarketplaceBootstrapServiceTests
     private static async Task SeedModulesAsync(MetadataDbContext db)
     {
         db.Modules.AddRange(
+            new Module
+            {
+                ModuleCode = "CAPITAL_SUPERVISION",
+                ModuleName = "Capital Management & Supervisory Planning",
+                RegulatorCode = "CBN",
+                SheetCount = 6,
+                DefaultFrequency = "Quarterly",
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            },
             new Module
             {
                 ModuleCode = "OPS_RESILIENCE",

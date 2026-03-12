@@ -1,0 +1,180 @@
+@page "/regulator/sanctions/watchlists"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject FC.Engine.Admin.Services.Sanctions.ScreeningEngineService ScreeningEngine
+@inject FC.Engine.Admin.Services.ToastService Toast
+
+<PageTitle>Watchlist Management</PageTitle>
+
+<PageHeader Title="Watchlist Management"
+            Subtitle="View watchlist sources, entry counts, refresh cadence, and trigger manual refreshes."
+            BackUrl="/regulator/sanctions"
+            CountBadge="@(!_loading ? _catalog?.Sources.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="RefreshWatchlistAsync" disabled="@_refreshing">
+            @if (_refreshing) { <span class="fc-spinner fc-spinner--xs"></span> }
+            Refresh Watchlists
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load watchlist data" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
+        }
+        else if (_catalog is null || _catalog.Sources.Count == 0)
+        {
+            <EmptyState Context="data" Heading="No watchlist sources" Description="Refresh the watchlist to load baseline sanctions sources." />
+        }
+        else
+        {
+            <div class="rg-san-kpi-strip">
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value">@_catalog.Sources.Count</div>
+                    <div class="rg-san-kpi-label">Sources</div>
+                </div>
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value">@_catalog.Entries.Count</div>
+                    <div class="rg-san-kpi-label">Total Entries</div>
+                </div>
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value">@_catalog.Sources.Count(s => s.Status == "Active")</div>
+                    <div class="rg-san-kpi-label">Active Sources</div>
+                </div>
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value">@(_catalog.MaterializedAt?.ToString("dd MMM HH:mm") ?? "—")</div>
+                    <div class="rg-san-kpi-label">Last Refreshed</div>
+                </div>
+            </div>
+
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">Watchlist Sources</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="SanctionsCatalogSourceState"
+                               Items="@_catalog.Sources"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="watchlist-sources"
+                               Clickable="true"
+                               OnRowClick="@(s => SelectSource(s))">
+                        <ChildContent>
+                            <DataColumn TItem="SanctionsCatalogSourceState" Title="Source Code" Width="120px" SortKey="@(x => x.SourceCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--info">@context.SourceCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsCatalogSourceState" Title="Source Name" SortKey="@(x => x.SourceName)">
+                                <CellTemplate><strong>@context.SourceName</strong></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsCatalogSourceState" Title="Entries" Width="100px" SortKey="@(x => x.EntryCount)">
+                                <CellTemplate>@context.EntryCount</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsCatalogSourceState" Title="Refresh Cadence" Width="130px" SortKey="@(x => x.RefreshCadence)">
+                                <CellTemplate>@context.RefreshCadence</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsCatalogSourceState" Title="Status" Width="100px" SortKey="@(x => x.Status)">
+                                <CellTemplate>
+                                    <span class="fc-badge @(context.Status == "Active" ? "fc-badge--success" : "fc-badge--neutral")">@context.Status</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsCatalogSourceState" Title="Materialized" Width="140px" SortKey="@(x => x.MaterializedAt)">
+                                <CellTemplate>@context.MaterializedAt.ToString("dd MMM yyyy HH:mm")</CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+
+            @if (_selectedSource is not null)
+            {
+                var sourceEntries = _catalog.Entries.Where(e => e.SourceCode == _selectedSource.SourceCode).ToList();
+                <div class="fc-card">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Entries: @_selectedSource.SourceName (@sourceEntries.Count)</h2>
+                    </div>
+                    <div class="fc-card__body">
+                        <DataTable TItem="SanctionsCatalogEntryState"
+                                   Items="@sourceEntries"
+                                   PageSize="20"
+                                   Sortable="true"
+                                   ShowExport="true"
+                                   ExportFileName="@($"watchlist-{_selectedSource.SourceCode}")">
+                            <ChildContent>
+                                <DataColumn TItem="SanctionsCatalogEntryState" Title="Primary Name" SortKey="@(x => x.PrimaryName)">
+                                    <CellTemplate><strong>@context.PrimaryName</strong></CellTemplate>
+                                </DataColumn>
+                                <DataColumn TItem="SanctionsCatalogEntryState" Title="Aliases" SortKey="@(x => x.Aliases.Count)">
+                                    <CellTemplate>
+                                        @if (context.Aliases.Count > 0)
+                                        {
+                                            <span class="fc-text-muted-sm">@string.Join(", ", context.Aliases.Take(3))@(context.Aliases.Count > 3 ? $" +{context.Aliases.Count - 3} more" : "")</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="fc-text-muted">—</span>
+                                        }
+                                    </CellTemplate>
+                                </DataColumn>
+                                <DataColumn TItem="SanctionsCatalogEntryState" Title="Category" Width="100px" SortKey="@(x => x.Category)">
+                                    <CellTemplate>@context.Category</CellTemplate>
+                                </DataColumn>
+                                <DataColumn TItem="SanctionsCatalogEntryState" Title="Risk Level" Width="100px" SortKey="@(x => x.RiskLevel)">
+                                    <CellTemplate>
+                                        <span class="fc-badge @RiskBadge(context.RiskLevel)">@context.RiskLevel</span>
+                                    </CellTemplate>
+                                </DataColumn>
+                            </ChildContent>
+                        </DataTable>
+                    </div>
+                </div>
+            }
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true, _refreshing;
+    private Exception? _loadException;
+    private SanctionsCatalogState? _catalog;
+    private SanctionsCatalogSourceState? _selectedSource;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            _catalog = await ScreeningEngine.GetWatchlistCatalogAsync();
+        }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _loading = false; }
+    }
+
+    private async Task RefreshWatchlistAsync()
+    {
+        _refreshing = true;
+        try
+        {
+            await ScreeningEngine.RefreshWatchlistAsync();
+            Toast.Show(new ToastItem { Variant = ToastVariant.Success, Title = "Watchlist Refreshed", Message = "Baseline watchlist catalog has been re-materialised." });
+            await ReloadAsync();
+        }
+        catch (Exception ex) { Toast.Error("Refresh failed: " + ex.Message); }
+        finally { _refreshing = false; }
+    }
+
+    private void SelectSource(SanctionsCatalogSourceState source)
+    {
+        _selectedSource = _selectedSource?.SourceCode == source.SourceCode ? null : source;
+        StateHasChanged();
+    }
+
+    private static string RiskBadge(string r) => r switch
+    {
+        "critical" => "fc-badge--danger",
+        "high" => "fc-badge--warning",
+        "medium" => "fc-badge--info",
+        _ => "fc-badge--neutral"
+    };
+}

@@ -26,7 +26,9 @@ public class SeedModuleDefinitionBootstrapServiceTests
             {
                 var code = json.Contains("\"moduleCode\": \"MODEL_RISK\"", StringComparison.OrdinalIgnoreCase)
                     ? "MODEL_RISK"
-                    : "OPS_RESILIENCE";
+                    : json.Contains("\"moduleCode\": \"CAPITAL_SUPERVISION\"", StringComparison.OrdinalIgnoreCase)
+                        ? "CAPITAL_SUPERVISION"
+                        : "OPS_RESILIENCE";
 
                 return new ModuleImportResult
                 {
@@ -39,9 +41,12 @@ public class SeedModuleDefinitionBootstrapServiceTests
             .ReturnsAsync((string moduleCode, string _, CancellationToken _) =>
             {
                 var moduleId = db.Modules.Single(x => x.ModuleCode == moduleCode).Id;
-                var returnCodes = moduleCode == "OPS_RESILIENCE"
-                    ? new[] { "OPS_IBS", "OPS_TOL", "OPS_SCN", "OPS_TPR", "OPS_INC", "OPS_BCP", "OPS_CYB", "OPS_CHG", "OPS_RTO", "OPS_BRD" }
-                    : new[] { "MRM_INV", "MRM_VAL", "MRM_PRF", "MRM_BKT", "MRM_MON", "MRM_CHG", "MRM_APR", "MRM_RAP", "MRM_RPT" };
+                var returnCodes = moduleCode switch
+                {
+                    "OPS_RESILIENCE" => new[] { "OPS_IBS", "OPS_TOL", "OPS_SCN", "OPS_TPR", "OPS_INC", "OPS_BCP", "OPS_CYB", "OPS_CHG", "OPS_RTO", "OPS_BRD" },
+                    "MODEL_RISK" => new[] { "MRM_INV", "MRM_VAL", "MRM_PRF", "MRM_BKT", "MRM_MON", "MRM_CHG", "MRM_APR", "MRM_RAP", "MRM_RPT" },
+                    _ => new[] { "CAP_WAT", "CAP_BUF", "CAP_RWA", "CAP_PLN", "CAP_ACT", "CAP_STK" }
+                };
 
                 foreach (var returnCode in returnCodes)
                 {
@@ -101,10 +106,11 @@ public class SeedModuleDefinitionBootstrapServiceTests
         var result = await sut.EnsureSeedModulesInstalledAsync();
 
         result.Errors.Should().BeEmpty();
-        result.ModulesImported.Should().Be(2);
-        result.ModulesPublished.Should().Be(2);
+        result.ModulesImported.Should().Be(3);
+        result.ModulesPublished.Should().Be(3);
 
-        moduleImportService.Verify(x => x.ImportModule(It.IsAny<string>(), "platform-bootstrap", It.IsAny<CancellationToken>()), Times.Exactly(2));
+        moduleImportService.Verify(x => x.ImportModule(It.IsAny<string>(), "platform-bootstrap", It.IsAny<CancellationToken>()), Times.Exactly(3));
+        moduleImportService.Verify(x => x.PublishModule("CAPITAL_SUPERVISION", "platform-bootstrap", It.IsAny<CancellationToken>()), Times.Once);
         moduleImportService.Verify(x => x.PublishModule("OPS_RESILIENCE", "platform-bootstrap", It.IsAny<CancellationToken>()), Times.Once);
         moduleImportService.Verify(x => x.PublishModule("MODEL_RISK", "platform-bootstrap", It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -118,6 +124,10 @@ public class SeedModuleDefinitionBootstrapServiceTests
         var registryBootstrap = new ModuleRegistryBootstrapService(db, NullLogger<ModuleRegistryBootstrapService>.Instance);
         await registryBootstrap.EnsureBaselineModulesAsync();
 
+        await SeedPublishedTemplatesAsync(
+            db,
+            "CAPITAL_SUPERVISION",
+            ["CAP_WAT", "CAP_BUF", "CAP_RWA", "CAP_PLN", "CAP_ACT", "CAP_STK"]);
         await SeedPublishedTemplatesAsync(
             db,
             "OPS_RESILIENCE",
@@ -149,6 +159,16 @@ public class SeedModuleDefinitionBootstrapServiceTests
 
         json.Should().Contain("\"moduleCode\": \"MODEL_RISK\"");
         json.Should().Contain("\"returnCode\": \"MRM_INV\"");
+    }
+
+    [Fact]
+    public async Task LoadDefinitionPayloadAsync_Reads_Embedded_Capital_Json()
+    {
+        var json = await SeedModuleDefinitionBootstrapService.LoadDefinitionPayloadAsync(
+            "FC.Engine.Infrastructure.SeedData.ModuleDefinitions.capital-supervisory-module-definition.json");
+
+        json.Should().Contain("\"moduleCode\": \"CAPITAL_SUPERVISION\"");
+        json.Should().Contain("\"returnCode\": \"CAP_WAT\"");
     }
 
     private static async Task SeedLicenceTypesAsync(MetadataDbContext db, params string[] codes)

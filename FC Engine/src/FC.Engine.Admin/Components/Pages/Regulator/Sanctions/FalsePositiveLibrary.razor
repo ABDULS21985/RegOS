@@ -1,0 +1,184 @@
+@page "/regulator/sanctions/false-positives"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject FC.Engine.Admin.Services.Sanctions.AlertWorkflowService AlertService
+@inject FC.Engine.Admin.Services.ToastService Toast
+
+<PageTitle>False Positive Library</PageTitle>
+
+<PageHeader Title="False Positive Library"
+            Subtitle="Reviewed false positive matches with full decision audit trail."
+            BackUrl="/regulator/sanctions"
+            CountBadge="@(!_loading ? _data?.FalsePositiveLibrary.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load false positive data" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
+        }
+        else if (_data is null)
+        {
+            <EmptyState Context="data" Heading="No false positive data" Description="Review screening alerts and mark false positives to populate this library." />
+        }
+        else
+        {
+            <div class="rg-san-kpi-strip">
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value">@_data.FalsePositiveLibrary.Count</div>
+                    <div class="rg-san-kpi-label">False Positives</div>
+                </div>
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value">@_data.AuditTrail.Count</div>
+                    <div class="rg-san-kpi-label">Total Decisions</div>
+                </div>
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value">@_data.FalsePositiveLibrary.Select(f => f.SourceCode).Distinct().Count()</div>
+                    <div class="rg-san-kpi-label">Sources Involved</div>
+                </div>
+            </div>
+
+            @* False Positive Library *@
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">False Positive Entries</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="SanctionsWorkflowFalsePositiveRecord"
+                               Items="@_data.FalsePositiveLibrary"
+                               PageSize="20"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="false-positive-library">
+                        <ChildContent>
+                            <DataColumn TItem="SanctionsWorkflowFalsePositiveRecord" Title="Subject" SortKey="@(x => x.Subject)">
+                                <CellTemplate><strong>@context.Subject</strong></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowFalsePositiveRecord" Title="Matched Name" SortKey="@(x => x.MatchedName)">
+                                <CellTemplate>@context.MatchedName</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowFalsePositiveRecord" Title="Source" Width="100px" SortKey="@(x => x.SourceCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.SourceCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowFalsePositiveRecord" Title="Risk Level" Width="100px" SortKey="@(x => x.RiskLevel)">
+                                <CellTemplate>
+                                    <span class="fc-badge @RiskBadge(context.RiskLevel)">@context.RiskLevel</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowFalsePositiveRecord" Title="Reviewed" Width="150px" SortKey="@(x => x.ReviewedAtUtc)">
+                                <CellTemplate>@context.ReviewedAtUtc.ToString("dd MMM yyyy HH:mm")</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowFalsePositiveRecord" Title="Action" Width="120px">
+                                <CellTemplate>
+                                    <button class="fc-btn fc-btn--xs fc-btn--outline"
+                                            @onclick="@(() => RevokeAsync(context))"
+                                            disabled="@_processing">
+                                        Revoke
+                                    </button>
+                                </CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+
+            @* Audit Trail *@
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Decision Audit Trail</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="SanctionsWorkflowAuditRecord"
+                               Items="@_data.AuditTrail"
+                               PageSize="20"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="sanctions-audit-trail">
+                        <ChildContent>
+                            <DataColumn TItem="SanctionsWorkflowAuditRecord" Title="Subject" SortKey="@(x => x.Subject)">
+                                <CellTemplate><strong>@context.Subject</strong></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowAuditRecord" Title="Matched Name" SortKey="@(x => x.MatchedName)">
+                                <CellTemplate>@context.MatchedName</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowAuditRecord" Title="Source" Width="100px" SortKey="@(x => x.SourceCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.SourceCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowAuditRecord" Title="Previous" Width="130px" SortKey="@(x => x.PreviousDecision)">
+                                <CellTemplate>
+                                    @if (!string.IsNullOrWhiteSpace(context.PreviousDecision))
+                                    {
+                                        <span class="fc-badge @DecisionBadge(context.PreviousDecision)">@context.PreviousDecision</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="fc-text-muted">—</span>
+                                    }
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowAuditRecord" Title="Decision" Width="130px" SortKey="@(x => x.Decision)">
+                                <CellTemplate>
+                                    <span class="fc-badge @DecisionBadge(context.Decision)">@context.Decision</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="SanctionsWorkflowAuditRecord" Title="Reviewed At" Width="150px" SortKey="@(x => x.ReviewedAtUtc)">
+                                <CellTemplate>@context.ReviewedAtUtc.ToString("dd MMM yyyy HH:mm")</CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true, _processing;
+    private Exception? _loadException;
+    private FC.Engine.Admin.Services.Sanctions.AlertWorkflowData? _data;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            _data = await AlertService.GetWorkflowDataAsync();
+        }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _loading = false; }
+    }
+
+    private async Task RevokeAsync(SanctionsWorkflowFalsePositiveRecord fp)
+    {
+        _processing = true;
+        try
+        {
+            await AlertService.RecordDecisionAsync(
+                fp.MatchKey, fp.Subject, fp.MatchedName,
+                fp.SourceCode, fp.RiskLevel, "False Positive",
+                "Revoked");
+            Toast.Show(new ToastItem { Variant = ToastVariant.Warning, Title = "Revoked", Message = $"False positive for {fp.Subject} has been revoked." });
+            await ReloadAsync();
+        }
+        catch (Exception ex) { Toast.Error("Revoke failed: " + ex.Message); }
+        finally { _processing = false; }
+    }
+
+    private static string RiskBadge(string r) => r switch
+    {
+        "critical" => "fc-badge--danger",
+        "high" => "fc-badge--warning",
+        "medium" => "fc-badge--info",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string DecisionBadge(string d) => d switch
+    {
+        "False Positive" => "fc-badge--success",
+        "True Positive" => "fc-badge--danger",
+        "Revoked" => "fc-badge--warning",
+        _ => "fc-badge--neutral"
+    };
+}

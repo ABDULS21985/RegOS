@@ -10,6 +10,15 @@ public sealed class ModuleRegistryBootstrapService
     private static readonly IReadOnlyList<ModuleRegistryDefinition> Definitions =
     [
         new(
+            "CAPITAL_SUPERVISION",
+            "Capital Management & Supervisory Planning",
+            "CBN",
+            "Capital watchlist, buffers, RWA optimisation, forecasting, what-if actions, and capital stack recommendation pack.",
+            6,
+            "Quarterly",
+            15,
+            30),
+        new(
             "OPS_RESILIENCE",
             "Operational Resilience & ICT Risk",
             "CBN",

@@ -1,0 +1,213 @@
+@page "/regulator/sanctions/alerts"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject FC.Engine.Admin.Services.Sanctions.AlertWorkflowService AlertService
+@inject FC.Engine.Admin.Services.ToastService Toast
+
+<PageTitle>Alert Management</PageTitle>
+
+<PageHeader Title="Alert Management"
+            Subtitle="Review active sanctions alerts, manage escalations, and track dispositions."
+            BackUrl="/regulator/sanctions">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load alerts" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <div class="rg-san-kpi-strip">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="rg-san-kpi"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="88px" /></div>
+                }
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
+        }
+        else if (_data is null)
+        {
+            <EmptyState Context="data" Heading="No alert data" Description="Run a screening first to generate alerts." />
+        }
+        else
+        {
+            <div class="rg-san-kpi-strip">
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value rg-san-kpi-value--amber">@_data.ActiveAlerts.Count</div>
+                    <div class="rg-san-kpi-label">Active Alerts</div>
+                </div>
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value rg-san-kpi-value--red">@_data.EscalatedAlerts.Count</div>
+                    <div class="rg-san-kpi-label">Escalated</div>
+                </div>
+                <div class="rg-san-kpi">
+                    <div class="rg-san-kpi-value rg-san-kpi-value--green">@_data.ResolvedAlerts.Count</div>
+                    <div class="rg-san-kpi-label">Resolved</div>
+                </div>
+            </div>
+
+            @* Tab nav *@
+            <div class="rg-san-tab-bar">
+                <button class="rg-san-tab @(_activeTab == "active" ? "rg-san-tab--active" : "")" @onclick="@(() => _activeTab = "active")">
+                    Active (@_data.ActiveAlerts.Count)
+                </button>
+                <button class="rg-san-tab @(_activeTab == "escalated" ? "rg-san-tab--active" : "")" @onclick="@(() => _activeTab = "escalated")">
+                    Escalated (@_data.EscalatedAlerts.Count)
+                </button>
+                <button class="rg-san-tab @(_activeTab == "resolved" ? "rg-san-tab--active" : "")" @onclick="@(() => _activeTab = "resolved")">
+                    Resolved (@_data.ResolvedAlerts.Count)
+                </button>
+            </div>
+
+            <div class="fc-card">
+                <div class="fc-card__body">
+                    <DataTable TItem="FC.Engine.Admin.Services.Sanctions.AlertItem"
+                               Items="@GetCurrentAlerts()"
+                               PageSize="20"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="@($"sanctions-alerts-{_activeTab}")"
+                               EmptyTitle="No alerts"
+                               EmptyText="@($"No {_activeTab} alerts found.")">
+                        <ChildContent>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Sanctions.AlertItem" Title="Subject" SortKey="@(x => x.Subject)">
+                                <CellTemplate>
+                                    <strong>@context.Subject</strong>
+                                    @if (!string.IsNullOrEmpty(context.TransactionReference))
+                                    {
+                                        <div class="fc-text-muted-sm">TX: @context.TransactionReference</div>
+                                    }
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Sanctions.AlertItem" Title="Matched Name" SortKey="@(x => x.MatchedName)">
+                                <CellTemplate>@context.MatchedName</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Sanctions.AlertItem" Title="Score" Width="90px" SortKey="@(x => x.MatchScore)">
+                                <CellTemplate>
+                                    <strong class="@(context.MatchScore >= 90 ? "rg-san-kpi-value--red" : context.MatchScore >= 80 ? "rg-san-kpi-value--amber" : "")">
+                                        @context.MatchScore.ToString("F1")%
+                                    </strong>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Sanctions.AlertItem" Title="Source" Width="100px" SortKey="@(x => x.SourceCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.SourceCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Sanctions.AlertItem" Title="Risk" Width="90px" SortKey="@(x => x.RiskLevel)">
+                                <CellTemplate><span class="fc-badge @RiskBadge(context.RiskLevel)">@context.RiskLevel</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Sanctions.AlertItem" Title="Disposition" Width="130px" SortKey="@(x => x.Disposition)">
+                                <CellTemplate>
+                                    <span class="fc-badge @DispositionBadge(context.Disposition)">@context.Disposition</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Sanctions.AlertItem" Title="Action" Width="200px">
+                                <CellTemplate>
+                                    @if (_activeTab != "resolved")
+                                    {
+                                        <div style="display:flex;gap:var(--space-1);">
+                                            <button class="fc-btn fc-btn--xs fc-btn--outline"
+                                                    @onclick="@(() => MarkFalsePositiveAsync(context))"
+                                                    disabled="@_processing">
+                                                False Positive
+                                            </button>
+                                            <button class="fc-btn fc-btn--xs fc-btn--danger"
+                                                    @onclick="@(() => ConfirmTruePositiveAsync(context))"
+                                                    disabled="@_processing">
+                                                True Positive
+                                            </button>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="fc-text-muted-sm">
+                                            @if (context.ReviewedAtUtc.HasValue)
+                                            {
+                                                @context.ReviewedAtUtc.Value.ToString("dd MMM yyyy HH:mm")
+                                            }
+                                        </span>
+                                    }
+                                </CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true, _processing;
+    private Exception? _loadException;
+    private FC.Engine.Admin.Services.Sanctions.AlertWorkflowData? _data;
+    private string _activeTab = "active";
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            _data = await AlertService.GetWorkflowDataAsync();
+        }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _loading = false; }
+    }
+
+    private List<FC.Engine.Admin.Services.Sanctions.AlertItem> GetCurrentAlerts() => _activeTab switch
+    {
+        "escalated" => _data?.EscalatedAlerts ?? [],
+        "resolved" => _data?.ResolvedAlerts ?? [],
+        _ => _data?.ActiveAlerts ?? []
+    };
+
+    private async Task MarkFalsePositiveAsync(FC.Engine.Admin.Services.Sanctions.AlertItem alert)
+    {
+        _processing = true;
+        try
+        {
+            await AlertService.RecordDecisionAsync(
+                alert.MatchKey, alert.Subject, alert.MatchedName,
+                alert.SourceCode, alert.RiskLevel, alert.Decision ?? "",
+                "False Positive");
+            Toast.Show(new ToastItem { Variant = ToastVariant.Success, Title = "Decision Recorded", Message = $"{alert.Subject} marked as false positive." });
+            await ReloadAsync();
+        }
+        catch (Exception ex) { Toast.Error("Failed: " + ex.Message); }
+        finally { _processing = false; }
+    }
+
+    private async Task ConfirmTruePositiveAsync(FC.Engine.Admin.Services.Sanctions.AlertItem alert)
+    {
+        _processing = true;
+        try
+        {
+            await AlertService.RecordDecisionAsync(
+                alert.MatchKey, alert.Subject, alert.MatchedName,
+                alert.SourceCode, alert.RiskLevel, alert.Decision ?? "",
+                "True Positive");
+            Toast.Show(new ToastItem { Variant = ToastVariant.Warning, Title = "True Positive Confirmed", Message = $"{alert.Subject} confirmed as true positive." });
+            await ReloadAsync();
+        }
+        catch (Exception ex) { Toast.Error("Failed: " + ex.Message); }
+        finally { _processing = false; }
+    }
+
+    private static string DispositionBadge(string d) => d switch
+    {
+        "Clear" => "fc-badge--success",
+        "Potential Match" => "fc-badge--warning",
+        "True Match" => "fc-badge--danger",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string RiskBadge(string r) => r switch
+    {
+        "critical" => "fc-badge--danger",
+        "high" => "fc-badge--warning",
+        "medium" => "fc-badge--info",
+        _ => "fc-badge--neutral"
+    };
+}

@@ -10,6 +10,12 @@ public sealed class ModuleMarketplaceBootstrapService
     private static readonly IReadOnlyDictionary<string, ModulePricingDefinition> PricingByModuleCode =
         new Dictionary<string, ModulePricingDefinition>(StringComparer.OrdinalIgnoreCase)
         {
+            ["CAPITAL_SUPERVISION"] = new ModulePricingDefinition(
+                "CAPITAL_SUPERVISION",
+                StarterMonthly: 90000m,
+                ProfessionalMonthly: 80000m,
+                EnterpriseMonthly: 70000m,
+                GroupMonthly: 60000m),
             ["OPS_RESILIENCE"] = new ModulePricingDefinition(
                 "OPS_RESILIENCE",
                 StarterMonthly: 70000m,

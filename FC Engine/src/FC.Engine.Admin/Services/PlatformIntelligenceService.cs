@@ -16,6 +16,7 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
 {
     private static readonly HashSet<string> RolloutModuleCodes = new(StringComparer.OrdinalIgnoreCase)
     {
+        "CAPITAL_SUPERVISION",
         "OPS_RESILIENCE",
         "MODEL_RISK"
     };

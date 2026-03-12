@@ -21,6 +21,9 @@ public sealed class SeedModuleDefinitionBootstrapService
     private static readonly IReadOnlyList<SeedModuleDefinitionResource> Definitions =
     [
         new(
+            "CAPITAL_SUPERVISION",
+            "FC.Engine.Infrastructure.SeedData.ModuleDefinitions.capital-supervisory-module-definition.json"),
+        new(
             "OPS_RESILIENCE",
             "FC.Engine.Infrastructure.SeedData.ModuleDefinitions.ops-resilience-module-definition.json"),
         new(

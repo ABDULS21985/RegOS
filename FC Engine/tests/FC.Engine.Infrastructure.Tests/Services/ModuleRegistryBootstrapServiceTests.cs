@@ -19,20 +19,21 @@ public class ModuleRegistryBootstrapServiceTests
 
         var result = await sut.EnsureBaselineModulesAsync();
 
-        result.ModulesCreated.Should().Be(2);
+        result.ModulesCreated.Should().Be(3);
         result.ModulesUpdated.Should().Be(0);
-        result.MappingsCreated.Should().Be(6);
+        result.MappingsCreated.Should().Be(9);
         result.MappingsUpdated.Should().Be(0);
 
         var modules = await db.Modules
             .OrderBy(x => x.DisplayOrder)
             .ToListAsync();
 
+        modules.Should().ContainSingle(x => x.ModuleCode == "CAPITAL_SUPERVISION" && x.SheetCount == 6 && x.DefaultFrequency == "Quarterly");
         modules.Should().ContainSingle(x => x.ModuleCode == "OPS_RESILIENCE" && x.SheetCount == 10 && x.DefaultFrequency == "Quarterly");
         modules.Should().ContainSingle(x => x.ModuleCode == "MODEL_RISK" && x.SheetCount == 9 && x.DefaultFrequency == "Quarterly");
 
         var mappings = await db.LicenceModuleMatrix.ToListAsync();
-        mappings.Should().HaveCount(6);
+        mappings.Should().HaveCount(9);
         mappings.Should().OnlyContain(x => x.IsOptional && !x.IsRequired);
     }
 
@@ -62,15 +63,16 @@ public class ModuleRegistryBootstrapServiceTests
         var first = await sut.EnsureBaselineModulesAsync();
         var second = await sut.EnsureBaselineModulesAsync();
 
-        first.ModulesCreated.Should().Be(1);
+        first.ModulesCreated.Should().Be(2);
         first.ModulesUpdated.Should().Be(1);
-        first.MappingsCreated.Should().Be(4);
+        first.MappingsCreated.Should().Be(6);
 
         second.ModulesCreated.Should().Be(0);
         second.ModulesUpdated.Should().Be(0);
         second.MappingsCreated.Should().Be(0);
         second.MappingsUpdated.Should().Be(0);
 
+        (await db.Modules.CountAsync(x => x.ModuleCode == "CAPITAL_SUPERVISION")).Should().Be(1);
         (await db.Modules.CountAsync(x => x.ModuleCode == "OPS_RESILIENCE")).Should().Be(1);
         (await db.Modules.CountAsync(x => x.ModuleCode == "MODEL_RISK")).Should().Be(1);
 
@@ -80,7 +82,7 @@ public class ModuleRegistryBootstrapServiceTests
         ops.IsActive.Should().BeTrue();
         ops.SheetCount.Should().Be(10);
 
-        (await db.LicenceModuleMatrix.CountAsync()).Should().Be(4);
+        (await db.LicenceModuleMatrix.CountAsync()).Should().Be(6);
     }
 
     private static async Task SeedLicenceTypesAsync(MetadataDbContext db, params string[] codes)

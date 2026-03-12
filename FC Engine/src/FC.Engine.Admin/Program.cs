@@ -74,6 +74,10 @@ builder.Services.AddScoped<FC.Engine.Admin.Services.Capital.CapitalStackOptimize
 // Compliance & Knowledge Graph
 builder.Services.AddScoped<FC.Engine.Admin.Services.Compliance.ComplianceGraphService>();
 
+// Sanctions & AML
+builder.Services.AddScoped<FC.Engine.Admin.Services.Sanctions.ScreeningEngineService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.Sanctions.AlertWorkflowService>();
+
 // Platform Admin services
 builder.Services.AddScoped<FC.Engine.Admin.Services.TenantManagementService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformAdminService>();
