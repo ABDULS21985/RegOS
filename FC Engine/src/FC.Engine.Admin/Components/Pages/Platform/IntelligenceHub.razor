@@ -55,6 +55,19 @@
                     Grounded in live metadata, filings, control evidence, and resilience telemetry.
                     Updated @FormatTimestamp(_workspace.GeneratedAt).
                 </p>
+                <div class="fc-intel-hero__meta">
+                    <span class="fc-intel-status fc-intel-status--@StatusClass(_workspace.Refresh.Status)">@_workspace.Refresh.Status</span>
+                    <span class="fc-intel-chip">
+                        @(_workspace.Refresh.CompletedAtUtc?.ToString("dd MMM HH:mm", CultureInfo.InvariantCulture) ?? "No completed background run")
+                    </span>
+                    @if (_workspace.Refresh.LastSuccessfulCompletedAtUtc.HasValue && _workspace.Refresh.Status != "Healthy")
+                    {
+                        <span class="fc-intel-chip">
+                            Last success @FormatTimestamp(_workspace.Refresh.LastSuccessfulCompletedAtUtc.Value)
+                        </span>
+                    }
+                </div>
+                <p class="fc-intel-hero__sub">@_workspace.Refresh.Commentary</p>
             </div>
             <div class="fc-intel-hero__grid">
                 <article class="fc-intel-stat fc-intel-stat--gold">
@@ -86,6 +99,15 @@
                     <span class="fc-intel-stat__label">Priority Queue</span>
                     <strong>@_workspace.Hero.PriorityInterventions</strong>
                     <span class="fc-intel-stat__meta">critical and high-priority actions</span>
+                </article>
+                <article class="fc-intel-stat fc-intel-stat--ink">
+                    <span class="fc-intel-stat__label">Refresh Health</span>
+                    <strong>@_workspace.Refresh.Status</strong>
+                    <span class="fc-intel-stat__meta">
+                        @(_workspace.Refresh.CompletedAtUtc.HasValue
+                            ? $"last run {FormatTimestamp(_workspace.Refresh.CompletedAtUtc.Value)}"
+                            : "background refresh pending")
+                    </span>
                 </article>
             </div>
         </section>
@@ -6154,9 +6176,8 @@
                         ReviewedAtUtc = _screeningAuditTrail
                             .Where(a => BuildPersistedSanctionsMatchKey(a) == BuildFalsePositiveMatchKey(x))
                             .OrderByDescending(a => a.ReviewedAtUtc)
-                            .Select(a => a.ReviewedAtUtc)
-                            .FirstOrDefault()
-                            .GetValueOrDefault()
+                            .Select(a => (DateTime?)a.ReviewedAtUtc)
+                            .FirstOrDefault() ?? DateTime.UtcNow
                     })
                     .ToList()
         };
@@ -7270,6 +7291,7 @@
         return
         [
             new ExecutiveBriefRow("Snapshot Generated", FormatTimestamp(_workspace.GeneratedAt), "Current UTC timestamp for the intelligence pack."),
+            new ExecutiveBriefRow("Refresh Health", _workspace.Refresh.Status, _workspace.Refresh.Commentary),
             new ExecutiveBriefRow("Rollout & Entitlements", _workspace.Rollout.PendingEntitlementCount.ToString(CultureInfo.InvariantCulture), topRolloutGap is not null ? $"{topRolloutGap.ModuleCode} is currently {topRolloutGap.Signal.ToLowerInvariant()} with {topRolloutGap.PendingEntitlements} pending entitlement gap(s). {topRolloutGap.RecommendedAction}" : _workspace.Rollout.PendingTenantCount == 0 ? "Tracked supervisory pack rollout is currently synchronized across eligible tenants." : $"{_workspace.Rollout.PendingTenantCount} tenant(s) still require reconciliation across the tracked packs."),
             new ExecutiveBriefRow("Knowledge Graph", _workspace.KnowledgeGraph.PersistedNodeCount > 0 ? _workspace.KnowledgeGraph.PersistedNodeCount.ToString(CultureInfo.InvariantCulture) : _workspace.KnowledgeGraph.ReferencedFieldCount.ToString(CultureInfo.InvariantCulture), topKnowledgeDossier is not null ? $"{topKnowledgeDossier.SectionName} is currently {topKnowledgeDossier.Signal.ToLowerInvariant()}; {_workspace.KnowledgeGraph.PersistedEdgeCount} persisted graph edge(s) are available for trace and impact work. {topKnowledgeDossier.RecommendedAction}" : $"{FilteredImpactPropagationRows.Count} prioritized change path(s), {_workspace.KnowledgeGraph.ObligationCount} licence-driven obligations, and {_workspace.KnowledgeGraph.PersistedEdgeCount} persisted graph edge(s) are currently mapped."),
             new ExecutiveBriefRow("Top Filing Signal", topObligation is null ? "No active obligation" : $"{topObligation.InstitutionName} · {topObligation.ReturnCode}", topObligation is null ? "No institution-specific obligation data is currently available." : $"{topObligation.Status} for {topObligation.PeriodLabel}; next deadline {topObligation.NextDeadline:dd MMM yyyy}."),
@@ -8513,6 +8535,18 @@
         font-size: clamp(2rem, 3vw, 3.4rem);
         line-height: 0.96;
         letter-spacing: -0.05em;
+    }
+
+    .fc-intel-hero__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.65rem;
+        margin-bottom: 0.8rem;
+    }
+
+    .fc-intel-hero__sub {
+        margin-top: 0;
+        max-width: 60ch;
     }
 
     .fc-intel-hero__copy p,

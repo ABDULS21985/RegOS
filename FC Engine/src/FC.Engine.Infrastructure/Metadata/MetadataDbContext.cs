@@ -116,6 +116,7 @@ public class MetadataDbContext : DbContext
     public DbSet<ModelApprovalWorkflowStateRecord> ModelApprovalWorkflowStates => Set<ModelApprovalWorkflowStateRecord>();
     public DbSet<ModelApprovalAuditRecord> ModelApprovalAuditRecords => Set<ModelApprovalAuditRecord>();
     public DbSet<ResilienceAssessmentResponseRecord> ResilienceAssessmentResponses => Set<ResilienceAssessmentResponseRecord>();
+    public DbSet<PlatformIntelligenceRefreshRunRecord> PlatformIntelligenceRefreshRuns => Set<PlatformIntelligenceRefreshRunRecord>();
     public DbSet<PlatformInterventionRecord> PlatformInterventions => Set<PlatformInterventionRecord>();
     public DbSet<PlatformActivityTimelineRecord> PlatformActivityTimeline => Set<PlatformActivityTimelineRecord>();
     public DbSet<InstitutionSupervisoryScorecardRecord> InstitutionSupervisoryScorecards => Set<InstitutionSupervisoryScorecardRecord>();

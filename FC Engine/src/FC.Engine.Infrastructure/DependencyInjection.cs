@@ -182,6 +182,7 @@ public static class DependencyInjection
         services.AddScoped<SanctionsWorkflowStoreService>();
         services.AddScoped<ModelApprovalWorkflowStoreService>();
         services.AddScoped<ResilienceAssessmentStoreService>();
+        services.AddScoped<PlatformIntelligenceRefreshRunStoreService>();
         services.AddScoped<PlatformOperationsCatalogService>();
         services.AddScoped<InstitutionSupervisoryCatalogService>();
         services.AddScoped<MarketplaceRolloutCatalogService>();

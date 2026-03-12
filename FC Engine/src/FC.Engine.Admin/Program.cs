@@ -67,6 +67,10 @@ builder.Services.AddSingleton<FC.Engine.Admin.Services.Scenarios.IScenarioEngine
 builder.Services.AddSingleton<FC.Engine.Admin.Services.Scenarios.IScenarioTemplateService,
                               FC.Engine.Admin.Services.Scenarios.ScenarioTemplateService>();
 
+// Capital Management
+builder.Services.AddScoped<FC.Engine.Admin.Services.Capital.RwaOptimizationService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.Capital.CapitalStackOptimizerService>();
+
 // Platform Admin services
 builder.Services.AddScoped<FC.Engine.Admin.Services.TenantManagementService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformAdminService>();

@@ -8,6 +8,7 @@ using FC.Engine.Domain.Validation;
 using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 
 namespace FC.Engine.Admin.Services;
 
@@ -56,12 +57,15 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
     private readonly SanctionsWorkflowStoreService _sanctionsWorkflowStore;
     private readonly ModelApprovalWorkflowStoreService _modelApprovalWorkflowStore;
     private readonly ResilienceAssessmentStoreService _resilienceAssessmentStore;
+    private readonly PlatformIntelligenceRefreshRunStoreService _platformIntelligenceRefreshRunStore;
     private readonly PlatformOperationsCatalogService _platformOperationsCatalog;
     private readonly InstitutionSupervisoryCatalogService _institutionSupervisoryCatalog;
     private readonly MarketplaceRolloutCatalogService _marketplaceRolloutCatalog;
+    private readonly TimeSpan _refreshStaleAfter;
 
     public PlatformIntelligenceService(
         MetadataDbContext db,
+        IConfiguration configuration,
         KnowledgeGraphCatalogService knowledgeGraphCatalog,
         KnowledgeGraphDossierCatalogService knowledgeGraphDossierCatalog,
         DashboardBriefingPackCatalogService dashboardBriefingPackCatalog,
@@ -79,6 +83,7 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
         SanctionsWorkflowStoreService sanctionsWorkflowStore,
         ModelApprovalWorkflowStoreService modelApprovalWorkflowStore,
         ResilienceAssessmentStoreService resilienceAssessmentStore,
+        PlatformIntelligenceRefreshRunStoreService platformIntelligenceRefreshRunStore,
         PlatformOperationsCatalogService platformOperationsCatalog,
         InstitutionSupervisoryCatalogService institutionSupervisoryCatalog,
         MarketplaceRolloutCatalogService marketplaceRolloutCatalog)
@@ -101,9 +106,12 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
         _sanctionsWorkflowStore = sanctionsWorkflowStore;
         _modelApprovalWorkflowStore = modelApprovalWorkflowStore;
         _resilienceAssessmentStore = resilienceAssessmentStore;
+        _platformIntelligenceRefreshRunStore = platformIntelligenceRefreshRunStore;
         _platformOperationsCatalog = platformOperationsCatalog;
         _institutionSupervisoryCatalog = institutionSupervisoryCatalog;
         _marketplaceRolloutCatalog = marketplaceRolloutCatalog;
+        var refreshIntervalMinutes = Math.Max(5, configuration.GetValue("PlatformIntelligenceRefresh:IntervalMinutes", 60));
+        _refreshStaleAfter = TimeSpan.FromMinutes(refreshIntervalMinutes * 2);
     }
 
     public async Task<PlatformIntelligenceWorkspace> GetWorkspaceAsync(CancellationToken ct = default)
@@ -640,9 +648,12 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
             })
             .ToList();
 
+        var refreshRunState = await _platformIntelligenceRefreshRunStore.LoadLatestAsync(ct);
+
         return new PlatformIntelligenceWorkspace
         {
             GeneratedAt = DateTime.UtcNow,
+            Refresh = BuildRefreshSnapshot(refreshRunState),
             Hero = new PlatformIntelligenceHero
             {
                 KnowledgeGraphNodes = knowledgeCatalog.NodeCount > 0 ? knowledgeCatalog.NodeCount : referencedRows.Count,
@@ -916,6 +927,52 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
             OperationsCatalogMaterializedAt = operationsCatalog.MaterializedAt,
             ActivityTimeline = activityTimeline,
             Interventions = interventions
+        };
+    }
+
+    private PlatformIntelligenceRefreshSnapshot BuildRefreshSnapshot(PlatformIntelligenceRefreshRunState? state)
+    {
+        if (state is null)
+        {
+            return new PlatformIntelligenceRefreshSnapshot
+            {
+                Status = "Pending",
+                Commentary = "Background refresh has not completed yet. The live page is available, but the scheduled precompute has not produced a durable run record.",
+                StaleAfterMinutes = (int)_refreshStaleAfter.TotalMinutes
+            };
+        }
+
+        var isStale = state.Succeeded && DateTime.UtcNow - state.CompletedAtUtc > _refreshStaleAfter;
+        var status = state.Succeeded
+            ? isStale ? "Stale" : "Healthy"
+            : "Failed";
+
+        var commentary = status switch
+        {
+            "Healthy" => $"Background refresh completed cleanly in {state.DurationMilliseconds} ms and materialized {state.DashboardPacksMaterialized} dashboard pack(s).",
+            "Stale" => $"The last successful background refresh ran at {state.CompletedAtUtc:dd MMM yyyy HH:mm} UTC, which is outside the expected cadence. Trigger a refresh cycle and confirm the scheduler is still active.",
+            _ => state.LastSuccessfulCompletedAtUtc.HasValue
+                ? $"The last background refresh failed. Last successful cycle finished at {state.LastSuccessfulCompletedAtUtc:dd MMM yyyy HH:mm} UTC. {state.FailureMessage ?? "Check logs for the failure trace."}"
+                : $"Background refresh has not completed successfully yet. {state.FailureMessage ?? "Check logs for the failure trace."}"
+        };
+
+        return new PlatformIntelligenceRefreshSnapshot
+        {
+            Status = status,
+            IsStale = isStale,
+            StartedAtUtc = state.StartedAtUtc,
+            CompletedAtUtc = state.CompletedAtUtc,
+            GeneratedAtUtc = state.GeneratedAtUtc,
+            LastSuccessfulCompletedAtUtc = state.LastSuccessfulCompletedAtUtc,
+            LastFailedCompletedAtUtc = state.LastFailedCompletedAtUtc,
+            DurationMilliseconds = state.DurationMilliseconds,
+            InstitutionCount = state.InstitutionCount,
+            InterventionCount = state.InterventionCount,
+            TimelineCount = state.TimelineCount,
+            DashboardPacksMaterialized = state.DashboardPacksMaterialized,
+            FailureMessage = state.FailureMessage,
+            StaleAfterMinutes = (int)_refreshStaleAfter.TotalMinutes,
+            Commentary = commentary
         };
     }
 
@@ -5693,6 +5750,7 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
 public sealed class PlatformIntelligenceWorkspace
 {
     public DateTime GeneratedAt { get; set; }
+    public PlatformIntelligenceRefreshSnapshot Refresh { get; set; } = new();
     public PlatformIntelligenceHero Hero { get; set; } = new();
     public MarketplaceRolloutSnapshot Rollout { get; set; } = new();
     public KnowledgeGraphSnapshot KnowledgeGraph { get; set; } = new();
@@ -5706,6 +5764,25 @@ public sealed class PlatformIntelligenceWorkspace
     public DateTime? OperationsCatalogMaterializedAt { get; set; }
     public List<ActivityTimelineRow> ActivityTimeline { get; set; } = [];
     public List<InterventionQueueRow> Interventions { get; set; } = [];
+}
+
+public sealed class PlatformIntelligenceRefreshSnapshot
+{
+    public string Status { get; set; } = "Pending";
+    public bool IsStale { get; set; }
+    public DateTime? StartedAtUtc { get; set; }
+    public DateTime? CompletedAtUtc { get; set; }
+    public DateTime? GeneratedAtUtc { get; set; }
+    public DateTime? LastSuccessfulCompletedAtUtc { get; set; }
+    public DateTime? LastFailedCompletedAtUtc { get; set; }
+    public int DurationMilliseconds { get; set; }
+    public int InstitutionCount { get; set; }
+    public int InterventionCount { get; set; }
+    public int TimelineCount { get; set; }
+    public int DashboardPacksMaterialized { get; set; }
+    public string? FailureMessage { get; set; }
+    public int StaleAfterMinutes { get; set; }
+    public string Commentary { get; set; } = string.Empty;
 }
 
 public sealed class PlatformIntelligenceHero

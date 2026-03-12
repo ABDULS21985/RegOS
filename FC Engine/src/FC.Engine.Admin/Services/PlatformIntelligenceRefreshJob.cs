@@ -57,8 +57,9 @@ public sealed class PlatformIntelligenceRefreshJob : BackgroundService
             var result = await refreshService.RefreshAsync(ct);
 
             _logger.LogInformation(
-                "Platform intelligence refresh completed at {GeneratedAt}. Institutions={InstitutionCount} Interventions={InterventionCount} Timeline={TimelineCount} DashboardPacks={DashboardPacksMaterialized}",
+                "Platform intelligence refresh completed at {GeneratedAt}. DurationMs={DurationMilliseconds} Institutions={InstitutionCount} Interventions={InterventionCount} Timeline={TimelineCount} DashboardPacks={DashboardPacksMaterialized}",
                 result.GeneratedAt,
+                result.DurationMilliseconds,
                 result.InstitutionCount,
                 result.InterventionCount,
                 result.TimelineCount,

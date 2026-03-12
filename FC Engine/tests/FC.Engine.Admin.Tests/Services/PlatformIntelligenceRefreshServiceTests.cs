@@ -1,6 +1,8 @@
 using FC.Engine.Admin.Services;
+using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Services;
 using FluentAssertions;
+using Microsoft.EntityFrameworkCore;
 using Moq;
 using Xunit;
 
@@ -11,6 +13,8 @@ public class PlatformIntelligenceRefreshServiceTests
     [Fact]
     public async Task RefreshAsync_Returns_Workspace_Catalog_Timestamps_And_Counts()
     {
+        await using var db = CreateDb();
+        var refreshRunStore = new PlatformIntelligenceRefreshRunStoreService(db);
         var generatedAt = new DateTime(2026, 3, 12, 9, 0, 0, DateTimeKind.Utc);
         var knowledgeAt = generatedAt.AddMinutes(-10);
         var capitalAt = generatedAt.AddMinutes(-8);
@@ -91,9 +95,10 @@ public class PlatformIntelligenceRefreshServiceTests
                     }).ToList()
                 });
 
-        var sut = new PlatformIntelligenceRefreshService(loader.Object, new DashboardBriefingPackBuilder());
+        var sut = new PlatformIntelligenceRefreshService(loader.Object, new DashboardBriefingPackBuilder(), refreshRunStore);
 
         var result = await sut.RefreshAsync();
+        var savedRun = await refreshRunStore.LoadLatestAsync();
 
         result.GeneratedAt.Should().Be(generatedAt);
         result.InstitutionCount.Should().Be(2);
@@ -107,6 +112,10 @@ public class PlatformIntelligenceRefreshServiceTests
         result.ResiliencePackMaterializedAt.Should().Be(resilienceAt);
         result.ModelRiskPackMaterializedAt.Should().Be(modelRiskAt);
         result.DashboardPacksMaterialized.Should().Be(3);
+        savedRun.Should().NotBeNull();
+        savedRun!.Succeeded.Should().BeTrue();
+        savedRun.GeneratedAtUtc.Should().Be(generatedAt);
+        savedRun.DashboardPacksMaterialized.Should().Be(3);
 
         loader.Verify(x => x.MaterializeDashboardBriefingPackAsync(
             "governor",
@@ -123,6 +132,8 @@ public class PlatformIntelligenceRefreshServiceTests
     [Fact]
     public async Task RefreshAsync_Allows_Empty_Workspace_Collections()
     {
+        await using var db = CreateDb();
+        var refreshRunStore = new PlatformIntelligenceRefreshRunStoreService(db);
         var loader = new Mock<IPlatformIntelligenceWorkspaceLoader>();
         loader
             .Setup(x => x.GetWorkspaceAsync(It.IsAny<CancellationToken>()))
@@ -147,7 +158,7 @@ public class PlatformIntelligenceRefreshServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DashboardBriefingPackCatalogState());
 
-        var sut = new PlatformIntelligenceRefreshService(loader.Object, new DashboardBriefingPackBuilder());
+        var sut = new PlatformIntelligenceRefreshService(loader.Object, new DashboardBriefingPackBuilder(), refreshRunStore);
 
         var result = await sut.RefreshAsync();
 
@@ -162,6 +173,8 @@ public class PlatformIntelligenceRefreshServiceTests
     [Fact]
     public async Task RefreshAsync_Materializes_Executive_Packs_For_Institution_Profiles()
     {
+        await using var db = CreateDb();
+        var refreshRunStore = new PlatformIntelligenceRefreshRunStoreService(db);
         var loader = new Mock<IPlatformIntelligenceWorkspaceLoader>();
         loader
             .Setup(x => x.GetWorkspaceAsync(It.IsAny<CancellationToken>()))
@@ -219,7 +232,7 @@ public class PlatformIntelligenceRefreshServiceTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DashboardBriefingPackCatalogState());
 
-        var sut = new PlatformIntelligenceRefreshService(loader.Object, new DashboardBriefingPackBuilder());
+        var sut = new PlatformIntelligenceRefreshService(loader.Object, new DashboardBriefingPackBuilder(), refreshRunStore);
 
         var result = await sut.RefreshAsync();
 
@@ -230,5 +243,39 @@ public class PlatformIntelligenceRefreshServiceTests
             It.Is<IReadOnlyList<DashboardBriefingPackSectionInput>>(sections =>
                 sections.Count == 5 && sections.Any(row => row.SectionCode == "EXE-01")),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RefreshAsync_Records_Failed_Run_Before_Rethrowing()
+    {
+        await using var db = CreateDb();
+        var refreshRunStore = new PlatformIntelligenceRefreshRunStoreService(db);
+        var loader = new Mock<IPlatformIntelligenceWorkspaceLoader>();
+        loader
+            .Setup(x => x.GetWorkspaceAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("catalog exploded"));
+
+        var sut = new PlatformIntelligenceRefreshService(loader.Object, new DashboardBriefingPackBuilder(), refreshRunStore);
+
+        var act = () => sut.RefreshAsync();
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("*catalog exploded*");
+
+        var savedRun = await refreshRunStore.LoadLatestAsync();
+        savedRun.Should().NotBeNull();
+        savedRun!.Succeeded.Should().BeFalse();
+        savedRun.Status.Should().Be("Failed");
+        savedRun.FailureMessage.Should().Contain("catalog exploded");
+        savedRun.LastFailedCompletedAtUtc.Should().NotBeNull();
+    }
+
+    private static MetadataDbContext CreateDb()
+    {
+        var options = new DbContextOptionsBuilder<MetadataDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .Options;
+
+        return new MetadataDbContext(options);
     }
 }

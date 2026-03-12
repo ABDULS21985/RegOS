@@ -45,24 +45,29 @@
             <div class="rg-card" style="text-align:center;border-left:4px solid #006B3F;">
                 <div style="font-size:0.8rem;color:#6b7280;">Total Supervised Entities</div>
                 <div style="font-size:1.75rem;font-weight:700;color:#006B3F;">@s.TotalEntities</div>
+                <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.25rem;">Licensed institutions under active CBN supervisory oversight</div>
             </div>
             <div class="rg-card" style="text-align:center;border-left:4px solid @(s.SystemicRiskIndex > 60 ? "#dc2626" : s.SystemicRiskIndex > 30 ? "#d97706" : "#059669");">
                 <div style="font-size:0.8rem;color:#6b7280;">Systemic Risk Index</div>
                 <div style="font-size:1.75rem;font-weight:700;color:@(s.SystemicRiskIndex > 60 ? "#dc2626" : s.SystemicRiskIndex > 30 ? "#d97706" : "#059669");">@s.SystemicRiskIndex.ToString("0.#")</div>
+                <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.25rem;">Weighted composite of CAR, NPL, contagion and concentration risk (0-100)</div>
             </div>
             <div class="rg-card" style="text-align:center;">
                 <div style="font-size:0.8rem;color:#6b7280;">Sector Average CAR</div>
                 <div style="font-size:1.75rem;font-weight:700;color:@(s.SectorAverageCar < 10 ? "#dc2626" : s.SectorAverageCar < 15 ? "#d97706" : "#059669");">@s.SectorAverageCar.ToString("0.##")%</div>
+                <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.25rem;">Mean capital adequacy ratio across all supervised entities. CBN minimum: 10%</div>
             </div>
             <div class="rg-card" style="text-align:center;">
                 <div style="font-size:0.8rem;color:#6b7280;">Active Warning Flags</div>
                 <div style="font-size:1.75rem;font-weight:700;color:@(s.TotalActiveFlags > 0 ? "#dc2626" : "#059669");">@s.TotalActiveFlags</div>
+                <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.25rem;">Unresolved early-warning triggers requiring supervisory attention</div>
             </div>
         </div>
 
         <!-- RAG Distribution -->
         <div class="rg-card" style="margin-bottom:0.75rem;">
             <h3 style="margin-top:0;">Entity Risk Distribution</h3>
+            <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Proportion of supervised entities by RAG rating. Green &lt; 30 risk score, Amber 30-60, Red &gt; 60.</p>
             <div style="display:flex;gap:1rem;align-items:center;">
                 <div style="flex:1;display:flex;gap:4px;height:32px;">
                     @if (s.TotalEntities > 0)
@@ -85,16 +90,17 @@
         {
             <div class="rg-card" style="margin-bottom:0.75rem;border-left:4px solid #d97706;">
                 <h3 style="margin-top:0;">Systemic Early Warning Indicators</h3>
+                <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Sector-wide indicators that have breached their supervisory thresholds. Red indicators require immediate escalation.</p>
                 <div class="rg-table-wrap">
                     <table class="rg-table">
                         <thead>
                             <tr>
-                                <th>Severity</th>
-                                <th>Indicator</th>
-                                <th>Description</th>
-                                <th>Current</th>
-                                <th>Threshold</th>
-                                <th>Affected</th>
+                                <th title="Red = immediate escalation, Amber = watch-list">Severity</th>
+                                <th title="Name of the systemic risk indicator being monitored">Indicator</th>
+                                <th title="What this indicator measures and why it matters">Description</th>
+                                <th title="Latest observed value for this indicator across the sector">Current</th>
+                                <th title="Supervisory breach threshold that triggered this warning">Threshold</th>
+                                <th title="Number of institutions contributing to this breach">Affected</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -120,6 +126,7 @@
         <!-- Sector Heatmap: entities by risk score vs size -->
         <div class="rg-card" style="margin-bottom:0.75rem;">
             <h3 style="margin-top:0;">Entity Heatmap (Risk Score vs Size)</h3>
+            <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Each entity plotted by composite risk score against total asset size. Large + high-risk entities pose the greatest systemic threat.</p>
             @if (_dashboard.HeatmapData.Count == 0)
             {
                 <EmptyState Context="data" Size="sm"
@@ -132,12 +139,12 @@
                     <table class="rg-table">
                         <thead>
                             <tr>
-                                <th>Rating</th>
-                                <th>Institution</th>
-                                <th>Licence</th>
-                                <th>Risk Score</th>
-                                <th>Total Assets</th>
-                                <th>Flags</th>
+                                <th title="RAG classification: Green (low), Amber (moderate), Red (high systemic risk)">Rating</th>
+                                <th title="Licensed institution name as registered with the CBN">Institution</th>
+                                <th title="CBN licence category (e.g. DMB, MFB, FC)">Licence</th>
+                                <th title="Composite risk score derived from CAMELS, NPL, and concentration metrics (0-100)">Risk Score</th>
+                                <th title="Total balance-sheet assets reported in the most recent prudential return">Total Assets</th>
+                                <th title="Number of active early-warning flags currently raised for this entity">Flags</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -172,6 +179,7 @@
         <!-- CAMELS Scores Table -->
         <div class="rg-card" style="margin-bottom:0.75rem;">
             <h3 style="margin-top:0;">CAMELS Composite Scores</h3>
+            <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Supervisory ratings per institution across Capital adequacy, Asset quality, Management, Earnings, Liquidity and Sensitivity to market risk. Scale: 1 (strong) to 5 (critical).</p>
             @if (_dashboard.Scores.Count == 0)
             {
                 <EmptyState Context="data" Size="sm"
@@ -185,15 +193,15 @@
                     <table class="rg-table">
                         <thead>
                             <tr>
-                                <th>Rating</th>
-                                <th>Institution</th>
-                                <th>C</th>
-                                <th>A</th>
-                                <th>M</th>
-                                <th>E</th>
-                                <th>L</th>
-                                <th>S</th>
-                                <th>Composite</th>
+                                <th title="Overall RAG classification based on composite CAMELS score">Rating</th>
+                                <th title="Licensed institution name">Institution</th>
+                                <th title="Capital adequacy — ability to absorb losses and maintain solvency (CAR, Tier 1 ratio)">C</th>
+                                <th title="Asset quality — soundness of loan portfolio and provisioning coverage (NPL ratio, write-offs)">A</th>
+                                <th title="Management — governance effectiveness and operational risk controls (compliance score, audit)">M</th>
+                                <th title="Earnings — profitability and sustainability of income (ROA, ROE, NIM, cost-to-income)">E</th>
+                                <th title="Liquidity — ability to meet short-term obligations (LCR, NSFR, liquid assets ratio)">L</th>
+                                <th title="Sensitivity to market risk — exposure to FX, interest rate, and portfolio concentration">S</th>
+                                <th title="Weighted average of all six CAMELS components. Lower is stronger.">Composite</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -254,10 +262,10 @@
                     <table class="rg-table">
                         <thead>
                             <tr>
-                                <th>Source</th>
-                                <th>Target</th>
-                                <th>Correlation</th>
-                                <th>Risk Level</th>
+                                <th title="Institution whose CAR movement drives the correlated pair">Source</th>
+                                <th title="Institution whose CAR movement follows the source entity">Target</th>
+                                <th title="Pearson correlation coefficient of CAR time series (0-1). Higher = stronger co-movement.">Correlation</th>
+                                <th title="High (&gt;0.85): near-identical CAR movement, possible shared exposures. Moderate (0.7-0.85): significant co-movement worth monitoring.">Risk Level</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -283,15 +291,16 @@
         {
             <div class="rg-card" style="margin-bottom:0.75rem;">
                 <h3 style="margin-top:0;">Institutional Warning Flags (@_dashboard.InstitutionalFlags.Count)</h3>
+                <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Active early-warning triggers raised by the automated prudential surveillance engine. Red flags mandate supervisory follow-up within 48 hours.</p>
                 <div class="rg-table-wrap">
                     <table class="rg-table">
                         <thead>
                             <tr>
-                                <th>Severity</th>
-                                <th>Institution</th>
-                                <th>Flag</th>
-                                <th>Message</th>
-                                <th>Triggered</th>
+                                <th title="Red = breach requiring immediate supervisory action, Amber = deteriorating trend on watch">Severity</th>
+                                <th title="Licensed institution that triggered the warning flag">Institution</th>
+                                <th title="System flag code identifying the specific rule that fired (e.g. CAR_BREACH, NPL_SPIKE)">Flag</th>
+                                <th title="Human-readable explanation of why this flag was raised">Message</th>
+                                <th title="Date and time when the surveillance engine first detected this breach">Triggered</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -318,16 +327,17 @@
         {
             <div class="rg-card" style="border-left:4px solid #dc2626;">
                 <h3 style="margin-top:0;">Pending Supervisory Actions (@_dashboard.PendingActions.Count)</h3>
+                <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Regulatory interventions initiated in response to warning flags. Overdue actions auto-escalate to the next supervisory tier.</p>
                 <div class="rg-table-wrap">
                     <table class="rg-table">
                         <thead>
                             <tr>
-                                <th>Institution</th>
-                                <th>Trigger</th>
-                                <th>Action</th>
-                                <th>Escalation</th>
-                                <th>Status</th>
-                                <th>Due Date</th>
+                                <th title="Institution subject to the supervisory action">Institution</th>
+                                <th title="The warning flag code that triggered this supervisory response">Trigger</th>
+                                <th title="Type of intervention: Formal letter, On-site inspection, Sanction, or Remediation order">Action</th>
+                                <th title="Current escalation tier: L1 (desk review), L2 (formal notice), L3 (enforcement)">Escalation</th>
+                                <th title="Current processing status of the supervisory action">Status</th>
+                                <th title="Deadline for completing this action before automatic escalation">Due Date</th>
                             </tr>
                         </thead>
                         <tbody>

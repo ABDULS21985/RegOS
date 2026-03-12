@@ -1,0 +1,227 @@
+@page "/platform/capital/stack"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject FC.Engine.Admin.Services.Capital.CapitalStackOptimizerService StackService
+@inject FC.Engine.Admin.Services.ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>Capital Stack Optimiser</PageTitle>
+
+<PageHeader Title="Capital Stack Optimiser"
+            Subtitle="Find the optimal CET1 / AT1 / Tier 2 mix to minimise cost of capital."
+            BackUrl="/platform/capital">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="OptimizeAsync" disabled="@_computing">
+            @if (_computing) { <span class="fc-spinner fc-spinner--xs"></span> } Optimise
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load optimizer" ExternalError="@_loadException" OnRetry="OptimizeAsync">
+        <div class="rg-grid rg-grid-2">
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Constraints</h2></div>
+                <div class="fc-card__body">
+                    <div class="fc-form-row">
+                        <label class="fc-form-label">Target CAR (%)</label>
+                        <input type="number" class="fc-input" step="0.5" @bind="_targetCar" />
+                    </div>
+                    <div class="fc-form-row">
+                        <label class="fc-form-label">Current RWA (bn)</label>
+                        <input type="number" class="fc-input" step="1" @bind="_currentRwa" />
+                    </div>
+
+                    <h3 class="fc-card__title" style="margin-top:var(--space-6)">Cost of Capital</h3>
+                    <div class="fc-form-row">
+                        <label class="fc-form-label">CET1 Cost (%)</label>
+                        <input type="number" class="fc-input" step="0.1" @bind="_cet1Cost" />
+                    </div>
+                    <div class="fc-form-row">
+                        <label class="fc-form-label">AT1 Cost (%)</label>
+                        <input type="number" class="fc-input" step="0.1" @bind="_at1Cost" />
+                    </div>
+                    <div class="fc-form-row">
+                        <label class="fc-form-label">Tier 2 Cost (%)</label>
+                        <input type="number" class="fc-input" step="0.1" @bind="_tier2Cost" />
+                    </div>
+
+                    <h3 class="fc-card__title" style="margin-top:var(--space-6)">Regulatory Limits</h3>
+                    <div class="fc-form-row">
+                        <label class="fc-form-label">Max AT1 Share (%)</label>
+                        <input type="number" class="fc-input" step="1" @bind="_maxAt1" />
+                    </div>
+                    <div class="fc-form-row">
+                        <label class="fc-form-label">Max Tier 2 Share (%)</label>
+                        <input type="number" class="fc-input" step="1" @bind="_maxTier2" />
+                    </div>
+
+                    <button class="fc-btn fc-btn--gold" style="margin-top:var(--space-4);width:100%;" @onclick="OptimizeAsync" disabled="@_computing">
+                        Run Optimisation
+                    </button>
+                </div>
+            </div>
+
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Optimal Capital Stack</h2></div>
+                <div class="fc-card__body">
+                    @if (_computing)
+                    {
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="240px" />
+                    }
+                    else if (_result is null)
+                    {
+                        <p class="fc-text-muted">Set constraints and click Optimise to see the optimal capital mix.</p>
+                    }
+                    else
+                    {
+                        <div class="fc-cap-kpi-strip fc-cap-kpi-strip--compact">
+                            <div class="fc-cap-kpi">
+                                <div class="fc-cap-kpi-value">@_result.RequiredCapitalBn.ToString("F1")bn</div>
+                                <div class="fc-cap-kpi-label">Total Capital</div>
+                            </div>
+                            <div class="fc-cap-kpi">
+                                <div class="fc-cap-kpi-value fc-cap-kpi-value--green">@_result.BlendedCostPercent.ToString("F2")%</div>
+                                <div class="fc-cap-kpi-label">Blended Cost</div>
+                            </div>
+                            <div class="fc-cap-kpi">
+                                <div class="fc-cap-kpi-value">@_result.CostSavingBps bps</div>
+                                <div class="fc-cap-kpi-label">vs CET1-Only</div>
+                            </div>
+                        </div>
+
+                        <canvas id="stackMixChart" style="margin-top:var(--space-4);"></canvas>
+
+                        <table class="rg-table" style="margin-top:var(--space-4);">
+                            <thead><tr><th>Instrument</th><th>Amount (bn)</th><th>Share</th><th>Cost</th></tr></thead>
+                            <tbody>
+                                <tr>
+                                    <td><span class="fc-cap-dot" style="background:#006B3F;"></span> CET1</td>
+                                    <td>@_result.Cet1Bn</td>
+                                    <td>@_result.Cet1SharePercent%</td>
+                                    <td>@_result.Cet1CostPercent%</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="fc-cap-dot" style="background:#0284c7;"></span> AT1</td>
+                                    <td>@_result.At1Bn</td>
+                                    <td>@_result.At1SharePercent%</td>
+                                    <td>@_result.At1CostPercent%</td>
+                                </tr>
+                                <tr>
+                                    <td><span class="fc-cap-dot" style="background:#7c3aed;"></span> Tier 2</td>
+                                    <td>@_result.Tier2Bn</td>
+                                    <td>@_result.Tier2SharePercent%</td>
+                                    <td>@_result.Tier2CostPercent%</td>
+                                </tr>
+                                <tr style="font-weight:600;">
+                                    <td>Total</td>
+                                    <td>@_result.RequiredCapitalBn</td>
+                                    <td>100%</td>
+                                    <td>@_result.BlendedCostPercent%</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            </div>
+        </div>
+
+        @if (_frontier.Count > 0)
+        {
+            <div class="fc-card" style="margin-top:var(--space-4);">
+                <div class="fc-card__header"><h2 class="fc-card__title">Cost-of-Capital Frontier</h2></div>
+                <div class="fc-card__body">
+                    <canvas id="costFrontierChart"></canvas>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _computing, _chartsRendered;
+    private Exception? _loadException;
+
+    private decimal _targetCar = 15m, _currentRwa = 100m;
+    private decimal _cet1Cost = 12m, _at1Cost = 8m, _tier2Cost = 5m;
+    private decimal _maxAt1 = 30m, _maxTier2 = 35m;
+
+    private FC.Engine.Admin.Services.Capital.StackOptimizationResult? _result;
+    private List<FC.Engine.Admin.Services.Capital.CostFrontierPoint> _frontier = [];
+
+    protected override async Task OnInitializedAsync() => await OptimizeAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_chartsRendered && _result is not null)
+        {
+            _chartsRendered = true;
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task OptimizeAsync()
+    {
+        _computing = true;
+        _loadException = null;
+        _chartsRendered = false;
+        try
+        {
+            var request = BuildRequest();
+            _result = await StackService.OptimizeAsync(request);
+            _frontier = await StackService.GetCostFrontierAsync(request);
+
+            // Sync inputs from scenario if optimizer loaded defaults
+            if (_result.ScenarioSavedAt.HasValue)
+            {
+                _targetCar = _result.TargetCarPercent;
+                _currentRwa = _result.CurrentRwaBn;
+                _cet1Cost = _result.Cet1CostPercent;
+                _at1Cost = _result.At1CostPercent;
+                _tier2Cost = _result.Tier2CostPercent;
+                _maxAt1 = _result.MaxAt1SharePercent;
+                _maxTier2 = _result.MaxTier2SharePercent;
+            }
+        }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _computing = false; }
+    }
+
+    private FC.Engine.Admin.Services.Capital.StackOptimizationRequest BuildRequest() => new()
+    {
+        TargetCarPercent = _targetCar,
+        CurrentRwaBn = _currentRwa,
+        Cet1CostPercent = _cet1Cost,
+        At1CostPercent = _at1Cost,
+        Tier2CostPercent = _tier2Cost,
+        MaxAt1SharePercent = _maxAt1,
+        MaxTier2SharePercent = _maxTier2
+    };
+
+    private async Task RenderChartsAsync()
+    {
+        if (_result is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("fcCharts.renderDoughnut", "stackMixChart", new
+            {
+                labels = new[] { "CET1", "AT1", "Tier 2" },
+                data = new[] { (double)_result.Cet1Bn, (double)_result.At1Bn, (double)_result.Tier2Bn },
+                colors = new[] { "#006B3F", "#0284c7", "#7c3aed" }
+            });
+
+            if (_frontier.Count > 0)
+            {
+                await JS.InvokeVoidAsync("fcCharts.renderLine", "costFrontierChart", new
+                {
+                    labels = _frontier.Select(f => f.CarPercent.ToString("F1") + "%").ToArray(),
+                    datasets = new object[]
+                    {
+                        new { label = "Optimised Blended Cost", data = _frontier.Select(f => (double)f.BlendedCostPercent).ToArray(), borderColor = "#006B3F", fill = false },
+                        new { label = "CET1-Only Cost", data = _frontier.Select(f => (double)f.Cet1OnlyCostPercent).ToArray(), borderColor = "#dc2626", borderDash = new[] { 6, 4 }, fill = false }
+                    }
+                });
+            }
+        }
+        catch { }
+    }
+}

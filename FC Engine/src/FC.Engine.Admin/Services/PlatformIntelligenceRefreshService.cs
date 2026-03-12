@@ -6,45 +6,103 @@ public sealed class PlatformIntelligenceRefreshService
 {
     private readonly IPlatformIntelligenceWorkspaceLoader _workspaceLoader;
     private readonly DashboardBriefingPackBuilder _dashboardBriefingPackBuilder;
+    private readonly PlatformIntelligenceRefreshRunStoreService _refreshRunStore;
 
     public PlatformIntelligenceRefreshService(
         IPlatformIntelligenceWorkspaceLoader workspaceLoader,
-        DashboardBriefingPackBuilder dashboardBriefingPackBuilder)
+        DashboardBriefingPackBuilder dashboardBriefingPackBuilder,
+        PlatformIntelligenceRefreshRunStoreService refreshRunStore)
     {
         _workspaceLoader = workspaceLoader;
         _dashboardBriefingPackBuilder = dashboardBriefingPackBuilder;
+        _refreshRunStore = refreshRunStore;
     }
 
     public async Task<PlatformIntelligenceRefreshResult> RefreshAsync(CancellationToken ct = default)
     {
-        var workspace = await _workspaceLoader.GetWorkspaceAsync(ct);
-        var screeningSessionState = await _workspaceLoader.GetSanctionsScreeningSessionStateAsync(ct);
-        var workflowState = await _workspaceLoader.GetSanctionsWorkflowStateAsync(ct);
-        var strDraftCatalogState = await _workspaceLoader.GetSanctionsStrDraftCatalogStateAsync(ct);
+        var startedAtUtc = DateTime.UtcNow;
 
-        var dashboardPacksMaterialized = await MaterializeDashboardBriefingPacksAsync(
-            workspace,
-            screeningSessionState,
-            workflowState,
-            strDraftCatalogState,
-            ct);
-
-        return new PlatformIntelligenceRefreshResult
+        try
         {
-            GeneratedAt = workspace.GeneratedAt,
-            InstitutionCount = workspace.InstitutionScorecards.Count,
-            InterventionCount = workspace.Interventions.Count,
-            TimelineCount = workspace.ActivityTimeline.Count,
-            DashboardPacksMaterialized = dashboardPacksMaterialized,
-            RolloutCatalogMaterializedAt = workspace.Rollout.CatalogMaterializedAt,
-            KnowledgeCatalogMaterializedAt = workspace.KnowledgeGraph.CatalogMaterializedAt,
-            KnowledgeDossierMaterializedAt = workspace.KnowledgeGraph.DossierMaterializedAt,
-            CapitalPackMaterializedAt = workspace.Capital.ReturnPackMaterializedAt,
-            SanctionsPackMaterializedAt = workspace.Sanctions.ReturnPackMaterializedAt,
-            SanctionsStrDraftCatalogMaterializedAt = workspace.Sanctions.StrDraftCatalogMaterializedAt,
-            ResiliencePackMaterializedAt = workspace.Resilience.ReturnPackMaterializedAt,
-            ModelRiskPackMaterializedAt = workspace.ModelRisk.ReturnPackMaterializedAt
-        };
+            var workspace = await _workspaceLoader.GetWorkspaceAsync(ct);
+            var screeningSessionState = await _workspaceLoader.GetSanctionsScreeningSessionStateAsync(ct);
+            var workflowState = await _workspaceLoader.GetSanctionsWorkflowStateAsync(ct);
+            var strDraftCatalogState = await _workspaceLoader.GetSanctionsStrDraftCatalogStateAsync(ct);
+
+            var dashboardPacksMaterialized = await MaterializeDashboardBriefingPacksAsync(
+                workspace,
+                screeningSessionState,
+                workflowState,
+                strDraftCatalogState,
+                ct);
+
+            var completedAtUtc = DateTime.UtcNow;
+            var result = new PlatformIntelligenceRefreshResult
+            {
+                StartedAtUtc = startedAtUtc,
+                CompletedAtUtc = completedAtUtc,
+                DurationMilliseconds = (int)Math.Max(0, Math.Round((completedAtUtc - startedAtUtc).TotalMilliseconds)),
+                GeneratedAt = workspace.GeneratedAt,
+                InstitutionCount = workspace.InstitutionScorecards.Count,
+                InterventionCount = workspace.Interventions.Count,
+                TimelineCount = workspace.ActivityTimeline.Count,
+                DashboardPacksMaterialized = dashboardPacksMaterialized,
+                RolloutCatalogMaterializedAt = workspace.Rollout.CatalogMaterializedAt,
+                KnowledgeCatalogMaterializedAt = workspace.KnowledgeGraph.CatalogMaterializedAt,
+                KnowledgeDossierMaterializedAt = workspace.KnowledgeGraph.DossierMaterializedAt,
+                CapitalPackMaterializedAt = workspace.Capital.ReturnPackMaterializedAt,
+                SanctionsPackMaterializedAt = workspace.Sanctions.ReturnPackMaterializedAt,
+                SanctionsStrDraftCatalogMaterializedAt = workspace.Sanctions.StrDraftCatalogMaterializedAt,
+                ResiliencePackMaterializedAt = workspace.Resilience.ReturnPackMaterializedAt,
+                ModelRiskPackMaterializedAt = workspace.ModelRisk.ReturnPackMaterializedAt
+            };
+
+            await _refreshRunStore.RecordSuccessAsync(
+                new PlatformIntelligenceRefreshRunSuccessCommand
+                {
+                    StartedAtUtc = result.StartedAtUtc,
+                    CompletedAtUtc = result.CompletedAtUtc,
+                    GeneratedAtUtc = result.GeneratedAt,
+                    DurationMilliseconds = result.DurationMilliseconds,
+                    InstitutionCount = result.InstitutionCount,
+                    InterventionCount = result.InterventionCount,
+                    TimelineCount = result.TimelineCount,
+                    DashboardPacksMaterialized = result.DashboardPacksMaterialized,
+                    RolloutCatalogMaterializedAt = result.RolloutCatalogMaterializedAt,
+                    KnowledgeCatalogMaterializedAt = result.KnowledgeCatalogMaterializedAt,
+                    KnowledgeDossierMaterializedAt = result.KnowledgeDossierMaterializedAt,
+                    CapitalPackMaterializedAt = result.CapitalPackMaterializedAt,
+                    SanctionsPackMaterializedAt = result.SanctionsPackMaterializedAt,
+                    SanctionsStrDraftCatalogMaterializedAt = result.SanctionsStrDraftCatalogMaterializedAt,
+                    ResiliencePackMaterializedAt = result.ResiliencePackMaterializedAt,
+                    ModelRiskPackMaterializedAt = result.ModelRiskPackMaterializedAt
+                },
+                ct);
+
+            return result;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            var completedAtUtc = DateTime.UtcNow;
+
+            try
+            {
+                await _refreshRunStore.RecordFailureAsync(
+                    new PlatformIntelligenceRefreshRunFailureCommand
+                    {
+                        StartedAtUtc = startedAtUtc,
+                        CompletedAtUtc = completedAtUtc,
+                        DurationMilliseconds = (int)Math.Max(0, Math.Round((completedAtUtc - startedAtUtc).TotalMilliseconds)),
+                        FailureMessage = ex.Message
+                    },
+                    ct);
+            }
+            catch
+            {
+            }
+
+            throw;
+        }
     }
 
     private async Task<int> MaterializeDashboardBriefingPacksAsync(
@@ -90,6 +148,9 @@ public sealed class PlatformIntelligenceRefreshService
 
 public sealed class PlatformIntelligenceRefreshResult
 {
+    public DateTime StartedAtUtc { get; set; }
+    public DateTime CompletedAtUtc { get; set; }
+    public int DurationMilliseconds { get; set; }
     public DateTime GeneratedAt { get; set; }
     public int InstitutionCount { get; set; }
     public int InterventionCount { get; set; }
