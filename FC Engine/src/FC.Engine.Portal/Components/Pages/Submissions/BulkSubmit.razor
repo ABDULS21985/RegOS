@@ -12,11 +12,12 @@
 <PageTitle>Bulk Upload — RegOS™ Portal</PageTitle>
 
 @{
+    var submitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(_selectedTemplateCode, _moduleFilter);
     var _breadcrumb = new BreadcrumbItem[]
     {
         new BreadcrumbItem("Home", "/"),
         new BreadcrumbItem("Submissions", "/submissions"),
-        new BreadcrumbItem("Submit Return", "/submit"),
+        new BreadcrumbItem("Submit Return", submitHref),
         new BreadcrumbItem("Bulk Upload", IsCurrent: true)
     };
 }
@@ -33,6 +34,19 @@
             }
         </PrimaryAction>
     </PortalPageHeader>
+
+    @if (!string.IsNullOrWhiteSpace(_moduleFilter))
+    {
+        <div class="portal-alert portal-alert-info" style="margin-bottom: 1rem;">
+            <strong>Bulk lane:</strong> @(_moduleName ?? _moduleFilter)
+            @if (!string.IsNullOrWhiteSpace(_selectedTemplateCode))
+            {
+                <span> · return @_selectedTemplateCode selected</span>
+            }
+            <span> · templates and periods are filtered to this workflow.</span>
+            <a href="/submit/bulk" class="portal-inline-link" style="margin-left: .5rem;">Show all modules</a>
+        </div>
+    }
 
     <!-- ═══════════════════════════════════════════════════════════════
          PERIOD SELECTOR
@@ -429,7 +443,7 @@
                                         This file appears to be a <strong>@pv.SuggestedTemplateCode</strong> template, but you selected <strong>@_selectedTemplateCode</strong>.
                                     </span>
                                     <button class="portal-btn portal-btn-ghost portal-btn-sm"
-                                            @onclick="() => SwitchTemplate(pv.SuggestedTemplateCode!)"
+                                            @onclick="() => SwitchTemplateAsync(pv.SuggestedTemplateCode!)"
                                             type="button">
                                         Switch to @pv.SuggestedTemplateCode
                                     </button>
@@ -924,7 +938,7 @@
                     <button class="portal-btn portal-btn-outline" @onclick="ResetBatch">
                         Upload More Files
                     </button>
-                    <a href="/submissions" class="portal-btn portal-btn-primary">
+                    <a href="@BuildSubmissionsHref()" class="portal-btn portal-btn-primary">
                         View Submissions
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                             <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
@@ -989,12 +1003,22 @@
 </div>
 
 @code {
+    [SupplyParameterFromQuery(Name = "module")]
+    public string? Module { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnCode")]
+    public string? ReturnCode { get; set; }
+
     // ── Auth ──────────────────────────────────────────────────────
     [CascadingParameter]
     private Task<AuthenticationState>? AuthState { get; set; }
     private int _institutionId;
     private int? _userId;
     private Guid? _tenantId;
+    private bool _bulkContextLoaded;
+    private string _moduleFilter = string.Empty;
+    private string _moduleName = string.Empty;
+    private string _requestedReturnCode = string.Empty;
 
     // ── Period ────────────────────────────────────────────────────
     private List<PeriodSelectItem> _periods = new();
@@ -1064,8 +1088,16 @@
             _tenantId = tenantId;
         }
 
-        await LoadPeriods();
-        await LoadKnownTemplates();
+        _bulkContextLoaded = true;
+        await ApplyBulkContextAsync(forceReload: true);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_bulkContextLoaded)
+        {
+            await ApplyBulkContextAsync(forceReload: false);
+        }
     }
 
     private async Task LoadPeriods()
@@ -1073,11 +1105,25 @@
         _isLoadingPeriods = true;
         try
         {
-            // Get periods for any return code — we just need the period list
-            var allTemplates = await SubmissionService.GetTemplatesForInstitution(_institutionId);
-            if (allTemplates.Any())
+            _periods = [];
+
+            var selectedReturnCode = !string.IsNullOrWhiteSpace(_selectedTemplateCode)
+                ? _selectedTemplateCode
+                : _templates.FirstOrDefault()?.ReturnCode;
+
+            if (!string.IsNullOrWhiteSpace(selectedReturnCode))
             {
-                _periods = await SubmissionService.GetOpenPeriods(_institutionId, allTemplates.First().ReturnCode);
+                _periods = await SubmissionService.GetOpenPeriods(_institutionId, selectedReturnCode);
+            }
+
+            if (_selectedPeriodId > 0 && _periods.All(x => x.ReturnPeriodId != _selectedPeriodId))
+            {
+                _selectedPeriodId = 0;
+            }
+
+            if (_selectedPeriodId == 0 && _periods.Count == 1)
+            {
+                _selectedPeriodId = _periods[0].ReturnPeriodId;
             }
         }
         catch { }
@@ -1091,11 +1137,36 @@
     {
         try
         {
-            _templates = await SubmissionService.GetTemplatesForInstitution(_institutionId);
+            _templates = await SubmissionService.GetTemplatesForInstitution(
+                _institutionId,
+                string.IsNullOrWhiteSpace(_moduleFilter) ? null : _moduleFilter);
             _knownReturnCodes = _templates.Select(t => t.ReturnCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            if (string.IsNullOrWhiteSpace(_selectedTemplateCode) && _templates.Count == 1)
+
+            if (!string.IsNullOrWhiteSpace(_requestedReturnCode))
+            {
+                var requestedTemplate = _templates.FirstOrDefault(t =>
+                    string.Equals(t.ReturnCode, _requestedReturnCode, StringComparison.OrdinalIgnoreCase));
+
+                if (requestedTemplate is not null)
+                {
+                    _selectedTemplateCode = requestedTemplate.ReturnCode;
+                    return;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_selectedTemplateCode) &&
+                _templates.Any(t => string.Equals(t.ReturnCode, _selectedTemplateCode, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            if (_templates.Count == 1)
             {
                 _selectedTemplateCode = _templates[0].ReturnCode;
+            }
+            else
+            {
+                _selectedTemplateCode = string.Empty;
             }
         }
         catch { }
@@ -1491,6 +1562,8 @@
 
     private async Task LoadTemplatePreview()
     {
+        await LoadPeriods();
+
         if (string.IsNullOrWhiteSpace(_selectedTemplateCode))
         {
             _templatePreviewHeaders = new();
@@ -1548,11 +1621,13 @@
     private void OpenFixModal(BulkFileEntry file) => _fixModalFile = file;
     private void CloseFixModal() => _fixModalFile = null;
 
-    private void SwitchTemplate(string code)
+    private async Task SwitchTemplateAsync(string code)
     {
         _selectedTemplateCode = code;
         // Invalidate header cache for any re-validation
         _expectedHeadersCache.Clear();
+        await LoadTemplatePreview();
+        StateHasChanged();
     }
 
     private void RemoveFile(BulkFileEntry file)
@@ -1798,6 +1873,37 @@
         _skippedCount = 0;
         _uploadError = null;
     }
+
+    private async Task ApplyBulkContextAsync(bool forceReload)
+    {
+        var normalizedModule = NormalizeContextValue(Module);
+        var normalizedReturnCode = NormalizeContextValue(ReturnCode);
+
+        if (!forceReload &&
+            string.Equals(_moduleFilter, normalizedModule, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(_requestedReturnCode, normalizedReturnCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _moduleFilter = normalizedModule;
+        _requestedReturnCode = normalizedReturnCode;
+        _moduleName = PortalSubmissionLinkBuilder.ResolveModuleName(_moduleFilter) ?? string.Empty;
+
+        await LoadKnownTemplates();
+        await LoadPeriods();
+        await LoadTemplatePreview();
+    }
+
+    private string BuildSubmissionsHref() =>
+        string.IsNullOrWhiteSpace(_moduleFilter)
+            ? "/submissions"
+            : $"/submissions?module={Uri.EscapeDataString(_moduleFilter)}";
+
+    private static string NormalizeContextValue(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : value.Trim().ToUpperInvariant();
 
     private void ClearAll()
     {

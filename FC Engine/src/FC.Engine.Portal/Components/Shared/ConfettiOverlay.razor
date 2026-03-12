@@ -1,5 +1,6 @@
 @implements IAsyncDisposable
 @inject OnboardingStateService OnboardingState
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 
 @if (_showConfetti)
 {
@@ -34,7 +35,7 @@
             </li>
         </ol>
         <div class="portal-first-sub-actions">
-            <a href="/submissions" class="portal-btn portal-btn-primary portal-btn-sm" @onclick="Dismiss">View my submissions</a>
+            <a href="@_primarySubmissionsHref" class="portal-btn portal-btn-primary portal-btn-sm" @onclick="Dismiss">View my submissions</a>
             <a href="/calendar" class="portal-btn portal-btn-outline portal-btn-sm" @onclick="Dismiss">Check upcoming deadlines</a>
         </div>
     </div>
@@ -44,9 +45,15 @@
     private bool _showConfetti;
     private bool _showCard;
     private List<Particle> _particles = [];
+    private string _primarySubmissionsHref = "/submissions";
 
     private static readonly string[] Colors =
         ["#006B3F", "#C8A415", "#3B82F6", "#EF4444", "#F59E0B", "#10B981", "#8B5CF6"];
+
+    protected override async Task OnInitializedAsync()
+    {
+        _primarySubmissionsHref = (await SubmissionLaunchService.ResolvePrimarySubmissionsAsync()).Href;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {

@@ -91,6 +91,10 @@
                         <div class="pa-card-meta">
                             <span class="pa-card-id">#@c.Item.SubmissionId</span>
                             <span class="pa-card-code">@c.Item.ReturnCode</span>
+                            @if (!string.IsNullOrWhiteSpace(c.Item.ModuleCode))
+                            {
+                                <span class="portal-badge portal-badge-neutral portal-badge-sm">@c.Item.ModuleCode</span>
+                            }
                             @if (!string.IsNullOrEmpty(c.Item.TemplateName) && c.Item.TemplateName != c.Item.ReturnCode)
                             {
                                 <span class="pa-card-template">@c.Item.TemplateName</span>
@@ -109,6 +113,17 @@
                                 <span class="portal-badge portal-badge-danger portal-badge-sm">@c.Item.ErrorCount error@(c.Item.ErrorCount == 1 ? "" : "s")</span>
                             }
                         </div>
+                        @if (!string.IsNullOrWhiteSpace(c.Item.WorkspaceHref))
+                        {
+                            <div style="margin-top:0.375rem;">
+                                <a href="@c.Item.WorkspaceHref"
+                                   class="portal-link"
+                                   @onclick:stopPropagation
+                                   style="font-size:0.75rem;">
+                                    Open @(!string.IsNullOrWhiteSpace(c.Item.ModuleName) ? c.Item.ModuleName : c.Item.ModuleCode) workspace
+                                </a>
+                            </div>
+                        }
                         <!-- Reviewer presence chip -->
                         @if (_reviewers.TryGetValue(c.Item.SubmissionId, out var reviewer) && reviewer != null)
                         {

@@ -115,7 +115,7 @@
             <div class="portal-sandbox-step-num">3</div>
             <p class="portal-sandbox-step-title">Track a submission</p>
             <p class="portal-sandbox-step-desc">
-                Check <a href="/submissions">My Submissions</a> to see statuses, download
+                Check <a href="@_primarySubmissionsHref">My Submissions</a> to see statuses, download
                 acknowledgements, and navigate the Kanban board view.
             </p>
         </div>
@@ -131,7 +131,7 @@
             <div class="portal-sandbox-step-num">5</div>
             <p class="portal-sandbox-step-title">Try bulk upload</p>
             <p class="portal-sandbox-step-desc">
-                Go to <a href="/submit/bulk">Bulk Upload</a> and drag in the sample CSV included
+                Go to <a href="@_primaryBulkSubmitHref">Bulk Upload</a> and drag in the sample CSV included
                 in your sandbox. See how the portal validates rows in real time.
             </p>
         </div>
@@ -228,12 +228,16 @@
     private string? _message;
     private string? _error;
     private string _primarySubmitHref = "/submit";
+    private string _primaryBulkSubmitHref = "/submit/bulk";
+    private string _primarySubmissionsHref = "/submissions";
 
     protected override async Task OnInitializedAsync()
     {
         try
         {
             _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
+            _primaryBulkSubmitHref = (await SubmissionLaunchService.ResolvePrimaryBulkSubmitAsync()).Href;
+            _primarySubmissionsHref = (await SubmissionLaunchService.ResolvePrimarySubmissionsAsync()).Href;
             if (!TenantContext.CurrentTenantId.HasValue) return;
             _context = await SandboxService.GetContext(TenantContext.CurrentTenantId.Value);
         }

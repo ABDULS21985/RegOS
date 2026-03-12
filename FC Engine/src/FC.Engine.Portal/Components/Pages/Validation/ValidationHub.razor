@@ -43,7 +43,7 @@ else if (_data is null)
             </svg>
             <h3>Validation report not found</h3>
             <p>The submission could not be found or you do not have access to view it.</p>
-            <a href="/submissions" class="portal-btn portal-btn-primary" style="margin-top: 1rem;">Back to Submissions</a>
+            <a href="@_submissionsHref" class="portal-btn portal-btn-primary" style="margin-top: 1rem;">Back to Submissions</a>
         </div>
     </div>
 }
@@ -513,13 +513,14 @@ else
 
     private bool _loading = true;
     private ValidationHubData? _data;
+    private string _submissionsHref = "/submissions";
     private HashSet<string> _expandedGroups = new();
     private HashSet<string> _expandedFixes  = new();
 
     private List<BreadcrumbItem> BreadcrumbItems => _data is null ? [] :
     [
         new("Home", "/"),
-        new("Submissions", "/submissions"),
+        new("Submissions", _data.SubmissionsHref),
         new($"#{_data.SubmissionId}", $"/submissions/{_data.SubmissionId}"),
         new("Validation Report", IsCurrent: true),
     ];
@@ -536,6 +537,7 @@ else
                 return;
             }
             _data = await HubSvc.GetHubDataAsync(SubmissionId, institutionId);
+            _submissionsHref = _data?.SubmissionsHref ?? "/submissions";
 
             // Auto-expand first group that has errors
             if (_data?.ErrorGroups is { Count: > 0 } groups)

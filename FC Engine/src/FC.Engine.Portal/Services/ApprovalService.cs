@@ -49,10 +49,12 @@ public class ApprovalService
             var submitterName = approval.RequestedBy?.DisplayName ?? "Unknown";
 
             string templateName = "";
+            string? moduleCode = null;
             try
             {
                 var template = await _cache.GetPublishedTemplate(submission.ReturnCode, ct);
                 templateName = template.Name;
+                moduleCode = template.ModuleCode;
             }
             catch
             {
@@ -76,6 +78,9 @@ public class ApprovalService
                 SubmissionId = submission.Id,
                 ReturnCode = submission.ReturnCode,
                 TemplateName = templateName,
+                ModuleCode = moduleCode,
+                ModuleName = PortalSubmissionLinkBuilder.ResolveModuleName(moduleCode),
+                WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(moduleCode),
                 Period = period,
                 SubmittedBy = submitterName,
                 SubmittedAt = approval.RequestedAt,
@@ -242,6 +247,9 @@ public class PendingApprovalItem
     public int SubmissionId { get; set; }
     public string ReturnCode { get; set; } = "";
     public string TemplateName { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string? ModuleName { get; set; }
+    public string? WorkspaceHref { get; set; }
     public string Period { get; set; } = "";
     public string SubmittedBy { get; set; } = "";
     public DateTime SubmittedAt { get; set; }

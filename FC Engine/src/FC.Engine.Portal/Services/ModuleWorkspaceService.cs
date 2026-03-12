@@ -158,8 +158,19 @@ public sealed class ModuleWorkspaceService
                 Status = submission.Status.ToString(),
                 ErrorCount = submission.ValidationReport?.ErrorCount ?? 0,
                 WarningCount = submission.ValidationReport?.WarningCount ?? 0,
-                DetailHref = $"/submissions/{submission.Id}"
+                DetailHref = $"/submissions/{submission.Id}",
+                ActionLabel = ResolveSubmissionActionLabel(submission),
+                ActionHref = ResolveSubmissionActionHref(definition.ModuleCode, submission)
             })
+            .ToList();
+
+        var attentionItems = submissions
+            .Select(submission => BuildAttentionItem(definition.ModuleCode, submission))
+            .Where(item => item is not null)
+            .Cast<ModuleWorkspaceAttentionItem>()
+            .OrderByDescending(item => item.Priority)
+            .ThenByDescending(item => item.OccurredAt)
+            .Take(6)
             .ToList();
 
         var periodRows = openPeriods
@@ -198,6 +209,7 @@ public sealed class ModuleWorkspaceService
             WorkspaceHref = PortalModuleWorkspaceCatalog.GetWorkspaceHref(definition.ModuleCode),
             ModuleDashboardHref = $"/dashboard/module/{Uri.EscapeDataString(definition.ModuleCode)}",
             SubmitHref = $"/submit?module={Uri.EscapeDataString(definition.ModuleCode)}",
+            BulkSubmitHref = PortalSubmissionLinkBuilder.BuildBulkSubmitHref(definition.ModuleCode),
             TemplatesHref = $"/templates?module={Uri.EscapeDataString(definition.ModuleCode)}",
             SubmissionsHref = $"/submissions?module={Uri.EscapeDataString(definition.ModuleCode)}",
             AccessState = accessState,
@@ -209,11 +221,13 @@ public sealed class ModuleWorkspaceService
                 new("Templates", templates.Count, "published returns available", "neutral"),
                 new("Open periods", openPeriodCount, "period windows ready to file", openPeriodCount > 0 ? "success" : "warning"),
                 new("Due in 14 days", dueSoonCount, "upcoming filing deadlines", dueSoonCount > 0 ? "warning" : "success"),
-                new("Workflow queue", pendingQueueCount, "draft, rejected, or pending items", pendingQueueCount > 0 ? "danger" : "success")
+                new("Workflow queue", pendingQueueCount, "draft, rejected, or pending items", pendingQueueCount > 0 ? "danger" : "success"),
+                new("Attention items", attentionItems.Count, "actions ready for filing, fixing, or review", attentionItems.Count > 0 ? "warning" : "success")
             ],
             WorkflowSteps = BuildWorkflowSteps(accessState, templates.Count, openPeriodCount, pendingQueueCount),
             TemplateRows = templateRows,
             RecentSubmissions = recentSubmissions,
+            AttentionItems = attentionItems,
             PeriodRows = periodRows,
             CurrentPeriods = dashboard?.Periods.TakeLast(4).ToList() ?? new List<ModulePeriodStatusItem>(),
             HelpArticles = helpArticles
@@ -235,6 +249,7 @@ public sealed class ModuleWorkspaceService
             FocusAreas = definition.FocusAreas.ToList(),
             WorkspaceHref = PortalModuleWorkspaceCatalog.GetWorkspaceHref(definition.ModuleCode),
             SubmitHref = "/submit",
+            BulkSubmitHref = "/submit/bulk",
             TemplatesHref = "/templates",
             SubmissionsHref = "/submissions",
             ModuleDashboardHref = "/dashboard/compliance",
@@ -294,6 +309,84 @@ public sealed class ModuleWorkspaceService
             }
         ];
     }
+
+    private static ModuleWorkspaceAttentionItem? BuildAttentionItem(string moduleCode, Submission submission)
+    {
+        var periodLabel = submission.ReturnPeriod is null
+            ? submission.SubmittedAt.ToString("MMM yyyy")
+            : new DateTime(submission.ReturnPeriod.Year, submission.ReturnPeriod.Month, 1).ToString("MMM yyyy");
+
+        return submission.Status switch
+        {
+            SubmissionStatus.Rejected or SubmissionStatus.ApprovalRejected => new ModuleWorkspaceAttentionItem
+            {
+                ReturnCode = submission.ReturnCode,
+                Title = $"{submission.ReturnCode} needs correction",
+                Detail = $"{periodLabel} was rejected and should be corrected before the next submission attempt.",
+                Status = submission.Status.ToString(),
+                Tone = "danger",
+                ActionLabel = "Fix Return",
+                ActionHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode, submission.ReturnPeriodId),
+                OccurredAt = submission.SubmittedAt,
+                Priority = 400
+            },
+            SubmissionStatus.PendingApproval => new ModuleWorkspaceAttentionItem
+            {
+                ReturnCode = submission.ReturnCode,
+                Title = $"{submission.ReturnCode} is awaiting checker review",
+                Detail = $"{periodLabel} is in the approval queue and should be reviewed before the filing window closes.",
+                Status = submission.Status.ToString(),
+                Tone = "info",
+                ActionLabel = "Open Submission",
+                ActionHref = $"/submissions/{submission.Id}",
+                OccurredAt = submission.SubmittedAt,
+                Priority = 300
+            },
+            SubmissionStatus.Draft => new ModuleWorkspaceAttentionItem
+            {
+                ReturnCode = submission.ReturnCode,
+                Title = $"{submission.ReturnCode} draft is still open",
+                Detail = $"{periodLabel} has a draft in progress. Resume filing to complete validation and submission.",
+                Status = submission.Status.ToString(),
+                Tone = "warning",
+                ActionLabel = "Resume Filing",
+                ActionHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode, submission.ReturnPeriodId),
+                OccurredAt = submission.SubmittedAt,
+                Priority = 200
+            },
+            SubmissionStatus.AcceptedWithWarnings when (submission.ValidationReport?.WarningCount ?? 0) > 0 || (submission.ValidationReport?.ErrorCount ?? 0) > 0 => new ModuleWorkspaceAttentionItem
+            {
+                ReturnCode = submission.ReturnCode,
+                Title = $"{submission.ReturnCode} has validation follow-up",
+                Detail = $"{periodLabel} was accepted with validation findings that should still be reviewed in the validation hub.",
+                Status = submission.Status.ToString(),
+                Tone = "warning",
+                ActionLabel = "Review Validation",
+                ActionHref = $"/validation/hub/{submission.Id}",
+                OccurredAt = submission.SubmittedAt,
+                Priority = 100
+            },
+            _ => null
+        };
+    }
+
+    private static string? ResolveSubmissionActionLabel(Submission submission) => submission.Status switch
+    {
+        SubmissionStatus.Rejected or SubmissionStatus.ApprovalRejected => "Fix Return",
+        SubmissionStatus.PendingApproval => "Open Submission",
+        SubmissionStatus.Draft => "Resume Filing",
+        SubmissionStatus.AcceptedWithWarnings when (submission.ValidationReport?.WarningCount ?? 0) > 0 || (submission.ValidationReport?.ErrorCount ?? 0) > 0 => "Review Validation",
+        _ => null
+    };
+
+    private static string? ResolveSubmissionActionHref(string moduleCode, Submission submission) => submission.Status switch
+    {
+        SubmissionStatus.Rejected or SubmissionStatus.ApprovalRejected => PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode, submission.ReturnPeriodId),
+        SubmissionStatus.PendingApproval => $"/submissions/{submission.Id}",
+        SubmissionStatus.Draft => PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode, submission.ReturnPeriodId),
+        SubmissionStatus.AcceptedWithWarnings when (submission.ValidationReport?.WarningCount ?? 0) > 0 || (submission.ValidationReport?.ErrorCount ?? 0) > 0 => $"/validation/hub/{submission.Id}",
+        _ => null
+    };
 }
 
 public sealed class InstitutionModuleWorkspaceModel
@@ -310,6 +403,7 @@ public sealed class InstitutionModuleWorkspaceModel
     public List<string> FocusAreas { get; set; } = new();
     public string WorkspaceHref { get; set; } = "/modules";
     public string SubmitHref { get; set; } = "/submit";
+    public string BulkSubmitHref { get; set; } = "/submit/bulk";
     public string TemplatesHref { get; set; } = "/templates";
     public string SubmissionsHref { get; set; } = "/submissions";
     public string ModuleDashboardHref { get; set; } = "/dashboard/compliance";
@@ -320,6 +414,7 @@ public sealed class InstitutionModuleWorkspaceModel
     public List<ModuleWorkspaceStep> WorkflowSteps { get; set; } = new();
     public List<ModuleWorkspaceTemplateRow> TemplateRows { get; set; } = new();
     public List<ModuleWorkspaceSubmissionRow> RecentSubmissions { get; set; } = new();
+    public List<ModuleWorkspaceAttentionItem> AttentionItems { get; set; } = new();
     public List<ModuleWorkspacePeriodRow> PeriodRows { get; set; } = new();
     public List<ModulePeriodStatusItem> CurrentPeriods { get; set; } = new();
     public List<KnowledgeBaseArticleView> HelpArticles { get; set; } = new();
@@ -367,6 +462,21 @@ public sealed class ModuleWorkspaceSubmissionRow
     public int ErrorCount { get; set; }
     public int WarningCount { get; set; }
     public string DetailHref { get; set; } = string.Empty;
+    public string? ActionLabel { get; set; }
+    public string? ActionHref { get; set; }
+}
+
+public sealed class ModuleWorkspaceAttentionItem
+{
+    public string ReturnCode { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Detail { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public string Tone { get; set; } = "warning";
+    public string ActionLabel { get; set; } = string.Empty;
+    public string ActionHref { get; set; } = string.Empty;
+    public DateTime OccurredAt { get; set; }
+    public int Priority { get; set; }
 }
 
 public sealed class ModuleWorkspacePeriodRow

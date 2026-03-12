@@ -298,6 +298,7 @@
     private bool _sandboxBusy;
     private string? _sandboxMessage;
     private string _primarySubmitHref = "/submit";
+    private string _primaryBulkSubmitHref = "/submit/bulk";
     private DotNetObjectReference<PortalLayout>? _shortcutsRef;
     private bool _isDark;
 
@@ -352,6 +353,7 @@
             _branding = await BrandingService.GetBrandingConfig(TenantContext.CurrentTenantId.Value);
             _sandboxContext = await SandboxService.GetContext(TenantContext.CurrentTenantId.Value);
             _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync(TenantContext.CurrentTenantId.Value)).Href;
+            _primaryBulkSubmitHref = (await SubmissionLaunchService.ResolvePrimaryBulkSubmitAsync(TenantContext.CurrentTenantId.Value)).Href;
         }
     }
 
@@ -381,6 +383,8 @@
     {
         var resolvedRoute = route == "/submit"
             ? (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href
+            : route == "/submit/bulk"
+                ? (await SubmissionLaunchService.ResolvePrimaryBulkSubmitAsync()).Href
             : route;
 
         Navigation.NavigateTo(resolvedRoute);

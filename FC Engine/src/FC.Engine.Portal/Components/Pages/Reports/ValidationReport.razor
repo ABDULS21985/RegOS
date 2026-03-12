@@ -4,6 +4,8 @@
 @using System.Security.Claims
 @inject ExportService ExportSvc
 @inject ChartJsInterop Charts
+@inject ISubmissionRepository SubmissionRepo
+@inject ITemplateMetadataCache TemplateCache
 @inject IJSRuntime JS
 
 <PageTitle>Validation Report — RegOS™ Portal</PageTitle>
@@ -59,7 +61,7 @@
     {
         <div class="portal-alert portal-alert-error" role="alert">
             Submission not found or access denied.
-            <a href="/submissions" class="portal-link" style="margin-left: 0.5rem;">Back to Submissions</a>
+            <a href="@_submissionsHref" class="portal-link" style="margin-left: 0.5rem;">Back to Submissions</a>
         </div>
     }
     else
@@ -298,7 +300,7 @@
                                             <td class="no-print">
                                                 @if (!string.IsNullOrEmpty(err.FieldName))
                                                 {
-                                                    <a href="/submissions/@SubmissionId/edit?field=@Uri.EscapeDataString(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
+                                                    <a href="@BuildFixHref(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
                                                 }
                                             </td>
                                         </tr>
@@ -354,7 +356,7 @@
                                                             <td class="no-print">
                                                                 @if (!string.IsNullOrEmpty(err.FieldName))
                                                                 {
-                                                                    <a href="/submissions/@SubmissionId/edit?field=@Uri.EscapeDataString(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
+                                                                    <a href="@BuildFixHref(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
                                                                 }
                                                             </td>
                                                         </tr>
@@ -416,7 +418,7 @@
                                                             <td class="no-print">
                                                                 @if (!string.IsNullOrEmpty(err.FieldName))
                                                                 {
-                                                                    <a href="/submissions/@SubmissionId/edit?field=@Uri.EscapeDataString(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
+                                                                    <a href="@BuildFixHref(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
                                                                 }
                                                             </td>
                                                         </tr>
@@ -472,7 +474,7 @@
                                                             <td class="no-print">
                                                                 @if (!string.IsNullOrEmpty(err.FieldName))
                                                                 {
-                                                                    <a href="/submissions/@SubmissionId/edit?field=@Uri.EscapeDataString(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
+                                                                    <a href="@BuildFixHref(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
                                                                 }
                                                             </td>
                                                         </tr>
@@ -528,7 +530,7 @@
                                                             <td class="no-print">
                                                                 @if (!string.IsNullOrEmpty(err.FieldName))
                                                                 {
-                                                                    <a href="/submissions/@SubmissionId/edit?field=@Uri.EscapeDataString(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
+                                                                    <a href="@BuildFixHref(err.FieldName)" class="portal-btn portal-btn-ghost portal-btn-xs">Fix →</a>
                                                                 }
                                                             </td>
                                                         </tr>
@@ -585,6 +587,8 @@
     // Error grouping/analysis
     private string _groupBy = "flat"; // "flat" | "category" | "severity"
     private HashSet<string> _expandedCategories = new();
+    private int? _returnPeriodId;
+    private string _submissionsHref = "/submissions";
 
     // Derived analysis
     private List<(string Category, int Count)> _topCategories = new();
@@ -616,11 +620,14 @@
 
             if (report is not null)
             {
+                var submission = await SubmissionRepo.GetById(SubmissionId);
+                _returnPeriodId = submission?.ReturnPeriodId;
+
                 // Build breadcrumb with real submission ID
                 _breadcrumb = new List<BreadcrumbItem>
                 {
                     new("Home", "/"),
-                    new("Submissions", "/submissions"),
+                    new("Submissions", _submissionsHref),
                     new($"#{SubmissionId}", $"/submissions/{SubmissionId}"),
                     new("Validation Report", IsCurrent: true)
                 };
@@ -650,6 +657,20 @@
                 _prevSummary = await ExportSvc.BuildPreviousValidationSummaryAsync(SubmissionId, institutionId);
 
                 _chartDirty = report.Errors.Count > 0;
+            }
+
+            if (report is not null)
+            {
+                var template = await TemplateCache.GetPublishedTemplate(report.ReturnCode);
+                _submissionsHref = PortalSubmissionLinkBuilder.BuildSubmissionListHref(template?.ModuleCode);
+
+                _breadcrumb = new List<BreadcrumbItem>
+                {
+                    new("Home", "/"),
+                    new("Submissions", _submissionsHref),
+                    new($"#{SubmissionId}", $"/submissions/{SubmissionId}"),
+                    new("Validation Report", IsCurrent: true)
+                };
             }
         }
         catch (Exception ex)
@@ -703,6 +724,24 @@
                 await ExportSvc.NotifyExportReady(institutionId, currentUserId,
                     "Validation errors CSV", $"/submissions/{SubmissionId}/report");
         }
+    }
+
+    private string BuildFixHref(string? fieldName)
+    {
+        if (report is null || string.IsNullOrWhiteSpace(fieldName))
+        {
+            return $"/submissions/{SubmissionId}";
+        }
+
+        var query = new List<string>();
+        if (_returnPeriodId is > 0)
+        {
+            query.Add($"periodId={_returnPeriodId.Value}");
+        }
+
+        query.Add($"highlightField={Uri.EscapeDataString(fieldName)}");
+
+        return $"/submit/form/{Uri.EscapeDataString(report.ReturnCode)}?{string.Join("&", query)}";
     }
 
     private static string FormatStatus(SubmissionStatus s) => s switch

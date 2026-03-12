@@ -1,6 +1,7 @@
 @page "/submissions/{SubmissionId:int}/certificate"
 @attribute [Authorize(Policy = "InstitutionUser")]
 @inject ExportService ExportSvc
+@inject ITemplateMetadataCache TemplateCache
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject AuthenticationStateProvider AuthProvider
@@ -45,7 +46,7 @@
             <nav class="portal-breadcrumb portal-cert-print-hide" aria-label="Breadcrumb">
                 <a href="/" class="portal-breadcrumb-link">Dashboard</a>
                 <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
-                <a href="/submissions" class="portal-breadcrumb-link">Submissions</a>
+                <a href="@_submissionsHref" class="portal-breadcrumb-link">Submissions</a>
                 <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
                 <a href="/submissions/@SubmissionId" class="portal-breadcrumb-link">@_cert.ReturnCode — @_cert.Period</a>
                 <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
@@ -380,6 +381,7 @@
     private bool _notEligible;
     private ComplianceCertificateModel? _cert;
     private string _verifyUrl = "";
+    private string _submissionsHref = "/submissions";
     private bool _qrRendered;
 
     // Email modal state
@@ -409,9 +411,15 @@
 
             _cert = await ExportSvc.BuildComplianceCertificateAsync(SubmissionId, _institutionId);
             if (_cert is null)
+            {
                 _notEligible = true;
+            }
             else
+            {
                 _verifyUrl = $"{Navigation.BaseUri.TrimEnd('/')}/verify/{Uri.EscapeDataString(_cert.CertificateNumber)}";
+                var template = await TemplateCache.GetPublishedTemplate(_cert.ReturnCode);
+                _submissionsHref = PortalSubmissionLinkBuilder.BuildSubmissionListHref(template?.ModuleCode);
+            }
         }
         catch
         {

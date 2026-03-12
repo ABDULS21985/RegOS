@@ -74,6 +74,7 @@ public class ValidationHubService
             InstitutionName = institution.InstitutionName,
             ModuleCode = moduleCode,
             ModuleName = PortalSubmissionLinkBuilder.ResolveModuleName(moduleCode),
+            SubmissionsHref = PortalSubmissionLinkBuilder.BuildSubmissionListHref(moduleCode),
             WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(moduleCode),
             SubmitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode),
             FixSubmissionHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode, submission.ReturnPeriodId),
@@ -266,6 +267,7 @@ public class ValidationHubData
     public string          InstitutionName   { get; set; } = "";
     public string?         ModuleCode        { get; set; }
     public string?         ModuleName        { get; set; }
+    public string          SubmissionsHref   { get; set; } = "/submissions";
     public string?         WorkspaceHref     { get; set; }
     public string          SubmitHref        { get; set; } = "/submit";
     public string          FixSubmissionHref { get; set; } = "/submit";

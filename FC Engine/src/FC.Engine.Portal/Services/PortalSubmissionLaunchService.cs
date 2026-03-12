@@ -26,11 +26,43 @@ public sealed class PortalSubmissionLaunchService
     }
 
     public async Task<PortalSubmissionLaunchTarget> ResolvePrimarySubmitAsync(Guid? tenantId = null, CancellationToken ct = default)
+        => await ResolvePrimaryLaunchAsync(
+            tenantId,
+            (moduleCode, returnCode) => PortalSubmissionLinkBuilder.BuildSubmitHref(returnCode, moduleCode),
+            "/submit",
+            ct);
+
+    public async Task<PortalSubmissionLaunchTarget> ResolvePrimaryBulkSubmitAsync(Guid? tenantId = null, CancellationToken ct = default)
+        => await ResolvePrimaryLaunchAsync(
+            tenantId,
+            PortalSubmissionLinkBuilder.BuildBulkSubmitHref,
+            "/submit/bulk",
+            ct);
+
+    public async Task<PortalSubmissionLaunchTarget> ResolvePrimarySubmissionsAsync(Guid? tenantId = null, CancellationToken ct = default)
+        => await ResolvePrimaryLaunchAsync(
+            tenantId,
+            (moduleCode, _) => PortalSubmissionLinkBuilder.BuildSubmissionListHref(moduleCode),
+            "/submissions",
+            ct);
+
+    public async Task<PortalSubmissionLaunchTarget> ResolvePrimaryExtensionRequestAsync(Guid? tenantId = null, CancellationToken ct = default)
+        => await ResolvePrimaryLaunchAsync(
+            tenantId,
+            (moduleCode, returnCode) => PortalSubmissionLinkBuilder.BuildCalendarHref(moduleCode, returnCode, requestExtension: true),
+            "/calendar",
+            ct);
+
+    private async Task<PortalSubmissionLaunchTarget> ResolvePrimaryLaunchAsync(
+        Guid? tenantId,
+        Func<string?, string?, string> hrefBuilder,
+        string fallbackHref,
+        CancellationToken ct)
     {
         var effectiveTenantId = tenantId ?? _tenantContext.CurrentTenantId;
         if (effectiveTenantId is not { } currentTenantId)
         {
-            return PortalSubmissionLaunchTarget.Fallback();
+            return PortalSubmissionLaunchTarget.Fallback(fallbackHref);
         }
 
         var entitlement = await _entitlementService.ResolveEntitlements(currentTenantId, ct);
@@ -42,7 +74,7 @@ public sealed class PortalSubmissionLaunchService
 
         if (activeModules.Count == 0)
         {
-            return PortalSubmissionLaunchTarget.Fallback();
+            return PortalSubmissionLaunchTarget.Fallback(fallbackHref);
         }
 
         var templates = await _templateCache.GetAllPublishedTemplates(currentTenantId, ct);
@@ -62,7 +94,7 @@ public sealed class PortalSubmissionLaunchService
             var module = activeModules[moduleCode];
             return new PortalSubmissionLaunchTarget
             {
-                Href = PortalSubmissionLinkBuilder.BuildSubmitHref(candidate.ReturnCode, moduleCode),
+                Href = hrefBuilder(moduleCode, candidate.ReturnCode),
                 ReturnCode = candidate.ReturnCode,
                 ModuleCode = moduleCode,
                 ModuleName = module.ModuleName,
@@ -77,7 +109,7 @@ public sealed class PortalSubmissionLaunchService
 
         return new PortalSubmissionLaunchTarget
         {
-            Href = PortalSubmissionLinkBuilder.BuildSubmitHref(returnCode: null, fallbackModule.ModuleCode),
+            Href = hrefBuilder(fallbackModule.ModuleCode, null),
             ModuleCode = fallbackModule.ModuleCode,
             ModuleName = fallbackModule.ModuleName,
             WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(fallbackModule.ModuleCode)
@@ -98,5 +130,5 @@ public sealed class PortalSubmissionLaunchTarget
     public string? ModuleName { get; init; }
     public string? WorkspaceHref { get; init; }
 
-    public static PortalSubmissionLaunchTarget Fallback() => new();
+    public static PortalSubmissionLaunchTarget Fallback(string href = "/submit") => new() { Href = href };
 }

@@ -115,6 +115,13 @@ else
                     <strong>Recent filings</strong>
                     <span>Inspect prior submissions, rejection patterns, and approval status in the same module lane.</span>
                 </a>
+                @if (_workspace.AccessState == ModuleWorkspaceAccessState.Active)
+                {
+                    <a href="@_workspace.BulkSubmitHref" class="pmw-action-tile">
+                        <strong>Bulk upload</strong>
+                        <span>Load multiple files into the same module lane with the template filter already applied.</span>
+                    </a>
+                }
                 <a href="@(_workspace.AccessState == ModuleWorkspaceAccessState.Active ? _workspace.SubmitHref : "/subscription/modules")" class="pmw-action-tile">
                     <strong>@(_workspace.AccessState == ModuleWorkspaceAccessState.Active ? "Start filing" : "Activate workflow")</strong>
                     <span>@(_workspace.AccessState == ModuleWorkspaceAccessState.Active ? "Enter the institution filing wizard already scoped to this module." : "Enable the module from Subscription Modules to unlock filing and submission actions.")</span>
@@ -144,6 +151,44 @@ else
                 </div>
             </section>
 
+            <section class="portal-card">
+                <div class="pmw-section-head">
+                    <div>
+                        <h3>Attention queue</h3>
+                        <p>Keep the next filing, correction, or review action visible inside the module lane.</p>
+                    </div>
+                </div>
+                @if (_workspace.AttentionItems.Any())
+                {
+                    <div class="pmw-attention-list">
+                        @foreach (var item in _workspace.AttentionItems)
+                        {
+                            <article class="pmw-attention-item pmw-attention-item--@item.Tone">
+                                <div class="pmw-attention-main">
+                                    <div class="pmw-attention-head">
+                                        <strong>@item.Title</strong>
+                                        <span class="portal-badge @GetSubmissionBadgeClass(item.Status)">@item.Status</span>
+                                    </div>
+                                    <p>@item.Detail</p>
+                                    <span class="pmw-table-sub">@item.OccurredAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                                </div>
+                                <a href="@item.ActionHref" class="portal-btn portal-btn-primary portal-btn-sm">
+                                    @item.ActionLabel
+                                </a>
+                            </article>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="portal-empty-state">
+                        <p>No attention items are blocking this module right now.</p>
+                    </div>
+                }
+            </section>
+        </div>
+
+        <div class="pmw-grid">
             <section class="portal-card">
                 <div class="pmw-section-head">
                     <div>
@@ -283,6 +328,10 @@ else
                                     @if (submission.ErrorCount > 0 || submission.WarningCount > 0)
                                     {
                                         <span class="pmw-table-sub">@submission.ErrorCount error(s), @submission.WarningCount warning(s)</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(submission.ActionLabel) && !string.IsNullOrWhiteSpace(submission.ActionHref))
+                                    {
+                                        <span class="pmw-submission-action">@submission.ActionLabel</span>
                                     }
                                 </div>
                             </a>
@@ -534,6 +583,7 @@ else
 
     .pmw-actions,
     .pmw-step-list,
+    .pmw-attention-list,
     .pmw-submission-list,
     .pmw-period-list {
         display: grid;
@@ -595,11 +645,39 @@ else
     }
 
     .pmw-step p,
+    .pmw-attention-item p,
     .pmw-period p,
     .pmw-submission-item p,
     .pmw-help-card p {
         margin: 0.3rem 0 0;
         color: #617084;
+    }
+
+    .pmw-attention-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        padding: 0.95rem 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(15, 23, 42, 0.06);
+        background: rgba(248, 250, 252, 0.92);
+    }
+
+    .pmw-attention-item--danger { border-color: rgba(239, 68, 68, 0.2); }
+    .pmw-attention-item--warning { border-color: rgba(245, 158, 11, 0.22); }
+    .pmw-attention-item--info { border-color: rgba(59, 130, 246, 0.2); }
+
+    .pmw-attention-main {
+        display: grid;
+        gap: 0.25rem;
+    }
+
+    .pmw-attention-head {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
     }
 
     .pmw-period,
@@ -623,6 +701,14 @@ else
         gap: 0.3rem;
         justify-items: end;
         text-align: right;
+    }
+
+    .pmw-submission-action {
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #0f766e;
     }
 
     .pmw-actions-col {
@@ -652,6 +738,11 @@ else
         .pmw-help-grid,
         .pmw-metrics {
             grid-template-columns: 1fr;
+        }
+
+        .pmw-attention-item {
+            flex-direction: column;
+            align-items: start;
         }
     }
 </style>

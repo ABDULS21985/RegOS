@@ -85,6 +85,7 @@ public class ValidationHubServiceTests
         result.Should().NotBeNull();
         result!.ModuleCode.Should().Be("CAPITAL_SUPERVISION");
         result.ModuleName.Should().Be("Capital Supervision");
+        result.SubmissionsHref.Should().Be("/submissions?module=CAPITAL_SUPERVISION");
         result.WorkspaceHref.Should().Be("/workflows/capital-supervision");
         result.SubmitHref.Should().Be("/submit?module=CAPITAL_SUPERVISION&returnCode=CAP_BUF");
         result.FixSubmissionHref.Should().Be("/submit?module=CAPITAL_SUPERVISION&returnCode=CAP_BUF&periodId=243");

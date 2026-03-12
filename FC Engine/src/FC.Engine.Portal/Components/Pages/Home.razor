@@ -688,7 +688,7 @@ else if (data is not null)
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
                     </button>
                     <h2 class="portal-dash-section-title">Activity Feed</h2>
-                    <a href="/submissions" class="portal-dash-section-link">View All</a>
+                    <a href="@_primarySubmissionsHref" class="portal-dash-section-link">View All</a>
                 </div>
 
                 @if (data.ActivityFeed.Any())
@@ -738,7 +738,7 @@ else if (data is not null)
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
                 </button>
                 <h2 class="portal-dash-section-title">Recent Submissions</h2>
-                <a href="/submissions" class="portal-dash-section-link">View All</a>
+                <a href="@_primarySubmissionsHref" class="portal-dash-section-link">View All</a>
             </div>
 
             @if (data.RecentSubmissions.Any())
@@ -996,6 +996,7 @@ else
     private string institutionName = "";
     private string institutionCode = "";
     private string _primarySubmitHref = "/submit";
+    private string _primarySubmissionsHref = "/submissions";
 
     // ── Lifecycle ────────────────────────────────────────────────
 
@@ -1016,6 +1017,7 @@ else
         institutionCode = institutionIdStr ?? "";
         int.TryParse(institutionIdStr, out institutionId);
         _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
+        _primarySubmissionsHref = (await SubmissionLaunchService.ResolvePrimarySubmissionsAsync()).Href;
 
         await LoadDashboard();
     }

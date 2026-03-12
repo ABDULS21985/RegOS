@@ -506,6 +506,9 @@ else if (_data is not null)
     [SupplyParameterFromQuery(Name = "freq")]  public string? FreqParam  { get; set; }
     [SupplyParameterFromQuery(Name = "year")]  public int?    YearParam  { get; set; }
     [SupplyParameterFromQuery(Name = "month")] public int?    MonthParam { get; set; }
+    [SupplyParameterFromQuery(Name = "module")] public string? ModuleParam { get; set; }
+    [SupplyParameterFromQuery(Name = "returnCode")] public string? ReturnCodeParam { get; set; }
+    [SupplyParameterFromQuery(Name = "requestExtension")] public bool? RequestExtensionParam { get; set; }
 
     // ── View state ───────────────────────────────────────────────
     private string _view  = "month";
@@ -535,6 +538,7 @@ else if (_data is not null)
     private string?        _extFileName;
     private bool           _extSubmitting;
     private string?        _extError;
+    private bool           _extensionQueryProcessed;
 
     // ── Derived ──────────────────────────────────────────────────
     private string _navLabel      => _view == "week" ? WeekLabel() : $"{new DateTime(_year, _month, 1):MMMM yyyy}";
@@ -603,6 +607,7 @@ else if (_data is not null)
             _compliancePct = _data.Summary.CompliancePercentage;
             BuildCalendarDays();
             BuildWeekDays();
+            TryOpenExtensionFromQuery();
         }
         catch (Exception ex)
         {
@@ -873,6 +878,44 @@ else if (_data is not null)
         _extError      = null;
         _extSubmitting = false;
         _showExtModal  = true;
+    }
+
+    private void TryOpenExtensionFromQuery()
+    {
+        if (_extensionQueryProcessed || RequestExtensionParam != true || _data is null)
+        {
+            return;
+        }
+
+        var match = _data.Entries
+            .Where(entry => entry.Status != CalendarEntryStatus.Submitted)
+            .Where(entry => string.IsNullOrWhiteSpace(ModuleParam)
+                || string.Equals(entry.ModuleCode, ModuleParam, StringComparison.OrdinalIgnoreCase))
+            .Where(entry => string.IsNullOrWhiteSpace(ReturnCodeParam)
+                || string.Equals(entry.ReturnCode, ReturnCodeParam, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(entry => entry.DueDate)
+            .FirstOrDefault();
+
+        if (match is null)
+        {
+            return;
+        }
+
+        _extensionQueryProcessed = true;
+        OpenExtModal(match);
+        ClearExtensionRequestQuery();
+    }
+
+    private void ClearExtensionRequestQuery()
+    {
+        var url = Nav.GetUriWithQueryParameters(new Dictionary<string, object?>
+        {
+            ["module"] = null,
+            ["returnCode"] = null,
+            ["requestExtension"] = null
+        });
+
+        Nav.NavigateTo(url, forceLoad: false, replace: true);
     }
 
     private void CloseExtModal()

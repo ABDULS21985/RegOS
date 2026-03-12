@@ -7,6 +7,7 @@
 @inject ExportService ExportSvc
 @inject ChartJsInterop Charts
 @inject IJSRuntime JS
+@inject PortalSubmissionLaunchService SubmissionLaunchService
 
 <PageTitle>Compliance Dashboard — RegOS™ Portal</PageTitle>
 
@@ -219,7 +220,7 @@ else if (_data is not null)
                 else
                 {
                     <strong>Compliance is declining — @Math.Abs(_data.QuarterChange)% below last quarter</strong>
-                    <p>Contact your compliance officer for assistance or <a href="/submissions" class="portal-cdr-trend-link">view outstanding returns</a>.</p>
+                    <p>Contact your compliance officer for assistance or <a href="@_primarySubmissionsHref" class="portal-cdr-trend-link">view outstanding returns</a>.</p>
                 }
             </div>
             @if (_data.ModuleBreakdowns.Any())
@@ -374,6 +375,7 @@ else if (_data is not null)
     private int _currentUserId;
     private string _institutionName = "";
     private string _institutionCode = "";
+    private string _primarySubmissionsHref = "/submissions";
 
     private IReadOnlyList<BreadcrumbItem> _breadcrumb = Array.Empty<BreadcrumbItem>();
 
@@ -384,6 +386,7 @@ else if (_data is not null)
         int.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out _currentUserId);
         _institutionName = state.User.FindFirst("InstitutionName")?.Value ?? "";
         _institutionCode = state.User.FindFirst("InstitutionCode")?.Value ?? "";
+        _primarySubmissionsHref = (await SubmissionLaunchService.ResolvePrimarySubmissionsAsync()).Href;
 
         _filterReturnCode = InitModule ?? "";
         _filterFrequency  = InitFreq  ?? "";

@@ -140,6 +140,10 @@
     private readonly List<string> _recentRoutes = [];
     private bool _subsLoaded;
     private string _primarySubmitHref = "/submit";
+    private string _primaryBulkSubmitHref = "/submit/bulk";
+    private string _primarySubmissionsHref = "/submissions";
+    private string _primaryExtensionHref = "/calendar";
+    private string _primaryCertificateHref = "/submissions";
     private DotNetObjectReference<CommandPalette>? _dotNetRef;
 
     // ── Static Page Index (all 57 routes) ────────────────────────────
@@ -245,6 +249,10 @@
         _selectedIndex = 0;
         _loading = !_subsLoaded;
         _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
+        _primaryBulkSubmitHref = (await SubmissionLaunchService.ResolvePrimaryBulkSubmitAsync()).Href;
+        _primarySubmissionsHref = (await SubmissionLaunchService.ResolvePrimarySubmissionsAsync()).Href;
+        _primaryExtensionHref = (await SubmissionLaunchService.ResolvePrimaryExtensionRequestAsync()).Href;
+        _primaryCertificateHref = _primarySubmissionsHref;
         BuildResults();
         await InvokeAsync(StateHasChanged);
         await JS.InvokeVoidAsync("portalCommandPalette.focusInput", "portal-cmd-input");
@@ -268,6 +276,15 @@
             if (!int.TryParse(instIdStr, out var institutionId)) return;
 
             var raw = await SubmissionRepo.GetByInstitution(institutionId);
+            var latestAccepted = raw
+                .OrderByDescending(s => s.SubmittedAt)
+                .FirstOrDefault(s => s.Status is SubmissionStatus.Accepted or SubmissionStatus.AcceptedWithWarnings);
+
+            if (latestAccepted is not null)
+            {
+                _primaryCertificateHref = $"/submissions/{latestAccepted.Id}/certificate";
+            }
+
             _submissions = raw
                 .OrderByDescending(s => s.SubmittedAt)
                 .Take(10)
@@ -297,11 +314,13 @@
     private void BuildResults()
     {
         _filteredGroups.Clear();
+        var resolvedPages = GetResolvedPages();
+        var resolvedQuickActions = GetResolvedQuickActions();
 
         if (string.IsNullOrWhiteSpace(_query))
         {
             var recentItems = _recentRoutes
-                .Select(r => AllPages.FirstOrDefault(p => p.Route == r))
+                .Select(route => resolvedPages.FirstOrDefault(page => GetRoutePath(page.Route) == route))
                 .OfType<CmdItem>()
                 .Take(5)
                 .ToList();
@@ -311,19 +330,19 @@
             if (_submissions.Count > 0)
                 _filteredGroups.Add(new DisplayGroup(CmdGroup.Submissions, _submissions.Take(5).ToList()));
 
-            _filteredGroups.Add(new DisplayGroup(CmdGroup.Actions, [.. QuickActions]));
+            _filteredGroups.Add(new DisplayGroup(CmdGroup.Actions, resolvedQuickActions));
             _filteredGroups.Add(new DisplayGroup(CmdGroup.Help, HelpItems.Take(3).ToList()));
         }
         else
         {
             var q = _query.Trim();
-            var pageHits = AllPages.Where(p => Matches(p, q)).Take(8).ToList();
+            var pageHits = resolvedPages.Where(p => Matches(p, q)).Take(8).ToList();
             if (pageHits.Count > 0) _filteredGroups.Add(new DisplayGroup(CmdGroup.Pages, pageHits));
 
             var subHits = _submissions.Where(p => Matches(p, q)).Take(5).ToList();
             if (subHits.Count > 0) _filteredGroups.Add(new DisplayGroup(CmdGroup.Submissions, subHits));
 
-            var actionHits = QuickActions.Where(p => Matches(p, q)).ToList();
+            var actionHits = resolvedQuickActions.Where(p => Matches(p, q)).ToList();
             if (actionHits.Count > 0) _filteredGroups.Add(new DisplayGroup(CmdGroup.Actions, actionHits));
 
             var helpHits = HelpItems.Where(p => Matches(p, q)).ToList();
@@ -331,6 +350,40 @@
         }
 
         _selectedIndex = TotalItems > 0 ? 0 : -1;
+    }
+
+    private List<CmdItem> GetResolvedPages() =>
+    [
+        .. AllPages.Select(page => page.Id switch
+        {
+            "page-submit" => page with { Route = _primarySubmitHref, Secondary = _primarySubmitHref },
+            "page-bulk" => page with { Route = _primaryBulkSubmitHref, Secondary = _primaryBulkSubmitHref },
+            "page-submissions" => page with { Route = _primarySubmissionsHref, Secondary = _primarySubmissionsHref },
+            _ => page
+        })
+    ];
+
+    private List<CmdItem> GetResolvedQuickActions() =>
+    [
+        .. QuickActions.Select(action => action.Id switch
+        {
+            "action-submit" => action with { Route = _primarySubmitHref },
+            "action-bulk" => action with { Route = _primaryBulkSubmitHref },
+            "action-certificate" => action with { Route = _primaryCertificateHref },
+            "action-extension" => action with { Route = _primaryExtensionHref },
+            _ => action
+        })
+    ];
+
+    private static string GetRoutePath(string route)
+    {
+        if (string.IsNullOrWhiteSpace(route))
+        {
+            return route;
+        }
+
+        var queryStart = route.IndexOf('?', StringComparison.Ordinal);
+        return queryStart >= 0 ? route[..queryStart] : route;
     }
 
     private static bool Matches(CmdItem item, string q) =>
@@ -427,7 +480,7 @@
     private void Navigate(string route)
     {
         Close();
-        Navigation.NavigateTo(route == "/submit" ? _primarySubmitHref : route);
+        Navigation.NavigateTo(route);
     }
 
     private void Close()

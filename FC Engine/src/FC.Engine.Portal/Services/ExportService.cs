@@ -15,6 +15,7 @@ public class ExportService
     private readonly IInstitutionUserRepository _userRepo;
     private readonly ISubmissionApprovalRepository _approvalRepo;
     private readonly ITenantBrandingService _brandingService;
+    private readonly ITemplateMetadataCache _templateCache;
     private readonly INotificationOrchestrator? _notificationOrchestrator;
 
     public ExportService(
@@ -23,6 +24,7 @@ public class ExportService
         IInstitutionUserRepository userRepo,
         ISubmissionApprovalRepository approvalRepo,
         ITenantBrandingService brandingService,
+        ITemplateMetadataCache templateCache,
         INotificationOrchestrator? notificationOrchestrator = null)
     {
         _submissionRepo = submissionRepo;
@@ -30,6 +32,7 @@ public class ExportService
         _userRepo = userRepo;
         _approvalRepo = approvalRepo;
         _brandingService = brandingService;
+        _templateCache = templateCache;
         _notificationOrchestrator = notificationOrchestrator;
     }
 
@@ -254,6 +257,7 @@ public class ExportService
         var pending = filtered.Count(s => s.Status is SubmissionStatus.PendingApproval or SubmissionStatus.Validating or SubmissionStatus.Parsing);
         var total = filtered.Count;
         var compliancePercent = total > 0 ? Math.Round((double)accepted / total * 100, 1) : 0;
+        var moduleContext = await BuildModuleContextLookupAsync(filtered.Select(x => x.ReturnCode));
 
         return new ComplianceReportModel
         {
@@ -273,6 +277,9 @@ public class ExportService
             {
                 SubmissionId = s.Id,
                 ReturnCode = s.ReturnCode,
+                ModuleCode = moduleContext.GetValueOrDefault(s.ReturnCode)?.ModuleCode,
+                ModuleName = moduleContext.GetValueOrDefault(s.ReturnCode)?.ModuleName,
+                WorkspaceHref = moduleContext.GetValueOrDefault(s.ReturnCode)?.WorkspaceHref,
                 Period = FormatPeriod(s.ReturnPeriod),
                 Status = s.Status,
                 SubmittedAt = s.SubmittedAt,
@@ -295,6 +302,7 @@ public class ExportService
         var users = await _userRepo.GetByInstitution(institutionId);
         var userMap = users.ToDictionary(u => u.Id, u => u.DisplayName ?? u.Username);
         var entries = new List<AuditTrailEntry>();
+        var moduleContext = await BuildModuleContextLookupAsync(submissions.Select(x => x.ReturnCode));
 
         foreach (var sub in submissions)
         {
@@ -308,6 +316,9 @@ public class ExportService
                         : "API",
                     Action = "Submitted",
                     ReturnCode = sub.ReturnCode,
+                    ModuleCode = moduleContext.GetValueOrDefault(sub.ReturnCode)?.ModuleCode,
+                    ModuleName = moduleContext.GetValueOrDefault(sub.ReturnCode)?.ModuleName,
+                    WorkspaceHref = moduleContext.GetValueOrDefault(sub.ReturnCode)?.WorkspaceHref,
                     Period = FormatPeriod(sub.ReturnPeriod),
                     SubmissionId = sub.Id,
                     Status = sub.Status.ToString(),
@@ -329,6 +340,9 @@ public class ExportService
                         : "Unknown",
                     Action = approval.Status == ApprovalStatus.Approved ? "Approved" : "Rejected",
                     ReturnCode = sub.ReturnCode,
+                    ModuleCode = moduleContext.GetValueOrDefault(sub.ReturnCode)?.ModuleCode,
+                    ModuleName = moduleContext.GetValueOrDefault(sub.ReturnCode)?.ModuleName,
+                    WorkspaceHref = moduleContext.GetValueOrDefault(sub.ReturnCode)?.WorkspaceHref,
                     Period = FormatPeriod(sub.ReturnPeriod),
                     SubmissionId = sub.Id,
                     Status = sub.Status.ToString(),
@@ -562,6 +576,38 @@ public class ExportService
             return "\"" + value.Replace("\"", "\"\"") + "\"";
         return value;
     }
+
+    private async Task<Dictionary<string, ModuleContext>> BuildModuleContextLookupAsync(IEnumerable<string> returnCodes)
+    {
+        var lookup = new Dictionary<string, ModuleContext>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var returnCode in returnCodes
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var template = await _templateCache.GetPublishedTemplate(returnCode);
+                if (string.IsNullOrWhiteSpace(template.ModuleCode))
+                {
+                    continue;
+                }
+
+                lookup[returnCode] = new ModuleContext(
+                    template.ModuleCode,
+                    PortalSubmissionLinkBuilder.ResolveModuleName(template.ModuleCode),
+                    PortalSubmissionLinkBuilder.ResolveWorkspaceHref(template.ModuleCode));
+            }
+            catch
+            {
+                // Missing template metadata should not fail report generation.
+            }
+        }
+
+        return lookup;
+    }
+
+    private sealed record ModuleContext(string ModuleCode, string? ModuleName, string? WorkspaceHref);
 }
 
 // === DATA MODELS ===
@@ -640,6 +686,9 @@ public class ComplianceReportItem
 {
     public int SubmissionId { get; set; }
     public string ReturnCode { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string? ModuleName { get; set; }
+    public string? WorkspaceHref { get; set; }
     public string Period { get; set; } = "";
     public SubmissionStatus Status { get; set; }
     public DateTime SubmittedAt { get; set; }
@@ -666,6 +715,9 @@ public class AuditTrailEntry
     public string UserName { get; set; } = "";
     public string Action { get; set; } = "";
     public string ReturnCode { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string? ModuleName { get; set; }
+    public string? WorkspaceHref { get; set; }
     public string Period { get; set; } = "";
     public int SubmissionId { get; set; }
     public string Status { get; set; } = "";

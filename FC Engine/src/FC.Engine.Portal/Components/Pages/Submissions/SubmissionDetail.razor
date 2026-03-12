@@ -36,7 +36,7 @@
             </div>
             <h3 class="portal-empty-state-title">Submission Not Found</h3>
             <p class="portal-empty-state-desc">This submission doesn't exist or you don't have access to it.</p>
-            <a href="/submissions" class="portal-btn portal-btn-primary">Back to Submissions</a>
+            <a href="@submissionsHref" class="portal-btn portal-btn-primary">Back to Submissions</a>
         </div>
     }
     else
@@ -44,7 +44,7 @@
         <nav class="portal-breadcrumb" aria-label="Breadcrumb">
             <a href="/" class="portal-breadcrumb-link">Dashboard</a>
             <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
-            <a href="/submissions" class="portal-breadcrumb-link">Submissions</a>
+            <a href="@submissionsHref" class="portal-breadcrumb-link">Submissions</a>
             <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
             <span class="portal-breadcrumb-current">@submission.ReturnCode — @periodLabel</span>
         </nav>
@@ -150,7 +150,7 @@
                         View Certificate
                     </a>
                 }
-                <a href="/submissions" class="portal-btn portal-btn-ghost portal-btn-sm">
+                <a href="@submissionsHref" class="portal-btn portal-btn-ghost portal-btn-sm">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
                     Back
                 </a>
@@ -746,6 +746,7 @@
     private string? moduleCode;
     private string? moduleWorkspaceHref;
     private string moduleSubmitHref = "/submit";
+    private string submissionsHref = "/submissions";
     private string periodLabel = "";
     private string submitterName = "";
     private SubmissionApproval? approval;
@@ -836,6 +837,7 @@
             var template = await TemplateCache.GetPublishedTemplate(submission.ReturnCode);
             templateName = template.Name;
             moduleCode = template.ModuleCode;
+            submissionsHref = PortalSubmissionLinkBuilder.BuildSubmissionListHref(moduleCode);
             moduleWorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(moduleCode);
             moduleSubmitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode, submission.ReturnPeriodId);
         }
@@ -843,6 +845,7 @@
         {
             templateName = submission.ReturnCode;
             moduleCode = null;
+            submissionsHref = PortalSubmissionLinkBuilder.BuildSubmissionListHref(null);
             moduleWorkspaceHref = null;
             moduleSubmitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, null, submission.ReturnPeriodId);
         }
