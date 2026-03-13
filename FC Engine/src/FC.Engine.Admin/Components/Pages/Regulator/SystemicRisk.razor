@@ -40,6 +40,76 @@
     {
         var s = _dashboard.Summary;
 
+        <div class="rg-premium-flow">
+            <section class="rg-premium-banner @ResolveSystemicBannerTone()" aria-label="Systemic posture">
+                <div class="rg-premium-banner__grid">
+                    <div>
+                        <div class="rg-premium-banner__eyebrow">Systemic posture</div>
+                        <h2 class="rg-premium-banner__headline">@BuildSystemicBannerHeadline()</h2>
+                        <p class="rg-premium-banner__detail">@BuildSystemicBannerDetail()</p>
+                    </div>
+                    <div class="rg-premium-banner__meta">
+                        <div class="rg-premium-banner__meta-label">Primary watchpoint</div>
+                        <div class="rg-premium-banner__meta-value">@BuildSystemicFocusLabel()</div>
+                        <div class="rg-premium-banner__meta-copy">@BuildSystemicFocusCopy()</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rg-premium-hero" aria-labelledby="systemic-risk-hero-title">
+                <div class="rg-premium-hero__grid">
+                    <div>
+                        <div class="rg-premium-hero__eyebrow">Supervision lane</div>
+                        <h1 id="systemic-risk-hero-title" class="rg-premium-hero__title">Track systemic pressure before institution risk turns into sector contagion.</h1>
+                        <p class="rg-premium-hero__subtitle">
+                            This workspace brings together sector pressure, contagion links, CAMELS posture, and intervention backlog
+                            so supervisors can focus on the institutions and clusters most likely to amplify instability.
+                        </p>
+                        <div class="rg-premium-badge-row">
+                            <span class="rg-premium-chip rg-premium-chip--info">@s.TotalEntities entities</span>
+                            <span class="rg-premium-chip @(s.SystemicRiskIndex > 60 ? "rg-premium-chip--danger" : s.SystemicRiskIndex > 30 ? "rg-premium-chip--warning" : "rg-premium-chip--success")">@s.SystemicRiskIndex.ToString("0.#") systemic index</span>
+                            <span class="rg-premium-chip @(s.TotalActiveFlags > 0 ? "rg-premium-chip--danger" : "rg-premium-chip--success")">@s.TotalActiveFlags active flags</span>
+                            <span class="rg-premium-chip @(_dashboard.Contagion.HighRiskClusters.Count > 0 ? "rg-premium-chip--warning" : "rg-premium-chip--success")">@_dashboard.Contagion.HighRiskClusters.Count high-risk clusters</span>
+                        </div>
+                    </div>
+                    <div class="rg-premium-hero__aside">
+                        <div class="rg-premium-note">
+                            <div class="rg-premium-note__label">Sector average CAR</div>
+                            <div class="rg-premium-note__value">@s.SectorAverageCar.ToString("0.##")%</div>
+                            <div class="rg-premium-note__copy">Average capital adequacy across the supervised sector versus the 10% regulatory floor.</div>
+                        </div>
+                        <div class="rg-premium-note">
+                            <div class="rg-premium-note__label">Pending actions</div>
+                            <div class="rg-premium-note__value">@_dashboard.PendingActions.Count</div>
+                            <div class="rg-premium-note__copy">Supervisory interventions currently open because warning flags already escalated into response action.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rg-premium-stat-grid" aria-label="Systemic summary metrics">
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Total supervised entities</div>
+                    <div class="rg-premium-stat__value rg-premium-stat__value--info">@s.TotalEntities</div>
+                    <div class="rg-premium-stat__note">Licensed institutions currently inside the regulator’s active surveillance perimeter.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Systemic risk index</div>
+                    <div class="rg-premium-stat__value @(s.SystemicRiskIndex > 60 ? "rg-premium-stat__value--danger" : s.SystemicRiskIndex > 30 ? "rg-premium-stat__value--warning" : "rg-premium-stat__value--success")">@s.SystemicRiskIndex.ToString("0.#")</div>
+                    <div class="rg-premium-stat__note">Composite of CAR, NPL, contagion, and concentration metrics across the sector.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Sector average CAR</div>
+                    <div class="rg-premium-stat__value @(s.SectorAverageCar < 10 ? "rg-premium-stat__value--danger" : s.SectorAverageCar < 15 ? "rg-premium-stat__value--warning" : "rg-premium-stat__value--success")">@s.SectorAverageCar.ToString("0.##")%</div>
+                    <div class="rg-premium-stat__note">Average solvency posture across institutions in the current systemic view.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Active warning flags</div>
+                    <div class="rg-premium-stat__value @(s.TotalActiveFlags > 0 ? "rg-premium-stat__value--danger" : "rg-premium-stat__value--success")">@s.TotalActiveFlags</div>
+                    <div class="rg-premium-stat__note">Early-warning triggers still awaiting supervisory follow-through.</div>
+                </article>
+            </section>
+
         <!-- Summary KPI Cards -->
         <div class="rg-grid rg-grid-2" style="margin-bottom:0.75rem;">
             <div class="rg-card" style="text-align:center;border-left:4px solid #006B3F;">
@@ -357,6 +427,8 @@
                 </div>
             </div>
         }
+
+        </div>
     }
 </SectionErrorBoundary>
 
@@ -448,5 +520,72 @@
         if (value >= 1_000_000m) return $"{value / 1_000_000m:0.##}M";
         if (value >= 1_000m) return $"{value / 1_000m:0.##}K";
         return value.ToString("N0");
+    }
+
+    private string ResolveSystemicBannerTone()
+    {
+        if (_dashboard is null)
+        {
+            return "rg-premium-banner--info";
+        }
+
+        var summary = _dashboard.Summary;
+        return summary.SystemicRiskIndex > 60 || summary.TotalActiveFlags > 0
+            ? "rg-premium-banner--danger"
+            : summary.SystemicRiskIndex > 30 || _dashboard.Contagion.HighRiskClusters.Count > 0
+                ? "rg-premium-banner--warning"
+                : "rg-premium-banner--success";
+    }
+
+    private string BuildSystemicBannerHeadline()
+    {
+        if (_dashboard is null)
+        {
+            return "Systemic surveillance posture is refreshing.";
+        }
+
+        var summary = _dashboard.Summary;
+        return summary.SystemicRiskIndex > 60
+            ? "Systemic pressure is elevated across the supervised estate."
+            : summary.TotalActiveFlags > 0
+                ? $"{summary.TotalActiveFlags} active warning flag{(summary.TotalActiveFlags == 1 ? string.Empty : "s")} are shaping current sector priorities."
+                : "Sector-wide systemic posture is currently stable in the active regulator scope.";
+    }
+
+    private string BuildSystemicBannerDetail()
+    {
+        if (_dashboard is null)
+        {
+            return "Refresh the current regulator scope to load systemic indicators, contagion links, and intervention posture.";
+        }
+
+        var summary = _dashboard.Summary;
+        return $"The sector currently contains {summary.RedCount} red-rated and {summary.AmberCount} amber-rated institutions, with {_dashboard.Contagion.ClusterCount} contagion cluster(s) visible in the active lens.";
+    }
+
+    private string BuildSystemicFocusLabel()
+    {
+        if (_dashboard is null)
+        {
+            return "Awaiting data";
+        }
+
+        return _dashboard.HeatmapData
+            .OrderByDescending(h => h.RiskScore)
+            .Select(h => h.InstitutionName)
+            .FirstOrDefault() ?? "Sector watchlist";
+    }
+
+    private string BuildSystemicFocusCopy()
+    {
+        if (_dashboard is null)
+        {
+            return "Systemic focus will appear once the surveillance data is loaded.";
+        }
+
+        var highest = _dashboard.HeatmapData.OrderByDescending(h => h.RiskScore).FirstOrDefault();
+        return highest is null
+            ? "No entity-level heatmap data is currently available."
+            : $"Highest visible composite risk score: {highest.RiskScore:0.#}, with {highest.FlagCount} active flag(s) and total assets of {FormatNumber(highest.Size)}.";
     }
 }

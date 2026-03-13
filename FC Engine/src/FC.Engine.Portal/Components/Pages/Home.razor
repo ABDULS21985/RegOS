@@ -35,7 +35,84 @@
 }
 else if (data is not null)
 {
-    <div class="portal-dashboard">
+    var nextDeadline = data.UpcomingDeadlines
+        .OrderBy(d => d.Status == DeadlineStatus.Overdue ? 0 : d.Status == DeadlineStatus.Submitted ? 2 : 1)
+        .ThenBy(d => d.DaysRemaining)
+        .FirstOrDefault();
+    var leadWorkspace = data.ModuleWorkspaces
+        .OrderByDescending(w => w.PendingCount + w.DueSoonCount + w.RecentSubmissionCount)
+        .FirstOrDefault();
+    var leadReturn = data.TopModules
+        .OrderByDescending(m => m.SubmissionCount)
+        .FirstOrDefault();
+
+    <div class="portal-fsd-shell">
+        <section class="portal-fsd-banner @ResolveHomeBannerTone(data)" aria-label="Portal posture">
+            <div>
+                <div class="portal-fsd-eyebrow">Portal posture</div>
+                <h2 class="portal-fsd-banner-title">@BuildHomeBannerHeadline(data)</h2>
+                <p class="portal-fsd-banner-copy">@BuildHomeBannerCopy(data, nextDeadline, leadWorkspace)</p>
+            </div>
+            <div class="portal-fsd-banner-meta">
+                <div class="portal-fsd-meta-label">Primary focus</div>
+                <div class="portal-fsd-meta-value">@BuildHomeFocusLabel(data, nextDeadline)</div>
+                <div class="portal-fsd-note-copy">@BuildHomeFocusCopy(data, nextDeadline, leadReturn)</div>
+            </div>
+        </section>
+
+        <section class="portal-fsd-hero" aria-labelledby="portal-home-hero-title">
+            <div>
+                <div class="portal-fsd-eyebrow">Institution command lane</div>
+                <h1 id="portal-home-hero-title" class="portal-fsd-hero-title">Keep filing rhythm, data quality, and review pressure visible in one workspace.</h1>
+                <p class="portal-fsd-hero-copy">
+                    The home dashboard now opens with a command-center summary of compliance posture, live deadline pressure,
+                    and the busiest workspaces so teams can act quickly before deadlines or validation issues turn into avoidable escalations.
+                </p>
+                <div class="portal-fsd-chip-row">
+                    <span class="portal-fsd-chip portal-fsd-chip--info">@data.DateRangeDays-day view</span>
+                    <span class="portal-fsd-chip @(data.OverdueCount > 0 ? "portal-fsd-chip--danger" : "portal-fsd-chip--success")">@data.OverdueCount overdue</span>
+                    <span class="portal-fsd-chip @(data.CompliancePercentage >= 90 ? "portal-fsd-chip--success" : data.CompliancePercentage >= 70 ? "portal-fsd-chip--warning" : "portal-fsd-chip--danger")">@data.CompliancePercentage.ToString("0.#")% compliance</span>
+                    <span class="portal-fsd-chip portal-fsd-chip--warning">@data.DueThisMonth due this month</span>
+                </div>
+            </div>
+            <div class="portal-fsd-hero-aside">
+                <div class="portal-fsd-note">
+                    <div class="portal-fsd-note-label">Next deadline</div>
+                    <div class="portal-fsd-note-value">@BuildNextDeadlineLabel(nextDeadline)</div>
+                    <div class="portal-fsd-note-copy">@BuildNextDeadlineCopy(nextDeadline)</div>
+                </div>
+                <div class="portal-fsd-note">
+                    <div class="portal-fsd-note-label">Lead workspace</div>
+                    <div class="portal-fsd-note-value">@BuildLeadWorkspaceLabel(leadWorkspace)</div>
+                    <div class="portal-fsd-note-copy">@BuildLeadWorkspaceCopy(leadWorkspace, leadReturn)</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="portal-fsd-stat-grid" aria-label="Portal snapshot metrics">
+            <article class="portal-fsd-stat">
+                <div class="portal-fsd-stat-label">Submitted this period</div>
+                <div class="portal-fsd-stat-value portal-fsd-chip--info">@data.SubmittedThisPeriod</div>
+                <div class="portal-fsd-stat-copy">Returns recorded in the current dashboard date window.</div>
+            </article>
+            <article class="portal-fsd-stat">
+                <div class="portal-fsd-stat-label">Average validation score</div>
+                <div class="portal-fsd-stat-value @(data.AverageValidationScore >= 90 ? "portal-fsd-chip--success" : data.AverageValidationScore >= 70 ? "portal-fsd-chip--warning" : "portal-fsd-chip--danger")">@data.AverageValidationScore.ToString("0.#")%</div>
+                <div class="portal-fsd-stat-copy">Average validation quality across processed submissions in the current window.</div>
+            </article>
+            <article class="portal-fsd-stat">
+                <div class="portal-fsd-stat-label">Pending review</div>
+                <div class="portal-fsd-stat-value @(data.PendingReviewCount > 0 ? "portal-fsd-chip--warning" : "portal-fsd-chip--success")">@data.PendingReviewCount</div>
+                <div class="portal-fsd-stat-copy">Submissions still waiting on checker review or related approval flow.</div>
+            </article>
+            <article class="portal-fsd-stat">
+                <div class="portal-fsd-stat-label">Active module workspaces</div>
+                <div class="portal-fsd-stat-value portal-fsd-chip--info">@data.ModuleWorkspaces.Count</div>
+                <div class="portal-fsd-stat-copy">Live filing workspaces with due-soon, pending, or recent return activity.</div>
+            </article>
+        </section>
+
+        <div class="portal-dashboard">
 
         <!-- ═══════════════════════════════════════════════════════════
              SECTION 1: Welcome Header + Date Range Picker
@@ -804,6 +881,7 @@ else if (data is not null)
             }
         </div>
 
+        </div>
     </div>
 
     @if (_drilldownOpen)
@@ -1212,6 +1290,109 @@ else
         => Navigation.NavigateTo($"/submissions/{submissionId}");
 
     // ── Helper Methods ───────────────────────────────────────────
+
+    private static string ResolveHomeBannerTone(DashboardData dashboard)
+    {
+        if (dashboard.OverdueCount > 0 || dashboard.RejectedCount > 0)
+        {
+            return "portal-fsd-banner--danger";
+        }
+
+        if (dashboard.PendingReviewCount > 0 || dashboard.CompliancePercentage < 90)
+        {
+            return "portal-fsd-banner--warning";
+        }
+
+        return "portal-fsd-banner--success";
+    }
+
+    private static string BuildHomeBannerHeadline(DashboardData dashboard)
+    {
+        if (dashboard.OverdueCount > 0)
+        {
+            return $"{dashboard.OverdueCount} overdue filing{(dashboard.OverdueCount == 1 ? string.Empty : "s")} need attention.";
+        }
+
+        if (dashboard.PendingReviewCount > 0)
+        {
+            return $"{dashboard.PendingReviewCount} submission{(dashboard.PendingReviewCount == 1 ? string.Empty : "s")} are waiting for review.";
+        }
+
+        return dashboard.CompliancePercentage >= 90
+            ? "Filing rhythm is holding steady across the current reporting window."
+            : "Compliance posture is steady, but the workspace still has pressure to manage.";
+    }
+
+    private static string BuildHomeBannerCopy(DashboardData dashboard, DeadlineItem? nextDeadline, ModuleWorkspaceLaunchItem? leadWorkspace)
+    {
+        if (dashboard.OverdueCount > 0)
+        {
+            return "Move the overdue returns first, then clear any review backlog so the next deadline wave does not stack on top of existing pressure.";
+        }
+
+        if (nextDeadline is not null)
+        {
+            return $"{nextDeadline.ReturnCode} is the next visible deadline, while {(leadWorkspace?.ModuleName ?? "the active workspace")} is carrying the heaviest operational load right now.";
+        }
+
+        return "No immediate deadline stress is visible, so this is the right window to focus on quality, readiness, and the next batch of upcoming submissions.";
+    }
+
+    private static string BuildHomeFocusLabel(DashboardData dashboard, DeadlineItem? nextDeadline)
+    {
+        if (dashboard.OverdueCount > 0)
+        {
+            return "Overdue queue";
+        }
+
+        if (nextDeadline is not null)
+        {
+            return nextDeadline.ReturnCode;
+        }
+
+        return "Quality and readiness";
+    }
+
+    private static string BuildHomeFocusCopy(DashboardData dashboard, DeadlineItem? nextDeadline, ModuleRankItem? leadReturn)
+    {
+        if (dashboard.OverdueCount > 0)
+        {
+            return $"{dashboard.TotalReturnsSubmitted} of {dashboard.TotalReturnsDue} due returns are already submitted, but the overdue queue still needs intervention.";
+        }
+
+        if (nextDeadline is not null)
+        {
+            return $"{FormatRelativeDue(nextDeadline.DaysRemaining)} · lead return volume currently sits with {(leadReturn?.ReturnCode ?? "the active return set")}.";
+        }
+
+        return "No immediate deadline is visible, so use the trend and submission panels below to keep the next filing cycle clean.";
+    }
+
+    private static string BuildNextDeadlineLabel(DeadlineItem? deadline)
+        => deadline is null ? "No active deadline" : deadline.ReturnCode;
+
+    private static string BuildNextDeadlineCopy(DeadlineItem? deadline)
+    {
+        if (deadline is null)
+        {
+            return "The current view does not show any pending deadlines in scope.";
+        }
+
+        return $"{deadline.ReturnName} · due {deadline.DueDate:dd MMM yyyy} · {FormatRelativeDue(deadline.DaysRemaining)}.";
+    }
+
+    private static string BuildLeadWorkspaceLabel(ModuleWorkspaceLaunchItem? workspace)
+        => workspace?.ModuleName ?? "No active module";
+
+    private static string BuildLeadWorkspaceCopy(ModuleWorkspaceLaunchItem? workspace, ModuleRankItem? leadReturn)
+    {
+        if (workspace is null)
+        {
+            return "Module workspaces will appear here once filing activity starts in the tenant scope.";
+        }
+
+        return $"{workspace.PendingCount} pending, {workspace.DueSoonCount} due soon, {workspace.RecentSubmissionCount} recent submissions. Lead return: {(leadReturn?.ReturnCode ?? "n/a")}.";
+    }
 
     private static string GetHealthColor(decimal passRate)
         => passRate >= 90 ? "#0f766e" : passRate >= 70 ? "#d97706" : "#ef4444";
