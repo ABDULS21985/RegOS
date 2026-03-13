@@ -14,16 +14,16 @@ public class EntitlementService : IEntitlementService
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
     private static readonly IReadOnlyList<string> DefaultFeatures = new[] { "xml_submission", "validation", "reporting" };
 
-    private readonly MetadataDbContext _db;
+    private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
     private readonly IMemoryCache _cache;
     private readonly ILogger<EntitlementService> _logger;
 
     public EntitlementService(
-        MetadataDbContext db,
+        IDbContextFactory<MetadataDbContext> dbFactory,
         IMemoryCache cache,
         ILogger<EntitlementService> logger)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _cache = cache;
         _logger = logger;
     }
@@ -36,10 +36,13 @@ public class EntitlementService : IEntitlementService
             return cached;
         }
 
-        var tenant = await _db.Tenants.FindAsync(new object[] { tenantId }, ct)
+        await using var db = _dbFactory.CreateDbContext();
+
+        var tenant = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
             ?? throw new InvalidOperationException($"Tenant {tenantId} not found");
 
-        var tenantLicences = await _db.TenantLicenceTypes
+        var tenantLicences = await db.TenantLicenceTypes
+            .AsNoTracking()
             .Where(tlt => tlt.TenantId == tenantId && tlt.IsActive)
             .Include(tlt => tlt.LicenceType)
             .ToListAsync(ct);
@@ -52,14 +55,15 @@ public class EntitlementService : IEntitlementService
             .OrderBy(v => v)
             .ToList();
 
-        var matrixEntries = await _db.LicenceModuleMatrix
+        var matrixEntries = await db.LicenceModuleMatrix
+            .AsNoTracking()
             .Where(lmm => licenceTypeIds.Contains(lmm.LicenceTypeId))
             .Include(lmm => lmm.Module)
             .ThenInclude(m => m!.Jurisdiction)
             .Where(lmm => lmm.Module != null && lmm.Module.IsActive)
             .ToListAsync(ct);
 
-        var tenantJurisdictionIds = await _db.Institutions
+        var tenantJurisdictionIds = await db.Institutions
             .AsNoTracking()
             .Where(i => i.TenantId == tenantId)
             .Select(i => i.JurisdictionId)
@@ -68,7 +72,7 @@ public class EntitlementService : IEntitlementService
 
         if (tenantJurisdictionIds.Count == 0)
         {
-            var nigeriaId = await _db.Jurisdictions
+            var nigeriaId = await db.Jurisdictions
                 .AsNoTracking()
                 .Where(j => j.CountryCode == "NG")
                 .Select(j => j.Id)
@@ -107,7 +111,7 @@ public class EntitlementService : IEntitlementService
             .OrderBy(m => m.ModuleCode)
             .ToList();
 
-        var subscriptionResolution = await ResolveActiveModules(tenantId, eligibleModules, ct);
+        var subscriptionResolution = await ResolveActiveModules(db, tenantId, eligibleModules, ct);
 
         var entitlement = new TenantEntitlement
         {
@@ -157,11 +161,13 @@ public class EntitlementService : IEntitlementService
     }
 
     private async Task<SubscriptionResolution> ResolveActiveModules(
+        MetadataDbContext db,
         Guid tenantId,
         IReadOnlyList<EntitledModule> eligibleModules,
         CancellationToken ct)
     {
-        var subscription = await _db.Subscriptions
+        var subscription = await db.Subscriptions
+            .AsNoTracking()
             .Include(s => s.Plan)
             .Where(s => s.TenantId == tenantId)
             .Where(s => s.Status != SubscriptionStatus.Cancelled && s.Status != SubscriptionStatus.Expired)
@@ -177,7 +183,8 @@ public class EntitlementService : IEntitlementService
                 new List<EntitledModule>());
         }
 
-        var subscribedModuleIds = await _db.SubscriptionModules
+        var subscribedModuleIds = await db.SubscriptionModules
+            .AsNoTracking()
             .Where(sm => sm.SubscriptionId == subscription.Id && sm.IsActive)
             .Select(sm => sm.ModuleId)
             .ToListAsync(ct);

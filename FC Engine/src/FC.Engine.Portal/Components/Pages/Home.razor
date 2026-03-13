@@ -6,6 +6,7 @@
 @using FC.Engine.Infrastructure.DragDrop
 @inject DashboardService DashboardService
 @inject PortalSubmissionLaunchService SubmissionLaunchService
+@inject ILogger<Home> Logger
 @inject ChartJsInterop Charts
 @inject DragDropInterop DragDrop
 @inject FC.Engine.Portal.Services.OverdueAlertService OverdueAlertSvc
@@ -1147,8 +1148,9 @@ else
             else
                 data = null;
         }
-        catch
+        catch (Exception ex)
         {
+            Logger.LogError(ex, "Unable to load portal dashboard for institution {InstitutionId}", institutionId);
             data = null;
         }
         finally
