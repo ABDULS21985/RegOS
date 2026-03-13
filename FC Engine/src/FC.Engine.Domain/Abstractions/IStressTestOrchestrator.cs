@@ -14,6 +14,7 @@ public interface IStressTestOrchestrator
 
     Task<StressTestRunSummary?> GetRunSummaryAsync(
         Guid runGuid,
+        string? regulatorCode = null,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<EntityShockResult>> GetEntityResultsAsync(

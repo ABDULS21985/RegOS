@@ -1,0 +1,396 @@
+@page "/submissions/batches/{BatchId:long}"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using System.Net
+@using System.Net.Http.Json
+@inject HttpClient Http
+
+<PageTitle>Batch Submission Detail — RegOS™ Portal</PageTitle>
+
+<PortalPageHeader
+    Breadcrumb="@_breadcrumbs"
+    Title="@(_detail?.BatchReference ?? $"Batch #{BatchId}")"
+    Subtitle="@GetSubtitle()">
+    <PrimaryAction>
+        <a href="/submissions/batches" class="portal-btn portal-btn-outline portal-btn-sm">
+            Back to Batches
+        </a>
+    </PrimaryAction>
+    <SecondaryActions>
+        @if (_detail is not null && _detail.Queries.Count > 0)
+        {
+            <a href="/submissions/batches/queries" class="portal-btn portal-btn-outline portal-btn-sm">
+                @_detail.Queries.Count Open @(_detail.Queries.Count == 1 ? "Query" : "Queries")
+            </a>
+        }
+    </SecondaryActions>
+</PortalPageHeader>
+
+<div class="portal-page">
+    @if (_loading)
+    {
+        <div aria-busy="true" aria-label="Loading batch submission detail">
+            <div class="portal-grid portal-grid-4" style="margin-bottom:1rem;">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="portal-card"><div class="portal-card-body">
+                        <div class="portal-skeleton portal-skeleton-block" style="height:18px;margin-bottom:0.75rem;"></div>
+                        <div class="portal-skeleton portal-skeleton-block" style="height:28px;"></div>
+                    </div></div>
+                }
+            </div>
+            <div class="portal-grid portal-grid-2">
+                @for (var i = 0; i < 2; i++)
+                {
+                    <div class="portal-card"><div class="portal-card-body">
+                        <div class="portal-skeleton portal-skeleton-block" style="height:22px;margin-bottom:1rem;"></div>
+                        @for (var r = 0; r < 4; r++)
+                        {
+                            <div class="portal-skeleton portal-skeleton-block" style="height:52px;margin-bottom:0.75rem;"></div>
+                        }
+                    </div></div>
+                }
+            </div>
+        </div>
+    }
+    else if (_detail is null)
+    {
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <h3 class="portal-empty-state-title">Batch not found</h3>
+            <p class="portal-empty-state-desc">@(_loadError ?? "The requested batch could not be found or you do not have access to it.")</p>
+            <a href="/submissions/batches" class="portal-btn portal-btn-primary">Back to Batch Submissions</a>
+        </div>
+    }
+    else
+    {
+        <div class="portal-grid portal-grid-4" style="margin-bottom:1rem;">
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <div class="portal-stat-label">Status</div>
+                    <div style="margin-top:0.5rem;">
+                        <span class="portal-badge @GetStatusBadgeClass(_detail.Status)">@GetStatusLabel(_detail.Status)</span>
+                    </div>
+                </div>
+            </div>
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <div class="portal-stat-label">Regulator</div>
+                    <div class="portal-stat-value">@_detail.RegulatorCode</div>
+                </div>
+            </div>
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <div class="portal-stat-label">Items</div>
+                    <div class="portal-stat-value">@_detail.Items.Count</div>
+                </div>
+            </div>
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <div class="portal-stat-label">Open Queries</div>
+                    <div class="portal-stat-value">@_detail.Queries.Count</div>
+                </div>
+            </div>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_detail.LastError))
+        {
+            <div class="portal-alert portal-alert-danger" role="alert" style="margin-bottom:1rem;">
+                <strong>Last regulator error:</strong> @_detail.LastError
+            </div>
+        }
+
+        <div class="portal-grid portal-grid-2" style="margin-bottom:1rem;">
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <h3 class="portal-card-title">Submission Items</h3>
+                    @if (_detail.Items.Count == 0)
+                    {
+                        <p class="portal-empty-state-desc">No submission items were captured for this batch.</p>
+                    }
+                    else
+                    {
+                        <div style="display:grid;gap:0.75rem;">
+                            @foreach (var item in _detail.Items.OrderBy(x => x.ReturnCode))
+                            {
+                                <div style="border:1px solid var(--portal-border,#e2e8f0);border-radius:12px;padding:0.9rem 1rem;background:#fff;">
+                                    <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
+                                        <div>
+                                            <div style="font-weight:700;">@item.ReturnCode</div>
+                                            <div style="color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                                                @item.ReportingPeriod · @item.ExportFormat · Payload @FormatBytes(item.ExportPayloadSize)
+                                            </div>
+                                        </div>
+                                        <span class="portal-badge @GetStatusBadgeClass(item.Status)">@GetStatusLabel(item.Status)</span>
+                                    </div>
+                                    <div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;flex-wrap:wrap;margin-top:0.75rem;">
+                                        <code style="font-size:0.8rem;color:var(--portal-text-muted,#64748b);">@ShortHash(item.ExportPayloadHash)</code>
+                                        <a href="/submissions/@item.SubmissionId" class="portal-btn portal-btn-ghost portal-btn-sm">View Submission</a>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <h3 class="portal-card-title">Regulator Queries</h3>
+                    @if (_detail.Queries.Count == 0)
+                    {
+                        <p class="portal-empty-state-desc">No open regulator queries on this batch.</p>
+                    }
+                    else
+                    {
+                        <div style="display:grid;gap:0.75rem;">
+                            @foreach (var query in _detail.Queries.OrderBy(x => x.DueDate ?? DateOnly.MaxValue).ThenByDescending(x => x.ReceivedAt))
+                            {
+                                <div style="border:1px solid var(--portal-border,#e2e8f0);border-radius:12px;padding:0.9rem 1rem;background:#fff8f1;">
+                                    <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
+                                        <div>
+                                            <div style="font-weight:700;">@query.QueryReference</div>
+                                            <div style="color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                                                @query.QueryType · Priority @query.Priority · Received @query.ReceivedAt.ToString("dd MMM yyyy HH:mm")
+                                            </div>
+                                        </div>
+                                        <span class="portal-badge @GetQueryBadgeClass(query.Priority)">@query.Status</span>
+                                    </div>
+                                    <p style="margin:0.75rem 0 0;color:var(--portal-text,#0f172a);">@query.QueryText</p>
+                                    @if (query.DueDate.HasValue)
+                                    {
+                                        <div style="margin-top:0.75rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                            Due: @query.DueDate.Value.ToString("dd MMM yyyy")
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="portal-grid portal-grid-2">
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <h3 class="portal-card-title">Receipts</h3>
+                    @if (_detail.Receipts.Count == 0)
+                    {
+                        <p class="portal-empty-state-desc">No regulator receipts recorded yet.</p>
+                    }
+                    else
+                    {
+                        <div style="display:grid;gap:0.75rem;">
+                            @foreach (var receipt in _detail.Receipts.OrderByDescending(x => x.ReceivedAt))
+                            {
+                                <div style="border:1px solid var(--portal-border,#e2e8f0);border-radius:12px;padding:0.9rem 1rem;background:#fff;">
+                                    <div style="font-weight:700;">@receipt.ReceiptReference</div>
+                                    <div style="color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                                        @receipt.RegulatorCode · @receipt.ReceiptTimestamp.ToString("dd MMM yyyy HH:mm")
+                                    </div>
+                                    @if (receipt.HttpStatusCode.HasValue)
+                                    {
+                                        <div style="margin-top:0.5rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                            HTTP @receipt.HttpStatusCode.Value
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <h3 class="portal-card-title">Audit Trail</h3>
+                    @if (_detail.AuditLogs.Count == 0)
+                    {
+                        <p class="portal-empty-state-desc">No audit activity available.</p>
+                    }
+                    else
+                    {
+                        <div style="display:grid;gap:0.75rem;">
+                            @foreach (var log in _detail.AuditLogs.OrderByDescending(x => x.PerformedAt))
+                            {
+                                <div style="border-left:3px solid var(--portal-accent,#d97706);padding:0.2rem 0 0.2rem 0.9rem;">
+                                    <div style="font-weight:700;">@log.Action</div>
+                                    <div style="color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                                        @log.PerformedAt.ToString("dd MMM yyyy HH:mm") · @(log.PerformedBy?.ToString() ?? "System")
+                                    </div>
+                                    @if (!string.IsNullOrWhiteSpace(log.Detail))
+                                    {
+                                        <div style="margin-top:0.35rem;color:var(--portal-text,#0f172a);font-size:0.9rem;">@Truncate(log.Detail, 180)</div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public long BatchId { get; set; }
+
+    private BatchDetailDto? _detail;
+    private bool _loading = true;
+    private string? _loadError;
+    private List<BreadcrumbItem> _breadcrumbs => new()
+    {
+        new("Dashboard", "/"),
+        new("Submissions", "/submissions"),
+        new("Batch Submissions", "/submissions/batches"),
+        new(_detail?.BatchReference ?? $"Batch #{BatchId}", IsCurrent: true)
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _loadError = null;
+        _detail = null;
+
+        try
+        {
+            using var response = await Http.GetAsync($"/api/v1/submission-batches/{BatchId}");
+            if (response.StatusCode == HttpStatusCode.NotFound)
+            {
+                _loadError = $"Batch {BatchId} was not found.";
+                return;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _loadError = $"Failed to load batch detail ({(int)response.StatusCode}).";
+                return;
+            }
+
+            _detail = await response.Content.ReadFromJsonAsync<BatchDetailDto>();
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string GetSubtitle()
+    {
+        if (_detail is null)
+            return "Direct regulator submission trace, receipts, and query status.";
+
+        return $"{_detail.RegulatorCode} · Created {_detail.CreatedAt:dd MMM yyyy HH:mm} · Correlation {_detail.CorrelationId.ToString()[..8].ToUpperInvariant()}";
+    }
+
+    private static string GetStatusBadgeClass(string status) => status.ToUpperInvariant() switch
+    {
+        "SUBMITTED" => "portal-badge-blue",
+        "ACKNOWLEDGED" => "portal-badge-teal",
+        "PROCESSING" => "portal-badge-amber",
+        "ACCEPTED" => "portal-badge-green",
+        "FINAL_ACCEPTED" => "portal-badge-green portal-badge-solid",
+        "QUERIES_RAISED" => "portal-badge-orange",
+        "REJECTED" => "portal-badge-red",
+        "FAILED" => "portal-badge-red",
+        _ => "portal-badge-gray"
+    };
+
+    private static string GetStatusLabel(string status) => status.ToUpperInvariant() switch
+    {
+        "SUBMITTED" => "Submitted",
+        "ACKNOWLEDGED" => "Acknowledged",
+        "PROCESSING" => "Processing",
+        "ACCEPTED" => "Accepted",
+        "FINAL_ACCEPTED" => "Final Accepted",
+        "QUERIES_RAISED" => "Queries Raised",
+        "REJECTED" => "Rejected",
+        "FAILED" => "Failed",
+        _ => status
+    };
+
+    private static string GetQueryBadgeClass(string priority) => priority.ToUpperInvariant() switch
+    {
+        "CRITICAL" => "portal-badge-red",
+        "HIGH" => "portal-badge-orange",
+        "NORMAL" => "portal-badge-amber",
+        _ => "portal-badge-gray"
+    };
+
+    private static string ShortHash(string? hash) =>
+        string.IsNullOrWhiteSpace(hash) ? "No hash" : hash.Length <= 14 ? hash : $"{hash[..10]}...{hash[^4..]}";
+
+    private static string Truncate(string? value, int length) =>
+        string.IsNullOrWhiteSpace(value) || value.Length <= length ? value ?? string.Empty : $"{value[..length]}...";
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes:N0} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024d:N1} KB";
+        return $"{bytes / (1024d * 1024d):N1} MB";
+    }
+
+    private sealed class BatchDetailDto
+    {
+        public long Id { get; set; }
+        public int InstitutionId { get; set; }
+        public string BatchReference { get; set; } = string.Empty;
+        public string RegulatorCode { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public Guid CorrelationId { get; set; }
+        public string? LastError { get; set; }
+        public int RetryCount { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public List<BatchItemDto> Items { get; set; } = new();
+        public List<BatchReceiptDto> Receipts { get; set; } = new();
+        public List<BatchQueryDto> Queries { get; set; } = new();
+        public List<BatchAuditDto> AuditLogs { get; set; } = new();
+    }
+
+    private sealed class BatchItemDto
+    {
+        public int SubmissionId { get; set; }
+        public string ReturnCode { get; set; } = string.Empty;
+        public string ReportingPeriod { get; set; } = string.Empty;
+        public string ExportFormat { get; set; } = string.Empty;
+        public long ExportPayloadSize { get; set; }
+        public string ExportPayloadHash { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+    }
+
+    private sealed class BatchReceiptDto
+    {
+        public string RegulatorCode { get; set; } = string.Empty;
+        public string ReceiptReference { get; set; } = string.Empty;
+        public DateTime ReceiptTimestamp { get; set; }
+        public int? HttpStatusCode { get; set; }
+        public DateTime ReceivedAt { get; set; }
+    }
+
+    private sealed class BatchQueryDto
+    {
+        public string QueryReference { get; set; } = string.Empty;
+        public string QueryType { get; set; } = string.Empty;
+        public string QueryText { get; set; } = string.Empty;
+        public DateOnly? DueDate { get; set; }
+        public string Priority { get; set; } = string.Empty;
+        public string Status { get; set; } = string.Empty;
+        public DateTime ReceivedAt { get; set; }
+    }
+
+    private sealed class BatchAuditDto
+    {
+        public string Action { get; set; } = string.Empty;
+        public string? Detail { get; set; }
+        public int? PerformedBy { get; set; }
+        public DateTime PerformedAt { get; set; }
+    }
+}

@@ -122,7 +122,7 @@ public sealed class StressTestOrchestrator : IStressTestOrchestrator
     }
 
     public async Task<StressTestRunSummary?> GetRunSummaryAsync(
-        Guid runGuid, CancellationToken ct = default)
+        Guid runGuid, string? regulatorCode = null, CancellationToken ct = default)
     {
         using var conn = await _db.OpenAsync(ct);
 
@@ -136,8 +136,9 @@ public sealed class StressTestOrchestrator : IStressTestOrchestrator
             FROM   StressTestRuns r
             JOIN   StressScenarios s ON s.Id = r.ScenarioId
             WHERE  r.RunGuid = @Guid
+              AND  (@RegulatorCode IS NULL OR r.RegulatorCode = @RegulatorCode)
             """,
-            new { Guid = runGuid });
+            new { Guid = runGuid, RegulatorCode = regulatorCode });
 
         if (run is null) return null;
 

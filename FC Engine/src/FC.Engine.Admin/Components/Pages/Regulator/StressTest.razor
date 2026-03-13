@@ -355,6 +355,20 @@
     {
         @* ═══════ RUN HISTORY TAB ═══════ *@
 
+        @if (!string.IsNullOrWhiteSpace(_requestedRunMessage))
+        {
+            <div style="margin-bottom:var(--space-4)">
+                <EmptyState Context="search" Size="sm"
+                            Heading="Requested stress test unavailable"
+                            Description="@_requestedRunMessage"
+                            SearchQuery="@RequestedRunLabel"
+                            PrimaryActionLabel="Review run history"
+                            OnPrimaryAction="SwitchToHistoryTab"
+                            SecondaryActionLabel="Start new run"
+                            OnSecondaryAction="SwitchToConfigureTab" />
+            </div>
+        }
+
         @if (_recentRuns.Count == 0)
         {
             <EmptyState Context="data" Size="sm"
@@ -463,6 +477,7 @@
     private StressTestRunSummary? _lastSummary;
     private long _lastRunId;
     private string _lastScenarioCode = string.Empty;
+    private string? _requestedRunMessage;
 
     // ── Tabs ──────────────────────────────────────────────────────────
     private static readonly List<TabItem> _tabs = new()
@@ -481,6 +496,15 @@
         StateHasChanged();
     }
 
+    private void SwitchToHistoryTab()
+    {
+        _activeTab = "history";
+        StateHasChanged();
+    }
+
+    private string RequestedRunLabel =>
+        RunGuid?.ToString("D").ToUpperInvariant() ?? string.Empty;
+
     // ── Lifecycle ─────────────────────────────────────────────────────
     protected override async Task OnParametersSetAsync() => await ReloadAsync();
 
@@ -491,6 +515,7 @@
         _lastSummary = null;
         _lastRunId = 0;
         _lastScenarioCode = string.Empty;
+        _requestedRunMessage = null;
         StateHasChanged();
 
         try
@@ -617,30 +642,44 @@
 
     private async Task LoadRequestedRunAsync(Guid runGuid)
     {
-        var summary = await Orchestrator.GetRunSummaryAsync(runGuid);
-        if (summary is null)
+        try
         {
-            throw new InvalidOperationException($"Stress test run '{runGuid}' was not found.");
+            var summary = await Orchestrator.GetRunSummaryAsync(runGuid, RegulatorCode);
+            if (summary is null)
+            {
+                _requestedRunMessage =
+                    $"We couldn't locate run {runGuid.ToString("D").ToUpperInvariant()} for the current regulator session. " +
+                    "It may belong to a different environment, a different regulator context, or it may have been removed.";
+                _activeTab = "history";
+                return;
+            }
+
+            _lastSummary = summary;
+            _lastRunId = summary.RunId;
+            _lastScenarioCode = summary.ScenarioCode;
+            _periodCode = summary.PeriodCode;
+            _timeHorizon = summary.TimeHorizon;
+            _activeTab = "configure";
+
+            var selectedScenario = _scenarios.FirstOrDefault(s =>
+                string.Equals(s.ScenarioCode, summary.ScenarioCode, StringComparison.OrdinalIgnoreCase));
+
+            if (selectedScenario is not null)
+            {
+                _selectedScenarioId = selectedScenario.Id;
+                _selectedScenarioCode = selectedScenario.ScenarioCode;
+            }
+            else
+            {
+                _selectedScenarioCode = summary.ScenarioCode;
+            }
         }
-
-        _lastSummary = summary;
-        _lastRunId = summary.RunId;
-        _lastScenarioCode = summary.ScenarioCode;
-        _periodCode = summary.PeriodCode;
-        _timeHorizon = summary.TimeHorizon;
-        _activeTab = "configure";
-
-        var selectedScenario = _scenarios.FirstOrDefault(s =>
-            string.Equals(s.ScenarioCode, summary.ScenarioCode, StringComparison.OrdinalIgnoreCase));
-
-        if (selectedScenario is not null)
+        catch (Exception)
         {
-            _selectedScenarioId = selectedScenario.Id;
-            _selectedScenarioCode = selectedScenario.ScenarioCode;
-        }
-        else
-        {
-            _selectedScenarioCode = summary.ScenarioCode;
+            _requestedRunMessage =
+                $"We found the run reference {runGuid.ToString("D").ToUpperInvariant()}, but its detail view could not be materialised. " +
+                "You can still review recent runs below or launch a fresh scenario from this workspace.";
+            _activeTab = "history";
         }
     }
 
