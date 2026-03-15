@@ -1,5 +1,6 @@
 @page "/submissions"
 @attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Security
 @using FC.Engine.Infrastructure.DragDrop
 @inject SubmissionService SubmissionSvc
 @inject IExportEngine ExportEngine
@@ -549,6 +550,18 @@
             }
         </div>
         <div class="portal-bulk-bar-actions">
+            @if (_canDirectSubmit)
+            {
+                <button class="portal-bulk-bar-btn"
+                        disabled="@(!HasBatchEligibleSelection)"
+                        @onclick="NavigateToBatchCreate">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    </svg>
+                    Create Batch
+                </button>
+            }
             <button class="portal-bulk-bar-btn" @onclick="BulkExportCsv">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
@@ -621,6 +634,7 @@
 
     private bool isLoading = true;
     private bool _smartDefaultApplied;
+    private bool _canDirectSubmit;
     private List<SubmissionListItem> submissions = new();
     private List<SubmissionListItem> filteredSubmissions = new();
     private List<string> availableReturnCodes = new();
@@ -718,6 +732,7 @@
         _dotNetRef = DotNetObjectReference.Create(this);
         _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync()).Href;
         var state = await AuthState!;
+        _canDirectSubmit = state.User.HasClaim("perm", PermissionCatalog.SubmissionDirectSubmit);
         int.TryParse(state.User.FindFirst("InstitutionId")?.Value, out institutionId);
         if (int.TryParse(state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var userId))
         {
@@ -1247,6 +1262,29 @@
         if (status == "RegulatorAccepted") return "Regulator Accepted";
         if (status == "RegulatorQueriesRaised") return "Regulator Queries";
         return status;
+    }
+
+    private bool HasBatchEligibleSelection => submissions.Any(submission =>
+        _selectedIds.Contains(submission.Id)
+        && IsBatchEligibleStatus(submission.Status));
+
+    private static bool IsBatchEligibleStatus(string status) => status is "Accepted" or "AcceptedWithWarnings";
+
+    private void NavigateToBatchCreate()
+    {
+        var eligibleIds = submissions
+            .Where(submission => _selectedIds.Contains(submission.Id) && IsBatchEligibleStatus(submission.Status))
+            .Select(submission => submission.Id)
+            .OrderBy(id => id)
+            .ToList();
+
+        if (eligibleIds.Count == 0)
+        {
+            return;
+        }
+
+        var ids = string.Join(",", eligibleIds);
+        Navigation.NavigateTo($"/submissions/batches/new?ids={Uri.EscapeDataString(ids)}&back={Uri.EscapeDataString(BuildFilterUrl())}");
     }
 
     private static string FormatModuleLabel(string moduleCode) =>

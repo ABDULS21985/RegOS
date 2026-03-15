@@ -141,7 +141,8 @@ public sealed record PolicyScenarioDetail(
     PolicyStatus Status,
     int Version,
     IReadOnlyList<PolicyParameterChange> Parameters,
-    IReadOnlyList<PolicyScenarioRunSummary> Runs
+    IReadOnlyList<PolicyScenarioRunSummary> Runs,
+    long? DecisionId
 );
 
 public sealed record PolicyScenarioRunSummary(
@@ -153,6 +154,16 @@ public sealed record PolicyScenarioRunSummary(
     int AlreadyBreaching,
     decimal? AggregateShortfall,
     DateTime? CompletedAt
+);
+
+public sealed record ScenarioStatusCounts(
+    int Total,
+    int Draft,
+    int ParametersSet,
+    int Simulated,
+    int InConsultation,
+    int Enacted,
+    int Withdrawn
 );
 
 public sealed record PolicyScenarioSummary(

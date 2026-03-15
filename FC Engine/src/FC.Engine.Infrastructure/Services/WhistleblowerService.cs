@@ -127,9 +127,18 @@ public sealed class WhistleblowerService : IWhistleblowerService
             caseReference,
             anonymousToken,
             DateTimeOffset.UtcNow,
-            $"{baseUrl}/wb/status/{anonymousToken}");
+            $"{baseUrl}/regulator/whistleblower/status/{anonymousToken}");
     }
 
+    /// <inheritdoc cref="IWhistleblowerService.CheckStatusAsync"/>
+    /// <remarks>
+    /// Intentionally passes <c>null</c> as the tenant identifier so the connection is
+    /// opened without setting SESSION_CONTEXT('TenantId').  The row-level security
+    /// predicate <c>dbo.fn_TenantFilter</c> permits the pass-through when
+    /// <c>@TenantId IS NULL</c>, allowing the anonymous token lookup to work across
+    /// tenants without exposing any PII or case detail beyond the status fields.
+    /// See <see cref="IWhistleblowerService.CheckStatusAsync"/> for the full rationale.
+    /// </remarks>
     public async Task<WhistleblowerStatusView?> CheckStatusAsync(
         string anonymousToken,
         CancellationToken ct = default)
@@ -139,6 +148,7 @@ public sealed class WhistleblowerService : IWhistleblowerService
             return null;
         }
 
+        // null TenantId is deliberate — see XML doc on the interface method.
         using var conn = await _db.CreateConnectionAsync(null, ct);
         return await conn.QuerySingleOrDefaultAsync<WhistleblowerStatusView>(
             """
@@ -179,6 +189,32 @@ public sealed class WhistleblowerService : IWhistleblowerService
                 ORDER BY r.PriorityScore DESC, r.ReceivedAt ASC
                 """,
                 new { TenantId = context.TenantId, RegulatorCode = context.RegulatorCode })).ToList();
+        }
+        catch (Exception ex) when (ex.IsMissingSchemaObject())
+        {
+            return [];
+        }
+    }
+
+    public async Task<IReadOnlyList<WhistleblowerAssignableUser>> GetAssignableUsersAsync(
+        string regulatorCode,
+        CancellationToken ct = default)
+    {
+        var context = await _tenantResolver.ResolveAsync(regulatorCode, ct);
+        using var conn = await _db.CreateConnectionAsync(context.TenantId, ct);
+        try
+        {
+            return (await conn.QueryAsync<WhistleblowerAssignableUser>(
+                """
+                SELECT u.Id   AS UserId,
+                       u.DisplayName
+                FROM meta.portal_users u
+                WHERE u.TenantId = @TenantId
+                  AND u.IsActive = 1
+                  AND u.DeletedAt IS NULL
+                ORDER BY u.DisplayName
+                """,
+                new { TenantId = context.TenantId })).ToList();
         }
         catch (Exception ex) when (ex.IsMissingSchemaObject())
         {
@@ -274,7 +310,7 @@ public sealed class WhistleblowerService : IWhistleblowerService
                 UpdatedAt = SYSUTCDATETIME()
             WHERE Id = @Id
             """,
-            new { Status = newStatus.ToString().ToUpperInvariant(), target.Id });
+            new { Status = ToDbStatus(newStatus), target.Id });
 
         await conn.ExecuteAsync(
             """
@@ -292,6 +328,16 @@ public sealed class WhistleblowerService : IWhistleblowerService
                 PerformedByUserId = performedByUserId
             });
     }
+
+    private static string ToDbStatus(WhistleblowerStatus status) => status switch
+    {
+        WhistleblowerStatus.Received => "RECEIVED",
+        WhistleblowerStatus.UnderReview => "UNDER_REVIEW",
+        WhistleblowerStatus.Concluded => "CONCLUDED",
+        WhistleblowerStatus.Referred => "REFERRED",
+        WhistleblowerStatus.Closed => "CLOSED",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, null)
+    };
 
     private static string ComputeToken(string salt, long reportId, string caseReference)
     {

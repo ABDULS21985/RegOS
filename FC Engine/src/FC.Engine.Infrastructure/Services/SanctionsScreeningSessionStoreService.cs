@@ -22,7 +22,7 @@ public sealed class SanctionsScreeningSessionStoreService
 
         await EnsureStoreAsync(ct);
 
-        var screeningKey = $"BATCH-{run.ScreenedAt:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..40];
+        var screeningKey = $"BATCH-{run.ScreenedAt:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}";
         _db.SanctionsScreeningRuns.Add(new SanctionsScreeningRunRecord
         {
             ScreeningKey = screeningKey,
@@ -58,7 +58,7 @@ public sealed class SanctionsScreeningSessionStoreService
 
         await EnsureStoreAsync(ct);
 
-        var transactionKey = $"TX-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}"[..40];
+        var transactionKey = $"TX-{DateTime.UtcNow:yyyyMMddHHmmssfff}-{Guid.NewGuid():N}";
         var screenedAt = DateTime.UtcNow;
 
         _db.SanctionsTransactionChecks.Add(new SanctionsTransactionCheckRecord
@@ -163,7 +163,11 @@ public sealed class SanctionsScreeningSessionStoreService
     {
         if (!_db.Database.IsSqlServer())
         {
-            return;
+            throw new NotSupportedException(
+                "Sanctions screening session store requires SQL Server. " +
+                "The application is configured exclusively for SQL Server; " +
+                "ensure the 'FcEngine' connection string points to a SQL Server instance " +
+                "and that EF migrations have been applied via the Migrator.");
         }
 
         const string sql = """
@@ -267,48 +271,44 @@ public sealed class SanctionsScreeningSessionStoreService
 
     private async Task TrimStoreAsync(CancellationToken ct)
     {
-        var staleRunKeys = await _db.SanctionsScreeningRuns
-            .OrderByDescending(x => x.ScreenedAt)
-            .Skip(MaxBatchRuns)
-            .Select(x => x.ScreeningKey)
-            .ToListAsync(ct);
+        // Raw SQL ensures idempotency under concurrent requests: if a row is already
+        // deleted by a racing request the DELETE simply affects 0 rows rather than
+        // throwing a DbUpdateConcurrencyException from the EF change tracker.
+        var sql = $"""
+            DELETE r
+            FROM [meta].[sanctions_screening_results] r
+            INNER JOIN [meta].[sanctions_screening_runs] s ON s.[ScreeningKey] = r.[ScreeningKey]
+            WHERE s.[Id] NOT IN (
+                SELECT TOP ({MaxBatchRuns}) [Id]
+                FROM [meta].[sanctions_screening_runs]
+                ORDER BY [ScreenedAt] DESC
+            );
 
-        if (staleRunKeys.Count > 0)
-        {
-            var staleRuns = await _db.SanctionsScreeningRuns
-                .Where(x => staleRunKeys.Contains(x.ScreeningKey))
-                .ToListAsync(ct);
-            var staleResults = await _db.SanctionsScreeningResults
-                .Where(x => staleRunKeys.Contains(x.ScreeningKey))
-                .ToListAsync(ct);
+            DELETE FROM [meta].[sanctions_screening_runs]
+            WHERE [Id] NOT IN (
+                SELECT TOP ({MaxBatchRuns}) [Id]
+                FROM [meta].[sanctions_screening_runs]
+                ORDER BY [ScreenedAt] DESC
+            );
 
-            _db.SanctionsScreeningRuns.RemoveRange(staleRuns);
-            _db.SanctionsScreeningResults.RemoveRange(staleResults);
-        }
+            DELETE p
+            FROM [meta].[sanctions_transaction_party_results] p
+            INNER JOIN [meta].[sanctions_transaction_checks] c ON c.[TransactionKey] = p.[TransactionKey]
+            WHERE c.[Id] NOT IN (
+                SELECT TOP ({MaxTransactionChecks}) [Id]
+                FROM [meta].[sanctions_transaction_checks]
+                ORDER BY [ScreenedAt] DESC
+            );
 
-        var staleTransactionKeys = await _db.SanctionsTransactionChecks
-            .OrderByDescending(x => x.ScreenedAt)
-            .Skip(MaxTransactionChecks)
-            .Select(x => x.TransactionKey)
-            .ToListAsync(ct);
+            DELETE FROM [meta].[sanctions_transaction_checks]
+            WHERE [Id] NOT IN (
+                SELECT TOP ({MaxTransactionChecks}) [Id]
+                FROM [meta].[sanctions_transaction_checks]
+                ORDER BY [ScreenedAt] DESC
+            );
+            """;
 
-        if (staleTransactionKeys.Count > 0)
-        {
-            var staleChecks = await _db.SanctionsTransactionChecks
-                .Where(x => staleTransactionKeys.Contains(x.TransactionKey))
-                .ToListAsync(ct);
-            var staleParties = await _db.SanctionsTransactionPartyResults
-                .Where(x => staleTransactionKeys.Contains(x.TransactionKey))
-                .ToListAsync(ct);
-
-            _db.SanctionsTransactionChecks.RemoveRange(staleChecks);
-            _db.SanctionsTransactionPartyResults.RemoveRange(staleParties);
-        }
-
-        if (staleRunKeys.Count > 0 || staleTransactionKeys.Count > 0)
-        {
-            await _db.SaveChangesAsync(ct);
-        }
+        await _db.Database.ExecuteSqlRawAsync(sql, ct);
     }
 
     private static SanctionsStoredScreeningResult MapResult(SanctionsScreeningResultRecord record) =>

@@ -130,6 +130,7 @@
     private Exception? _loadException;
     private bool _comparing;
     private ScenarioComparisonResult? _comparison;
+    private bool _chartRendered;
 
     protected override async Task OnInitializedAsync()
     {
@@ -161,6 +162,7 @@
         }
 
         _comparing = true;
+        _chartRendered = false;
         StateHasChanged();
         try
         {
@@ -180,7 +182,8 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_comparison is null) return;
+        if (_comparison is null || _chartRendered) return;
+        _chartRendered = true;
 
         try
         {

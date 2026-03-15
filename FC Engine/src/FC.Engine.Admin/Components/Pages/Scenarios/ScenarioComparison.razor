@@ -189,6 +189,7 @@ else if (_report != null)
     private ComparisonReport? _report;
     private bool _loading;
     private bool _running;
+    private bool _chartsRendered;
 
     protected override async Task OnInitializedAsync()
     {
@@ -202,10 +203,9 @@ else if (_report != null)
                 .ToList();
             while (_selectedIds.Count < 2) _selectedIds.Add(0);
 
-            if (_selectedIds.Count(id => id > 0) >= 1)
-            {
-                // Auto-run if we have at least one valid scenario
-            }
+            // Auto-run when deep-linked with at least 2 valid scenario IDs
+            if (_selectedIds.Count(id => id > 0) >= 2)
+                await RunComparison();
         }
     }
 
@@ -228,6 +228,7 @@ else if (_report != null)
 
         _running = true;
         _loading = true;
+        _chartsRendered = false;
         StateHasChanged();
 
         try
@@ -243,8 +244,9 @@ else if (_report != null)
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (_report != null && _report.Scenarios.Count > 0)
+        if (_report != null && _report.Scenarios.Count > 0 && !_chartsRendered)
         {
+            _chartsRendered = true;
             await RenderComparisonCharts();
         }
     }

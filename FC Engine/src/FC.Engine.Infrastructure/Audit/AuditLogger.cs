@@ -74,6 +74,58 @@ public class AuditLogger : IAuditLogger
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task Log(
+        string entityType,
+        string entityRef,
+        string action,
+        object? oldValues,
+        object? newValues,
+        string performedBy,
+        Guid? explicitTenantId = null,
+        CancellationToken ct = default)
+    {
+        await EnsureAuditLogSchemaAsync(ct);
+
+        var tenantId = explicitTenantId ?? _tenantContext.CurrentTenantId;
+        var now = DateTime.UtcNow;
+
+        var oldJson = oldValues != null ? JsonSerializer.Serialize(oldValues) : null;
+        var newJson = newValues != null ? JsonSerializer.Serialize(newValues) : null;
+
+        var previous = await _db.AuditLog
+            .Where(a => a.TenantId == tenantId && a.SequenceNumber > 0)
+            .OrderByDescending(a => a.SequenceNumber)
+            .Select(a => new { a.Hash, a.SequenceNumber })
+            .FirstOrDefaultAsync(ct);
+
+        var previousHash = previous?.Hash ?? "GENESIS";
+        var sequenceNumber = (previous?.SequenceNumber ?? 0) + 1;
+        var normalizedAction = Normalize(action, AuditActionMaxLength);
+
+        var hash = ComputeHash(
+            sequenceNumber, entityType, now, tenantId, performedBy,
+            entityType, entityRef, normalizedAction, oldJson, newJson, previousHash);
+
+        var entry = new AuditLogEntry
+        {
+            TenantId = tenantId,
+            EntityType = entityType,
+            EntityId = 0,
+            EntityRef = entityRef,
+            Action = normalizedAction,
+            OldValues = oldJson,
+            NewValues = newJson,
+            PerformedBy = performedBy,
+            PerformedAt = now,
+            Hash = hash,
+            PreviousHash = previousHash,
+            SequenceNumber = sequenceNumber
+        };
+
+        _db.AuditLog.Add(entry);
+        await _db.SaveChangesAsync(ct);
+    }
+
     private async Task EnsureAuditLogSchemaAsync(CancellationToken ct)
     {
         if (_auditLogSchemaEnsured || !_db.Database.IsSqlServer())
@@ -138,6 +190,21 @@ public class AuditLogger : IAuditLogger
         string? before,
         string? after,
         string previousHash)
+        => ComputeHash(sequenceNumber, eventType, timestamp, tenantId, userId, entityType,
+            entityId.ToString(), action, before, after, previousHash);
+
+    internal static string ComputeHash(
+        long sequenceNumber,
+        string eventType,
+        DateTime timestamp,
+        Guid? tenantId,
+        string userId,
+        string entityType,
+        string entityRef,
+        string action,
+        string? before,
+        string? after,
+        string previousHash)
     {
         var canonical = string.Join("|",
             sequenceNumber,
@@ -146,7 +213,7 @@ public class AuditLogger : IAuditLogger
             tenantId?.ToString() ?? "",
             userId,
             entityType,
-            entityId,
+            entityRef,
             action,
             before ?? "",
             after ?? "",

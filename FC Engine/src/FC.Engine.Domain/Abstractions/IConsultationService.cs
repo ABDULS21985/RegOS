@@ -43,6 +43,14 @@ public interface IConsultationService
         int regulatorId,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Returns the most recent consultation for a scenario, or null if none exists.
+    /// </summary>
+    Task<ConsultationDetail?> GetLatestConsultationForScenarioAsync(
+        long scenarioId,
+        int regulatorId,
+        CancellationToken ct = default);
+
     // ── Institution-facing ──────────────────────────────────────────
 
     /// <summary>

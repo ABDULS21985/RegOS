@@ -24,34 +24,28 @@
 </PageHeader>
 
 <SectionErrorBoundary Title="Couldn't load policy scenarios" ExternalError="@_loadException" OnRetry="LoadAsync">
-    <!-- KPI Strip -->
-    @if (!_loading && _scenarios is not null)
+    <!-- KPI Strip — counts sourced from a dedicated aggregate query, not the current page -->
+    @if (!_loading && _counts is not null)
     {
-        var total = _scenarios.TotalCount;
-        var draft = _scenarios.Items.Count(s => s.Status == PolicyStatus.Draft);
-        var simulated = _scenarios.Items.Count(s => s.Status == PolicyStatus.Simulated);
-        var consultation = _scenarios.Items.Count(s => s.Status == PolicyStatus.Consultation || s.Status == PolicyStatus.FeedbackClosed);
-        var enacted = _scenarios.Items.Count(s => s.Status == PolicyStatus.Enacted);
-
         <div class="rg-ps-kpis">
             <div class="rg-ps-kpi">
-                <span class="rg-ps-kpi-value">@total</span>
+                <span class="rg-ps-kpi-value">@_counts.Total</span>
                 <span class="rg-ps-kpi-label">Total Scenarios</span>
             </div>
             <div class="rg-ps-kpi">
-                <span class="rg-ps-kpi-value">@draft</span>
+                <span class="rg-ps-kpi-value">@(_counts.Draft + _counts.ParametersSet)</span>
                 <span class="rg-ps-kpi-label">Draft</span>
             </div>
             <div class="rg-ps-kpi">
-                <span class="rg-ps-kpi-value">@simulated</span>
+                <span class="rg-ps-kpi-value">@_counts.Simulated</span>
                 <span class="rg-ps-kpi-label">Simulated</span>
             </div>
             <div class="rg-ps-kpi">
-                <span class="rg-ps-kpi-value">@consultation</span>
+                <span class="rg-ps-kpi-value">@_counts.InConsultation</span>
                 <span class="rg-ps-kpi-label">In Consultation</span>
             </div>
             <div class="rg-ps-kpi">
-                <span class="rg-ps-kpi-value">@enacted</span>
+                <span class="rg-ps-kpi-value">@_counts.Enacted</span>
                 <span class="rg-ps-kpi-label">Enacted</span>
             </div>
         </div>
@@ -160,6 +154,7 @@
     private Exception? _loadException;
 
     private PagedResult<PolicyScenarioSummary>? _scenarios;
+    private ScenarioStatusCounts? _counts;
     private string _domainFilter = string.Empty;
     private string _statusFilter = string.Empty;
     private int _page = 1;
@@ -187,7 +182,12 @@
         {
             PolicyDomain? domain = string.IsNullOrEmpty(_domainFilter) ? null : Enum.Parse<PolicyDomain>(_domainFilter);
             PolicyStatus? status = string.IsNullOrEmpty(_statusFilter) ? null : Enum.Parse<PolicyStatus>(_statusFilter);
-            _scenarios = await ScenarioService.ListScenariosAsync(_regulatorId, domain, status, _page, _pageSize);
+
+            var listTask = ScenarioService.ListScenariosAsync(_regulatorId, domain, status, _page, _pageSize);
+            var countsTask = ScenarioService.GetStatusCountsAsync(_regulatorId);
+            await Task.WhenAll(listTask, countsTask);
+            _scenarios = listTask.Result;
+            _counts = countsTask.Result;
         }
         catch (Exception ex)
         {

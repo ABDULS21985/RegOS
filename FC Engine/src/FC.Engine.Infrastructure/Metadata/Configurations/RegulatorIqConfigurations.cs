@@ -29,7 +29,7 @@ public sealed class RegIqConversationConfiguration : IEntityTypeConfiguration<Re
         builder.ToTable("regiq_conversation", "meta", t =>
         {
             t.HasCheckConstraint("CK_regiq_conversation_classification", "[ClassificationLevel] IN ('UNCLASSIFIED','RESTRICTED','CONFIDENTIAL')");
-            t.HasCheckConstraint("CK_regiq_conversation_scope", "[Scope] IN ('SECTOR_WIDE','ENTITY_SPECIFIC','COMPARATIVE','SYSTEMIC','HELP')");
+            t.HasCheckConstraint("CK_regiq_conversation_scope", "[Scope] IN ('SECTOR','ENTITY','SYSTEMIC','SECTOR_WIDE','ENTITY_SPECIFIC','COMPARATIVE','HELP')");
         });
         builder.HasKey(x => x.Id);
         builder.Property(x => x.RegulatorId).HasColumnType("nvarchar(100)").HasMaxLength(100).IsRequired();
@@ -40,6 +40,8 @@ public sealed class RegIqConversationConfiguration : IEntityTypeConfiguration<Re
         builder.Property(x => x.Title).HasColumnType("nvarchar(200)").HasMaxLength(200).IsRequired();
         builder.Property(x => x.StartedAt).HasColumnType("datetime2(3)").IsRequired();
         builder.Property(x => x.LastActivityAt).HasColumnType("datetime2(3)").IsRequired();
+        builder.Property(x => x.ExaminationTargetTenantId).HasColumnType("uniqueidentifier");
+        builder.Property(x => x.IsExaminationSession).HasColumnType("bit").IsRequired().HasDefaultValue(false);
         builder.HasIndex(x => new { x.RegulatorTenantId, x.RegulatorId, x.LastActivityAt }).HasDatabaseName("IX_regiq_conversation_regulator");
         builder.HasOne<Tenant>().WithMany().HasForeignKey(x => x.RegulatorTenantId).OnDelete(DeleteBehavior.Restrict);
         builder.HasMany(x => x.Turns).WithOne(x => x.Conversation).HasForeignKey(x => x.ConversationId).OnDelete(DeleteBehavior.Cascade);

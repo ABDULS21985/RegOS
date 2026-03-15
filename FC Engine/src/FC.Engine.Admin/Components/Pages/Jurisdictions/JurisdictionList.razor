@@ -17,6 +17,24 @@
 
 <div class="fc-page">
 
+    @if (_stats is not null)
+    {
+        <div class="fc-stat-row fc-mb-6">
+            <div class="fc-stat-card">
+                <div class="fc-stat-card__value">@_stats.Total</div>
+                <div class="fc-stat-card__label">Total Jurisdictions</div>
+            </div>
+            <div class="fc-stat-card fc-stat-card--success">
+                <div class="fc-stat-card__value">@_stats.Active</div>
+                <div class="fc-stat-card__label">Active</div>
+            </div>
+            <div class="fc-stat-card fc-stat-card--warning">
+                <div class="fc-stat-card__value">@_stats.Planned</div>
+                <div class="fc-stat-card__label">Planned</div>
+            </div>
+        </div>
+    }
+
     @{
         var chips = GetActiveFilterChips().ToList();
     }
@@ -248,10 +266,18 @@
                 <label class="fc-form-label">Data Residency Region (Azure)</label>
                 <input class="fc-form-input" type="text" @bind="_editDataResidencyRegion" />
             </div>
-            <div class="fc-form-group fc-mt-4">
-                <label class="fc-form-label">Regulatory Bodies (JSON array)</label>
-                <input class="fc-form-input fc-font-mono" type="text" @bind="_editRegulatoryBodies" />
-            </div>
+            <FormField Label="Regulatory Bodies (JSON array)" FieldId="jur-reg-bodies"
+                       InputId="jur-reg-bodies-input"
+                       ValidationState="@GetEditState("regulatorybodies")"
+                       ErrorMessage="@GetEditError("regulatorybodies")"
+                       HintText='JSON array of regulator codes, e.g. ["CBN","SEC"]'
+                       CssClass="fc-mt-4">
+                <input id="jur-reg-bodies-input" class="fc-form-input fc-font-mono" type="text"
+                       @bind="_editRegulatoryBodies"
+                       @onblur="ValidateEditRegulatoryBodies"
+                       aria-invalid="@(HasEditError("regulatorybodies") ? "true" : "false")"
+                       aria-describedby="jur-reg-bodies-hint jur-reg-bodies-err" />
+            </FormField>
             <div class="fc-form-group fc-mt-4">
                 <label class="fc-form-label">Data Protection Law</label>
                 <input class="fc-form-input" type="text" @bind="_editDataProtectionLaw" />
@@ -313,7 +339,7 @@
                            ErrorMessage="@GetFxError("rate")"
                            HintText="Decimal exchange rate, e.g. 0.000876">
                     <input id="jur-fx-rate-input" class="fc-form-input fc-font-mono" type="number" step="0.000001"
-                           value="@(_fxRate == 0 ? string.Empty : _fxRate.ToString())"
+                           value="@(_fxRate == 0 ? string.Empty : _fxRate.ToString(System.Globalization.CultureInfo.InvariantCulture))"
                            @oninput="OnFxRateInput"
                            @onblur="ValidateFxRateValue"
                            aria-required="true"
@@ -409,10 +435,35 @@
             _editErrors.Remove("currency");
     }
 
+    private void ValidateEditRegulatoryBodies()
+    {
+        _editTouched.Add("regulatorybodies");
+        var v = _editRegulatoryBodies?.Trim() ?? "[]";
+        if (string.IsNullOrWhiteSpace(v))
+        {
+            _editRegulatoryBodies = "[]";
+            _editErrors.Remove("regulatorybodies");
+            return;
+        }
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(v);
+            if (doc.RootElement.ValueKind != System.Text.Json.JsonValueKind.Array)
+                _editErrors["regulatorybodies"] = "Must be a JSON array, e.g. [\"CBN\",\"SEC\"].";
+            else
+                _editErrors.Remove("regulatorybodies");
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            _editErrors["regulatorybodies"] = "Invalid JSON. Use a JSON array, e.g. [\"CBN\",\"SEC\"].";
+        }
+    }
+
     private bool ValidateJurisdictionForm()
     {
         ValidateEditCountryName();
         ValidateEditCurrency();
+        ValidateEditRegulatoryBodies();
         return _editErrors.Count == 0;
     }
 
@@ -469,7 +520,9 @@
 
     private void OnFxRateInput(ChangeEventArgs e)
     {
-        if (decimal.TryParse(e.Value?.ToString(), out var v))
+        if (decimal.TryParse(e.Value?.ToString(),
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture, out var v))
             _fxRate = v;
         else
             _fxRate = 0m;

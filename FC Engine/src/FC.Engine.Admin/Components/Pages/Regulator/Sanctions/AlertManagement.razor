@@ -25,7 +25,7 @@
             </div>
             <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
         }
-        else if (_data is null)
+        else if (_data is null || (_data.ActiveAlerts.Count == 0 && _data.EscalatedAlerts.Count == 0 && _data.ResolvedAlerts.Count == 0))
         {
             <EmptyState Context="data" Heading="No alert data" Description="Run a screening first to generate alerts." />
         }
@@ -170,7 +170,7 @@
         {
             await AlertService.RecordDecisionAsync(
                 alert.MatchKey, alert.Subject, alert.MatchedName,
-                alert.SourceCode, alert.RiskLevel, alert.Decision ?? "",
+                alert.SourceCode, alert.RiskLevel, alert.Decision ?? "None",
                 "False Positive");
             Toast.Show(new ToastItem { Variant = ToastVariant.Success, Title = "Decision Recorded", Message = $"{alert.Subject} marked as false positive." });
             await ReloadAsync();
@@ -186,7 +186,7 @@
         {
             await AlertService.RecordDecisionAsync(
                 alert.MatchKey, alert.Subject, alert.MatchedName,
-                alert.SourceCode, alert.RiskLevel, alert.Decision ?? "",
+                alert.SourceCode, alert.RiskLevel, alert.Decision ?? "None",
                 "True Positive");
             Toast.Show(new ToastItem { Variant = ToastVariant.Warning, Title = "True Positive Confirmed", Message = $"{alert.Subject} confirmed as true positive." });
             await ReloadAsync();

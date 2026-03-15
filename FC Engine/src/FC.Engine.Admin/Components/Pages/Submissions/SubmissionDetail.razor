@@ -99,7 +99,7 @@
                     </div>
                     <div class="fc-detail-meta-item">
                         <span class="fc-detail-meta-label">Processing</span>
-                        <span class="fc-detail-meta-value">@(_submission.ProcessingDurationMs)ms</span>
+                        <span class="fc-detail-meta-value">@(_submission.ProcessingDurationMs is { } dur ? $"{dur}ms" : "—")</span>
                     </div>
                     @if (_submission.TemplateVersionId.HasValue)
                     {
@@ -193,7 +193,7 @@
                         </div>
                         <div class="fc-detail-info-item">
                             <span class="fc-detail-info-label">Processing Duration</span>
-                            <span class="fc-detail-info-value">@(_submission.ProcessingDurationMs)ms</span>
+                            <span class="fc-detail-info-value">@(_submission.ProcessingDurationMs is { } durMs ? $"{durMs}ms" : "—")</span>
                         </div>
                         <div class="fc-detail-info-item">
                             <span class="fc-detail-info-label">Created At</span>
@@ -279,15 +279,19 @@
                 </div>
 
                 <!-- Error Table -->
+                @{
+                    var errors   = report.Errors.Where(e => e.Severity == ValidationSeverity.Error).ToList();
+                    var nonErrors = report.Errors.Where(e => e.Severity != ValidationSeverity.Error).ToList();
+                }
                 @if (report.Errors.Any())
                 {
-                    @if (report.ErrorCount > 0)
+                    @if (errors.Count > 0)
                     {
                         <div class="fc-section">
                             <div class="fc-section-header">
                                 <h3>
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-                                    Errors (@report.ErrorCount)
+                                    Errors (@errors.Count)
                                 </h3>
                             </div>
                             <div class="fc-overflow-x">
@@ -303,7 +307,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var err in report.Errors.Where(e => e.Severity == ValidationSeverity.Error))
+                                        @foreach (var err in errors)
                                         {
                                             <tr>
                                                 <td><code>@err.RuleId</code></td>
@@ -320,13 +324,13 @@
                         </div>
                     }
 
-                    @if (report.WarningCount > 0)
+                    @if (nonErrors.Count > 0)
                     {
                         <div class="fc-section">
                             <div class="fc-section-header">
                                 <h3>
                                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                                    Warnings (@report.WarningCount)
+                                    Warnings (@nonErrors.Count)
                                 </h3>
                             </div>
                             <div class="fc-overflow-x">
@@ -342,7 +346,7 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        @foreach (var warn in report.Errors.Where(e => e.Severity != ValidationSeverity.Error))
+                                        @foreach (var warn in nonErrors)
                                         {
                                             <tr>
                                                 <td><code>@warn.RuleId</code></td>

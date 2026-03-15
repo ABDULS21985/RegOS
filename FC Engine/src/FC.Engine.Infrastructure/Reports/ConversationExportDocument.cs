@@ -10,8 +10,8 @@ public sealed class ConversationExportDocument : IDocument
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    private readonly ComplianceIqConversation _conversation;
-    private readonly IReadOnlyList<ComplianceIqTurn> _turns;
+    private readonly RegIqConversation _conversation;
+    private readonly IReadOnlyList<RegIqTurn> _turns;
     private readonly string _tenantName;
 
     private const string Primary = "#0A2F5C";
@@ -20,8 +20,8 @@ public sealed class ConversationExportDocument : IDocument
     private const string AssistantBubble = "#F4F4F0";
 
     public ConversationExportDocument(
-        ComplianceIqConversation conversation,
-        IReadOnlyList<ComplianceIqTurn> turns,
+        RegIqConversation conversation,
+        IReadOnlyList<RegIqTurn> turns,
         string tenantName)
     {
         _conversation = conversation;
@@ -46,7 +46,7 @@ public sealed class ConversationExportDocument : IDocument
                     row.RelativeItem().Text("RegulatorIQ Conversation Export").FontSize(16).Bold().FontColor(Primary);
                     row.ConstantItem(180).AlignRight().Text(DateTime.UtcNow.ToString("dd MMM yyyy HH:mm")).FontSize(8).FontColor(Colors.Grey.Medium);
                 });
-                column.Item().Text($"{_tenantName} | {_conversation.UserId}").FontSize(9).FontColor(Colors.Grey.Darken1);
+                column.Item().Text($"{_tenantName} | {_conversation.RegulatorId}").FontSize(9).FontColor(Colors.Grey.Darken1);
                 column.Item().Text($"Conversation: {_conversation.Id:D} | Scope: {_conversation.Scope ?? "SECTOR"} | Examination: {(_conversation.IsExaminationSession ? "Active" : "No")}").FontSize(8).FontColor(Colors.Grey.Darken1);
                 column.Item().PaddingTop(6).LineHorizontal(1).LineColor(Accent);
             });
@@ -81,9 +81,10 @@ public sealed class ConversationExportDocument : IDocument
                                 .FontSize(7)
                                 .FontColor(Colors.Grey.Medium);
 
-                            if (!string.IsNullOrWhiteSpace(turn.DataSourcesUsed))
+                            var sources = string.Join(", ", ParseTextArray(turn.DataSourcesAccessedJson));
+                            if (!string.IsNullOrWhiteSpace(sources))
                             {
-                                inner.Item().PaddingTop(3).Text($"Sources: {turn.DataSourcesUsed}").FontSize(7).FontColor(Colors.Grey.Medium);
+                                inner.Item().PaddingTop(3).Text($"Sources: {sources}").FontSize(7).FontColor(Colors.Grey.Medium);
                             }
                         });
                     });
@@ -113,8 +114,9 @@ public sealed class ConversationExportDocument : IDocument
                         foreach (var turn in _turns.OrderBy(x => x.TurnNumber))
                         {
                             table.Cell().Element(BodyCell).Text(turn.TurnNumber.ToString());
-                            table.Cell().Element(BodyCell).Text(string.Join(", ", ParseTextArray(turn.EntitiesAccessedJson)));
-                            table.Cell().Element(BodyCell).Text(string.IsNullOrWhiteSpace(turn.DataSourcesUsed) ? "N/A" : turn.DataSourcesUsed);
+                            table.Cell().Element(BodyCell).Text(string.Join(", ", ParseTextArray(turn.EntitiesQueriedJson)));
+                            var appendixSources = string.Join(", ", ParseTextArray(turn.DataSourcesAccessedJson));
+                            table.Cell().Element(BodyCell).Text(string.IsNullOrWhiteSpace(appendixSources) ? "N/A" : appendixSources);
                             table.Cell().Element(BodyCell).Text(turn.ClassificationLevel);
                         }
                     });

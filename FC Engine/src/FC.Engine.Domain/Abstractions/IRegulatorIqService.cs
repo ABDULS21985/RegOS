@@ -9,8 +9,9 @@ public interface IRegulatorIqService
         RegulatorIqQueryRequest request,
         CancellationToken ct = default);
 
-    Task<List<ComplianceIqTurn>> GetConversationHistoryAsync(
+    Task<List<RegIqTurn>> GetConversationHistoryAsync(
         Guid conversationId,
+        string regulatorId,
         CancellationToken ct = default);
 
     Task<Guid> StartExaminationSessionAsync(
@@ -20,6 +21,7 @@ public interface IRegulatorIqService
 
     Task EndExaminationSessionAsync(
         Guid conversationId,
+        string regulatorId,
         CancellationToken ct = default);
 
     Task<byte[]> ExportConversationPdfAsync(
@@ -35,5 +37,6 @@ public interface IRegulatorIqService
         int turnId,
         int rating,
         string? feedbackText,
+        string regulatorId,
         CancellationToken ct = default);
 }

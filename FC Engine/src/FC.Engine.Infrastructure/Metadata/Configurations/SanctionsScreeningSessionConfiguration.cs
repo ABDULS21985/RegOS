@@ -60,8 +60,10 @@ public sealed class SanctionsTransactionCheckRecordConfiguration : IEntityTypeCo
         builder.Property(x => x.Currency).HasMaxLength(16).IsRequired();
         builder.Property(x => x.Channel).HasMaxLength(120).IsRequired();
         builder.Property(x => x.ThresholdPercent).IsRequired();
+        builder.Property(x => x.HighRisk).IsRequired();
         builder.Property(x => x.ControlDecision).HasMaxLength(40).IsRequired();
         builder.Property(x => x.Narrative).HasMaxLength(1200).IsRequired();
+        builder.Property(x => x.RequiresStrDraft).IsRequired();
         builder.Property(x => x.ScreenedAt).IsRequired();
         builder.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
 

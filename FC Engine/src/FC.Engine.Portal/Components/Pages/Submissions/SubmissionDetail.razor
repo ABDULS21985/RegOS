@@ -546,6 +546,22 @@
                                                     <td>@(ds.SubmittedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</td>
                                                     <td>@(ds.AcknowledgedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</td>
                                                     <td>
+                                                        @if (ds.Status == DirectSubmissionStatus.Submitted
+                                                            || ds.Status == DirectSubmissionStatus.Acknowledged)
+                                                        {
+                                                            <button class="portal-btn portal-btn-outline portal-btn-xs"
+                                                                    disabled="@_checkingDirectSubmissionIds.Contains(ds.Id)"
+                                                                    @onclick="() => CheckDirectSubmissionStatusAsync(ds.Id)">
+                                                                @if (_checkingDirectSubmissionIds.Contains(ds.Id))
+                                                                {
+                                                                    <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                                                }
+                                                                else
+                                                                {
+                                                                    <text>Check Status</text>
+                                                                }
+                                                            </button>
+                                                        }
                                                         @if (ds.Status == DirectSubmissionStatus.Failed
                                                             || ds.Status == DirectSubmissionStatus.RetryScheduled
                                                             || ds.Status == DirectSubmissionStatus.Exhausted)
@@ -787,6 +803,7 @@
     private bool isSubmittingToRegulator;
     private string? directSubmissionMessage;
     private bool directSubmissionSuccess;
+    private readonly HashSet<int> _checkingDirectSubmissionIds = new();
 
     private bool dataLoaded;
     private ReturnDataRecord? dataRecord;
@@ -1372,6 +1389,34 @@
         }
 
         StateHasChanged();
+    }
+
+    private async Task CheckDirectSubmissionStatusAsync(int directSubId)
+    {
+        _checkingDirectSubmissionIds.Add(directSubId);
+        StateHasChanged();
+
+        try
+        {
+            var result = await DirectSubmissionService.CheckStatusAsync(directSubId);
+            directSubmissionSuccess = true;
+            directSubmissionMessage = string.IsNullOrWhiteSpace(result.LatestMessage)
+                ? $"Direct submission status is {result.Status}."
+                : result.LatestMessage;
+
+            await LoadDirectSubmissions();
+            await LoadSubmission();
+        }
+        catch (Exception ex)
+        {
+            directSubmissionSuccess = false;
+            directSubmissionMessage = ex.Message;
+        }
+        finally
+        {
+            _checkingDirectSubmissionIds.Remove(directSubId);
+            StateHasChanged();
+        }
     }
 
     private static string GetDirectSubmissionBadgeClass(DirectSubmissionStatus status) => status switch

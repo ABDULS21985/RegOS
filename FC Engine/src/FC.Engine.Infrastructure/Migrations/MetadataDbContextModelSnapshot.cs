@@ -15992,6 +15992,10 @@ namespace FC.Engine.Infrastructure.Migrations
                     b.Property<int>("EntityId")
                         .HasColumnType("int");
 
+                    b.Property<string>("EntityRef")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<string>("EntityType")
                         .IsRequired()
                         .HasMaxLength(50)

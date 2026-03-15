@@ -93,6 +93,7 @@ builder.Services.AddScoped<FC.Engine.Admin.Services.Dashboards.StakeholderDashbo
 builder.Services.AddScoped<FC.Engine.Admin.Services.TenantManagementService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.PlatformAdminService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.JurisdictionManagementService>();
+builder.Services.AddScoped<FC.Engine.Admin.Services.JurisdictionContextService>();
 builder.Services.AddScoped<FC.Engine.Admin.Services.RegulatoryCalendarImportService>();
 
 // Authentication — cookie-based for Blazor Server

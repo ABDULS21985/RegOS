@@ -9,6 +9,7 @@ using FC.Engine.Portal.Services;
 using FC.Engine.Portal.Tests.Infrastructure;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -202,7 +203,9 @@ public class SubmissionServiceTests
             null!,
             dbFactory,
             null!,
-            Mock.Of<IFilingCalendarService>());
+            Mock.Of<IFilingCalendarService>(),
+            Mock.Of<ITemplateMetadataCache>(),
+            Mock.Of<ILogger<SubmissionService>>());
     }
 
     private static Mock<IEntitlementService> CreateEntitlementService(Guid tenantId, IReadOnlyList<EntitledModule> activeModules)
@@ -241,7 +244,8 @@ public class SubmissionServiceTests
             Mock.Of<IAuditLogger>(),
             Mock.Of<ITemplateMetadataCache>(),
             Mock.Of<ISqlTypeMapper>(),
-            entitlementService);
+            entitlementService,
+            new TestTenantContext());
     }
 
     private static Module CreateModule(int id, string code, string name) =>

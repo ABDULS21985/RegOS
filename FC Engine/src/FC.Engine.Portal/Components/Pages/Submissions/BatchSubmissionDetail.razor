@@ -1,8 +1,8 @@
 @page "/submissions/batches/{BatchId:long}"
 @attribute [Authorize(Policy = "InstitutionUser")]
-@using System.Net
-@using System.Net.Http.Json
-@inject HttpClient Http
+@using FC.Engine.Domain.Security
+@inject SubmissionBatchPortalService BatchPortalService
+@inject AuthenticationStateProvider AuthState
 
 <PageTitle>Batch Submission Detail — RegOS™ Portal</PageTitle>
 
@@ -52,6 +52,19 @@
             </div>
         </div>
     }
+    else if (!_canViewDirectStatus)
+    {
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <h3 class="portal-empty-state-title">Access Restricted</h3>
+            <p class="portal-empty-state-desc">Your account can’t view direct regulator batch detail.</p>
+            <a href="/submissions" class="portal-btn portal-btn-primary">Back to Submissions</a>
+        </div>
+    }
     else if (_detail is null)
     {
         <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
@@ -80,6 +93,10 @@
                 <div class="portal-card-body">
                     <div class="portal-stat-label">Regulator</div>
                     <div class="portal-stat-value">@_detail.RegulatorCode</div>
+                    @if (!string.IsNullOrWhiteSpace(_detail.RegulatorName) && !string.Equals(_detail.RegulatorName, _detail.RegulatorCode, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">@_detail.RegulatorName</div>
+                    }
                 </div>
             </div>
             <div class="portal-card">
@@ -166,6 +183,27 @@
                                             Due: @query.DueDate.Value.ToString("dd MMM yyyy")
                                         </div>
                                     }
+                                    @if (!string.IsNullOrWhiteSpace(query.AssignedToName))
+                                    {
+                                        <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                            Assigned to @query.AssignedToName
+                                        </div>
+                                    }
+                                    @if (query.ResponseCount > 0)
+                                    {
+                                        <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                            @query.ResponseCount response@(query.ResponseCount == 1 ? "" : "s") logged
+                                            @if (query.LastResponseAt.HasValue)
+                                            {
+                                                <text> · last @query.LastResponseAt.Value.ToString("dd MMM yyyy HH:mm")</text>
+                                            }
+                                        </div>
+                                    }
+                                    <div style="display:flex;justify-content:flex-end;margin-top:0.85rem;">
+                                        <a href="/submissions/batches/queries/@query.QueryId" class="portal-btn portal-btn-outline portal-btn-sm">
+                                            @(_canDirectSubmit ? "Respond" : "View Query")
+                                        </a>
+                                    </div>
                                 </div>
                             }
                         </div>
@@ -220,7 +258,7 @@
                                 <div style="border-left:3px solid var(--portal-accent,#d97706);padding:0.2rem 0 0.2rem 0.9rem;">
                                     <div style="font-weight:700;">@log.Action</div>
                                     <div style="color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
-                                        @log.PerformedAt.ToString("dd MMM yyyy HH:mm") · @(log.PerformedBy?.ToString() ?? "System")
+                                        @log.PerformedAt.ToString("dd MMM yyyy HH:mm") · @(log.PerformedByName ?? log.PerformedBy?.ToString() ?? "System")
                                     </div>
                                     @if (!string.IsNullOrWhiteSpace(log.Detail))
                                     {
@@ -239,9 +277,12 @@
 @code {
     [Parameter] public long BatchId { get; set; }
 
-    private BatchDetailDto? _detail;
+    private SubmissionBatchDetailModel? _detail;
     private bool _loading = true;
     private string? _loadError;
+    private int _institutionId;
+    private bool _canDirectSubmit;
+    private bool _canViewDirectStatus;
     private List<BreadcrumbItem> _breadcrumbs => new()
     {
         new("Dashboard", "/"),
@@ -258,20 +299,23 @@
 
         try
         {
-            using var response = await Http.GetAsync($"/api/v1/submission-batches/{BatchId}");
-            if (response.StatusCode == HttpStatusCode.NotFound)
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var user = auth.User;
+            _ = int.TryParse(user.FindFirst("InstitutionId")?.Value, out _institutionId);
+            _canDirectSubmit = user.HasClaim("perm", PermissionCatalog.SubmissionDirectSubmit);
+            _canViewDirectStatus = user.HasClaim("perm", PermissionCatalog.SubmissionDirectStatus)
+                || _canDirectSubmit;
+
+            if (!_canViewDirectStatus)
+            {
+                return;
+            }
+
+            _detail = await BatchPortalService.GetBatchDetailAsync(_institutionId, BatchId);
+            if (_detail is null)
             {
                 _loadError = $"Batch {BatchId} was not found.";
-                return;
             }
-
-            if (!response.IsSuccessStatusCode)
-            {
-                _loadError = $"Failed to load batch detail ({(int)response.StatusCode}).";
-                return;
-            }
-
-            _detail = await response.Content.ReadFromJsonAsync<BatchDetailDto>();
         }
         catch (Exception ex)
         {
@@ -336,61 +380,5 @@
         if (bytes < 1024) return $"{bytes:N0} B";
         if (bytes < 1024 * 1024) return $"{bytes / 1024d:N1} KB";
         return $"{bytes / (1024d * 1024d):N1} MB";
-    }
-
-    private sealed class BatchDetailDto
-    {
-        public long Id { get; set; }
-        public int InstitutionId { get; set; }
-        public string BatchReference { get; set; } = string.Empty;
-        public string RegulatorCode { get; set; } = string.Empty;
-        public string Status { get; set; } = string.Empty;
-        public Guid CorrelationId { get; set; }
-        public string? LastError { get; set; }
-        public int RetryCount { get; set; }
-        public DateTime CreatedAt { get; set; }
-        public List<BatchItemDto> Items { get; set; } = new();
-        public List<BatchReceiptDto> Receipts { get; set; } = new();
-        public List<BatchQueryDto> Queries { get; set; } = new();
-        public List<BatchAuditDto> AuditLogs { get; set; } = new();
-    }
-
-    private sealed class BatchItemDto
-    {
-        public int SubmissionId { get; set; }
-        public string ReturnCode { get; set; } = string.Empty;
-        public string ReportingPeriod { get; set; } = string.Empty;
-        public string ExportFormat { get; set; } = string.Empty;
-        public long ExportPayloadSize { get; set; }
-        public string ExportPayloadHash { get; set; } = string.Empty;
-        public string Status { get; set; } = string.Empty;
-    }
-
-    private sealed class BatchReceiptDto
-    {
-        public string RegulatorCode { get; set; } = string.Empty;
-        public string ReceiptReference { get; set; } = string.Empty;
-        public DateTime ReceiptTimestamp { get; set; }
-        public int? HttpStatusCode { get; set; }
-        public DateTime ReceivedAt { get; set; }
-    }
-
-    private sealed class BatchQueryDto
-    {
-        public string QueryReference { get; set; } = string.Empty;
-        public string QueryType { get; set; } = string.Empty;
-        public string QueryText { get; set; } = string.Empty;
-        public DateOnly? DueDate { get; set; }
-        public string Priority { get; set; } = string.Empty;
-        public string Status { get; set; } = string.Empty;
-        public DateTime ReceivedAt { get; set; }
-    }
-
-    private sealed class BatchAuditDto
-    {
-        public string Action { get; set; } = string.Empty;
-        public string? Detail { get; set; }
-        public int? PerformedBy { get; set; }
-        public DateTime PerformedAt { get; set; }
     }
 }

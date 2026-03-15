@@ -116,11 +116,35 @@ public interface IWhistleblowerService
         WhistleblowerSubmission submission,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Looks up a whistleblower case by its anonymous HMAC token.
+    /// <para>
+    /// DESIGN NOTE — null tenant context: this method intentionally opens the database
+    /// connection without a tenant identifier (passing <c>null</c> to
+    /// <see cref="IDbConnectionFactory.CreateConnectionAsync"/>). The row-level security
+    /// function <c>dbo.fn_TenantFilter</c> explicitly permits rows where
+    /// <c>@TenantId IS NULL</c>, enabling a cross-tenant lookup that is safe here because
+    /// (a) the anonymous token is a 64-character HMAC-SHA-256 hex digest — effectively
+    /// unguessable — and (b) the query selects only the three non-sensitive status fields
+    /// (CaseReference, Status, ReceivedAt, UpdatedAt). No PII or case detail is exposed.
+    /// If the RLS policy is ever tightened to require a non-null session context, this
+    /// method will silently return <c>null</c> for every token; add an integration test
+    /// that covers the null-tenant path before making that change.
+    /// </para>
+    /// </summary>
     Task<WhistleblowerStatusView?> CheckStatusAsync(
         string anonymousToken,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<WhistleblowerCaseSummary>> GetOpenCasesAsync(
+        string regulatorCode,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns all active portal users that belong to the regulator's tenant and can be
+    /// assigned as case handlers.
+    /// </summary>
+    Task<IReadOnlyList<WhistleblowerAssignableUser>> GetAssignableUsersAsync(
         string regulatorCode,
         CancellationToken ct = default);
 

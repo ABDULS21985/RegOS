@@ -20,12 +20,14 @@ public class RegIqConversation
     public string RegulatorRole { get; set; } = string.Empty;
     public string RegulatorAgency { get; set; } = string.Empty;
     public string ClassificationLevel { get; set; } = "RESTRICTED";
-    public string Scope { get; set; } = "SECTOR_WIDE";
+    public string Scope { get; set; } = "SECTOR";
     public string Title { get; set; } = "RegulatorIQ conversation";
     public DateTime StartedAt { get; set; } = DateTime.UtcNow;
     public DateTime LastActivityAt { get; set; } = DateTime.UtcNow;
     public int TurnCount { get; set; }
     public bool IsActive { get; set; } = true;
+    public Guid? ExaminationTargetTenantId { get; set; }
+    public bool IsExaminationSession { get; set; }
 
     public List<RegIqTurn> Turns { get; set; } = new();
 }

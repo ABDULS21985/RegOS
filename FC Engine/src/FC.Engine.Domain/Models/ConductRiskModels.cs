@@ -151,6 +151,11 @@ public sealed record WhistleblowerStatusView(
     DateTimeOffset UpdatedAt
 );
 
+public sealed record WhistleblowerAssignableUser(
+    int UserId,
+    string DisplayName
+);
+
 public sealed record WhistleblowerCaseSummary(
     long ReportId,
     string CaseReference,

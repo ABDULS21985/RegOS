@@ -64,6 +64,7 @@ public class SubmissionRepository : ISubmissionRepository
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
+                .ThenInclude(r => r!.Errors)
             .OrderByDescending(s => s.SubmittedAt)
             .Take(count)
             .ToListAsync(ct);

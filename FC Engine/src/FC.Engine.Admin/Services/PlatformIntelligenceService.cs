@@ -827,7 +827,7 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
             {
                 SourceCount = sanctionsCatalog.Sources.Count,
                 EntryCount = sanctionsCatalog.Entries.Count,
-                LastUpdatedAt = sanctionsCatalog.MaterializedAt ?? DateTime.UtcNow,
+                LastUpdatedAt = sanctionsCatalog.MaterializedAt ?? DateTime.MinValue,
                 PersistedFalsePositiveCount = sanctionsWorkflowState.FalsePositiveLibrary.Count,
                 PersistedReviewAuditCount = sanctionsWorkflowState.AuditTrail.Count,
                 LastReviewedAt = sanctionsWorkflowState.AuditTrail.FirstOrDefault()?.ReviewedAtUtc,

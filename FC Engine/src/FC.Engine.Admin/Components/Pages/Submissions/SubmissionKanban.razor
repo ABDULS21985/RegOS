@@ -131,11 +131,11 @@ else
 
     private static readonly List<KanbanColumn> _columns = new()
     {
-        new("Draft",                 "Draft",       "var(--cbn-gray-400)"),
-        new("Submitted",             "Submitted",   "var(--cbn-accent)"),
-        new("Validating,Parsing",    "In Review",   "#8b5cf6"),
-        new("Accepted,AcceptedWithWarnings", "Approved",  "var(--cbn-primary)"),
-        new("Rejected",              "Rejected",    "var(--cbn-danger)")
+        new("Draft",                         "Draft",       "var(--cbn-gray-400)"),
+        new("PendingApproval",               "Submitted",   "var(--cbn-accent)"),
+        new("Validating,Parsing",            "In Review",   "#8b5cf6"),
+        new("Accepted,AcceptedWithWarnings", "Approved",    "var(--cbn-primary)"),
+        new("Rejected,ApprovalRejected",     "Rejected",    "var(--cbn-danger)")
     };
 
     private bool _loading = true;
@@ -189,24 +189,40 @@ else
         // Map column key to actual SubmissionStatus
         var targetStatus = newColumnStatus switch
         {
-            "Draft"          => SubmissionStatus.Draft,
-            "Submitted"      => SubmissionStatus.PendingApproval,
-            "Validating,Parsing" => SubmissionStatus.Validating,
+            "Draft"                         => SubmissionStatus.Draft,
+            "PendingApproval"               => SubmissionStatus.PendingApproval,
+            "Validating,Parsing"            => SubmissionStatus.Validating,
             "Accepted,AcceptedWithWarnings" => SubmissionStatus.Accepted,
-            "Rejected"       => SubmissionStatus.Rejected,
-            _                => sub.Status
+            "Rejected,ApprovalRejected"     => SubmissionStatus.Rejected,
+            _                               => sub.Status
         };
 
         if (targetStatus == sub.Status) return;
 
         // Optimistic UI update
+        var previousStatus = sub.Status;
         var colLabel = _columns.FirstOrDefault(c => c.Status == newColumnStatus)?.Label ?? newColumnStatus;
-        _movedCardId  = id;
+        _movedCardId   = id;
         _movedToColumn = colLabel;
         sub.Status = targetStatus;
         await InvokeAsync(StateHasChanged);
 
-        // Clear notification after 3s
+        // Persist to database; roll back optimistic update on failure
+        try
+        {
+            await SubmissionRepo.Update(sub);
+        }
+        catch
+        {
+            sub.Status = previousStatus;
+            _movedCardId   = null;
+            _movedToColumn = null;
+            _error = $"Could not save status change for submission #{id}.";
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        // Clear success notification after 3s
         await Task.Delay(3000);
         _movedCardId = null;
         await InvokeAsync(StateHasChanged);

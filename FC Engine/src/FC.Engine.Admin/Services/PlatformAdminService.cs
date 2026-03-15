@@ -347,7 +347,7 @@ public class PlatformAdminService
 
         await _auditLogger.Log(
             "Tenant",
-            0,
+            tenantId.ToString(),
             "PlatformTenantActivated",
             null,
             new
@@ -357,6 +357,7 @@ public class PlatformAdminService
                 ImpersonatedTenantId = (Guid?)null
             },
             actor,
+            explicitTenantId: tenantId,
             ct);
     }
 
@@ -377,7 +378,7 @@ public class PlatformAdminService
 
         await _auditLogger.Log(
             "Tenant",
-            0,
+            tenantId.ToString(),
             "PlatformTenantSuspended",
             null,
             new
@@ -388,6 +389,7 @@ public class PlatformAdminService
                 ImpersonatedTenantId = (Guid?)null
             },
             actor,
+            explicitTenantId: tenantId,
             ct);
     }
 
@@ -500,14 +502,14 @@ public class PlatformAdminService
 
         var entitlementActivity = (await db.AuditLog
                 .AsNoTracking()
-                .Where(x => x.Action == "TenantModulesReconciled"
-                         || x.Action == "TenantLicenceAssigned"
-                         || x.Action == "TenantLicenceRemoved")
+                .Where(x => x.TenantId == tenantId
+                         && (x.Action == "TenantModulesReconciled"
+                          || x.Action == "TenantLicenceAssigned"
+                          || x.Action == "TenantLicenceRemoved"))
                 .OrderByDescending(x => x.PerformedAt)
-                .Take(500)
+                .Take(20)
+                .Select(x => new { x.Action, x.PerformedAt, x.PerformedBy })
                 .ToListAsync(ct))
-            .Where(x => ResolveEntitlementAuditTenantId(x) == tenantId)
-            .Take(20)
             .Select(x => new TenantEntitlementActivityItem
             {
                 Action = DescribeEntitlementAction(x.Action),
@@ -688,6 +690,7 @@ public class PlatformAdminService
                 Action = a.Action,
                 EntityType = a.EntityType,
                 EntityId = a.EntityId,
+                EntityRef = a.EntityRef,
                 PerformedBy = a.PerformedBy,
                 PerformedAt = a.PerformedAt
             }).ToList(),
@@ -1201,6 +1204,20 @@ public class PlatformAdminService
             x => x.ModuleId,
             x => x.Tenants.ToHashSet());
 
+        // Batch the active-user count for all relevant tenants in one query (avoids N+1 per module).
+        var allRelevantTenantIds = tenantLookup.Values
+            .SelectMany(set => set)
+            .ToHashSet();
+
+        var activeUsersByTenant = allRelevantTenantIds.Count == 0
+            ? new Dictionary<Guid, int>()
+            : await db.InstitutionUsers
+                .AsNoTracking()
+                .Where(u => u.IsActive && allRelevantTenantIds.Contains(u.TenantId))
+                .GroupBy(u => u.TenantId)
+                .Select(g => new { TenantId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.TenantId, x => x.Count, ct);
+
         var submissions = await db.Submissions
             .AsNoTracking()
             .Where(s => s.Status != SubmissionStatus.Draft)
@@ -1210,7 +1227,7 @@ public class PlatformAdminService
         var submissionByModule = submissions
             .Where(s => templateMap.ContainsKey(s.ReturnCode))
             .GroupBy(s => templateMap[s.ReturnCode])
-            .ToDictionary(g => g.Key, g => g.ToList());
+            .ToDictionary(g => g.Key, g => g.Select(s => s.Id).ToList());
 
         var reportsBySubmission = await db.ValidationReports
             .AsNoTracking()
@@ -1231,17 +1248,12 @@ public class PlatformAdminService
         foreach (var module in modules)
         {
             var tenants = tenantLookup.TryGetValue(module.Id, out var t) ? t : new HashSet<Guid>();
-            var moduleSubs = submissionByModule.TryGetValue(module.Id, out var ms) ? (IList<dynamic>)ms : new List<dynamic>();
+            var moduleSubmissionIds = submissionByModule.TryGetValue(module.Id, out var ms) ? ms : new List<int>();
 
-            var submissionCount = moduleSubs.Count;
+            var submissionCount = moduleSubmissionIds.Count;
             var uniqueTenants = tenants.Count;
 
-            var activeUsers = await db.InstitutionUsers
-                .AsNoTracking()
-                .Where(u => u.IsActive && tenants.Contains(u.TenantId))
-                .CountAsync(ct);
-
-            var moduleSubmissionIds = moduleSubs.Select(s => (int)s.Id).ToList();
+            var activeUsers = tenants.Sum(tid => activeUsersByTenant.GetValueOrDefault(tid));
             var moduleReportIds = moduleSubmissionIds
                 .Where(reportLookup.ContainsKey)
                 .Select(id => reportLookup[id])
@@ -1707,6 +1719,10 @@ public class TenantAuditItem
     public string Action { get; set; } = string.Empty;
     public string EntityType { get; set; } = string.Empty;
     public int EntityId { get; set; }
+
+    /// <summary>String-keyed entity reference (e.g. Guid for Tenants). Non-null when EntityId is 0.</summary>
+    public string? EntityRef { get; set; }
+
     public string PerformedBy { get; set; } = string.Empty;
     public DateTime PerformedAt { get; set; }
 }

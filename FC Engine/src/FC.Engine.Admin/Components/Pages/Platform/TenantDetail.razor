@@ -1,13 +1,16 @@
 @page "/platform/tenants/{TenantId:guid}"
 @attribute [Authorize(Policy = "PlatformAdmin")]
 @using FC.Engine.Admin.Services
+@using FC.Engine.Admin.Utilities
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Infrastructure.Services
+@using Microsoft.AspNetCore.Components.Authorization
 @inject PlatformAdminService PlatformService
 @inject TenantManagementService TenantService
 @inject NavigationManager Navigation
 @inject ToastService Toast
+@inject DialogService Dialog
 
 <PageTitle>Tenant Detail</PageTitle>
 
@@ -22,6 +25,38 @@
             </button>
         }
     </PrimaryAction>
+    <SecondaryActions>
+        @if (_data is not null)
+        {
+            @if (_data.Status == TenantStatus.PendingActivation)
+            {
+                <button class="fc-btn fc-btn--success fc-btn--sm" @onclick="ActivateTenantAction" disabled="@_savingStatus" type="button">
+                    @if (_savingStatus) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Activate
+                </button>
+            }
+            else if (_data.Status == TenantStatus.Active)
+            {
+                <button class="fc-btn fc-btn--danger fc-btn--sm" @onclick="SuspendTenantAction" disabled="@_savingStatus" type="button">
+                    @if (_savingStatus) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Suspend
+                </button>
+                <button class="fc-btn fc-btn--ghost fc-btn--sm" @onclick="DeactivateTenantAction" disabled="@_savingStatus" type="button">
+                    Deactivate
+                </button>
+            }
+            else if (_data.Status == TenantStatus.Suspended)
+            {
+                <button class="fc-btn fc-btn--success fc-btn--sm" @onclick="ReactivateTenantAction" disabled="@_savingStatus" type="button">
+                    @if (_savingStatus) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Reactivate
+                </button>
+                <button class="fc-btn fc-btn--ghost fc-btn--sm" @onclick="DeactivateTenantAction" disabled="@_savingStatus" type="button">
+                    Deactivate
+                </button>
+            }
+        }
+    </SecondaryActions>
 </PageHeader>
 
 <div class="fc-page">
@@ -48,6 +83,21 @@
                     </div>
                 </div>
             }
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="fc-alert fc-alert--inline fc-alert--error fc-mb-4">@_error</div>
+        <div class="fc-empty">
+            <div class="fc-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <h3 class="fc-empty-title">Failed to load tenant</h3>
+            <p class="fc-empty-text">An error occurred while retrieving the tenant data.</p>
+            <div class="fc-empty-actions">
+                <button class="fc-btn fc-btn--primary" @onclick="LoadAsync" type="button">Retry</button>
+                <button class="fc-btn fc-btn--outline" @onclick="Back" type="button">Back to Tenants</button>
+            </div>
         </div>
     }
     else if (_data is null)
@@ -83,14 +133,7 @@
                 <div class="fc-card">
                     <div class="fc-card__body">
                         <div class="fc-kv"><span>Status</span><strong>
-                            @if (_data.Status == TenantStatus.Active)
-                            {
-                                <span class="fc-badge fc-badge--success">@_data.Status</span>
-                            }
-                            else
-                            {
-                                <span class="fc-badge fc-badge--danger">@_data.Status</span>
-                            }
+                            <span class="fc-badge @GetTenantStatusBadge(_data.Status)">@_data.Status</span>
                         </strong></div>
                         <div class="fc-kv"><span>Created</span><strong>@_data.CreatedAt.ToString("dd MMM yyyy")</strong></div>
                     </div>
@@ -667,7 +710,7 @@
                                     <td>@row.PeriodLabel</td>
                                     <td>@row.Deadline.ToString("dd MMM yyyy")</td>
                                     <td>
-                                        <span class="fc-badge @(row.RagStatus == "Red" ? "fc-badge--danger" : row.RagStatus == "Amber" ? "fc-badge--warning" : "fc-badge--success")">
+                                        <span class="fc-badge @GetPeriodStatusBadge(row.RagStatus)">
                                             @row.RagStatus
                                         </span>
                                     </td>
@@ -705,7 +748,7 @@
                                 <tr>
                                     <td>@row.PerformedAt.ToString("dd MMM yyyy HH:mm")</td>
                                     <td>@row.Action</td>
-                                    <td>@row.EntityType #@row.EntityId</td>
+                                    <td>@row.EntityType @(row.EntityRef is not null ? row.EntityRef : $"#{row.EntityId}")</td>
                                     <td>@row.PerformedBy</td>
                                 </tr>
                             }
@@ -760,11 +803,13 @@
 
 @code {
     [Parameter] public Guid TenantId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private PlatformTenantDetailData? _data;
     private List<TenantLicenceType> _tenantLicences = new();
     private List<LicenceType> _licenceOptions = new();
     private bool _loading = true;
+    private bool _savingStatus;
     private bool _assigningLicence;
     private bool _reconcilingModules;
     private string? _error;
@@ -848,6 +893,113 @@
 
     private void Impersonate()
         => Navigation.NavigateTo($"/platform/impersonate?tenantId={TenantId}", forceLoad: true);
+
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+
+    private async Task ActivateTenantAction()
+    {
+        _savingStatus = true;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.ActivateTenant(TenantId, actor);
+            await LoadAsync();
+            Toast.Success($"{_data?.TenantName} activated.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to activate tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SuspendTenantAction()
+    {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Suspend Tenant",
+            Message = $"Suspend {_data?.TenantName}? All portal users will lose access until the tenant is reactivated.",
+            ConfirmText = "Suspend",
+            IsDestructive = true
+        });
+        if (!confirmed) return;
+
+        _savingStatus = true;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.SuspendTenant(TenantId, actor);
+            await LoadAsync();
+            Toast.Warning($"{_data?.TenantName} suspended.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to suspend tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReactivateTenantAction()
+    {
+        _savingStatus = true;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.ActivateTenant(TenantId, actor);
+            await LoadAsync();
+            Toast.Success($"{_data?.TenantName} reactivated.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to reactivate tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeactivateTenantAction()
+    {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Deactivate Tenant",
+            Message = $"Permanently deactivate {_data?.TenantName}? This will revoke all entitlements and cannot be undone without re-provisioning.",
+            ConfirmText = "Deactivate",
+            IsDestructive = true
+        });
+        if (!confirmed) return;
+
+        _savingStatus = true;
+        try
+        {
+            await TenantService.DeactivateTenantAsync(TenantId);
+            await LoadAsync();
+            Toast.Info($"{_data?.TenantName} deactivated.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to deactivate tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
 
     private void ClearLicencePreview()
     {
@@ -1025,6 +1177,25 @@
         "Eligible" => "fc-badge--neutral",
         "Inactive" => "fc-badge--danger",
         "Unavailable" => "fc-badge--neutral",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string GetTenantStatusBadge(TenantStatus status) => status switch
+    {
+        TenantStatus.Active => "fc-badge--success",
+        TenantStatus.PendingActivation => "fc-badge--warning",
+        TenantStatus.Suspended => "fc-badge--danger",
+        TenantStatus.Deactivated => "fc-badge--neutral",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string GetPeriodStatusBadge(string status) => status switch
+    {
+        "Overdue" => "fc-badge--danger",
+        "DueSoon" => "fc-badge--warning",
+        "Open" => "fc-badge--neutral",
+        "Upcoming" => "fc-badge--neutral",
+        "Completed" or "Closed" => "fc-badge--success",
         _ => "fc-badge--neutral"
     };
 }

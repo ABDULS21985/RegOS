@@ -720,6 +720,21 @@
         {
             <div class="rg-ps-decision-panel">
                 <div class="rg-card">
+                    @if (_decisionId > 0)
+                    {
+                        <h3 class="rg-section-title">Decision Recorded</h3>
+                        <p class="rg-muted rg-ps-text-sm">
+                            A decision has already been recorded for this scenario
+                            (@_scenario.Status). Download the policy document below.
+                        </p>
+                    }
+                    else if (_scenario.Status is PolicyStatus.Enacted or PolicyStatus.Withdrawn or PolicyStatus.DecisionPending)
+                    {
+                        <h3 class="rg-section-title">Decision Recorded</h3>
+                        <p class="rg-muted rg-ps-text-sm">Status: @_scenario.Status</p>
+                    }
+                    else
+                    {
                     <h3 class="rg-section-title">Record Policy Decision</h3>
                     <div class="rg-ps-form-section">
                         <div class="rg-ps-form-group">
@@ -757,6 +772,7 @@
                             </button>
                         </div>
                     </div>
+                    } @* end else (no decision yet) *@
                 </div>
 
                 <!-- Summary Sidebar -->
@@ -934,6 +950,7 @@
     private bool _creatingConsult;
     private bool _recordingDecision;
     private long _decisionId;
+    private bool _chartsRendered;
 
     // Add Parameter
     private string _addParamCode = string.Empty;
@@ -970,6 +987,7 @@
     {
         _loading = true;
         _loadException = null;
+        _chartsRendered = false;
         try
         {
             _scenario = await ScenarioService.GetScenarioAsync(ScenarioId, _regulatorId);
@@ -985,17 +1003,14 @@
             // Try load CBA
             try { _cba = await CbaService.GetAnalysisAsync(ScenarioId, _regulatorId); } catch { /* not generated yet */ }
 
-            // Try load consultation
-            try
-            {
-                if (_scenario.Status >= PolicyStatus.Consultation)
-                {
-                    // Note: Direct consultation lookup may require querying by scenario.
-                }
-            }
-            catch { /* no consultation */ }
+            // Load consultation — look up by scenario ID across all statuses
+            _consultation = await ConsultationService.GetLatestConsultationForScenarioAsync(ScenarioId, _regulatorId);
 
-            // Load tracking
+            // Populate decision ID from the loaded scenario so tracking works on page reload
+            if (_scenario.DecisionId.HasValue)
+                _decisionId = _scenario.DecisionId.Value;
+
+            // Load tracking for enacted scenarios with a recorded decision
             if (_scenario.Status == PolicyStatus.Enacted && _decisionId > 0)
             {
                 try
@@ -1003,7 +1018,7 @@
                     _trackingHistory = await Tracker.GetTrackingHistoryAsync(_decisionId, _regulatorId);
                     _accuracyScore = await Tracker.GetAccuracyScoreAsync(_decisionId, _regulatorId);
                 }
-                catch { /* no tracking yet */ }
+                catch { /* no tracking data yet — monthly cycle hasn't run */ }
             }
         }
         catch (Exception ex)
@@ -1040,6 +1055,7 @@
     private async Task RunSimulation()
     {
         _simulating = true;
+        _chartsRendered = false;
         StateHasChanged();
         try
         {
@@ -1062,6 +1078,7 @@
     {
         if (_latestRun is null) return;
         _generatingCba = true;
+        _chartsRendered = false;
         try
         {
             _cba = await CbaService.GenerateAnalysisAsync(_latestRun.RunId, _regulatorId, _userId);
@@ -1222,8 +1239,11 @@
         {
             var docBytes = await DecisionService.GeneratePolicyDocumentAsync(_decisionId, _regulatorId);
             var base64 = Convert.ToBase64String(docBytes);
-            await JS.InvokeVoidAsync("eval",
-                $"{{ var a=document.createElement('a');a.href='data:text/plain;base64,{base64}';a.download='policy-document-{_decisionId}.txt';a.click(); }}");
+            await JS.InvokeVoidAsync(
+                "fcScenarios.downloadBase64File",
+                base64,
+                $"policy-document-{_decisionId}.txt",
+                "text/plain");
             Toast.Success("Document downloaded.");
         }
         catch (Exception ex)
@@ -1234,7 +1254,10 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!firstRender || _latestRun is null) return;
+        // Render charts once data is available; reset _chartsRendered whenever a new
+        // simulation or CBA result arrives (RunSimulation/GenerateCBA set it to false).
+        if (_latestRun is null || _chartsRendered) return;
+        _chartsRendered = true;
 
         try
         {

@@ -320,6 +320,10 @@ public class AuditLogEntry
 
     public string EntityType { get; set; } = string.Empty;
     public int EntityId { get; set; }
+
+    /// <summary>String-keyed entity reference (e.g. Guid for Tenants). Supplements EntityId for non-integer PKs.</summary>
+    public string? EntityRef { get; set; }
+
     public string Action { get; set; } = string.Empty;
     public string? OldValues { get; set; }
     public string? NewValues { get; set; }

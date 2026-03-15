@@ -116,7 +116,15 @@ public class ValidationReportConfiguration : IEntityTypeConfiguration<Validation
         builder.Ignore(r => r.ErrorCount);
         builder.Ignore(r => r.WarningCount);
 
-        builder.HasMany(r => r.Errors).WithOne().HasForeignKey(e => e.ValidationReportId);
+        builder.HasMany(r => r.Errors)
+            .WithOne()
+            .HasForeignKey(e => e.ValidationReportId);
+
+        // The Errors property exposes IReadOnlyList<T> via a private backing field.
+        // Tell EF Core to use the field directly so it can populate the collection.
+        builder.Navigation(r => r.Errors)
+            .HasField("_errors")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
 
         builder.HasIndex(r => r.TenantId);
     }

@@ -136,7 +136,11 @@ public sealed class SanctionsWorkflowStoreService
     {
         if (!_db.Database.IsSqlServer())
         {
-            return;
+            throw new NotSupportedException(
+                "Sanctions workflow store requires SQL Server. " +
+                "The application is configured exclusively for SQL Server; " +
+                "ensure the 'FcEngine' connection string points to a SQL Server instance " +
+                "and that EF migrations have been applied via the Migrator.");
         }
 
         const string sql = """
@@ -194,30 +198,26 @@ public sealed class SanctionsWorkflowStoreService
 
     private async Task TrimStoreAsync(CancellationToken ct)
     {
-        var staleFalsePositives = await _db.SanctionsFalsePositiveEntries
-            .OrderByDescending(x => x.ReviewedAtUtc)
-            .Skip(MaxFalsePositiveEntries)
-            .ToListAsync(ct);
+        // Raw SQL ensures idempotency under concurrent decisions: if another request
+        // has already deleted the same overflow rows the statement affects 0 rows
+        // rather than raising a DbUpdateConcurrencyException from the EF change tracker.
+        var sql = $"""
+            DELETE FROM [meta].[sanctions_false_positive_library]
+            WHERE [Id] NOT IN (
+                SELECT TOP ({MaxFalsePositiveEntries}) [Id]
+                FROM [meta].[sanctions_false_positive_library]
+                ORDER BY [ReviewedAtUtc] DESC
+            );
 
-        if (staleFalsePositives.Count > 0)
-        {
-            _db.SanctionsFalsePositiveEntries.RemoveRange(staleFalsePositives);
-        }
+            DELETE FROM [meta].[sanctions_decision_audit]
+            WHERE [Id] NOT IN (
+                SELECT TOP ({MaxAuditEntries}) [Id]
+                FROM [meta].[sanctions_decision_audit]
+                ORDER BY [ReviewedAtUtc] DESC
+            );
+            """;
 
-        var staleAuditEntries = await _db.SanctionsDecisionAuditRecords
-            .OrderByDescending(x => x.ReviewedAtUtc)
-            .Skip(MaxAuditEntries)
-            .ToListAsync(ct);
-
-        if (staleAuditEntries.Count > 0)
-        {
-            _db.SanctionsDecisionAuditRecords.RemoveRange(staleAuditEntries);
-        }
-
-        if (staleFalsePositives.Count > 0 || staleAuditEntries.Count > 0)
-        {
-            await _db.SaveChangesAsync(ct);
-        }
+        await _db.Database.ExecuteSqlRawAsync(sql, ct);
     }
 }
 

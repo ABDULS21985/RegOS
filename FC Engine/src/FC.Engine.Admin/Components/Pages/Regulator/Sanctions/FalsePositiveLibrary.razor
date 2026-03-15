@@ -20,7 +20,7 @@
         {
             <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
         }
-        else if (_data is null)
+        else if (_data is null || (_data.FalsePositiveLibrary.Count == 0 && _data.AuditTrail.Count == 0))
         {
             <EmptyState Context="data" Heading="No false positive data" Description="Review screening alerts and mark false positives to populate this library." />
         }
@@ -50,7 +50,9 @@
                                PageSize="20"
                                Sortable="true"
                                ShowExport="true"
-                               ExportFileName="false-positive-library">
+                               ExportFileName="false-positive-library"
+                               EmptyTitle="No false positives"
+                               EmptyText="Mark screening alerts as false positives to populate this library.">
                         <ChildContent>
                             <DataColumn TItem="SanctionsWorkflowFalsePositiveRecord" Title="Subject" SortKey="@(x => x.Subject)">
                                 <CellTemplate><strong>@context.Subject</strong></CellTemplate>
@@ -92,7 +94,9 @@
                                PageSize="20"
                                Sortable="true"
                                ShowExport="true"
-                               ExportFileName="sanctions-audit-trail">
+                               ExportFileName="sanctions-audit-trail"
+                               EmptyTitle="No decisions recorded"
+                               EmptyText="Review alerts to generate audit trail entries.">
                         <ChildContent>
                             <DataColumn TItem="SanctionsWorkflowAuditRecord" Title="Subject" SortKey="@(x => x.Subject)">
                                 <CellTemplate><strong>@context.Subject</strong></CellTemplate>

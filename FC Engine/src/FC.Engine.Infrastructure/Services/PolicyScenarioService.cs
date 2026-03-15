@@ -171,6 +171,7 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
             .AsNoTracking()
             .Include(s => s.Parameters)
             .Include(s => s.ImpactRuns)
+            .Include(s => s.Decision)
             .Where(s => s.Id == scenarioId && s.RegulatorId == regulatorId)
             .FirstOrDefaultAsync(ct)
             ?? throw new InvalidOperationException($"Scenario {scenarioId} not found for regulator {regulatorId}.");
@@ -210,7 +211,8 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
             scenario.Status,
             scenario.Version,
             parameters,
-            runs);
+            runs,
+            scenario.Decision?.Id);
     }
 
     public async Task<PagedResult<PolicyScenarioSummary>> ListScenariosAsync(
@@ -261,6 +263,39 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
                 regulatorId);
 
             return new PagedResult<PolicyScenarioSummary>([], 0, page, pageSize);
+        }
+    }
+
+    // ── Status Counts ─────────────────────────────────────────────────
+
+    public async Task<ScenarioStatusCounts> GetStatusCountsAsync(
+        int regulatorId,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var counts = await _db.PolicyScenarios
+                .AsNoTracking()
+                .Where(s => s.RegulatorId == regulatorId)
+                .GroupBy(s => s.Status)
+                .Select(g => new { Status = g.Key, Count = g.Count() })
+                .ToListAsync(ct);
+
+            int Get(PolicyStatus s) => counts.FirstOrDefault(c => c.Status == s)?.Count ?? 0;
+            var total = counts.Sum(c => c.Count);
+
+            return new ScenarioStatusCounts(
+                total,
+                Get(PolicyStatus.Draft),
+                Get(PolicyStatus.ParametersSet),
+                Get(PolicyStatus.Simulated),
+                Get(PolicyStatus.Consultation) + Get(PolicyStatus.FeedbackClosed),
+                Get(PolicyStatus.Enacted),
+                Get(PolicyStatus.Withdrawn));
+        }
+        catch (Exception ex) when (ex.IsMissingSchemaObject())
+        {
+            return new ScenarioStatusCounts(0, 0, 0, 0, 0, 0, 0);
         }
     }
 

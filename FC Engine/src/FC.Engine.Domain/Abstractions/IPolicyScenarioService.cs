@@ -62,4 +62,12 @@ public interface IPolicyScenarioService
         PolicyStatus newStatus,
         int userId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns total scenario count and per-status counts for the given regulator.
+    /// Used to populate accurate KPI strips without loading all paginated items.
+    /// </summary>
+    Task<ScenarioStatusCounts> GetStatusCountsAsync(
+        int regulatorId,
+        CancellationToken ct = default);
 }

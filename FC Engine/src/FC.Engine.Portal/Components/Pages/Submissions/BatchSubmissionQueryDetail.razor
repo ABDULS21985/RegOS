@@ -1,0 +1,531 @@
+@page "/submissions/batches/queries/{QueryId:long}"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using System.Security.Cryptography
+@using FC.Engine.Domain.Models.BatchSubmission
+@using FC.Engine.Domain.Security
+@inject SubmissionBatchPortalService BatchPortalService
+@inject IInstitutionUserRepository UserRepository
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Regulator Query — RegOS™ Portal</PageTitle>
+
+<PortalPageHeader
+    Breadcrumb="@_breadcrumbs"
+    Title="@(_detail?.QueryReference ?? $"Query #{QueryId}")"
+    Subtitle="Review the regulator request, assign ownership, and submit your institution response.">
+    <PrimaryAction>
+        <a href="/submissions/batches/queries" class="portal-btn portal-btn-outline portal-btn-sm">Back to Queries</a>
+    </PrimaryAction>
+    <SecondaryActions>
+        @if (_detail is not null)
+        {
+            <a href="/submissions/batches/@_detail.BatchId" class="portal-btn portal-btn-outline portal-btn-sm">View Batch</a>
+        }
+    </SecondaryActions>
+</PortalPageHeader>
+
+<div class="portal-page">
+    @if (_loading)
+    {
+        <div aria-busy="true" aria-label="Loading regulator query detail">
+            <div class="portal-grid portal-grid-4" style="margin-bottom:1rem;">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="portal-card"><div class="portal-card-body">
+                        <div class="portal-skeleton portal-skeleton-block" style="height:18px;margin-bottom:0.75rem;"></div>
+                        <div class="portal-skeleton portal-skeleton-block" style="height:30px;"></div>
+                    </div></div>
+                }
+            </div>
+            <div class="portal-grid portal-grid-2">
+                @for (var i = 0; i < 2; i++)
+                {
+                    <div class="portal-card"><div class="portal-card-body">
+                        @for (var row = 0; row < 4; row++)
+                        {
+                            <div class="portal-skeleton portal-skeleton-block" style="height:46px;margin-bottom:0.75rem;"></div>
+                        }
+                    </div></div>
+                }
+            </div>
+        </div>
+    }
+    else if (!_canViewDirectStatus)
+    {
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <h3 class="portal-empty-state-title">Access Restricted</h3>
+            <p class="portal-empty-state-desc">Your account can’t view regulator query detail.</p>
+            <a href="/submissions" class="portal-btn portal-btn-primary">Back to Submissions</a>
+        </div>
+    }
+    else if (_detail is null)
+    {
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <h3 class="portal-empty-state-title">Query not found</h3>
+            <p class="portal-empty-state-desc">@(_error ?? "The requested query could not be found or you do not have access to it.")</p>
+            <a href="/submissions/batches/queries" class="portal-btn portal-btn-primary">Back to Queries</a>
+        </div>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(_actionMessage))
+        {
+            <div class="portal-alert @(_actionIsError ? "portal-alert-danger" : "portal-alert-success")" role="alert" style="margin-bottom:1rem;">
+                @_actionMessage
+            </div>
+        }
+
+        <div class="portal-grid portal-grid-4" style="margin-bottom:1rem;">
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <div class="portal-stat-label">Status</div>
+                    <div style="margin-top:0.5rem;">
+                        <span class="portal-badge @GetStatusBadgeClass(_detail.Status)">@_detail.Status</span>
+                    </div>
+                </div>
+            </div>
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <div class="portal-stat-label">Batch</div>
+                    <div class="portal-stat-value">@_detail.BatchReference</div>
+                    <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">@_detail.BatchStatus</div>
+                </div>
+            </div>
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <div class="portal-stat-label">Priority</div>
+                    <div style="margin-top:0.5rem;">
+                        <span class="portal-badge @GetPriorityBadgeClass(_detail.Priority)">@_detail.Priority</span>
+                    </div>
+                </div>
+            </div>
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <div class="portal-stat-label">Due Date</div>
+                    <div class="portal-stat-value">@(_detail.DueDate?.ToString("dd MMM yyyy") ?? "None")</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="portal-card" style="margin-bottom:1rem;">
+            <div class="portal-card-body">
+                <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
+                    <div>
+                        <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                            <span class="portal-badge portal-badge-neutral">@_detail.RegulatorCode</span>
+                            @if (!string.IsNullOrWhiteSpace(_detail.RegulatorName) && !string.Equals(_detail.RegulatorName, _detail.RegulatorCode, StringComparison.OrdinalIgnoreCase))
+                            {
+                                <span class="portal-badge portal-badge-neutral">@_detail.RegulatorName</span>
+                            }
+                            <span class="portal-badge portal-badge-neutral">@_detail.QueryType</span>
+                        </div>
+                        <div style="margin-top:0.6rem;color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                            Received @_detail.ReceivedAt.ToString("dd MMM yyyy HH:mm")
+                            @if (_detail.RespondedAt.HasValue)
+                            {
+                                <text> · last responded @_detail.RespondedAt.Value.ToString("dd MMM yyyy HH:mm")</text>
+                            }
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_detail.AssignedToName))
+                        {
+                            <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                                Assigned to @_detail.AssignedToName
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div style="margin-top:1rem;padding:1rem;border:1px solid var(--portal-border,#e2e8f0);border-radius:14px;background:#fff;">
+                    @_detail.QueryText
+                </div>
+            </div>
+        </div>
+
+        <div class="portal-grid portal-grid-2" style="margin-bottom:1rem;">
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <h3 class="portal-card-title">Assignment</h3>
+                    @if (_canDirectSubmit)
+                    {
+                        <div class="portal-form-group">
+                            <label class="portal-form-label" for="assign-user-select">Owner</label>
+                            <select id="assign-user-select" class="portal-form-select" @bind="_assignedToUserId">
+                                <option value="">Unassigned</option>
+                                @foreach (var user in _teamMembers)
+                                {
+                                    <option value="@user.Id">@user.DisplayName (@user.Role)</option>
+                                }
+                            </select>
+                        </div>
+                        <button class="portal-btn portal-btn-outline portal-btn-sm"
+                                disabled="@(!_assignedToUserId.HasValue || _assigning)"
+                                @onclick="AssignQueryAsync">
+                            @if (_assigning)
+                            {
+                                <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                <span>Saving…</span>
+                            }
+                            else
+                            {
+                                <span>Assign Query</span>
+                            }
+                        </button>
+                    }
+                    else
+                    {
+                        <p class="portal-empty-state-desc">You have read-only access to this query.</p>
+                    }
+                </div>
+            </div>
+
+            <div class="portal-card">
+                <div class="portal-card-body">
+                    <h3 class="portal-card-title">Respond to Regulator</h3>
+                    @if (!_canDirectSubmit)
+                    {
+                        <p class="portal-empty-state-desc">Only users with direct submission permission can respond.</p>
+                    }
+                    else if (_detail.Status == "CLOSED")
+                    {
+                        <p class="portal-empty-state-desc">This query is already closed. Additional responses are not available from this screen.</p>
+                    }
+                    else
+                    {
+                        <div class="portal-form-group">
+                            <label class="portal-form-label" for="query-response-text">Response</label>
+                            <textarea id="query-response-text"
+                                      class="portal-form-textarea"
+                                      rows="5"
+                                      placeholder="Draft the institution response that will be sent to the regulator..."
+                                      @bind="_responseText"></textarea>
+                        </div>
+                        <div class="portal-form-group">
+                            <label class="portal-form-label">Supporting Attachments</label>
+                            <InputFile OnChange="HandleAttachmentsSelected" multiple />
+                            <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                Up to 5 files, 5 MB each.
+                            </div>
+                        </div>
+                        @if (_attachments.Count > 0)
+                        {
+                            <div style="display:grid;gap:0.5rem;margin-bottom:1rem;">
+                                @foreach (var attachment in _attachments)
+                                {
+                                    <div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;padding:0.75rem 0.9rem;border:1px solid var(--portal-border,#e2e8f0);border-radius:12px;">
+                                        <div>
+                                            <div style="font-weight:600;">@attachment.FileName</div>
+                                            <div style="color:var(--portal-text-muted,#64748b);font-size:0.85rem;">@FormatBytes(attachment.SizeBytes) · @attachment.ContentType</div>
+                                        </div>
+                                        <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="() => RemoveAttachment(attachment.FileHash)">Remove</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        <button class="portal-btn portal-btn-primary"
+                                disabled="@(_submitting || string.IsNullOrWhiteSpace(_responseText))"
+                                @onclick="SubmitResponseAsync">
+                            @if (_submitting)
+                            {
+                                <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                <span>Submitting…</span>
+                            }
+                            else
+                            {
+                                <span>Submit Response</span>
+                            }
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="portal-card">
+            <div class="portal-card-body">
+                <h3 class="portal-card-title">Response History</h3>
+                @if (_detail.Responses.Count == 0)
+                {
+                    <p class="portal-empty-state-desc">No responses have been logged for this query yet.</p>
+                }
+                else
+                {
+                    <div style="display:grid;gap:0.85rem;">
+                        @foreach (var response in _detail.Responses.OrderByDescending(item => item.CreatedAt))
+                        {
+                            <div style="border:1px solid var(--portal-border,#e2e8f0);border-radius:14px;padding:1rem;background:#fff;">
+                                <div style="display:flex;justify-content:space-between;gap:1rem;align-items:flex-start;flex-wrap:wrap;">
+                                    <div>
+                                        <div style="font-weight:700;">@response.CreatedByName</div>
+                                        <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                                            Drafted @response.CreatedAt.ToString("dd MMM yyyy HH:mm")
+                                            @if (response.SubmittedAt.HasValue)
+                                            {
+                                                <text> · sent @response.SubmittedAt.Value.ToString("dd MMM yyyy HH:mm")</text>
+                                            }
+                                        </div>
+                                    </div>
+                                    <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                                        <span class="portal-badge @(response.SubmittedToRegulator ? "portal-badge-success" : "portal-badge-warning")">
+                                            @(response.SubmittedToRegulator ? "Sent to Regulator" : "Saved Locally")
+                                        </span>
+                                        @if (!string.IsNullOrWhiteSpace(response.RegulatorAckRef))
+                                        {
+                                            <span class="portal-badge portal-badge-neutral">@response.RegulatorAckRef</span>
+                                        }
+                                    </div>
+                                </div>
+                                <div style="margin-top:0.85rem;padding:0.9rem 1rem;border-radius:12px;background:#f8fafc;">
+                                    @response.ResponseText
+                                </div>
+                                @if (response.Attachments.Count > 0)
+                                {
+                                    <div style="display:grid;gap:0.5rem;margin-top:0.85rem;">
+                                        @foreach (var attachment in response.Attachments)
+                                        {
+                                            <div style="display:flex;justify-content:space-between;gap:1rem;align-items:center;padding:0.75rem 0.9rem;border:1px solid var(--portal-border,#e2e8f0);border-radius:12px;">
+                                                <div>
+                                                    <div style="font-weight:600;">@attachment.FileName</div>
+                                                    <div style="color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                                        @FormatBytes(attachment.FileSizeBytes) · @attachment.ContentType
+                                                    </div>
+                                                </div>
+                                                <code style="font-size:0.75rem;color:var(--portal-text-muted,#64748b);">@ShortHash(attachment.FileHash)</code>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public long QueryId { get; set; }
+
+    private bool _loading = true;
+    private bool _assigning;
+    private bool _submitting;
+    private bool _canDirectSubmit;
+    private bool _canViewDirectStatus;
+    private bool _actionIsError;
+    private int _institutionId;
+    private int _userId;
+    private int? _assignedToUserId;
+    private string? _error;
+    private string? _actionMessage;
+    private string _responseText = string.Empty;
+    private RegulatoryQueryDetailModel? _detail;
+    private List<InstitutionUser> _teamMembers = [];
+    private List<PendingAttachment> _attachments = [];
+
+    private List<BreadcrumbItem> _breadcrumbs => new()
+    {
+        new("Dashboard", "/"),
+        new("Submissions", "/submissions"),
+        new("Batch Submissions", "/submissions/batches"),
+        new("Open Queries", "/submissions/batches/queries"),
+        new(_detail?.QueryReference ?? $"Query #{QueryId}", IsCurrent: true)
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var user = auth.User;
+
+            _ = int.TryParse(user.FindFirst("InstitutionId")?.Value, out _institutionId);
+            _ = int.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+            _canDirectSubmit = user.HasClaim("perm", PermissionCatalog.SubmissionDirectSubmit);
+            _canViewDirectStatus = user.HasClaim("perm", PermissionCatalog.SubmissionDirectStatus)
+                || _canDirectSubmit;
+
+            if (!_canViewDirectStatus || _institutionId <= 0)
+            {
+                return;
+            }
+
+            _detail = await BatchPortalService.GetQueryDetailAsync(_institutionId, QueryId);
+            if (_detail is null)
+            {
+                _error = $"Query {QueryId} was not found.";
+                return;
+            }
+
+            _assignedToUserId = _detail.AssignedToUserId;
+            if (_canDirectSubmit)
+            {
+                _teamMembers = (await UserRepository.GetByInstitution(_institutionId))
+                    .Where(userItem => userItem.IsActive)
+                    .OrderBy(userItem => userItem.DisplayName)
+                    .ToList();
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task AssignQueryAsync()
+    {
+        if (!_assignedToUserId.HasValue || _detail is null)
+        {
+            return;
+        }
+
+        _assigning = true;
+        _actionMessage = null;
+
+        try
+        {
+            await BatchPortalService.AssignQueryAsync(_institutionId, _detail.QueryId, _assignedToUserId.Value);
+            _actionIsError = false;
+            _actionMessage = "Query assignment updated.";
+            await ReloadDetailAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionIsError = true;
+            _actionMessage = ex.Message;
+        }
+        finally
+        {
+            _assigning = false;
+        }
+    }
+
+    private async Task HandleAttachmentsSelected(InputFileChangeEventArgs args)
+    {
+        _actionMessage = null;
+
+        var availableSlots = Math.Max(0, 5 - _attachments.Count);
+        foreach (var file in args.GetMultipleFiles().Take(availableSlots))
+        {
+            await using var stream = file.OpenReadStream(5 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+
+            var content = ms.ToArray();
+            var hash = Convert.ToHexString(SHA512.HashData(content)).ToLowerInvariant();
+
+            _attachments.Add(new PendingAttachment(
+                file.Name,
+                string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+                content,
+                hash,
+                content.LongLength));
+        }
+    }
+
+    private void RemoveAttachment(string fileHash)
+    {
+        _attachments = _attachments.Where(attachment => attachment.FileHash != fileHash).ToList();
+    }
+
+    private async Task SubmitResponseAsync()
+    {
+        if (_detail is null || string.IsNullOrWhiteSpace(_responseText))
+        {
+            return;
+        }
+
+        _submitting = true;
+        _actionMessage = null;
+
+        try
+        {
+            var attachments = _attachments
+                .Select(attachment => new AttachmentPayload(
+                    attachment.FileName,
+                    attachment.ContentType,
+                    attachment.Content,
+                    attachment.FileHash))
+                .ToList();
+
+            await BatchPortalService.SubmitQueryResponseAsync(
+                _institutionId,
+                _detail.QueryId,
+                _responseText.Trim(),
+                attachments,
+                _userId);
+
+            _responseText = string.Empty;
+            _attachments = [];
+            _actionIsError = false;
+            _actionMessage = "Response submitted successfully.";
+            await ReloadDetailAsync();
+        }
+        catch (Exception ex)
+        {
+            _actionIsError = true;
+            _actionMessage = ex.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+
+    private async Task ReloadDetailAsync()
+    {
+        _detail = await BatchPortalService.GetQueryDetailAsync(_institutionId, QueryId);
+        if (_detail is not null)
+        {
+            _assignedToUserId = _detail.AssignedToUserId;
+        }
+    }
+
+    private static string GetPriorityBadgeClass(string priority) => priority.ToUpperInvariant() switch
+    {
+        "CRITICAL" => "portal-badge-red",
+        "HIGH" => "portal-badge-orange",
+        "NORMAL" => "portal-badge-amber",
+        _ => "portal-badge-gray"
+    };
+
+    private static string GetStatusBadgeClass(string status) => status.ToUpperInvariant() switch
+    {
+        "OPEN" => "portal-badge-orange",
+        "IN_PROGRESS" => "portal-badge-amber",
+        "RESPONDED" => "portal-badge-blue",
+        "CLOSED" => "portal-badge-green",
+        _ => "portal-badge-gray"
+    };
+
+    private static string ShortHash(string? hash) =>
+        string.IsNullOrWhiteSpace(hash) ? "No hash" : hash.Length <= 14 ? hash : $"{hash[..10]}...{hash[^4..]}";
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes:N0} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024d:N1} KB";
+        return $"{bytes / (1024d * 1024d):N1} MB";
+    }
+
+    private sealed record PendingAttachment(
+        string FileName,
+        string ContentType,
+        byte[] Content,
+        string FileHash,
+        long SizeBytes);
+}

@@ -119,3 +119,180 @@ public class ValidationDisplayError
     public string? ExpectedValue { get; set; }
     public string? ActualValue { get; set; }
 }
+
+public class RegulatoryChannelOption
+{
+    public string RegulatorCode { get; set; } = "";
+    public string RegulatorName { get; set; } = "";
+    public string PortalName { get; set; } = "";
+    public string IntegrationMethod { get; set; } = "";
+    public bool RequiresCertificate { get; set; }
+}
+
+public class SubmissionBatchListResult
+{
+    public int Total { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+    public List<SubmissionBatchListItem> Items { get; set; } = new();
+}
+
+public class SubmissionBatchListItem
+{
+    public long Id { get; set; }
+    public string BatchReference { get; set; } = "";
+    public string RegulatorCode { get; set; } = "";
+    public string RegulatorName { get; set; } = "";
+    public string Status { get; set; } = "";
+    public int ItemCount { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    public DateTime? AcknowledgedAt { get; set; }
+    public DateTime? FinalStatusAt { get; set; }
+    public int RetryCount { get; set; }
+    public string? LatestReceipt { get; set; }
+    public int OpenQueries { get; set; }
+    public DateTime CreatedAt { get; set; }
+}
+
+public class SubmissionBatchDetailModel
+{
+    public long Id { get; set; }
+    public int InstitutionId { get; set; }
+    public string BatchReference { get; set; } = "";
+    public string RegulatorCode { get; set; } = "";
+    public string RegulatorName { get; set; } = "";
+    public string Status { get; set; } = "";
+    public Guid CorrelationId { get; set; }
+    public string? LastError { get; set; }
+    public int RetryCount { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    public DateTime? AcknowledgedAt { get; set; }
+    public DateTime? FinalStatusAt { get; set; }
+    public List<SubmissionBatchItemModel> Items { get; set; } = new();
+    public List<SubmissionBatchReceiptModel> Receipts { get; set; } = new();
+    public List<SubmissionBatchQueryModel> Queries { get; set; } = new();
+    public List<SubmissionBatchAuditModel> AuditLogs { get; set; } = new();
+}
+
+public class SubmissionBatchItemModel
+{
+    public long Id { get; set; }
+    public int SubmissionId { get; set; }
+    public string ReturnCode { get; set; } = "";
+    public string ReportingPeriod { get; set; } = "";
+    public string ExportFormat { get; set; } = "";
+    public long ExportPayloadSize { get; set; }
+    public string ExportPayloadHash { get; set; } = "";
+    public string Status { get; set; } = "";
+}
+
+public class SubmissionBatchReceiptModel
+{
+    public string RegulatorCode { get; set; } = "";
+    public string ReceiptReference { get; set; } = "";
+    public DateTime ReceiptTimestamp { get; set; }
+    public int? HttpStatusCode { get; set; }
+    public DateTime ReceivedAt { get; set; }
+}
+
+public class SubmissionBatchQueryModel
+{
+    public long QueryId { get; set; }
+    public string QueryReference { get; set; } = "";
+    public string QueryType { get; set; } = "";
+    public string QueryText { get; set; } = "";
+    public DateOnly? DueDate { get; set; }
+    public string Priority { get; set; } = "";
+    public string Status { get; set; } = "";
+    public int? AssignedToUserId { get; set; }
+    public string? AssignedToName { get; set; }
+    public DateTime ReceivedAt { get; set; }
+    public DateTime? RespondedAt { get; set; }
+    public int ResponseCount { get; set; }
+    public DateTime? LastResponseAt { get; set; }
+}
+
+public class SubmissionBatchAuditModel
+{
+    public string Action { get; set; } = "";
+    public string? Detail { get; set; }
+    public int? PerformedBy { get; set; }
+    public string? PerformedByName { get; set; }
+    public DateTime PerformedAt { get; set; }
+}
+
+public class SubmissionBatchEligibilityState
+{
+    public int SubmissionId { get; set; }
+    public long BatchId { get; set; }
+    public string BatchReference { get; set; } = "";
+    public string BatchStatus { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+}
+
+public class RegulatoryQueryListItem
+{
+    public long QueryId { get; set; }
+    public long BatchId { get; set; }
+    public string BatchReference { get; set; } = "";
+    public string RegulatorCode { get; set; } = "";
+    public string RegulatorName { get; set; } = "";
+    public string QueryReference { get; set; } = "";
+    public string QueryType { get; set; } = "";
+    public string QueryText { get; set; } = "";
+    public DateOnly? DueDate { get; set; }
+    public string Priority { get; set; } = "";
+    public string Status { get; set; } = "";
+    public int? AssignedToUserId { get; set; }
+    public string? AssignedToName { get; set; }
+    public DateTime ReceivedAt { get; set; }
+    public DateTime? RespondedAt { get; set; }
+    public int ResponseCount { get; set; }
+    public DateTime? LastResponseAt { get; set; }
+}
+
+public class RegulatoryQueryDetailModel
+{
+    public long QueryId { get; set; }
+    public long BatchId { get; set; }
+    public string BatchReference { get; set; } = "";
+    public string BatchStatus { get; set; } = "";
+    public string RegulatorCode { get; set; } = "";
+    public string RegulatorName { get; set; } = "";
+    public string QueryReference { get; set; } = "";
+    public string QueryType { get; set; } = "";
+    public string QueryText { get; set; } = "";
+    public DateOnly? DueDate { get; set; }
+    public string Priority { get; set; } = "";
+    public string Status { get; set; } = "";
+    public int? AssignedToUserId { get; set; }
+    public string? AssignedToName { get; set; }
+    public DateTime ReceivedAt { get; set; }
+    public DateTime? RespondedAt { get; set; }
+    public List<RegulatoryQueryResponseModel> Responses { get; set; } = new();
+}
+
+public class RegulatoryQueryResponseModel
+{
+    public long ResponseId { get; set; }
+    public string ResponseText { get; set; } = "";
+    public int AttachmentCount { get; set; }
+    public bool SubmittedToRegulator { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+    public string? RegulatorAckRef { get; set; }
+    public int CreatedBy { get; set; }
+    public string CreatedByName { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+    public List<RegulatoryQueryAttachmentModel> Attachments { get; set; } = new();
+}
+
+public class RegulatoryQueryAttachmentModel
+{
+    public long Id { get; set; }
+    public string FileName { get; set; } = "";
+    public string ContentType { get; set; } = "";
+    public long FileSizeBytes { get; set; }
+    public string FileHash { get; set; } = "";
+    public DateTime CreatedAt { get; set; }
+}

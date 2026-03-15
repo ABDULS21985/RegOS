@@ -9,7 +9,8 @@ public class ScenarioEngine : IScenarioEngine
     private readonly ConcurrentDictionary<int, ScenarioResult> _results = new();
     private int _nextId = 1;
 
-    private static readonly Random _rng = new(42);
+    // Random.Shared is thread-safe; ScenarioEngine is registered as a Singleton
+    private static Random _rng => Random.Shared;
 
     // ── Baseline data for key regulatory metrics ──
     private static readonly Dictionary<string, (decimal Value, decimal? Threshold, bool HigherIsBetter)> _baselineMetrics = new()
@@ -112,6 +113,10 @@ public class ScenarioEngine : IScenarioEngine
     {
         if (!_scenarios.TryGetValue(scenarioId, out var scenario))
             throw new InvalidOperationException($"Scenario {scenarioId} not found");
+
+        // Return the cached result if the scenario has already been run
+        if (scenario.Status == ScenarioStatus.Completed && _results.TryGetValue(scenarioId, out var cached))
+            return cached;
 
         scenario.Status = ScenarioStatus.Running;
         var sw = Stopwatch.StartNew();

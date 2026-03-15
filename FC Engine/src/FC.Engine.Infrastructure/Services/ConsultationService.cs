@@ -281,6 +281,21 @@ public sealed class ConsultationService : IConsultationService
             consultation.TotalFeedbackReceived, provisionDetails);
     }
 
+    public async Task<ConsultationDetail?> GetLatestConsultationForScenarioAsync(
+        long scenarioId, int regulatorId, CancellationToken ct = default)
+    {
+        var consultationId = await _db.ConsultationRounds
+            .Where(c => c.ScenarioId == scenarioId && c.RegulatorId == regulatorId)
+            .OrderByDescending(c => c.CreatedAt)
+            .Select(c => (long?)c.Id)
+            .FirstOrDefaultAsync(ct);
+
+        if (consultationId is null)
+            return null;
+
+        return await GetConsultationAsync(consultationId.Value, regulatorId, ct);
+    }
+
     public async Task<ConsultationDetail> GetConsultationForInstitutionAsync(
         long consultationId, CancellationToken ct = default)
     {

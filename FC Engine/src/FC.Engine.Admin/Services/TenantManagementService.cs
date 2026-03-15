@@ -566,7 +566,7 @@ public class TenantManagementService
     {
         await _auditLogger.Log(
             "Tenant",
-            0,
+            tenantId.ToString(),
             action,
             null,
             new
@@ -576,6 +576,7 @@ public class TenantManagementService
                 TenantId = tenantId
             },
             ResolvePlatformActor(),
+            explicitTenantId: tenantId,
             ct);
     }
 

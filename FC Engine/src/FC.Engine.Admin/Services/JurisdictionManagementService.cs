@@ -80,12 +80,13 @@ public class JurisdictionManagementService
     public async Task<JurisdictionDashboardStats> GetStatsAsync(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var jurisdictions = await db.Jurisdictions.ToListAsync(ct);
+        var total  = await db.Jurisdictions.CountAsync(ct);
+        var active = await db.Jurisdictions.CountAsync(j => j.IsActive, ct);
         return new JurisdictionDashboardStats
         {
-            Total = jurisdictions.Count,
-            Active = jurisdictions.Count(j => j.IsActive),
-            Planned = jurisdictions.Count(j => !j.IsActive)
+            Total   = total,
+            Active  = active,
+            Planned = total - active
         };
     }
 

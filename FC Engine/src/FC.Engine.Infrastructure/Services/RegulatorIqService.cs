@@ -174,16 +174,17 @@ public sealed class RegulatorIqService : IRegulatorIqService
         };
     }
 
-    public async Task<List<ComplianceIqTurn>> GetConversationHistoryAsync(
+    public async Task<List<RegIqTurn>> GetConversationHistoryAsync(
         Guid conversationId,
+        string regulatorId,
         CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var context = await ResolveExecutionContextAsync(db, null, null, ct);
+        var context = await ResolveExecutionContextAsync(db, null, regulatorId, ct);
 
-        return await db.ComplianceIqTurns
+        return await db.RegIqTurns
             .AsNoTracking()
-            .Where(x => x.ConversationId == conversationId && x.TenantId == context.RegulatorTenantId && x.UserId == context.RegulatorId)
+            .Where(x => x.ConversationId == conversationId && x.RegulatorTenantId == context.RegulatorTenantId && x.RegulatorId == context.RegulatorId)
             .OrderBy(x => x.TurnNumber)
             .ToListAsync(ct);
     }
@@ -197,13 +198,14 @@ public sealed class RegulatorIqService : IRegulatorIqService
         var context = await ResolveExecutionContextAsync(db, null, regulatorId, ct);
         var title = await BuildExaminationTitleAsync(db, targetTenantId, ct);
 
-        var conversation = new ComplianceIqConversation
+        var conversation = new RegIqConversation
         {
             Id = Guid.NewGuid(),
-            TenantId = context.RegulatorTenantId,
-            UserId = context.RegulatorId,
-            UserRole = context.UserRole,
-            IsRegulatorContext = true,
+            RegulatorTenantId = context.RegulatorTenantId,
+            RegulatorId = context.RegulatorId,
+            RegulatorRole = context.UserRole,
+            RegulatorAgency = context.RegulatorCode,
+            ClassificationLevel = "RESTRICTED",
             ExaminationTargetTenantId = targetTenantId,
             IsExaminationSession = true,
             Scope = "ENTITY",
@@ -214,11 +216,11 @@ public sealed class RegulatorIqService : IRegulatorIqService
             TurnCount = 0
         };
 
-        db.ComplianceIqConversations.Add(conversation);
+        db.RegIqConversations.Add(conversation);
         await db.SaveChangesAsync(ct);
 
         await _auditLogger.Log(
-            "ComplianceIqConversation",
+            "RegIqConversation",
             0,
             "REGULATORIQ_EXAMINATION_STARTED",
             null,
@@ -231,13 +233,14 @@ public sealed class RegulatorIqService : IRegulatorIqService
 
     public async Task EndExaminationSessionAsync(
         Guid conversationId,
+        string regulatorId,
         CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var context = await ResolveExecutionContextAsync(db, null, null, ct);
+        var context = await ResolveExecutionContextAsync(db, null, regulatorId, ct);
 
-        var conversation = await db.ComplianceIqConversations
-            .FirstOrDefaultAsync(x => x.Id == conversationId && x.TenantId == context.RegulatorTenantId && x.UserId == context.RegulatorId, ct)
+        var conversation = await db.RegIqConversations
+            .FirstOrDefaultAsync(x => x.Id == conversationId && x.RegulatorTenantId == context.RegulatorTenantId && x.RegulatorId == context.RegulatorId, ct)
             ?? throw new InvalidOperationException($"RegulatorIQ conversation {conversationId} was not found.");
 
         conversation.IsExaminationSession = false;
@@ -248,7 +251,7 @@ public sealed class RegulatorIqService : IRegulatorIqService
         await db.SaveChangesAsync(ct);
 
         await _auditLogger.Log(
-            "ComplianceIqConversation",
+            "RegIqConversation",
             0,
             "REGULATORIQ_EXAMINATION_ENDED",
             null,
@@ -264,14 +267,14 @@ public sealed class RegulatorIqService : IRegulatorIqService
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var context = await ResolveExecutionContextAsync(db, null, null, ct);
 
-        var conversation = await db.ComplianceIqConversations
+        var conversation = await db.RegIqConversations
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == conversationId && x.TenantId == context.RegulatorTenantId && x.UserId == context.RegulatorId, ct)
+            .FirstOrDefaultAsync(x => x.Id == conversationId && x.RegulatorTenantId == context.RegulatorTenantId && x.RegulatorId == context.RegulatorId, ct)
             ?? throw new InvalidOperationException($"RegulatorIQ conversation {conversationId} was not found.");
 
-        var turns = await db.ComplianceIqTurns
+        var turns = await db.RegIqTurns
             .AsNoTracking()
-            .Where(x => x.ConversationId == conversationId && x.TenantId == context.RegulatorTenantId && x.UserId == context.RegulatorId)
+            .Where(x => x.ConversationId == conversationId && x.RegulatorTenantId == context.RegulatorTenantId && x.RegulatorId == context.RegulatorId)
             .OrderBy(x => x.TurnNumber)
             .ToListAsync(ct);
 
@@ -286,7 +289,7 @@ public sealed class RegulatorIqService : IRegulatorIqService
         var pdf = new ConversationExportDocument(conversation, turns, tenantName).GeneratePdf();
 
         await _auditLogger.Log(
-            "ComplianceIqConversation",
+            "RegIqConversation",
             0,
             "REGULATORIQ_CONVERSATION_EXPORTED",
             null,
@@ -327,13 +330,14 @@ public sealed class RegulatorIqService : IRegulatorIqService
         int turnId,
         int rating,
         string? feedbackText,
+        string regulatorId,
         CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
-        var context = await ResolveExecutionContextAsync(db, null, null, ct);
+        var context = await ResolveExecutionContextAsync(db, null, regulatorId, ct);
 
-        var turn = await db.ComplianceIqTurns
-            .FirstOrDefaultAsync(x => x.Id == turnId && x.TenantId == context.RegulatorTenantId && x.UserId == context.RegulatorId, ct)
+        var turn = await db.RegIqTurns
+            .FirstOrDefaultAsync(x => x.Id == turnId && x.RegulatorTenantId == context.RegulatorTenantId && x.RegulatorId == context.RegulatorId, ct)
             ?? throw new InvalidOperationException($"RegulatorIQ turn {turnId} was not found.");
 
         var safeRating = (short)Math.Clamp(rating, 1, 5);
@@ -349,7 +353,7 @@ public sealed class RegulatorIqService : IRegulatorIqService
         await db.SaveChangesAsync(ct);
 
         await _auditLogger.Log(
-            "ComplianceIqTurn",
+            "RegIqTurn",
             turn.Id,
             "REGULATORIQ_FEEDBACK_SUBMITTED",
             null,
@@ -358,7 +362,7 @@ public sealed class RegulatorIqService : IRegulatorIqService
             ct);
     }
 
-    private async Task<ComplianceIqConversation> ResolveConversationAsync(
+    private async Task<RegIqConversation> ResolveConversationAsync(
         MetadataDbContext db,
         ResolvedExecutionContext context,
         RegulatorIqQueryRequest request,
@@ -366,11 +370,11 @@ public sealed class RegulatorIqService : IRegulatorIqService
     {
         if (request.ConversationId.HasValue)
         {
-            var existing = await db.ComplianceIqConversations
+            var existing = await db.RegIqConversations
                 .FirstOrDefaultAsync(x =>
                     x.Id == request.ConversationId.Value &&
-                    x.TenantId == context.RegulatorTenantId &&
-                    x.UserId == context.RegulatorId,
+                    x.RegulatorTenantId == context.RegulatorTenantId &&
+                    x.RegulatorId == context.RegulatorId,
                     ct);
 
             if (existing is not null)
@@ -386,13 +390,14 @@ public sealed class RegulatorIqService : IRegulatorIqService
             }
         }
 
-        var conversation = new ComplianceIqConversation
+        var conversation = new RegIqConversation
         {
             Id = request.ConversationId ?? Guid.NewGuid(),
-            TenantId = context.RegulatorTenantId,
-            UserId = context.RegulatorId,
-            UserRole = context.UserRole,
-            IsRegulatorContext = true,
+            RegulatorTenantId = context.RegulatorTenantId,
+            RegulatorId = context.RegulatorId,
+            RegulatorRole = context.UserRole,
+            RegulatorAgency = context.RegulatorCode,
+            ClassificationLevel = "RESTRICTED",
             ExaminationTargetTenantId = request.ExaminationTargetTenantId,
             IsExaminationSession = request.ExaminationTargetTenantId.HasValue,
             Scope = request.ExaminationTargetTenantId.HasValue ? "ENTITY" : request.Scope ?? "SECTOR",
@@ -403,18 +408,18 @@ public sealed class RegulatorIqService : IRegulatorIqService
             IsActive = true
         };
 
-        db.ComplianceIqConversations.Add(conversation);
+        db.RegIqConversations.Add(conversation);
         await db.SaveChangesAsync(ct);
         return conversation;
     }
 
     private async Task<RegulatorContext> BuildContextAsync(
         MetadataDbContext db,
-        ComplianceIqConversation conversation,
+        RegIqConversation conversation,
         ResolvedExecutionContext context,
         CancellationToken ct)
     {
-        var recentTurns = await db.ComplianceIqTurns
+        var recentTurns = await db.RegIqTurns
             .AsNoTracking()
             .Where(x => x.ConversationId == conversation.Id)
             .OrderByDescending(x => x.TurnNumber)
@@ -422,7 +427,7 @@ public sealed class RegulatorIqService : IRegulatorIqService
             .ToListAsync(ct);
 
         var recentEntityIds = recentTurns
-            .SelectMany(x => ParseGuidArray(x.EntitiesAccessedJson))
+            .SelectMany(x => ParseGuidArray(x.EntitiesQueriedJson))
             .Distinct()
             .Take(5)
             .ToList();
@@ -458,7 +463,7 @@ public sealed class RegulatorIqService : IRegulatorIqService
 
     private async Task<int> RecordTurnAsync(
         MetadataDbContext db,
-        ComplianceIqConversation conversation,
+        RegIqConversation conversation,
         ResolvedExecutionContext context,
         RegulatorIqQueryRequest request,
         RegulatorIntentResult intent,
@@ -470,12 +475,12 @@ public sealed class RegulatorIqService : IRegulatorIqService
         var templateCode = await ResolveTemplateCodeAsync(db, intent.IntentCode, ct);
         var now = DateTime.UtcNow;
 
-        var turn = new ComplianceIqTurn
+        var turn = new RegIqTurn
         {
             ConversationId = conversation.Id,
-            TenantId = context.RegulatorTenantId,
-            UserId = context.RegulatorId,
-            UserRole = context.UserRole,
+            RegulatorTenantId = context.RegulatorTenantId,
+            RegulatorId = context.RegulatorId,
+            RegulatorRole = context.UserRole,
             TurnNumber = turnNumber,
             QueryText = request.Query.Trim(),
             IntentCode = intent.IntentCode,
@@ -500,18 +505,19 @@ public sealed class RegulatorIqService : IRegulatorIqService
             ConfidenceLevel = response.ConfidenceLevel,
             CitationsJson = JsonSerializer.Serialize(response.Citations, JsonOptions),
             FollowUpSuggestionsJson = JsonSerializer.Serialize(response.FollowUpSuggestions, JsonOptions),
-            EntitiesAccessedJson = JsonSerializer.Serialize(response.EntitiesAccessed.Distinct().ToList(), JsonOptions),
-            DataSourcesUsed = string.Join(",", response.DataSourcesUsed.Distinct(StringComparer.OrdinalIgnoreCase)),
+            EntitiesQueriedJson = JsonSerializer.Serialize(response.EntitiesAccessed.Distinct().ToList(), JsonOptions),
+            DataSourcesAccessedJson = JsonSerializer.Serialize(response.DataSourcesUsed.Distinct(StringComparer.OrdinalIgnoreCase).ToList(), JsonOptions),
             ClassificationLevel = string.IsNullOrWhiteSpace(response.ClassificationLevel)
                 ? ResolveClassificationLevel(intent.IntentCode)
                 : response.ClassificationLevel,
-            RegulatorAgency = context.RegulatorCode,
+            RegulatorAgencyFilterApplied = context.RegulatorCode,
+            PrimaryEntityTenantId = response.EntitiesAccessed.Count > 0 ? response.EntitiesAccessed[0] : null,
             TotalTimeMs = totalTimeMs,
             ErrorMessage = null,
             CreatedAt = now
         };
 
-        db.ComplianceIqTurns.Add(turn);
+        db.RegIqTurns.Add(turn);
 
         conversation.TurnCount = turnNumber;
         conversation.LastActivityAt = now;
@@ -588,7 +594,7 @@ public sealed class RegulatorIqService : IRegulatorIqService
         try
         {
             await _auditLogger.Log(
-                "ComplianceIqTurn",
+                "RegIqTurn",
                 turnId,
                 "REGULATORIQ_QUERY_PROCESSED",
                 null,

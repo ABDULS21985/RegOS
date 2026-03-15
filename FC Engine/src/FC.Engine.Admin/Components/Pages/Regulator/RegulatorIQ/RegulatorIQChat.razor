@@ -666,7 +666,23 @@
         for (var i = 0; i < intent.ResolvedEntityIds.Count; i++)
         {
             var tenantId = intent.ResolvedEntityIds[i];
-            var name = i < intent.ResolvedEntityNames.Count ? intent.ResolvedEntityNames[i] : tenantId.ToString();
+            string name;
+            if (i < intent.ResolvedEntityNames.Count && !string.IsNullOrWhiteSpace(intent.ResolvedEntityNames[i]))
+            {
+                name = intent.ResolvedEntityNames[i];
+            }
+            else if (_currentExaminationEntityId == tenantId && !string.IsNullOrWhiteSpace(_currentExaminationEntityName))
+            {
+                name = _currentExaminationEntityName!;
+            }
+            else if (_currentEntityProfile?.TenantId == tenantId && !string.IsNullOrWhiteSpace(_currentEntityProfile.InstitutionName))
+            {
+                name = _currentEntityProfile.InstitutionName;
+            }
+            else
+            {
+                name = tenantId.ToString();
+            }
             UpsertRecentEntity(tenantId, name);
         }
 
@@ -675,17 +691,6 @@
             UpsertRecentEntity(_currentExaminationEntityId.Value, _currentExaminationEntityName!);
         }
 
-        if (response.EntitiesAccessed.Count > 0 && intent.ResolvedEntityIds.Count == 0)
-        {
-            foreach (var tenantId in response.EntitiesAccessed)
-            {
-                var existing = _recentEntities.FirstOrDefault(x => x.TenantId == tenantId);
-                if (existing is not null)
-                {
-                    UpsertRecentEntity(existing.TenantId, existing.Name);
-                }
-            }
-        }
     }
 
     private void UpsertRecentEntity(Guid tenantId, string name)
@@ -743,9 +748,11 @@
 
     private async Task EndExaminationSession()
     {
-        if (_conversationId.HasValue)
+        if (_conversationId.HasValue && _session is not null)
         {
-            await RegulatorIqService.EndExaminationSessionAsync(_conversationId.Value);
+            await RegulatorIqService.EndExaminationSessionAsync(
+                _conversationId.Value,
+                _session.UserId.ToString(CultureInfo.InvariantCulture));
         }
 
         _currentExaminationEntityId = null;

@@ -106,7 +106,11 @@ public sealed class SanctionsWatchlistCatalogService
     {
         if (!_db.Database.IsSqlServer())
         {
-            return;
+            throw new NotSupportedException(
+                "Sanctions watchlist catalog store requires SQL Server. " +
+                "The application is configured exclusively for SQL Server; " +
+                "ensure the 'FcEngine' connection string points to a SQL Server instance " +
+                "and that EF migrations have been applied via the Migrator.");
         }
 
         const string sql = """
