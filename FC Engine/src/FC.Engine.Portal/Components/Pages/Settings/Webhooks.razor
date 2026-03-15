@@ -330,6 +330,13 @@
             return;
         }
 
+        if (!Uri.TryCreate(_newUrl.Trim(), UriKind.Absolute, out var parsedUri)
+            || parsedUri.Scheme != Uri.UriSchemeHttps)
+        {
+            _formError = "Endpoint URL must use HTTPS (e.g. https://example.com/webhook).";
+            return;
+        }
+
         if (_selectedEvents.Count == 0)
         {
             _formError = "Select at least one event type.";

@@ -57,26 +57,24 @@
         <section class="portal-dash-stats">
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Payments</div>
-                <div class="portal-stat-value">@_totalCount</div>
+                <div class="portal-stat-value">@_stats.TotalCount</div>
                 <div class="portal-stat-detail">all records</div>
             </article>
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Confirmed</div>
-                <div class="portal-stat-value">@_payments.Count(p => p.Status == PaymentStatus.Confirmed)</div>
+                <div class="portal-stat-value">@_stats.ConfirmedCount</div>
                 <div class="portal-stat-detail">successful collections</div>
             </article>
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Failed</div>
-                <div class="portal-stat-value @(_payments.Any(p => p.Status == PaymentStatus.Failed) ? "portal-stat-value--danger" : "")">
-                    @_payments.Count(p => p.Status == PaymentStatus.Failed)
+                <div class="portal-stat-value @(_stats.FailedCount > 0 ? "portal-stat-value--danger" : "")">
+                    @_stats.FailedCount
                 </div>
                 <div class="portal-stat-detail">requires retry</div>
             </article>
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Total Paid</div>
-                <div class="portal-stat-value">
-                    @FormatCurrency(_payments.Where(p => p.Status == PaymentStatus.Confirmed).Sum(p => p.Amount))
-                </div>
+                <div class="portal-stat-value">@FormatCurrency(_stats.TotalConfirmedAmount)</div>
                 <div class="portal-stat-detail">NGN confirmed amount</div>
             </article>
         </section>
@@ -217,10 +215,11 @@
     private string? _error;
     private List<Payment> _payments = new();
 
-    // Pagination
+    // Pagination & stats
     private int _currentPage = 1;
     private int _totalCount;
     private int _totalPages => _totalCount <= 0 ? 1 : (int)Math.Ceiling((double)_totalCount / PageSize);
+    private PaymentStats _stats = new();
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
 
@@ -241,7 +240,8 @@
 
         try
         {
-            _totalCount = await SubscriptionService.GetPaymentCount(tenantId);
+            _stats = await SubscriptionService.GetPaymentStats(tenantId);
+            _totalCount = _stats.TotalCount;
             _payments = await SubscriptionService.GetPayments(tenantId, _currentPage, PageSize);
         }
         catch (Exception ex)

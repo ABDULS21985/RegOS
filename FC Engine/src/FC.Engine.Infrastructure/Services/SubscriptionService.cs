@@ -609,6 +609,24 @@ public class SubscriptionService : ISubscriptionService
         return await _db.Invoices.CountAsync(i => i.TenantId == tenantId, ct);
     }
 
+    public async Task<InvoiceStats> GetInvoiceStats(Guid tenantId, CancellationToken ct = default)
+    {
+        var invoices = _db.Invoices.Where(i => i.TenantId == tenantId);
+
+        return new InvoiceStats
+        {
+            TotalCount = await invoices.CountAsync(ct),
+            OutstandingAmount = await invoices
+                .Where(i => i.Status == InvoiceStatus.Issued || i.Status == InvoiceStatus.Overdue)
+                .SumAsync(i => i.TotalAmount, ct),
+            TotalPaidAmount = await invoices
+                .Where(i => i.Status == InvoiceStatus.Paid)
+                .SumAsync(i => i.TotalAmount, ct),
+            OverdueCount = await invoices
+                .CountAsync(i => i.Status == InvoiceStatus.Overdue, ct)
+        };
+    }
+
     public async Task<List<Payment>> GetPayments(Guid tenantId, int page = 1, int pageSize = 20, CancellationToken ct = default)
     {
         page = Math.Max(1, page);
@@ -625,6 +643,23 @@ public class SubscriptionService : ISubscriptionService
     public async Task<int> GetPaymentCount(Guid tenantId, CancellationToken ct = default)
     {
         return await _db.Payments.CountAsync(p => p.TenantId == tenantId, ct);
+    }
+
+    public async Task<PaymentStats> GetPaymentStats(Guid tenantId, CancellationToken ct = default)
+    {
+        var payments = _db.Payments.Where(p => p.TenantId == tenantId);
+
+        return new PaymentStats
+        {
+            TotalCount = await payments.CountAsync(ct),
+            ConfirmedCount = await payments
+                .CountAsync(p => p.Status == PaymentStatus.Confirmed, ct),
+            FailedCount = await payments
+                .CountAsync(p => p.Status == PaymentStatus.Failed, ct),
+            TotalConfirmedAmount = await payments
+                .Where(p => p.Status == PaymentStatus.Confirmed)
+                .SumAsync(p => p.Amount, ct)
+        };
     }
 
     public async Task<string> GenerateInvoiceNumber(Guid tenantId, DateTime periodStart, CancellationToken ct = default)

@@ -26,8 +26,10 @@ public interface ISubscriptionService
     Task<Subscription> GetActiveSubscription(Guid tenantId, CancellationToken ct = default);
     Task<List<Invoice>> GetInvoices(Guid tenantId, int page = 1, int pageSize = 20, CancellationToken ct = default);
     Task<int> GetInvoiceCount(Guid tenantId, CancellationToken ct = default);
+    Task<InvoiceStats> GetInvoiceStats(Guid tenantId, CancellationToken ct = default);
     Task<List<Payment>> GetPayments(Guid tenantId, int page = 1, int pageSize = 20, CancellationToken ct = default);
     Task<int> GetPaymentCount(Guid tenantId, CancellationToken ct = default);
+    Task<PaymentStats> GetPaymentStats(Guid tenantId, CancellationToken ct = default);
     Task<List<SubscriptionPlan>> GetAvailablePlans(Guid tenantId, CancellationToken ct = default);
 }
 
@@ -72,4 +74,20 @@ public class UsageSummary
     public decimal StorageUsedMb { get; set; }
     public int StorageLimitMb { get; set; }
     public int ReturnsSubmitted { get; set; }
+}
+
+public class InvoiceStats
+{
+    public int TotalCount { get; set; }
+    public decimal OutstandingAmount { get; set; }
+    public decimal TotalPaidAmount { get; set; }
+    public int OverdueCount { get; set; }
+}
+
+public class PaymentStats
+{
+    public int TotalCount { get; set; }
+    public int ConfirmedCount { get; set; }
+    public int FailedCount { get; set; }
+    public decimal TotalConfirmedAmount { get; set; }
 }

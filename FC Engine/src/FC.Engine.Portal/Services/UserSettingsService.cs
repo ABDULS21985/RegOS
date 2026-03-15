@@ -75,12 +75,29 @@ public class UserSettingsService
 
     /// <summary>
     /// Change the user's password via InstitutionAuthService.
-    /// Returns false if the old password is wrong or the user is not found.
+    /// Returns a specific error message on failure so the UI can distinguish causes.
     /// </summary>
-    public async Task<bool> ChangePassword(
+    public async Task<(bool Success, string? Error)> ChangePassword(
         int userId, string currentPassword, string newPassword, CancellationToken ct = default)
     {
-        return await _authService.ChangePassword(userId, currentPassword, newPassword, ct);
+        if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 8)
+            return (false, "Password must be at least 8 characters.");
+
+        if (!newPassword.Any(char.IsUpper))
+            return (false, "Password must include at least one uppercase letter.");
+
+        if (!newPassword.Any(char.IsLower))
+            return (false, "Password must include at least one lowercase letter.");
+
+        if (!newPassword.Any(char.IsDigit))
+            return (false, "Password must include at least one number.");
+
+        var success = await _authService.ChangePassword(userId, currentPassword, newPassword, ct);
+
+        if (!success)
+            return (false, "The current password is incorrect.");
+
+        return (true, null);
     }
 
     /// <summary>

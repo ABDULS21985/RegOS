@@ -76,31 +76,23 @@
         <section class="portal-dash-stats">
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Total Invoices</div>
-                <div class="portal-stat-value">@_totalCount</div>
+                <div class="portal-stat-value">@_stats.TotalCount</div>
                 <div class="portal-stat-detail">all billing documents</div>
             </article>
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Outstanding</div>
-                <div class="portal-stat-value">
-                    @FormatCurrency(_invoices
-                        .Where(i => i.Status is InvoiceStatus.Issued or InvoiceStatus.Overdue)
-                        .Sum(i => i.TotalAmount))
-                </div>
+                <div class="portal-stat-value">@FormatCurrency(_stats.OutstandingAmount)</div>
                 <div class="portal-stat-detail">issued + overdue</div>
             </article>
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Total Paid</div>
-                <div class="portal-stat-value">
-                    @FormatCurrency(_invoices
-                        .Where(i => i.Status == InvoiceStatus.Paid)
-                        .Sum(i => i.TotalAmount))
-                </div>
+                <div class="portal-stat-value">@FormatCurrency(_stats.TotalPaidAmount)</div>
                 <div class="portal-stat-detail">confirmed payments</div>
             </article>
             <article class="portal-stat-card">
                 <div class="portal-stat-label">Overdue</div>
-                <div class="portal-stat-value @(_invoices.Any(i => i.Status == InvoiceStatus.Overdue) ? "portal-stat-value--danger" : "")">
-                    @_invoices.Count(i => i.Status == InvoiceStatus.Overdue)
+                <div class="portal-stat-value @(_stats.OverdueCount > 0 ? "portal-stat-value--danger" : "")">
+                    @_stats.OverdueCount
                 </div>
                 <div class="portal-stat-detail">require immediate payment</div>
             </article>
@@ -422,10 +414,11 @@
     private List<Invoice> _invoices = new();
     private readonly HashSet<int> _expandedInvoiceIds = new();
 
-    // Pagination
+    // Pagination & stats
     private int _currentPage = 1;
     private int _totalCount;
     private int _totalPages => _totalCount <= 0 ? 1 : (int)Math.Ceiling((double)_totalCount / PageSize);
+    private InvoiceStats _stats = new();
 
     // Void modal
     private bool _showVoidModal;
@@ -450,7 +443,8 @@
     {
         try
         {
-            _totalCount = await SubscriptionService.GetInvoiceCount(_tenantId);
+            _stats = await SubscriptionService.GetInvoiceStats(_tenantId);
+            _totalCount = _stats.TotalCount;
             _invoices = await SubscriptionService.GetInvoices(_tenantId, _currentPage, PageSize);
         }
         catch (Exception ex)

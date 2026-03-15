@@ -45,6 +45,14 @@ public interface IConsultationService
 
     // ── Institution-facing ──────────────────────────────────────────
 
+    /// <summary>
+    /// Returns consultation detail for an institution user (no regulator-scoping).
+    /// Only returns Published or Open consultations to prevent institutional access to drafts.
+    /// </summary>
+    Task<ConsultationDetail> GetConsultationForInstitutionAsync(
+        long consultationId,
+        CancellationToken ct = default);
+
     Task<IReadOnlyList<ConsultationSummary>> GetOpenConsultationsAsync(
         int institutionId,
         CancellationToken ct = default);

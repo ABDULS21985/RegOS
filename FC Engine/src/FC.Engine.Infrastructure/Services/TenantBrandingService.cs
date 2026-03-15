@@ -285,6 +285,54 @@ public class TenantBrandingService : ITenantBrandingService
         ValidateHexOrEmpty(config.SidebarColor, nameof(config.SidebarColor));
         ValidateHexOrEmpty(config.EmailHeaderColor, nameof(config.EmailHeaderColor));
         ValidateHexOrEmpty(config.EmailBodyBackground, nameof(config.EmailBodyBackground));
+
+        config.CustomCss = SanitizeCss(config.CustomCss);
+    }
+
+    /// <summary>
+    /// Strips dangerous CSS constructs that could enable injection or exfiltration.
+    /// Blocks: script injection via expression()/url(javascript:), external resource loading
+    /// via @import, IE-specific behavior/binding, and HTML tags embedded in CSS.
+    /// </summary>
+    private static string? SanitizeCss(string? css)
+    {
+        if (string.IsNullOrWhiteSpace(css))
+            return css;
+
+        // Normalize to catch obfuscation with comments between characters (e.g., "exp/**/ression")
+        var normalized = System.Text.RegularExpressions.Regex.Replace(css, @"/\*.*?\*/", " ",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        // Block dangerous patterns (case-insensitive)
+        string[] dangerousPatterns =
+        [
+            @"expression\s*\(",           // IE CSS expression (JS execution)
+            @"url\s*\(\s*[""']?\s*javascript\s*:", // url(javascript:...)
+            @"url\s*\(\s*[""']?\s*data\s*:\s*text/html", // url(data:text/html...)
+            @"@import",                   // External stylesheet loading (data exfiltration)
+            @"behavior\s*:",              // IE behavior (HTC components)
+            @"-moz-binding\s*:",          // Firefox XBL binding
+            @"<\s*/?script",              // Embedded script tags
+            @"<\s*/?style",              // Embedded style tags
+            @"<\s*/?link",               // Embedded link tags
+        ];
+
+        foreach (var pattern in dangerousPatterns)
+        {
+            if (System.Text.RegularExpressions.Regex.IsMatch(normalized, pattern,
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"Custom CSS contains a disallowed pattern: {pattern.Replace(@"\s*", "").Replace(@"\(", "(").TrimStart('@')}. " +
+                    "For security, expressions, imports, script references, and external bindings are not permitted.");
+            }
+        }
+
+        // Enforce reasonable size limit (50KB)
+        if (css.Length > 51_200)
+            throw new InvalidOperationException("Custom CSS must be under 50 KB.");
+
+        return css;
     }
 
     private static void ValidateHexOrEmpty(string? value, string field)

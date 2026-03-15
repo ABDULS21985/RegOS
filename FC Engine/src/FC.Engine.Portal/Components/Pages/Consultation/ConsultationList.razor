@@ -140,9 +140,11 @@
         try
         {
             var state = await AuthState!;
-            var institutionId = int.Parse(
-                state.User.FindFirst("InstitutionId")?.Value
-                ?? state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "1");
+            if (!int.TryParse(state.User.FindFirst("InstitutionId")?.Value, out var institutionId) || institutionId <= 0)
+            {
+                _error = "Your session is missing institution information. Please log out and log in again.";
+                return;
+            }
 
             _consultations = await ConsultationService.GetOpenConsultationsAsync(institutionId);
         }

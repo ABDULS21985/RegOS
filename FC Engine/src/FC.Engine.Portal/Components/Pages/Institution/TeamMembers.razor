@@ -721,6 +721,7 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [Inject] private InstitutionManagementService MgmtSvc { get; set; } = default!;
     [Inject] private ToastService Toast { get; set; } = default!;
+    [Inject] private DialogService Dialog { get; set; } = default!;
 
     // ── Page state ─────────────────────────────────────────────────────────
     private bool isLoading = true;
@@ -933,6 +934,19 @@
 
     private async Task ToggleStatus(TeamMemberDetailModel member, bool activate)
     {
+        if (!activate)
+        {
+            var confirmed = await Dialog.Confirm(new ConfirmRequest
+            {
+                Title = "Deactivate User",
+                Message = $"Deactivate {member.DisplayName}? They will not be able to sign in until reactivated.",
+                ConfirmText = "Deactivate",
+                IsDestructive = true,
+                Icon = "archive"
+            });
+            if (!confirmed) return;
+        }
+
         _savingMemberId = member.Id;
         await OptimisticAction.Execute(
             getter: () => member.IsActive,
@@ -1151,19 +1165,35 @@
         _csvImporting = true;
         var validRows = _csvRows.Where(r => string.IsNullOrEmpty(r.Error)).ToList();
         int sent = 0;
+        int failed = 0;
         foreach (var row in validRows)
         {
             try
             {
                 var ok = await MgmtSvc.SendInvitation(institutionId, row.Email, row.Role ?? "Maker");
                 if (ok) sent++;
+                else { row.Error = "Failed to send"; failed++; }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                row.Error = ex.Message;
+                failed++;
+            }
         }
         _csvImporting = false;
-        _csvRows.Clear();
-        _showCsv = false;
-        Toast.Success($"{sent} invitation(s) sent.");
+
+        if (failed > 0)
+        {
+            // Keep rows visible so user can see which failed
+            Toast.Warning($"{sent} sent, {failed} failed. Check rows marked with errors.");
+            StateHasChanged();
+        }
+        else
+        {
+            _csvRows.Clear();
+            _showCsv = false;
+            Toast.Success($"{sent} invitation(s) sent.");
+        }
         await LoadData();
     }
 

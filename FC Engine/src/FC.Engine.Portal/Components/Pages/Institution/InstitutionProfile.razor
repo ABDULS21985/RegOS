@@ -21,13 +21,13 @@
                 @if (_cropImageSrc is null)
                 {
                     <label class="portal-ip-drop-target">
-                        <InputFile OnChange="OnLogoFileSelected" accept="image/png,image/jpeg,image/webp" style="display:none" />
+                        <InputFile OnChange="OnLogoFileSelected" accept="image/png,image/jpeg,image/jpg,image/svg+xml" style="display:none" />
                         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
                             <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/>
                             <polyline points="21 15 16 10 5 21"/>
                         </svg>
                         <span>Drop an image here, or click to browse</span>
-                        <span class="portal-ip-drop-hint">PNG, JPG or WebP · Max 2 MB · Recommended 400×400 px</span>
+                        <span class="portal-ip-drop-hint">PNG, JPG or SVG · Max 2 MB · Recommended 400×400 px</span>
                     </label>
                 }
                 else
@@ -740,6 +740,10 @@
     private async Task SaveContactPerson(ContactPersonModel cp)
     {
         _savingContact = true;
+        // Preserve original values to revert on failure
+        var prevName = cp.Name;
+        var prevEmail = cp.Email;
+        var prevPhone = cp.Phone;
         try
         {
             cp.Name = _editCpName.Trim();
@@ -748,6 +752,14 @@
             await MgmtSvc.UpdateContactPerson(_institutionId, cp);
             _editingContactId = null;
             ComputeCompleteness();
+        }
+        catch
+        {
+            // Revert local entity on failure so UI stays consistent
+            cp.Name = prevName;
+            cp.Email = prevEmail;
+            cp.Phone = prevPhone;
+            throw;
         }
         finally { _savingContact = false; }
     }
@@ -767,7 +779,9 @@
         {
             await MgmtSvc.UpdateRegulatoryIdentifier(_institutionId, rid.Code, _editRidValue.Trim());
             rid.Value = _editRidValue.Trim();
-            rid.Status = RegulatoryVerificationStatus.Unverified;
+            rid.Status = string.IsNullOrWhiteSpace(rid.Value)
+                ? RegulatoryVerificationStatus.NotSet
+                : RegulatoryVerificationStatus.Pending;
             rid.IsPendingApproval = true;
             profile!.RecentChanges.Insert(0, new ProfileAuditEntry
             {

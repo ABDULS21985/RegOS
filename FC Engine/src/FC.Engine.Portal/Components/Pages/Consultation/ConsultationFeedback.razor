@@ -275,11 +275,12 @@
         try
         {
             var state = await AuthState!;
-            _institutionId = int.Parse(
-                state.User.FindFirst("InstitutionId")?.Value
-                ?? state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "1");
-            _userId = int.Parse(
-                state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value ?? "1");
+            if (!int.TryParse(state.User.FindFirst("InstitutionId")?.Value, out _institutionId) || _institutionId <= 0)
+            {
+                _error = "Your session is missing institution information. Please log out and log in again.";
+                return;
+            }
+            _ = int.TryParse(state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
 
             // Check if already submitted — use list endpoint to check HasSubmittedFeedback
             var open = await ConsultationService.GetOpenConsultationsAsync(_institutionId);
@@ -289,9 +290,7 @@
                 _alreadySubmitted = true;
             }
 
-            // Load full consultation detail (regulator-scoped, pass 0 as regulatorId for institution access)
-            // The service uses the consultation ID directly
-            _consultation = await ConsultationService.GetConsultationAsync(ConsultationId, 0);
+            _consultation = await ConsultationService.GetConsultationForInstitutionAsync(ConsultationId);
 
             // Initialize provision feedback drafts
             _provisionFeedback = _consultation.Provisions

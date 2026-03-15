@@ -44,7 +44,7 @@
                     </svg>
                     Institution
                 </button>
-                @if (isAdmin)
+                @if (isAdmin && userProfile is not null)
                 {
                     <button class="portal-settings-nav-item @ActiveNavClass("team")"
                             @onclick="LoadTeamSection" type="button">
@@ -607,7 +607,7 @@
 
         try
         {
-            var success = await SettingsSvc.ChangePassword(userId, currentPassword, newPassword);
+            var (success, error) = await SettingsSvc.ChangePassword(userId, currentPassword, newPassword);
 
             if (success)
             {
@@ -618,7 +618,7 @@
             }
             else
             {
-                passwordErrorMsg = "The current password is incorrect.";
+                passwordErrorMsg = error ?? "Password change failed. Please try again.";
             }
         }
         catch (Exception ex)
@@ -638,13 +638,14 @@
     {
         activeSection = "team";
         if (teamLoaded) return;
+        if (userProfile is null) return;
 
         isLoadingTeam = true;
         StateHasChanged();
 
         try
         {
-            teamMembers = await SettingsSvc.GetTeamRoster(userProfile!.InstitutionId);
+            teamMembers = await SettingsSvc.GetTeamRoster(userProfile.InstitutionId);
             teamLoaded = true;
         }
         catch
@@ -700,11 +701,15 @@
 
     private static string GetRoleBadgeClass(string role)
     {
-        var lower = role.ToLowerInvariant();
-        if (lower == "admin") return "portal-badge-info";
-        if (lower == "maker") return "portal-badge-success";
-        if (lower == "checker") return "portal-badge-warning";
-        return "portal-badge-neutral";
+        return role.ToLowerInvariant() switch
+        {
+            "admin" => "portal-badge-info",
+            "maker" => "portal-badge-success",
+            "checker" => "portal-badge-warning",
+            "viewer" => "portal-badge-neutral",
+            "approver" => "portal-badge-accent",
+            _ => "portal-badge-neutral"
+        };
     }
 
     private static string FormatLastLogin(DateTime? dt)

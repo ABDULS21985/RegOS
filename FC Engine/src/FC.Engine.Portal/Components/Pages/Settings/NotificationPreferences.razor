@@ -173,10 +173,12 @@
             return;
         }
 
-        if (!TimeSpan.TryParse(_quietStart, out var quietStart) || !TimeSpan.TryParse(_quietEnd, out var quietEnd))
+        if (!TimeSpan.TryParse(_quietStart, out var quietStart) || !TimeSpan.TryParse(_quietEnd, out var quietEnd)
+            || quietStart.TotalHours >= 24 || quietStart < TimeSpan.Zero
+            || quietEnd.TotalHours >= 24 || quietEnd < TimeSpan.Zero)
         {
             _isError = true;
-            _message = "Invalid quiet hours format.";
+            _message = "Invalid quiet hours. Please use a valid time between 00:00 and 23:59.";
             return;
         }
 

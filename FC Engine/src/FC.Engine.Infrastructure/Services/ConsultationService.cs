@@ -281,6 +281,29 @@ public sealed class ConsultationService : IConsultationService
             consultation.TotalFeedbackReceived, provisionDetails);
     }
 
+    public async Task<ConsultationDetail> GetConsultationForInstitutionAsync(
+        long consultationId, CancellationToken ct = default)
+    {
+        var consultation = await _db.ConsultationRounds
+            .FirstOrDefaultAsync(c => c.Id == consultationId
+                && (c.Status == ConsultationStatus.Published || c.Status == ConsultationStatus.Open), ct)
+            ?? throw new InvalidOperationException($"Consultation {consultationId} not found or not open.");
+
+        var provisions = await _db.ConsultationProvisions
+            .Where(p => p.ConsultationId == consultationId)
+            .OrderBy(p => p.ProvisionNumber)
+            .ToListAsync(ct);
+
+        var provisionDetails = provisions.Select(p =>
+            new ConsultationProvisionDetail(p.Id, p.ProvisionNumber, p.ProvisionTitle, p.ProvisionText, null)
+        ).ToList();
+
+        return new ConsultationDetail(
+            consultation.Id, consultation.Title, consultation.CoverNote,
+            consultation.Status, consultation.DeadlineDate,
+            consultation.TotalFeedbackReceived, provisionDetails);
+    }
+
     public async Task<IReadOnlyList<ConsultationSummary>> GetOpenConsultationsAsync(
         int institutionId, CancellationToken ct = default)
     {
