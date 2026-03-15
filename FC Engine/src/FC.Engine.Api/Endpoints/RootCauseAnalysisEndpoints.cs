@@ -10,7 +10,7 @@ public static class RootCauseAnalysisEndpoints
     {
         var group = routes.MapGroup("/rca")
             .WithTags("Root Cause Analysis")
-            .RequireAuthorization();
+            .RequireAuthorization("InstitutionApi");
 
         group.MapPost("/analyze", async (
             [FromBody] AnalyzeRootCauseRequest request,

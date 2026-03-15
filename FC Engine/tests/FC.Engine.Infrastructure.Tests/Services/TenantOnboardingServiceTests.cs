@@ -24,6 +24,7 @@ public class TenantOnboardingServiceTests : IDisposable
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .ConfigureWarnings(w => w.Ignore(InMemoryEventId.TransactionIgnoredWarning))
             .Options;
+        var dbFactory = new TestMetadataDbContextFactory(options);
 
         _db = new MetadataDbContext(options);
 
@@ -31,7 +32,7 @@ public class TenantOnboardingServiceTests : IDisposable
         SeedReferenceData();
 
         var cache = new MemoryCache(new MemoryCacheOptions());
-        var entitlementService = new EntitlementService(_db, cache, NullLogger<EntitlementService>.Instance);
+        var entitlementService = new EntitlementService(dbFactory, cache, NullLogger<EntitlementService>.Instance);
         var subscriptionService = new SubscriptionService(_db, entitlementService, NullLogger<SubscriptionService>.Instance);
         _sut = new TenantOnboardingService(
             _db,
@@ -43,6 +44,21 @@ public class TenantOnboardingServiceTests : IDisposable
     public void Dispose()
     {
         _db.Dispose();
+    }
+
+    private sealed class TestMetadataDbContextFactory : IDbContextFactory<MetadataDbContext>
+    {
+        private readonly DbContextOptions<MetadataDbContext> _options;
+
+        public TestMetadataDbContextFactory(DbContextOptions<MetadataDbContext> options)
+        {
+            _options = options;
+        }
+
+        public MetadataDbContext CreateDbContext() => new(_options);
+
+        public Task<MetadataDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(CreateDbContext());
     }
 
     private void SeedReferenceData()

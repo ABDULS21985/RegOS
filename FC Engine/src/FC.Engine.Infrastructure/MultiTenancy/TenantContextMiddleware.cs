@@ -100,7 +100,7 @@ public class TenantContextMiddleware
                         path);
                 }
             }
-            // else: no TenantId set → RLS fn_TenantFilter allows all data
+            // else: system-level access remains explicit via SESSION_CONTEXT('BypassRls')
 
             PopulateTenantSessionAttributes(context, accessContext);
             await _next(context);

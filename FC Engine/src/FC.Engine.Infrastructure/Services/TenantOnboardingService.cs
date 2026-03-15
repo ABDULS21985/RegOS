@@ -5,6 +5,7 @@ using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Notifications;
+using FC.Engine.Domain.ValueObjects;
 using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -294,7 +295,7 @@ public class TenantOnboardingService : ITenantOnboardingService
             BillingFrequency.Monthly,
             ct);
 
-        var baselineEntitlement = await _entitlementService.ResolveEntitlements(tenant.TenantId, ct);
+        var baselineEntitlement = await ResolveEntitlementsUsingCurrentContext(tenant.TenantId, ct);
         foreach (var requiredModule in baselineEntitlement.EligibleModules.Where(m => m.IsRequired))
         {
             try
@@ -314,7 +315,7 @@ public class TenantOnboardingService : ITenantOnboardingService
         await _entitlementService.InvalidateCache(tenant.TenantId);
 
         // ── Step 7: Resolve Entitlements ──
-        var entitlement = await _entitlementService.ResolveEntitlements(tenant.TenantId, ct);
+        var entitlement = await ResolveEntitlementsUsingCurrentContext(tenant.TenantId, ct);
         result.ActivatedModules = entitlement.ActiveModules.Select(m => m.ModuleCode).ToList();
 
         // ── Step 8: Create Return Periods & Filing Calendar ──
@@ -533,6 +534,146 @@ public class TenantOnboardingService : ITenantOnboardingService
     {
         var parts = email.Split('@');
         return parts[0].ToLowerInvariant();
+    }
+
+    private async Task<TenantEntitlement> ResolveEntitlementsUsingCurrentContext(Guid tenantId, CancellationToken ct)
+    {
+        var tenant = await _db.Tenants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(t => t.TenantId == tenantId, ct)
+            ?? throw new InvalidOperationException($"Tenant {tenantId} not found");
+
+        var tenantLicences = await _db.TenantLicenceTypes
+            .AsNoTracking()
+            .Where(tlt => tlt.TenantId == tenantId && tlt.IsActive)
+            .Include(tlt => tlt.LicenceType)
+            .ToListAsync(ct);
+
+        var licenceTypeIds = tenantLicences.Select(tlt => tlt.LicenceTypeId).ToList();
+        var licenceCodes = tenantLicences
+            .Where(tlt => tlt.LicenceType is not null)
+            .Select(tlt => tlt.LicenceType!.Code)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code)
+            .ToList();
+
+        var matrixEntries = await _db.LicenceModuleMatrix
+            .AsNoTracking()
+            .Where(lmm => licenceTypeIds.Contains(lmm.LicenceTypeId))
+            .Include(lmm => lmm.Module)
+            .ThenInclude(module => module!.Jurisdiction)
+            .Where(lmm => lmm.Module != null && lmm.Module.IsActive)
+            .ToListAsync(ct);
+
+        var tenantJurisdictionIds = await _db.Institutions
+            .AsNoTracking()
+            .Where(i => i.TenantId == tenantId)
+            .Select(i => i.JurisdictionId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (tenantJurisdictionIds.Count == 0)
+        {
+            var nigeriaId = await _db.Jurisdictions
+                .AsNoTracking()
+                .Where(j => j.CountryCode == "NG")
+                .Select(j => j.Id)
+                .FirstOrDefaultAsync(ct);
+            if (nigeriaId > 0)
+            {
+                tenantJurisdictionIds.Add(nigeriaId);
+            }
+        }
+
+        matrixEntries = matrixEntries
+            .Where(lmm => lmm.Module is not null
+                       && (!lmm.Module.JurisdictionId.HasValue
+                           || tenantJurisdictionIds.Contains(lmm.Module.JurisdictionId.Value)))
+            .ToList();
+
+        var eligibleModules = matrixEntries
+            .GroupBy(lmm => lmm.ModuleId)
+            .Select(group =>
+            {
+                var first = group.First();
+                return new EntitledModule
+                {
+                    ModuleId = first.ModuleId,
+                    JurisdictionId = first.Module!.JurisdictionId,
+                    JurisdictionCode = first.Module.Jurisdiction?.CountryCode,
+                    ModuleCode = first.Module.ModuleCode,
+                    ModuleName = first.Module.ModuleName,
+                    RegulatorCode = first.Module.RegulatorCode,
+                    IsRequired = group.Any(x => x.IsRequired),
+                    IsActive = false,
+                    SheetCount = first.Module.SheetCount,
+                    DefaultFrequency = first.Module.DefaultFrequency
+                };
+            })
+            .OrderBy(m => m.ModuleCode)
+            .ToList();
+
+        var subscription = await _db.Subscriptions
+            .AsNoTracking()
+            .Include(s => s.Plan)
+            .Where(s => s.TenantId == tenantId)
+            .Where(s => s.Status != SubscriptionStatus.Cancelled && s.Status != SubscriptionStatus.Expired)
+            .OrderByDescending(s => s.Id)
+            .FirstOrDefaultAsync(ct);
+
+        var activeModules = new List<EntitledModule>();
+        var features = new List<string> { "xml_submission", "validation", "reporting" };
+        var planCode = "NONE";
+
+        if (subscription is not null)
+        {
+            planCode = subscription.Plan?.PlanCode ?? "DEFAULT";
+            var subscribedModuleIds = await _db.SubscriptionModules
+                .AsNoTracking()
+                .Where(sm => sm.SubscriptionId == subscription.Id && sm.IsActive)
+                .Select(sm => sm.ModuleId)
+                .ToListAsync(ct);
+
+            activeModules = eligibleModules
+                .Where(module => subscribedModuleIds.Contains(module.ModuleId))
+                .Select(ToActiveModule)
+                .ToList();
+
+            var resolvedFeatures = subscription.Plan?.GetFeatures();
+            if (resolvedFeatures is not null && resolvedFeatures.Count > 0)
+            {
+                features = resolvedFeatures.ToList();
+            }
+        }
+
+        return new TenantEntitlement
+        {
+            TenantId = tenantId,
+            TenantStatus = tenant.Status,
+            LicenceTypeCodes = licenceCodes.AsReadOnly(),
+            EligibleModules = eligibleModules.AsReadOnly(),
+            ActiveModules = activeModules.AsReadOnly(),
+            Features = features.AsReadOnly(),
+            PlanCode = planCode,
+            ResolvedAt = DateTime.UtcNow
+        };
+    }
+
+    private static EntitledModule ToActiveModule(EntitledModule module)
+    {
+        return new EntitledModule
+        {
+            ModuleId = module.ModuleId,
+            JurisdictionId = module.JurisdictionId,
+            JurisdictionCode = module.JurisdictionCode,
+            ModuleCode = module.ModuleCode,
+            ModuleName = module.ModuleName,
+            RegulatorCode = module.RegulatorCode,
+            IsRequired = module.IsRequired,
+            IsActive = true,
+            SheetCount = module.SheetCount,
+            DefaultFrequency = module.DefaultFrequency
+        };
     }
 
     internal static string GenerateTemporaryPassword()

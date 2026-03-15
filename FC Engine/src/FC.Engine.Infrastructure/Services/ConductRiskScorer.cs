@@ -124,7 +124,7 @@ public sealed class ConductRiskScorer : IConductRiskScorer
                 InstitutionId = institutionId
             });
 
-        var marketAbuseScore = Math.Min(100d, marketAlerts * 25d);
+        var marketAbuseScore = Math.Min(100d, marketAlerts * 70d);
 
         var amlMetrics = await conn.QuerySingleOrDefaultAsync<AmlMetricsRow>(
             """

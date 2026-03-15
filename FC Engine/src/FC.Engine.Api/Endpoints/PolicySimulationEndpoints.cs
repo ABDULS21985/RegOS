@@ -14,7 +14,7 @@ public static class PolicySimulationEndpoints
     {
         // ── Regulator-facing endpoints ─────────────────────────────────
         var regulator = app.MapGroup("/api/v1/regulator/policies")
-            .RequireAuthorization()
+            .RequireAuthorization("RegulatorApi")
             .WithTags("Policy Simulation — Regulator");
 
         regulator.MapPost("/scenarios", async (
@@ -284,7 +284,7 @@ public static class PolicySimulationEndpoints
 
         // ── Institution-facing endpoints ───────────────────────────────
         var institution = app.MapGroup("/api/v1/institution/consultations")
-            .RequireAuthorization()
+            .RequireAuthorization("InstitutionApi")
             .WithTags("Policy Consultation — Institution");
 
         institution.MapGet("/", async (
@@ -320,14 +320,13 @@ public static class PolicySimulationEndpoints
     // ── Claim helpers ──────────────────────────────────────────────────
 
     private static int GetRegulatorId(HttpContext ctx) =>
-        int.TryParse(ctx.User.FindFirst("regulator_id")?.Value, out var id) ? id : 1;
+        ApiClaimResolvers.GetRegulatorId(ctx.User);
 
     private static int GetUserId(HttpContext ctx) =>
-        int.TryParse(ctx.User.FindFirst("sub")?.Value
-            ?? ctx.User.FindFirst("user_id")?.Value, out var id) ? id : 1;
+        ApiClaimResolvers.GetUserId(ctx.User);
 
     private static int GetInstitutionId(HttpContext ctx) =>
-        int.TryParse(ctx.User.FindFirst("institution_id")?.Value, out var id) ? id : 1;
+        ApiClaimResolvers.GetInstitutionId(ctx.User);
 }
 
 public sealed record CloneScenarioRequest(string NewTitle);

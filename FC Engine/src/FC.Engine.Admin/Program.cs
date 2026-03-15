@@ -115,7 +115,7 @@ builder.Services.AddAuthorization(options =>
     options.AddRegosPermissionPolicies();
     options.AddPolicy("AdminOnly", policy => policy.RequireRole("Admin"));
     options.AddPolicy("ApproverOrAdmin", policy => policy.RequireRole("Approver", "Admin"));
-    options.AddPolicy("Authenticated", policy => policy.RequireAuthenticatedUser());
+    options.AddPolicy("Authenticated", policy => policy.RequireRole("PlatformAdmin"));
     options.AddPolicy("PlatformAdmin", policy => policy.RequireRole("PlatformAdmin"));
     options.AddPolicy("RegulatorOnly", policy =>
         policy.RequireAuthenticatedUser()

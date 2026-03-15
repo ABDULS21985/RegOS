@@ -1,6 +1,7 @@
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Models;
 using FC.Engine.Infrastructure.Services;
+using System.Security.Claims;
 
 namespace FC.Engine.Api.Endpoints;
 
@@ -16,9 +17,16 @@ public static class ComplianceEndpoints
 
         group.MapGet("/score/{tenantId:guid}", async (
             Guid tenantId,
+            ClaimsPrincipal principal,
+            ITenantContext tenantContext,
             IComplianceHealthService chsService,
             CancellationToken ct) =>
         {
+            if (!CanAccessTenant(tenantId, principal, tenantContext))
+            {
+                return Results.NotFound();
+            }
+
             var score = await chsService.GetCurrentScore(tenantId, ct);
             return Results.Ok(new
             {
@@ -44,14 +52,22 @@ public static class ComplianceEndpoints
         })
         .WithName("GetComplianceScore")
         .WithSummary("Get current CHS score with pillar breakdown for a tenant")
-        .Produces(200);
+        .Produces(200)
+        .RequireAuthorization("InstitutionApi", "CanViewComplianceHealth");
 
         group.MapGet("/trend/{tenantId:guid}", async (
             Guid tenantId,
             int? periods,
+            ClaimsPrincipal principal,
+            ITenantContext tenantContext,
             IComplianceHealthService chsService,
             CancellationToken ct) =>
         {
+            if (!CanAccessTenant(tenantId, principal, tenantContext))
+            {
+                return Results.NotFound();
+            }
+
             var p = periods ?? 12;
             if (p <= 0) p = 12;
             if (p > 52) p = 52;
@@ -77,80 +93,149 @@ public static class ComplianceEndpoints
         })
         .WithName("GetComplianceTrend")
         .WithSummary("Get weekly CHS trend data for a tenant")
-        .Produces(200);
+        .Produces(200)
+        .RequireAuthorization("InstitutionApi", "CanViewComplianceHealth");
 
         group.MapGet("/dashboard/{tenantId:guid}", async (
             Guid tenantId,
+            ClaimsPrincipal principal,
+            ITenantContext tenantContext,
             IComplianceHealthService chsService,
             CancellationToken ct) =>
         {
+            if (!CanAccessTenant(tenantId, principal, tenantContext))
+            {
+                return Results.NotFound();
+            }
+
             var result = await chsService.GetDashboard(tenantId, ct);
             return Results.Ok(result);
         })
         .Produces<ChsDashboardData>()
         .WithName("GetComplianceDashboard")
-        .WithSummary("Get full CHS dashboard (score + pillars + trend + peers + alerts)");
+        .WithSummary("Get full CHS dashboard (score + pillars + trend + peers + alerts)")
+        .RequireAuthorization("InstitutionApi", "CanViewComplianceHealth");
 
         group.MapGet("/peers/{tenantId:guid}", async (
             Guid tenantId,
+            ClaimsPrincipal principal,
+            ITenantContext tenantContext,
             IComplianceHealthService chsService,
             CancellationToken ct) =>
         {
+            if (!CanAccessTenant(tenantId, principal, tenantContext))
+            {
+                return Results.NotFound();
+            }
+
             var result = await chsService.GetPeerComparison(tenantId, ct);
             return Results.Ok(result);
         })
         .Produces<ChsPeerComparison>()
         .WithName("GetCompliancePeers")
-        .WithSummary("Get anonymized peer comparison for a tenant");
+        .WithSummary("Get anonymized peer comparison for a tenant")
+        .RequireAuthorization("InstitutionApi", "CanViewComplianceHealth");
 
         group.MapGet("/alerts/{tenantId:guid}", async (
             Guid tenantId,
+            ClaimsPrincipal principal,
+            ITenantContext tenantContext,
             IComplianceHealthService chsService,
             CancellationToken ct) =>
         {
+            if (!CanAccessTenant(tenantId, principal, tenantContext))
+            {
+                return Results.NotFound();
+            }
+
             var result = await chsService.GetAlerts(tenantId, ct);
             return Results.Ok(result);
         })
         .Produces<List<ChsAlert>>()
         .WithName("GetComplianceAlerts")
-        .WithSummary("Get active compliance alerts for a tenant");
+        .WithSummary("Get active compliance alerts for a tenant")
+        .RequireAuthorization("InstitutionApi", "CanViewComplianceHealth");
 
         // ── Regulator-level endpoints ──
 
         group.MapGet("/sector/{regulatorCode}", async (
             string regulatorCode,
+            ClaimsPrincipal principal,
             IComplianceHealthService chsService,
             CancellationToken ct) =>
         {
+            if (!CanAccessRegulator(regulatorCode, principal))
+            {
+                return Results.NotFound();
+            }
+
             var result = await chsService.GetSectorSummary(regulatorCode, ct);
             return Results.Ok(result);
         })
         .Produces<SectorChsSummary>()
         .WithName("GetSectorSummary")
-        .WithSummary("Get sector-wide CHS summary for a regulator");
+        .WithSummary("Get sector-wide CHS summary for a regulator")
+        .RequireAuthorization("RegulatorApi", "CanAdminComplianceHealth");
 
         group.MapGet("/watchlist/{regulatorCode}", async (
             string regulatorCode,
+            ClaimsPrincipal principal,
             IComplianceHealthService chsService,
             CancellationToken ct) =>
         {
+            if (!CanAccessRegulator(regulatorCode, principal))
+            {
+                return Results.NotFound();
+            }
+
             var result = await chsService.GetWatchList(regulatorCode, ct);
             return Results.Ok(result);
         })
         .Produces<List<ChsWatchListItem>>()
         .WithName("GetWatchList")
-        .WithSummary("Get institutions on CHS watch list (score < 60 or 3+ declines)");
+        .WithSummary("Get institutions on CHS watch list (score < 60 or 3+ declines)")
+        .RequireAuthorization("RegulatorApi", "CanAdminComplianceHealth");
 
         group.MapGet("/heatmap/{regulatorCode}", async (
             string regulatorCode,
+            ClaimsPrincipal principal,
             IComplianceHealthService chsService,
             CancellationToken ct) =>
         {
+            if (!CanAccessRegulator(regulatorCode, principal))
+            {
+                return Results.NotFound();
+            }
+
             var result = await chsService.GetSectorHeatmap(regulatorCode, ct);
             return Results.Ok(result);
         })
         .Produces<List<ChsHeatmapItem>>()
         .WithName("GetSectorHeatmap")
-        .WithSummary("Get heatmap of all institutions ranked by pillar scores");
+        .WithSummary("Get heatmap of all institutions ranked by pillar scores")
+        .RequireAuthorization("RegulatorApi", "CanAdminComplianceHealth");
+    }
+
+    private static bool CanAccessTenant(Guid requestedTenantId, ClaimsPrincipal principal, ITenantContext tenantContext)
+    {
+        if (ApiClaimResolvers.IsPlatformAdmin(principal))
+        {
+            return true;
+        }
+
+        return tenantContext.CurrentTenantId.HasValue
+            && tenantContext.CurrentTenantId.Value == requestedTenantId;
+    }
+
+    private static bool CanAccessRegulator(string requestedRegulatorCode, ClaimsPrincipal principal)
+    {
+        if (ApiClaimResolvers.IsPlatformAdmin(principal))
+        {
+            return true;
+        }
+
+        var regulatorCode = ApiClaimResolvers.GetRegulatorCode(principal);
+        return !string.IsNullOrWhiteSpace(regulatorCode)
+            && string.Equals(regulatorCode, requestedRegulatorCode, StringComparison.OrdinalIgnoreCase);
     }
 }

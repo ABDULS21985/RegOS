@@ -144,7 +144,10 @@ public class JwtTokenService : IJwtTokenService
         var claims = new List<Claim>
         {
             new(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
+            new(ClaimTypes.NameIdentifier, user.UserId.ToString()),
+            new("user_id", user.UserId.ToString()),
             new("tid", user.TenantId.ToString()),
+            new("TenantId", user.TenantId.ToString()),
             new("utype", user.UserType),
             new(JwtRegisteredClaimNames.Email, user.Email),
             new(JwtRegisteredClaimNames.Name, user.FullName),
@@ -155,6 +158,9 @@ public class JwtTokenService : IJwtTokenService
         if (user.InstitutionId.HasValue)
         {
             claims.Add(new Claim("iid", user.InstitutionId.Value.ToString()));
+            claims.Add(new Claim("institution_id", user.InstitutionId.Value.ToString()));
+            claims.Add(new Claim("institutionId", user.InstitutionId.Value.ToString()));
+            claims.Add(new Claim("InstitutionId", user.InstitutionId.Value.ToString()));
         }
 
         foreach (var permission in user.Permissions.Distinct(StringComparer.OrdinalIgnoreCase))

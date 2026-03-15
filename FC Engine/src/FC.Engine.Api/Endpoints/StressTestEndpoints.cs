@@ -10,7 +10,7 @@ public static class StressTestEndpoints
     {
         var group = routes.MapGroup("/stress-test")
             .WithTags("Stress Testing")
-            .RequireAuthorization();
+            .RequireAuthorization("RegulatorApi");
 
         // GET /stress-test/scenarios — List available stress test scenarios
         group.MapGet("/scenarios", (IStressTestService stressTestService) =>
@@ -29,10 +29,10 @@ public static class StressTestEndpoints
             IStressTestService stressTestService,
             CancellationToken ct) =>
         {
-            var regulatorCode = principal.FindFirst("RegulatorCode")?.Value;
+            var regulatorCode = ApiClaimResolvers.GetRegulatorCode(principal);
             if (string.IsNullOrWhiteSpace(regulatorCode))
             {
-                return Results.BadRequest(new { error = "RegulatorCode claim is required. This endpoint is for regulator use only." });
+                return Results.Forbid();
             }
 
             if (request.ScenarioType == StressScenarioType.Custom && request.CustomParameters is null)
@@ -54,10 +54,10 @@ public static class StressTestEndpoints
             IStressTestService stressTestService,
             CancellationToken ct) =>
         {
-            var regulatorCode = principal.FindFirst("RegulatorCode")?.Value;
+            var regulatorCode = ApiClaimResolvers.GetRegulatorCode(principal);
             if (string.IsNullOrWhiteSpace(regulatorCode))
             {
-                return Results.BadRequest(new { error = "RegulatorCode claim is required." });
+                return Results.Forbid();
             }
 
             var report = await stressTestService.RunStressTestAsync(regulatorCode, request, ct);

@@ -3,6 +3,7 @@ using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Models;
 using FC.Engine.Infrastructure.Metadata;
+using FC.Engine.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -10,6 +11,12 @@ namespace FC.Engine.Infrastructure.Services.CrossBorder;
 
 public sealed class ConsolidationEngine : IConsolidationEngine
 {
+    private static readonly string[] TotalAssetsKeys = ["totalassets", "totalasset", "assets"];
+    private static readonly string[] TotalLiabilitiesKeys = ["totalliabilities", "totalliability", "liabilities"];
+    private static readonly string[] CapitalKeys = ["shareholdersfunds", "totalcapital", "capital", "tier1capital", "tier1"];
+    private static readonly string[] RwaKeys = ["riskweightedassets", "rwa"];
+    private static readonly string[] CarKeys = ["car", "carratio", "capitaladequacyratio", "capitalratio", "capitaladequacy"];
+
     private readonly MetadataDbContext _db;
     private readonly ICurrencyConversionEngine _fx;
     private readonly IHarmonisationAuditLogger _audit;
@@ -71,13 +78,12 @@ public sealed class ConsolidationEngine : IConsolidationEngine
         {
             try
             {
-                // Simulate collecting return data — in production this would read from ReturnInstances
-                // For now, use realistic placeholder values based on subsidiary type
-                var localAssets = sub.EntityType == "DMB" ? 15_000_000m : 2_500_000m;
-                var localLiabilities = localAssets * 0.88m;
-                var localCapital = localAssets * 0.12m;
-                var localRWA = localAssets * 0.65m;
-                var localCAR = localRWA > 0 ? Math.Round(localCapital / localRWA * 100m, 4) : 0m;
+                var localSnapshot = await LoadSubsidiarySnapshotAsync(sub, reportingPeriod, ct);
+                var localAssets = localSnapshot.TotalAssets;
+                var localLiabilities = localSnapshot.TotalLiabilities;
+                var localCapital = localSnapshot.TotalCapital;
+                var localRWA = localSnapshot.RiskWeightedAssets;
+                var localCAR = localSnapshot.CapitalAdequacyRatio;
 
                 // Currency conversion
                 var convertedAssets = await _fx.ConvertAsync(localAssets, sub.LocalCurrency, group.BaseCurrency, snapshotDate, FxRateType.PeriodEnd, ct);
@@ -128,7 +134,8 @@ public sealed class ConsolidationEngine : IConsolidationEngine
                     OwnershipPercentage = sub.OwnershipPercentage,
                     ConsolidationMethodUsed = consolMethod,
                     AdjustedTotalAssets = adjustedAssets, AdjustedTotalCapital = adjustedCapital,
-                    AdjustedRWA = adjustedRWA
+                    AdjustedRWA = adjustedRWA,
+                    SourceReturnInstanceId = localSnapshot.SubmissionId
                 });
 
                 totalAdjustedAssets += adjustedAssets;
@@ -143,6 +150,17 @@ public sealed class ConsolidationEngine : IConsolidationEngine
         }
 
         await _db.SaveChangesAsync(ct);
+
+        if (collected == 0)
+        {
+            sw.Stop();
+            run.Status = ConsolidationRunStatus.Failed;
+            run.ErrorMessage = $"No accepted submission data with the required prudential metrics was found for group {groupId} in reporting period {reportingPeriod}.";
+            run.ExecutionTimeMs = sw.ElapsedMilliseconds;
+            run.CompletedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+            throw new InvalidOperationException(run.ErrorMessage);
+        }
 
         // Compute consolidated metrics
         var consolidatedCAR = totalAdjustedRWA > 0
@@ -258,4 +276,79 @@ public sealed class ConsolidationEngine : IConsolidationEngine
         ConsolidatedCAR = run.ConsolidatedCAR,
         ExecutionTimeMs = run.ExecutionTimeMs, CorrelationId = run.CorrelationId
     };
+
+    private async Task<SubsidiaryMetricSnapshot> LoadSubsidiarySnapshotAsync(
+        GroupSubsidiary subsidiary,
+        string reportingPeriod,
+        CancellationToken ct)
+    {
+        var submissionQuery = _db.Submissions
+            .AsNoTracking()
+            .Include(x => x.ReturnPeriod)
+            .Where(x => x.InstitutionId == subsidiary.InstitutionId
+                && x.ParsedDataJson != null
+                && (x.Status == SubmissionStatus.Accepted || x.Status == SubmissionStatus.AcceptedWithWarnings));
+
+        if (RegulatorAnalyticsSupport.TryParsePeriodCode(reportingPeriod, out var filter) && filter is not null)
+        {
+            submissionQuery = submissionQuery.Where(x => x.ReturnPeriod != null
+                && x.ReturnPeriod.Year == filter.Year
+                && (!filter.Quarter.HasValue || x.ReturnPeriod.Quarter == filter.Quarter.Value)
+                && (!filter.Month.HasValue || x.ReturnPeriod.Month == filter.Month.Value));
+        }
+
+        var submission = await submissionQuery
+            .OrderByDescending(x => x.SubmittedAt)
+            .FirstOrDefaultAsync(ct)
+            ?? throw new InvalidOperationException(
+                $"No accepted submission data was found for subsidiary institution {subsidiary.InstitutionId} in reporting period {reportingPeriod}.");
+
+        var totalAssets = RegulatorAnalyticsSupport.ExtractFirstMetric(submission.ParsedDataJson, TotalAssetsKeys);
+        var totalLiabilities = RegulatorAnalyticsSupport.ExtractFirstMetric(submission.ParsedDataJson, TotalLiabilitiesKeys);
+        var totalCapital = RegulatorAnalyticsSupport.ExtractFirstMetric(submission.ParsedDataJson, CapitalKeys);
+        var rwa = RegulatorAnalyticsSupport.ExtractFirstMetric(submission.ParsedDataJson, RwaKeys);
+        var car = RegulatorAnalyticsSupport.ExtractFirstMetric(submission.ParsedDataJson, CarKeys);
+
+        if (!totalAssets.HasValue && totalLiabilities.HasValue && totalCapital.HasValue)
+        {
+            totalAssets = totalLiabilities.Value + totalCapital.Value;
+        }
+
+        if (!totalLiabilities.HasValue && totalAssets.HasValue && totalCapital.HasValue)
+        {
+            totalLiabilities = Math.Max(totalAssets.Value - totalCapital.Value, 0m);
+        }
+
+        if (!rwa.HasValue && totalCapital.HasValue && car.HasValue && car.Value > 0)
+        {
+            rwa = Math.Round(totalCapital.Value / (car.Value / 100m), 2);
+        }
+
+        if (!car.HasValue && totalCapital.HasValue && rwa.HasValue && rwa.Value > 0)
+        {
+            car = Math.Round(totalCapital.Value / rwa.Value * 100m, 4);
+        }
+
+        if (!totalAssets.HasValue || !totalLiabilities.HasValue || !totalCapital.HasValue || !rwa.HasValue)
+        {
+            throw new InvalidOperationException(
+                $"Submission {submission.Id} for subsidiary institution {subsidiary.InstitutionId} does not contain the metrics required for consolidation.");
+        }
+
+        return new SubsidiaryMetricSnapshot(
+            submission.Id,
+            totalAssets.Value,
+            totalLiabilities.Value,
+            totalCapital.Value,
+            rwa.Value,
+            car ?? 0m);
+    }
+
+    private sealed record SubsidiaryMetricSnapshot(
+        int SubmissionId,
+        decimal TotalAssets,
+        decimal TotalLiabilities,
+        decimal TotalCapital,
+        decimal RiskWeightedAssets,
+        decimal CapitalAdequacyRatio);
 }

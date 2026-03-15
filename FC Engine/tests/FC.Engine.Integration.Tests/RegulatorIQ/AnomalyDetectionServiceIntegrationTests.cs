@@ -24,6 +24,11 @@ public sealed class AnomalyDetectionServiceIntegrationTests : IClassFixture<Regu
         await using var transaction = await db.Database.BeginTransactionAsync();
         await db.Database.ExecuteSqlRawAsync(
             """
+IF OBJECT_ID(N'dbo.TenantSecurityPolicy', N'SP') IS NOT NULL
+BEGIN
+    DROP SECURITY POLICY dbo.TenantSecurityPolicy;
+END;
+
 IF OBJECT_ID(N'[meta].[anomaly_findings]', N'U') IS NOT NULL
 BEGIN
     DROP TABLE [meta].[anomaly_findings];
@@ -51,6 +56,11 @@ END;
         await using var transaction = await db.Database.BeginTransactionAsync();
         await db.Database.ExecuteSqlRawAsync(
             """
+IF OBJECT_ID(N'dbo.TenantSecurityPolicy', N'SP') IS NOT NULL
+BEGIN
+    DROP SECURITY POLICY dbo.TenantSecurityPolicy;
+END;
+
 IF OBJECT_ID(N'[meta].[anomaly_findings]', N'U') IS NOT NULL
 BEGIN
     DROP TABLE [meta].[anomaly_findings];

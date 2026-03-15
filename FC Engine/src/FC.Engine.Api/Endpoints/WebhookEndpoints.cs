@@ -10,7 +10,7 @@ public static class WebhookEndpoints
     {
         var group = routes.MapGroup("/webhooks")
             .WithTags("Webhooks")
-            .RequireAuthorization();
+            .RequireAuthorization("InstitutionApi");
 
         group.MapGet("/", async (
             ITenantContext tenantContext,
@@ -172,6 +172,12 @@ public static class WebhookEndpoints
             // Cap take to prevent excessive payloads
             if (take <= 0) take = 50;
             if (take > 500) take = 500;
+
+            var endpoint = await webhookService.GetEndpointAsync(id, ct);
+            if (endpoint is null)
+            {
+                return Results.NotFound();
+            }
 
             var deliveries = await webhookService.GetDeliveryLogAsync(id, take, ct);
             return Results.Ok(deliveries.Select(d => new

@@ -60,8 +60,12 @@ public sealed class AMLConductMonitor : IAMLConductMonitor
             WHERE m.TenantId = @TenantId
               AND m.RegulatorCode = @RegulatorCode
               AND m.PeriodCode = @PeriodCode
-              AND ps.PeerStDev > 0
-              AND ((CAST(m.STRFilingCount AS FLOAT) - ps.PeerMean) / ps.PeerStDev) <= @ZThreshold
+              AND (
+                    (ps.PeerStDev > 0
+                     AND ((CAST(m.STRFilingCount AS FLOAT) - ps.PeerMean) / ps.PeerStDev) <= @ZThreshold)
+                    OR (ps.PeerMean >= 5
+                        AND CAST(m.STRFilingCount AS FLOAT) <= ps.PeerMean * 0.25)
+                  )
             """,
             new
             {
@@ -74,7 +78,10 @@ public sealed class AMLConductMonitor : IAMLConductMonitor
         var count = 0;
         foreach (var row in lowFilers)
         {
-            var severity = row.ZScore <= (double)zThreshold * 1.5 ? "CRITICAL" : "HIGH";
+            var extremelyLowRelativeToPeers = row.PeerMean > 0 && row.STRFilingCount <= row.PeerMean * 0.15;
+            var severity = row.ZScore <= (double)zThreshold * 1.5 || extremelyLowRelativeToPeers
+                ? "CRITICAL"
+                : "HIGH";
             var evidence = JsonSerializer.Serialize(new AMLConductEvidence(
                 Convert.ToDecimal(row.ZScore),
                 Convert.ToDecimal(row.PeerMean),

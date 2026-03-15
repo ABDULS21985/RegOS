@@ -10,7 +10,7 @@ public static class DataProtectionEndpoints
     {
         var group = routes.MapGroup("/dspm")
             .WithTags("Continuous DSPM")
-            .RequireAuthorization();
+            .RequireAuthorization("InstitutionApi");
 
         group.MapPost("/sources", async (
             [FromBody] DataSourceRegistrationRequest request,

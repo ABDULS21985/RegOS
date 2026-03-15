@@ -14,7 +14,7 @@ public static class RegulatoryQueryEndpoints
     {
         var group = routes.MapGroup("/regulatory-queries")
             .WithTags("RegulatoryQueries")
-            .RequireAuthorization();
+            .RequireAuthorization("InstitutionApi");
 
         // GET /regulatory-queries — list open queries for institution
         group.MapGet("/", async (
@@ -109,16 +109,12 @@ public static class RegulatoryQueryEndpoints
 
     private static int ResolveInstitutionId(ClaimsPrincipal principal)
     {
-        var raw = principal.FindFirstValue("institution_id")
-            ?? principal.FindFirstValue("institutionId");
-        return int.TryParse(raw, out var id) ? id : 0;
+        return ApiClaimResolvers.GetInstitutionId(principal);
     }
 
     private static int ResolveUserId(ClaimsPrincipal principal)
     {
-        var raw = principal.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? principal.FindFirstValue("sub");
-        return int.TryParse(raw, out var id) ? id : 0;
+        return ApiClaimResolvers.GetUserId(principal);
     }
 }
 

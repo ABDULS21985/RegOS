@@ -9,8 +9,13 @@ namespace FC.Engine.Infrastructure.Persistence.Repositories;
 public class SubmissionRepository : ISubmissionRepository
 {
     private readonly MetadataDbContext _db;
+    private readonly ITenantContext _tenantContext;
 
-    public SubmissionRepository(MetadataDbContext db) => _db = db;
+    public SubmissionRepository(MetadataDbContext db, ITenantContext tenantContext)
+    {
+        _db = db;
+        _tenantContext = tenantContext;
+    }
 
     public async Task<Submission?> GetById(int id, CancellationToken ct = default)
     {

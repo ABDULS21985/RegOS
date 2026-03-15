@@ -1,5 +1,6 @@
 using FC.Engine.Domain.Security;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 namespace FC.Engine.Infrastructure.Auth;
 
@@ -32,7 +33,46 @@ public static class AuthorizationPolicyExtensions
         options.AddPolicy("CanAdminComplianceHealth", policy => policy.RequireClaim("perm", PermissionCatalog.ComplianceHealthAdmin));
         // Platform admin
         options.AddPolicy("PlatformAdmin", policy => policy.RequireClaim("perm", PermissionCatalog.AdminPlatform));
+        options.AddPolicy("CaaSAdmin", policy => policy.RequireClaim("perm", PermissionCatalog.AdminPlatform));
+        options.AddPolicy("RegulatorApi", policy => policy.RequireAssertion(context =>
+        {
+            return HasUserId(context.User)
+                && !string.IsNullOrWhiteSpace(context.User.FindFirstValue("RegulatorCode"))
+                && HasRegulatorId(context.User);
+        }));
+        options.AddPolicy("InstitutionApi", policy => policy.RequireAssertion(context =>
+        {
+            return HasUserId(context.User)
+                && HasInstitutionId(context.User);
+        }));
     }
 
     public static string ToPermissionPolicyName(string permissionCode) => $"perm:{permissionCode}";
+
+    private static bool HasUserId(ClaimsPrincipal principal)
+    {
+        var raw = principal.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? principal.FindFirstValue("sub")
+            ?? principal.FindFirstValue("user_id");
+
+        return int.TryParse(raw, out var id) && id > 0;
+    }
+
+    private static bool HasInstitutionId(ClaimsPrincipal principal)
+    {
+        var raw = principal.FindFirstValue("iid")
+            ?? principal.FindFirstValue("institution_id")
+            ?? principal.FindFirstValue("institutionId")
+            ?? principal.FindFirstValue("InstitutionId");
+
+        return int.TryParse(raw, out var id) && id > 0;
+    }
+
+    private static bool HasRegulatorId(ClaimsPrincipal principal)
+    {
+        var raw = principal.FindFirstValue("RegulatorId")
+            ?? principal.FindFirstValue("regulator_id");
+
+        return int.TryParse(raw, out var id) && id > 0;
+    }
 }

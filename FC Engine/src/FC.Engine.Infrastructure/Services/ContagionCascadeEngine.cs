@@ -35,6 +35,9 @@ public sealed class ContagionCascadeEngine : IContagionCascadeEngine
             long runId, CancellationToken ct = default)
     {
         using var conn = await _db.OpenAsync(ct);
+        var persistEvents = await conn.ExecuteScalarAsync<int>(
+            "SELECT COUNT(*) FROM StressTestRuns WHERE Id = @RunId",
+            new { RunId = runId }) > 0;
 
         // Load interbank exposure graph for this period (R-04: parameterised queries)
         var allEdges = (await conn.QueryAsync<ExposureEdge>(
@@ -181,16 +184,19 @@ public sealed class ContagionCascadeEngine : IContagionCascadeEngine
             // Persist contagion events (R-04)
             foreach (var evt in roundEvents)
             {
-                await conn.ExecuteAsync(
-                    """
-                    INSERT INTO StressTestContagionEvents
-                        (RunId, ContagionRound, FailingInstitutionId, AffectedInstitutionId,
-                         ExposureAmount, ExposureType, TransmissionType)
-                    VALUES (@RunId, @Round, @Failing, @Affected, @Amount, @Type, @Trans)
-                    """,
-                    new { RunId = runId, Round = round, Failing = evt.FailingInstitutionId,
-                          Affected = evt.AffectedInstitutionId, Amount = evt.ExposureAmount,
-                          Type = evt.ExposureType, Trans = evt.TransmissionType });
+                if (persistEvents)
+                {
+                    await conn.ExecuteAsync(
+                        """
+                        INSERT INTO StressTestContagionEvents
+                            (RunId, ContagionRound, FailingInstitutionId, AffectedInstitutionId,
+                             ExposureAmount, ExposureType, TransmissionType)
+                        VALUES (@RunId, @Round, @Failing, @Affected, @Amount, @Type, @Trans)
+                        """,
+                        new { RunId = runId, Round = round, Failing = evt.FailingInstitutionId,
+                              Affected = evt.AffectedInstitutionId, Amount = evt.ExposureAmount,
+                              Type = evt.ExposureType, Trans = evt.TransmissionType });
+                }
             }
 
             allEvents.AddRange(roundEvents);

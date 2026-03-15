@@ -1,5 +1,6 @@
 using System.Data.Common;
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Infrastructure.MultiTenancy;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.AspNetCore.Http;
@@ -42,37 +43,20 @@ public class TenantSessionContextInterceptor : DbConnectionInterceptor
 
     private DbCommand BuildSessionContextCommand(DbConnection connection)
     {
-        var httpContext = _httpContextAccessor.HttpContext;
-        var tenantType = ResolveSessionValue(httpContext?.Items["TenantType"], httpContext?.User?.FindFirst("TenantType")?.Value);
-        var regulatorCode = ResolveSessionValue(httpContext?.Items["RegulatorCode"], httpContext?.User?.FindFirst("RegulatorCode")?.Value);
+        var scope = TenantSessionContextScopeResolver.Resolve(_tenantContext, _httpContextAccessor);
 
         var cmd = connection.CreateCommand();
         cmd.CommandText = @"
             EXEC sp_set_session_context @key=N'TenantId', @value=@tid;
+            EXEC sp_set_session_context @key=N'BypassRls', @value=@bypassRls;
             EXEC sp_set_session_context @key=N'TenantType', @value=@tenantType;
             EXEC sp_set_session_context @key=N'RegulatorCode', @value=@regulatorCode;";
 
-        cmd.Parameters.Add(new SqlParameter("@tid", _tenantContext.CurrentTenantId.HasValue
-            ? _tenantContext.CurrentTenantId.Value
-            : DBNull.Value));
-        cmd.Parameters.Add(new SqlParameter("@tenantType", tenantType ?? (object)DBNull.Value));
-        cmd.Parameters.Add(new SqlParameter("@regulatorCode", regulatorCode ?? (object)DBNull.Value));
+        cmd.Parameters.Add(new SqlParameter("@tid", scope.TenantId ?? (object)DBNull.Value));
+        cmd.Parameters.Add(new SqlParameter("@bypassRls", scope.BypassRls));
+        cmd.Parameters.Add(new SqlParameter("@tenantType", scope.TenantType ?? (object)DBNull.Value));
+        cmd.Parameters.Add(new SqlParameter("@regulatorCode", scope.RegulatorCode ?? (object)DBNull.Value));
 
         return cmd;
-    }
-
-    private static string? ResolveSessionValue(object? itemValue, string? claimValue)
-    {
-        if (itemValue is string s && !string.IsNullOrWhiteSpace(s))
-        {
-            return s;
-        }
-
-        if (!string.IsNullOrWhiteSpace(claimValue))
-        {
-            return claimValue;
-        }
-
-        return null;
     }
 }

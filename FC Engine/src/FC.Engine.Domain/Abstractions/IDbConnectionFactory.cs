@@ -9,7 +9,8 @@ public interface IDbConnectionFactory
 {
     /// <summary>
     /// Creates and opens a SqlConnection with SESSION_CONTEXT('TenantId') set.
-    /// If tenantId is null (PlatformAdmin), SESSION_CONTEXT is not set, allowing RLS bypass.
+    /// Null tenant scopes are translated into an explicit bypass flag for approved
+    /// platform/system flows rather than relying on a missing TenantId session value.
     /// </summary>
     Task<IDbConnection> CreateConnectionAsync(Guid? tenantId, CancellationToken ct = default);
 }

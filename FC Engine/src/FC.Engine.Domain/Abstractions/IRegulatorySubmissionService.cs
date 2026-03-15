@@ -22,6 +22,7 @@ public class DirectSubmissionResult
 {
     public bool Success { get; set; }
     public int DirectSubmissionId { get; set; }
+    public int SubmissionId { get; set; }
     public string RegulatorReference { get; set; } = string.Empty;
     public string Status { get; set; } = string.Empty;
     public string Message { get; set; } = string.Empty;
@@ -31,6 +32,7 @@ public class DirectSubmissionResult
 public class DirectSubmissionStatusResult
 {
     public int DirectSubmissionId { get; set; }
+    public int SubmissionId { get; set; }
     public string Status { get; set; } = string.Empty;
     public string RegulatorCode { get; set; } = string.Empty;
     public string? RegulatorReference { get; set; }

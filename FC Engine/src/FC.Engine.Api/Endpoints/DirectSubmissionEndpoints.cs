@@ -11,7 +11,7 @@ public static class DirectSubmissionEndpoints
     {
         var group = routes.MapGroup("/submissions/{submissionId:int}/direct")
             .WithTags("DirectSubmission")
-            .RequireAuthorization();
+            .RequireAuthorization("InstitutionApi");
 
         // POST /submissions/{submissionId}/direct — trigger direct API submission
         group.MapPost("/", async (
@@ -25,13 +25,20 @@ public static class DirectSubmissionEndpoints
             var tenantId = tenantContext.CurrentTenantId ?? Guid.Empty;
             if (tenantId == Guid.Empty) return Results.Forbid();
 
-            var submittedBy = ResolveUserName(principal);
-            var result = await service.SubmitToRegulatorAsync(
-                submissionId, request.RegulatorCode, submittedBy, ct);
+            try
+            {
+                var submittedBy = ResolveUserName(principal);
+                var result = await service.SubmitToRegulatorAsync(
+                    submissionId, request.RegulatorCode, submittedBy, ct);
 
-            return result.Success
-                ? Results.Ok(result)
-                : Results.UnprocessableEntity(result);
+                return result.Success
+                    ? Results.Ok(result)
+                    : Results.UnprocessableEntity(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
         })
         .RequireAuthorization("CanDirectSubmit")
         .WithName("SubmitToRegulator")
@@ -61,8 +68,20 @@ public static class DirectSubmissionEndpoints
             IRegulatorySubmissionService service,
             CancellationToken ct) =>
         {
-            var result = await service.CheckStatusAsync(directId, ct);
-            return Results.Ok(result);
+            try
+            {
+                var result = await service.CheckStatusAsync(directId, ct);
+                if (result.SubmissionId != submissionId)
+                {
+                    return Results.NotFound();
+                }
+
+                return Results.Ok(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
         })
         .RequireAuthorization("CanViewDirectStatus")
         .WithName("CheckDirectSubmissionStatus")
@@ -75,8 +94,20 @@ public static class DirectSubmissionEndpoints
             IRegulatorySubmissionService service,
             CancellationToken ct) =>
         {
-            var result = await service.RetrySubmissionAsync(directId, ct);
-            return result.Success ? Results.Ok(result) : Results.UnprocessableEntity(result);
+            try
+            {
+                var result = await service.RetrySubmissionAsync(directId, ct);
+                if (result.SubmissionId != submissionId)
+                {
+                    return Results.NotFound();
+                }
+
+                return result.Success ? Results.Ok(result) : Results.UnprocessableEntity(result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.NotFound(new { error = ex.Message });
+            }
         })
         .RequireAuthorization("CanDirectSubmit")
         .WithName("RetryDirectSubmission")

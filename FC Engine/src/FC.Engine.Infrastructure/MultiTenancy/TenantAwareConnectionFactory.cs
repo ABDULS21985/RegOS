@@ -29,32 +29,22 @@ public class TenantAwareConnectionFactory : IDbConnectionFactory
         var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(ct);
 
-        var httpContext = _httpContextAccessor.HttpContext;
-        var tenantType = ResolveSessionValue(httpContext?.Items["TenantType"], httpContext?.User.FindFirst("TenantType")?.Value);
-        var regulatorCode = ResolveSessionValue(httpContext?.Items["RegulatorCode"], httpContext?.User.FindFirst("RegulatorCode")?.Value);
+        var scope = TenantSessionContextScopeResolver.Resolve(tenantId, _httpContextAccessor);
 
-        // Always set the key on open. Passing NULL clears stale TenantId on pooled connections.
+        // Always reset all session keys on open to avoid stale pooled-connection state.
         await connection.ExecuteAsync(
             @"EXEC sp_set_session_context @key=N'TenantId', @value=@tenantId;
+              EXEC sp_set_session_context @key=N'BypassRls', @value=@bypassRls;
               EXEC sp_set_session_context @key=N'TenantType', @value=@tenantType;
               EXEC sp_set_session_context @key=N'RegulatorCode', @value=@regulatorCode;",
-            new { tenantId, tenantType, regulatorCode });
+            new
+            {
+                tenantId = scope.TenantId,
+                bypassRls = scope.BypassRls,
+                tenantType = scope.TenantType,
+                regulatorCode = scope.RegulatorCode
+            });
 
         return connection;
-    }
-
-    private static string? ResolveSessionValue(object? itemValue, string? claimValue)
-    {
-        if (itemValue is string s && !string.IsNullOrWhiteSpace(s))
-        {
-            return s;
-        }
-
-        if (!string.IsNullOrWhiteSpace(claimValue))
-        {
-            return claimValue;
-        }
-
-        return null;
     }
 }

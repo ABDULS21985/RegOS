@@ -71,6 +71,7 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
         // Step 1: Validate prerequisites
         var submission = await _submissionRepo.GetByIdWithReport(submissionId, ct)
             ?? throw new InvalidOperationException($"Submission {submissionId} not found.");
+        EnsureTenantAccess(submission.TenantId);
 
         if (submission.Status != SubmissionStatus.Accepted
             && submission.Status != SubmissionStatus.AcceptedWithWarnings)
@@ -193,6 +194,7 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
             {
                 Success = response.Success,
                 DirectSubmissionId = directSub.Id,
+                SubmissionId = directSub.SubmissionId,
                 RegulatorReference = response.Reference,
                 Status = directSub.Status.ToString(),
                 Message = response.Message,
@@ -213,6 +215,7 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
             {
                 Success = false,
                 DirectSubmissionId = directSub.Id,
+                SubmissionId = directSub.SubmissionId,
                 Status = directSub.Status.ToString(),
                 Message = ex.Message
             };
@@ -224,6 +227,7 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
     {
         var directSub = await _directSubmissionRepo.GetByIdWithSubmission(directSubmissionId, ct)
             ?? throw new InvalidOperationException($"Direct submission {directSubmissionId} not found.");
+        EnsureTenantAccess(directSub.TenantId);
 
         if (directSub.Status != DirectSubmissionStatus.RetryScheduled
             && directSub.Status != DirectSubmissionStatus.Failed
@@ -233,6 +237,7 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
             {
                 Success = false,
                 DirectSubmissionId = directSub.Id,
+                SubmissionId = directSub.SubmissionId,
                 Status = directSub.Status.ToString(),
                 Message = "Submission is not in a retryable state."
             };
@@ -244,6 +249,7 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
             {
                 Success = false,
                 DirectSubmissionId = directSub.Id,
+                SubmissionId = directSub.SubmissionId,
                 Message = $"No API client for regulator '{directSub.RegulatorCode}'."
             };
         }
@@ -264,6 +270,7 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
             {
                 Success = false,
                 DirectSubmissionId = directSub.Id,
+                SubmissionId = directSub.SubmissionId,
                 Message = "Failed to load stored package for retry."
             };
         }
@@ -321,6 +328,7 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
         {
             Success = response.Success,
             DirectSubmissionId = directSub.Id,
+            SubmissionId = directSub.SubmissionId,
             RegulatorReference = response.Reference,
             Status = directSub.Status.ToString(),
             Message = response.Message,
@@ -333,10 +341,12 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
     {
         var directSub = await _directSubmissionRepo.GetById(directSubmissionId, ct)
             ?? throw new InvalidOperationException($"Direct submission {directSubmissionId} not found.");
+        EnsureTenantAccess(directSub.TenantId);
 
         var result = new DirectSubmissionStatusResult
         {
             DirectSubmissionId = directSub.Id,
+            SubmissionId = directSub.SubmissionId,
             Status = directSub.Status.ToString(),
             RegulatorCode = directSub.RegulatorCode,
             RegulatorReference = directSub.RegulatorReference,
@@ -374,6 +384,14 @@ public class RegulatorySubmissionService : IRegulatorySubmissionService
         Guid tenantId, int submissionId, CancellationToken ct = default)
     {
         return await _directSubmissionRepo.GetByTenantAndSubmission(tenantId, submissionId, ct);
+    }
+
+    private void EnsureTenantAccess(Guid resourceTenantId)
+    {
+        if (_tenantContext.CurrentTenantId.HasValue && _tenantContext.CurrentTenantId.Value != resourceTenantId)
+        {
+            throw new InvalidOperationException("Direct submission not found.");
+        }
     }
 
     private void ScheduleRetry(DirectSubmission directSub)

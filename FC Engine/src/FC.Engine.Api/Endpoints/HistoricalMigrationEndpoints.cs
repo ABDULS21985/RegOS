@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Infrastructure.Metadata;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace FC.Engine.Api.Endpoints;
 
@@ -48,6 +50,8 @@ public static class HistoricalMigrationEndpoints
             HttpRequest request,
             ClaimsPrincipal user,
             IHistoricalMigrationService migrationService,
+            IInstitutionRepository institutionRepository,
+            MetadataDbContext db,
             ITenantContext tenantContext,
             CancellationToken ct) =>
         {
@@ -73,9 +77,19 @@ public static class HistoricalMigrationEndpoints
                 return Results.BadRequest(new { error = "institutionId is required." });
             }
 
+            if (!await CanAccessInstitutionAsync(institutionId, tenantContext, institutionRepository, ct))
+            {
+                return Results.NotFound();
+            }
+
             if (!int.TryParse(form["returnPeriodId"], out var returnPeriodId) || returnPeriodId <= 0)
             {
                 return Results.BadRequest(new { error = "returnPeriodId is required." });
+            }
+
+            if (!await CanAccessReturnPeriodAsync(returnPeriodId, tenantContext, db, ct))
+            {
+                return Results.NotFound();
             }
 
             var returnCode = form["returnCode"].ToString().Trim();
@@ -305,6 +319,34 @@ public static class HistoricalMigrationEndpoints
         var raw = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
                   ?? user.FindFirst("sub")?.Value;
         return int.TryParse(raw, out var userId) ? userId : null;
+    }
+
+    private static async Task<bool> CanAccessInstitutionAsync(
+        int institutionId,
+        ITenantContext tenantContext,
+        IInstitutionRepository institutionRepository,
+        CancellationToken ct)
+    {
+        var institution = await institutionRepository.GetById(institutionId, ct);
+        if (institution is null)
+        {
+            return false;
+        }
+
+        return tenantContext.CurrentTenantId.HasValue
+            && institution.TenantId == tenantContext.CurrentTenantId.Value;
+    }
+
+    private static async Task<bool> CanAccessReturnPeriodAsync(
+        int returnPeriodId,
+        ITenantContext tenantContext,
+        MetadataDbContext db,
+        CancellationToken ct)
+    {
+        return tenantContext.CurrentTenantId.HasValue
+            && await db.ReturnPeriods
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == returnPeriodId && x.TenantId == tenantContext.CurrentTenantId.Value, ct);
     }
 }
 

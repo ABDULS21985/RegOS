@@ -16,7 +16,7 @@ public static class SubmissionBatchEndpoints
     {
         var group = routes.MapGroup("/submission-batches")
             .WithTags("SubmissionBatches")
-            .RequireAuthorization();
+            .RequireAuthorization("InstitutionApi");
 
         // POST /submission-batches — initiate a new batch submission
         group.MapPost("/", async (
@@ -161,16 +161,12 @@ public static class SubmissionBatchEndpoints
 
     private static int ResolveInstitutionId(ClaimsPrincipal principal)
     {
-        var raw = principal.FindFirstValue("institution_id")
-            ?? principal.FindFirstValue("institutionId");
-        return int.TryParse(raw, out var id) ? id : 0;
+        return ApiClaimResolvers.GetInstitutionId(principal);
     }
 
     private static int ResolveUserId(ClaimsPrincipal principal)
     {
-        var raw = principal.FindFirstValue(ClaimTypes.NameIdentifier)
-            ?? principal.FindFirstValue("sub");
-        return int.TryParse(raw, out var id) ? id : 0;
+        return ApiClaimResolvers.GetUserId(principal);
     }
 }
 

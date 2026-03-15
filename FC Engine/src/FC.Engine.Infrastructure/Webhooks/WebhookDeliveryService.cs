@@ -5,6 +5,7 @@ using System.Text.Json;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Infrastructure.Metadata;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -14,6 +15,8 @@ public class WebhookDeliveryService : IWebhookService
 {
     private readonly MetadataDbContext _db;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ITenantContext _tenantContext;
+    private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly ILogger<WebhookDeliveryService> _logger;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -25,10 +28,14 @@ public class WebhookDeliveryService : IWebhookService
     public WebhookDeliveryService(
         MetadataDbContext db,
         IHttpClientFactory httpClientFactory,
+        ITenantContext tenantContext,
+        IHttpContextAccessor httpContextAccessor,
         ILogger<WebhookDeliveryService> logger)
     {
         _db = db;
         _httpClientFactory = httpClientFactory;
+        _tenantContext = tenantContext;
+        _httpContextAccessor = httpContextAccessor;
         _logger = logger;
     }
 
@@ -57,7 +64,7 @@ public class WebhookDeliveryService : IWebhookService
 
     public async Task<WebhookEndpoint?> GetEndpointAsync(int id, CancellationToken ct = default)
     {
-        return await _db.WebhookEndpoints.FindAsync(new object[] { id }, ct);
+        return await GetAccessibleEndpointAsync(id, ct);
     }
 
     public async Task<List<WebhookEndpoint>> GetEndpointsAsync(Guid tenantId, CancellationToken ct = default)
@@ -72,7 +79,7 @@ public class WebhookDeliveryService : IWebhookService
         int id, string? url, string? description,
         List<string>? eventTypes, bool? isActive, CancellationToken ct = default)
     {
-        var endpoint = await _db.WebhookEndpoints.FindAsync(new object[] { id }, ct)
+        var endpoint = await GetAccessibleEndpointAsync(id, ct)
             ?? throw new InvalidOperationException($"Webhook endpoint {id} not found.");
 
         if (url is not null) endpoint.Url = url.Trim();
@@ -93,7 +100,7 @@ public class WebhookDeliveryService : IWebhookService
 
     public async Task DeleteEndpointAsync(int id, CancellationToken ct = default)
     {
-        var endpoint = await _db.WebhookEndpoints.FindAsync(new object[] { id }, ct);
+        var endpoint = await GetAccessibleEndpointAsync(id, ct);
         if (endpoint is not null)
         {
             _db.WebhookEndpoints.Remove(endpoint);
@@ -103,7 +110,7 @@ public class WebhookDeliveryService : IWebhookService
 
     public async Task<string> RotateSecretAsync(int id, CancellationToken ct = default)
     {
-        var endpoint = await _db.WebhookEndpoints.FindAsync(new object[] { id }, ct)
+        var endpoint = await GetAccessibleEndpointAsync(id, ct)
             ?? throw new InvalidOperationException($"Webhook endpoint {id} not found.");
 
         endpoint.SecretKey = GenerateSecret();
@@ -114,8 +121,14 @@ public class WebhookDeliveryService : IWebhookService
     public async Task<List<WebhookDelivery>> GetDeliveryLogAsync(
         int endpointId, int take = 50, CancellationToken ct = default)
     {
+        var endpoint = await GetAccessibleEndpointAsync(endpointId, ct);
+        if (endpoint is null)
+        {
+            return new List<WebhookDelivery>();
+        }
+
         return await _db.WebhookDeliveries
-            .Where(d => d.EndpointId == endpointId)
+            .Where(d => d.EndpointId == endpoint.Id)
             .OrderByDescending(d => d.CreatedAt)
             .Take(take)
             .ToListAsync(ct);
@@ -123,11 +136,39 @@ public class WebhookDeliveryService : IWebhookService
 
     public async Task SendTestWebhookAsync(int endpointId, CancellationToken ct = default)
     {
-        var endpoint = await _db.WebhookEndpoints.FindAsync(new object[] { endpointId }, ct)
+        var endpoint = await GetAccessibleEndpointAsync(endpointId, ct)
             ?? throw new InvalidOperationException($"Webhook endpoint {endpointId} not found.");
 
         var testData = new { message = "Test webhook from RegOS", timestamp = DateTime.UtcNow };
         await DeliverAsync(endpoint, "webhook.test", testData, ct);
+    }
+
+    private async Task<WebhookEndpoint?> GetAccessibleEndpointAsync(int endpointId, CancellationToken ct)
+    {
+        var query = _db.WebhookEndpoints.AsQueryable();
+        var tenantId = ResolveRequestTenant();
+
+        if (tenantId == Guid.Empty)
+        {
+            return null;
+        }
+
+        if (tenantId.HasValue)
+        {
+            query = query.Where(x => x.TenantId == tenantId.Value);
+        }
+
+        return await query.FirstOrDefaultAsync(x => x.Id == endpointId, ct);
+    }
+
+    private Guid? ResolveRequestTenant()
+    {
+        if (_tenantContext.CurrentTenantId.HasValue)
+        {
+            return _tenantContext.CurrentTenantId.Value;
+        }
+
+        return _httpContextAccessor.HttpContext is null ? null : Guid.Empty;
     }
 
     public async Task DeliverAsync(

@@ -21,16 +21,32 @@ public class EntitlementServiceTests : IDisposable
         var options = new DbContextOptionsBuilder<MetadataDbContext>()
             .UseInMemoryDatabase(Guid.NewGuid().ToString())
             .Options;
+        var dbFactory = new TestMetadataDbContextFactory(options);
 
         _db = new MetadataDbContext(options);
         _cache = new MemoryCache(new MemoryCacheOptions());
-        _sut = new EntitlementService(_db, _cache, NullLogger<EntitlementService>.Instance);
+        _sut = new EntitlementService(dbFactory, _cache, NullLogger<EntitlementService>.Instance);
     }
 
     public void Dispose()
     {
         _cache.Dispose();
         _db.Dispose();
+    }
+
+    private sealed class TestMetadataDbContextFactory : IDbContextFactory<MetadataDbContext>
+    {
+        private readonly DbContextOptions<MetadataDbContext> _options;
+
+        public TestMetadataDbContextFactory(DbContextOptions<MetadataDbContext> options)
+        {
+            _options = options;
+        }
+
+        public MetadataDbContext CreateDbContext() => new(_options);
+
+        public Task<MetadataDbContext> CreateDbContextAsync(CancellationToken cancellationToken = default)
+            => Task.FromResult(CreateDbContext());
     }
 
     // ── Helpers ──

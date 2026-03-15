@@ -626,8 +626,25 @@ WHEN NOT MATCHED THEN
         (int Id, string Type, decimal CAR, decimal NPL, decimal LCR, decimal OilPct)[] entities)
     {
         using var conn = await Db.OpenAsync();
+        await conn.ExecuteAsync("""
+DELETE FROM meta.interbank_exposures WHERE PeriodCode = @Period;
+DELETE FROM meta.prudential_metrics WHERE PeriodCode = @Period;
+""",
+            new { Period = periodCode });
+
         foreach (var e in entities)
         {
+            await conn.ExecuteAsync("""
+MERGE Institutions AS t
+USING (VALUES (@Id, 'CBN', @Type, CONCAT(@Type, '-', RIGHT(CONCAT('000', @Id), 3)), CONCAT('Entity ', @Id)))
+    AS s(Id, RegulatorCode, InstitutionType, LicenseNumber, ShortName)
+ON t.Id = s.Id
+WHEN NOT MATCHED THEN
+    INSERT (Id, RegulatorCode, InstitutionType, LicenseNumber, InstitutionName, ShortName, IsActive)
+    VALUES (s.Id, s.RegulatorCode, s.InstitutionType, s.LicenseNumber, s.ShortName, s.ShortName, 1);
+""",
+                new { Id = e.Id, Type = e.Type });
+
             await conn.ExecuteAsync("""
  MERGE meta.prudential_metrics AS t
 USING (VALUES (@Id, @Period)) AS s(InstitutionId, PeriodCode)

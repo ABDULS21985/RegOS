@@ -13,7 +13,7 @@ public static class CrossBorderEndpoints
     {
         var group = routes.MapGroup("/cross-border")
             .WithTags("Cross-Border Harmonisation")
-            .RequireAuthorization();
+            .RequireAuthorization("RegulatorApi");
 
         // ── Jurisdictions ────────────────────────────────────────────
 
@@ -166,9 +166,16 @@ public static class CrossBorderEndpoints
             CancellationToken ct) =>
         {
             var userId = GetUserId(ctx);
-            var result = await engine.RunConsolidationAsync(
-                groupId, request.ReportingPeriod, request.SnapshotDate, userId, ct);
-            return Results.Created($"/api/v1/cross-border/groups/{groupId}/runs/{result.RunId}", result);
+            try
+            {
+                var result = await engine.RunConsolidationAsync(
+                    groupId, request.ReportingPeriod, request.SnapshotDate, userId, ct);
+                return Results.Created($"/api/v1/cross-border/groups/{groupId}/runs/{result.RunId}", result);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return Results.UnprocessableEntity(new { error = ex.Message });
+            }
         })
         .WithName("RunConsolidation")
         .WithSummary("Execute a full consolidation run for a financial group.");
@@ -431,8 +438,7 @@ public static class CrossBorderEndpoints
     }
 
     private static int GetUserId(HttpContext ctx) =>
-        int.TryParse(ctx.User.FindFirst("sub")?.Value
-            ?? ctx.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out var id) ? id : 1;
+        ApiClaimResolvers.GetUserId(ctx.User);
 }
 
 public sealed record UpdateProtocolStatusRequest(AfcftaProtocolStatus Status);

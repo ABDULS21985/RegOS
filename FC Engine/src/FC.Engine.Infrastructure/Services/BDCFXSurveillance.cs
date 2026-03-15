@@ -38,32 +38,22 @@ public sealed class BDCFXSurveillance : IBDCFXSurveillance
 
         var violators = await conn.QueryAsync<RateViolatorRow>(
             """
-            WITH Rated AS (
+            WITH OutsideBand AS (
                 SELECT t.InstitutionId,
                        t.TransactionDate,
                        t.SellRate,
                        t.CBNMidRate,
                        t.CBNBandUpper * (1 + @Tolerance / 100.0) AS EffectiveUpper,
                        t.CBNBandLower * (1 - @Tolerance / 100.0) AS EffectiveLower,
-                       CASE
-                           WHEN t.SellRate > t.CBNBandUpper * (1 + @Tolerance / 100.0)
-                             OR t.SellRate < t.CBNBandLower * (1 - @Tolerance / 100.0)
-                           THEN 1 ELSE 0
-                       END AS IsOutside,
-                       ROW_NUMBER() OVER (PARTITION BY t.InstitutionId ORDER BY t.TransactionDate) AS RnAll,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY t.InstitutionId,
-                                        CASE
-                                            WHEN t.SellRate > t.CBNBandUpper * (1 + @Tolerance / 100.0)
-                                              OR t.SellRate < t.CBNBandLower * (1 - @Tolerance / 100.0)
-                                            THEN 1 ELSE 0
-                                        END
-                           ORDER BY t.TransactionDate
-                       ) AS RnState
+                       ROW_NUMBER() OVER (PARTITION BY t.InstitutionId ORDER BY t.TransactionDate) AS RnOutside
                 FROM dbo.BDCFXTransactions t
                 WHERE t.TenantId = @TenantId
                   AND t.RegulatorCode = @RegulatorCode
                   AND t.PeriodCode = @PeriodCode
+                  AND (
+                        t.SellRate > t.CBNBandUpper * (1 + @Tolerance / 100.0)
+                        OR t.SellRate < t.CBNBandLower * (1 - @Tolerance / 100.0)
+                      )
             ),
             Streaks AS (
                 SELECT InstitutionId,
@@ -74,9 +64,8 @@ public sealed class BDCFXSurveillance : IBDCFXSurveillance
                        AVG(CBNMidRate) AS AvgMidRate,
                        MAX(EffectiveUpper) AS BandUpper,
                        MIN(EffectiveLower) AS BandLower
-                FROM Rated
-                WHERE IsOutside = 1
-                GROUP BY InstitutionId, DATEADD(DAY, -(RnAll - RnState), TransactionDate)
+                FROM OutsideBand
+                GROUP BY InstitutionId, DATEADD(DAY, -RnOutside, TransactionDate)
             )
             SELECT InstitutionId,
                    ConsecutiveCount AS MaxConsecutive,

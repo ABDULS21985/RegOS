@@ -161,7 +161,7 @@ namespace FC.Engine.Infrastructure.Metadata.Migrations
                 AS RETURN SELECT 1 AS result
                     WHERE @TenantId = CAST(SESSION_CONTEXT(N'TenantId') AS UNIQUEIDENTIFIER)
                        OR @TenantId IS NULL
-                       OR SESSION_CONTEXT(N'TenantId') IS NULL;
+                       OR TRY_CAST(SESSION_CONTEXT(N'BypassRls') AS bit) = 1;
             ");
 
             // ═══════════════════════════════════════════════════════════

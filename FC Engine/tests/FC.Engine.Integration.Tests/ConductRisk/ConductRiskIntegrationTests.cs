@@ -29,7 +29,7 @@ public sealed class ConductRiskIntegrationTests : IClassFixture<ConductRiskFixtu
     public async Task Bdc_RateManipulation_FiveConsecutiveBreaches_RaisesHighAlert()
     {
         var runId = Guid.NewGuid();
-        await _fx.SeedBdcRatesAsync(101, 6, 1550m, 1565m, 1535m, 1585m, "2026-Q1");
+        await _fx.SeedBdcRatesAsync(101, 6, 1550m, 1565m, 1535m, 1595m, "2026-Q1");
 
         var count = await _fx.Bdc.DetectRateManipulationAsync("CBN", "2026-Q1", runId);
 
@@ -283,6 +283,25 @@ public sealed class ConductRiskFixture : IAsyncLifetime
         string periodCode)
     {
         using var conn = await Db.CreateConnectionAsync(null);
+        await conn.ExecuteAsync(
+            """
+            DELETE FROM dbo.SurveillanceAlerts
+            WHERE TenantId = @TenantId
+              AND RegulatorCode = 'CBN'
+              AND Category = 'BDC_FX'
+              AND PeriodCode = @PeriodCode;
+
+            DELETE FROM dbo.BDCFXTransactions
+            WHERE TenantId = @TenantId
+              AND RegulatorCode = 'CBN'
+              AND PeriodCode = @PeriodCode;
+            """,
+            new
+            {
+                TenantId = CbnRegulatorTenantId,
+                PeriodCode = periodCode
+            });
+
         var start = DateOnly.FromDateTime(DateTime.UtcNow).AddDays(-30);
         for (var i = 0; i < 12; i++)
         {
@@ -314,6 +333,25 @@ public sealed class ConductRiskFixture : IAsyncLifetime
     public async Task SeedAmlMetricsAsync((int InstitutionId, string InstitutionType, int StrCount)[] rows, string periodCode)
     {
         using var conn = await Db.CreateConnectionAsync(null);
+        await conn.ExecuteAsync(
+            """
+            DELETE FROM dbo.SurveillanceAlerts
+            WHERE TenantId = @TenantId
+              AND RegulatorCode = 'NFIU'
+              AND Category = 'AML'
+              AND PeriodCode = @PeriodCode;
+
+            DELETE FROM dbo.AMLConductMetrics
+            WHERE TenantId = @TenantId
+              AND RegulatorCode = 'NFIU'
+              AND PeriodCode = @PeriodCode;
+            """,
+            new
+            {
+                TenantId = NfiuRegulatorTenantId,
+                PeriodCode = periodCode
+            });
+
         foreach (var row in rows)
         {
             await conn.ExecuteAsync(
@@ -337,6 +375,25 @@ public sealed class ConductRiskFixture : IAsyncLifetime
     public async Task SeedInsuranceMetricsAsync((int InstitutionId, decimal ClaimsRatio, decimal GrossClaims, decimal GrossPremium)[] rows, string periodCode)
     {
         using var conn = await Db.CreateConnectionAsync(null);
+        await conn.ExecuteAsync(
+            """
+            DELETE FROM dbo.SurveillanceAlerts
+            WHERE TenantId = @TenantId
+              AND RegulatorCode = 'NAICOM'
+              AND Category = 'INSURANCE'
+              AND PeriodCode = @PeriodCode;
+
+            DELETE FROM dbo.InsuranceConductMetrics
+            WHERE TenantId = @TenantId
+              AND RegulatorCode = 'NAICOM'
+              AND PeriodCode = @PeriodCode;
+            """,
+            new
+            {
+                TenantId = NaicomRegulatorTenantId,
+                PeriodCode = periodCode
+            });
+
         foreach (var row in rows)
         {
             await conn.ExecuteAsync(

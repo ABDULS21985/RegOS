@@ -159,7 +159,12 @@ public static class CaaSEndpoints
         int partnerId, [FromBody] CreateApiKeyRequest request,
         ICaaSApiKeyService keyService, ClaimsPrincipal user, CancellationToken ct)
     {
-        var userId    = int.Parse(user.FindFirst("user_id")!.Value);
+        var userId = ApiClaimResolvers.GetUserId(user);
+        if (userId <= 0)
+        {
+            return Results.Forbid();
+        }
+
         var (rawKey, info) = await keyService.CreateKeyAsync(
             partnerId, request.DisplayName,
             Enum.Parse<CaaSEnvironment>(request.Environment, ignoreCase: true),
@@ -184,7 +189,12 @@ public static class CaaSEndpoints
         int partnerId, long keyId, ICaaSApiKeyService keyService,
         ClaimsPrincipal user, CancellationToken ct)
     {
-        var userId = int.Parse(user.FindFirst("user_id")!.Value);
+        var userId = ApiClaimResolvers.GetUserId(user);
+        if (userId <= 0)
+        {
+            return Results.Forbid();
+        }
+
         await keyService.RevokeKeyAsync(partnerId, keyId, userId, ct);
         return Results.NoContent();
     }

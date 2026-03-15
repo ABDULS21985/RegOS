@@ -139,9 +139,6 @@ public sealed class AnomalyDetectionService : IAnomalyDetectionService
             finding.SubmissionId = submissionId;
         }
 
-        await using var transaction = _db.Database.IsRelational()
-            ? await _db.Database.BeginTransactionAsync(ct)
-            : null;
         var existing = await _db.AnomalyReports
             .Include(x => x.Findings)
             .Where(x => x.SubmissionId == submissionId && x.ModelVersionId == activeModel.Id)
@@ -150,7 +147,6 @@ public sealed class AnomalyDetectionService : IAnomalyDetectionService
         if (existing.Count > 0)
         {
             _db.AnomalyReports.RemoveRange(existing);
-            await _db.SaveChangesAsync(ct);
         }
 
         report.Findings = findings;
@@ -175,10 +171,6 @@ public sealed class AnomalyDetectionService : IAnomalyDetectionService
             ct);
 
         await MaybeNotifyInstitutionAsync(report, performedBy, ct);
-        if (transaction is not null)
-        {
-            await transaction.CommitAsync(ct);
-        }
 
         return await GetReportByIdAsync(report.Id, tenantId, ct)
             ?? report;

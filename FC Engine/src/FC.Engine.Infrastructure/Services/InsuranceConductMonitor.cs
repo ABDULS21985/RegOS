@@ -78,7 +78,9 @@ public sealed class InsuranceConductMonitor : IInsuranceConductMonitor
         {
             var claimsRatio = row.ClaimsRatio ?? 0m;
             var deviation = peerAvg - claimsRatio;
-            var severity = claimsRatio < minClaimsRatio / 2 || deviation > peerDeviation * 2
+            var materiallyBelowFloor = claimsRatio <= minClaimsRatio * 0.75m;
+            var materiallyBelowPeers = claimsRatio < minClaimsRatio && deviation >= peerDeviation;
+            var severity = materiallyBelowFloor || materiallyBelowPeers || deviation > peerDeviation * 2
                 ? "CRITICAL"
                 : deviation > peerDeviation ? "HIGH" : "MEDIUM";
 

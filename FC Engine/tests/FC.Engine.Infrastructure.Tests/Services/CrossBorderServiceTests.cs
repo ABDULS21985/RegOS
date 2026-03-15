@@ -126,6 +126,52 @@ public class CrossBorderServiceTests
         await db.SaveChangesAsync();
     }
 
+    private static async Task SeedAcceptedSubmissionMetrics(
+        MetadataDbContext db,
+        FinancialGroup group,
+        string reportingPeriod)
+    {
+        var period = new ReturnPeriod
+        {
+            TenantId = Guid.NewGuid(),
+            Year = 2025,
+            Month = 12,
+            Quarter = 4,
+            Frequency = "Quarterly",
+            ReportingDate = new DateTime(2025, 12, 31),
+            DeadlineDate = new DateTime(2026, 1, 31),
+            IsOpen = false,
+            Status = "Closed",
+            CreatedAt = DateTime.UtcNow
+        };
+        db.ReturnPeriods.Add(period);
+        await db.SaveChangesAsync();
+
+        var metricsByInstitution = new Dictionary<int, string>
+        {
+            [1] = """{"totalAssets":1200000,"totalLiabilities":1050000,"totalCapital":150000,"riskWeightedAssets":900000,"car":16.6667}""",
+            [2] = """{"totalAssets":950000,"totalLiabilities":830000,"totalCapital":120000,"riskWeightedAssets":780000,"car":15.3846}""",
+            [3] = """{"totalAssets":700000,"totalLiabilities":620000,"totalCapital":80000,"riskWeightedAssets":560000,"car":14.2857}"""
+        };
+
+        foreach (var subsidiary in await db.GroupSubsidiaries.Where(s => s.GroupId == group.Id).ToListAsync())
+        {
+            db.Submissions.Add(new Submission
+            {
+                TenantId = period.TenantId,
+                InstitutionId = subsidiary.InstitutionId,
+                ReturnPeriodId = period.Id,
+                ReturnCode = $"{subsidiary.SubsidiaryCode}_{reportingPeriod}",
+                Status = SubmissionStatus.Accepted,
+                SubmittedAt = DateTime.UtcNow,
+                CreatedAt = DateTime.UtcNow,
+                ParsedDataJson = metricsByInstitution[subsidiary.InstitutionId]
+            });
+        }
+
+        await db.SaveChangesAsync();
+    }
+
     // ── Currency Conversion Tests ────────────────────────────────────
 
     [Fact]
@@ -265,6 +311,7 @@ public class CrossBorderServiceTests
         await SeedJurisdictions(db);
         var group = await SeedGroupWithSubsidiaries(db);
         await SeedFxRates(db);
+        await SeedAcceptedSubmissionMetrics(db, group, "2025-Q4");
 
         var sut = CreateConsolidationEngine(db);
 
@@ -286,6 +333,7 @@ public class CrossBorderServiceTests
         await SeedJurisdictions(db);
         var group = await SeedGroupWithSubsidiaries(db);
         await SeedFxRates(db);
+        await SeedAcceptedSubmissionMetrics(db, group, "2025-Q4");
 
         var sut = CreateConsolidationEngine(db);
 

@@ -12,19 +12,22 @@ public class TemplateService
     private readonly ITemplateMetadataCache _cache;
     private readonly ISqlTypeMapper _sqlTypeMapper;
     private readonly IEntitlementService _entitlementService;
+    private readonly ITenantContext _tenantContext;
 
     public TemplateService(
         ITemplateRepository templateRepo,
         IAuditLogger audit,
         ITemplateMetadataCache cache,
         ISqlTypeMapper sqlTypeMapper,
-        IEntitlementService entitlementService)
+        IEntitlementService entitlementService,
+        ITenantContext tenantContext)
     {
         _templateRepo = templateRepo;
         _audit = audit;
         _cache = cache;
         _sqlTypeMapper = sqlTypeMapper;
         _entitlementService = entitlementService;
+        _tenantContext = tenantContext;
     }
 
     public async Task<TemplateDto> CreateTemplate(CreateTemplateRequest request, CancellationToken ct = default)
@@ -63,13 +66,17 @@ public class TemplateService
     {
         var template = await _templateRepo.GetByReturnCode(returnCode, ct);
         if (template == null) return null;
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (template.TenantId.HasValue && template.TenantId != tenantId) return null;
         return MapToDetailDto(template);
     }
 
     public async Task<IReadOnlyList<TemplateDto>> GetAllTemplates(CancellationToken ct = default)
     {
         var templates = await _templateRepo.GetAll(ct);
-        return templates.Select(MapToDto).ToList();
+        var tenantId = _tenantContext.CurrentTenantId;
+        var filtered = templates.Where(t => t.TenantId == null || t.TenantId == tenantId);
+        return filtered.Select(MapToDto).ToList();
     }
 
     public async Task<List<ReturnTemplate>> GetEntitledTemplates(Guid tenantId, CancellationToken ct = default)
