@@ -197,7 +197,20 @@
 
     private async Task OnMakerCheckerChanged()
     {
-        await MgmtSvc.SetMakerChecker(institutionId, makerCheckerEnabled);
+        try
+        {
+            var ok = await MgmtSvc.SetMakerChecker(institutionId, makerCheckerEnabled);
+            if (!ok)
+            {
+                makerCheckerEnabled = !makerCheckerEnabled;
+                saveMessage = "Failed to update maker-checker setting.";
+            }
+        }
+        catch
+        {
+            makerCheckerEnabled = !makerCheckerEnabled;
+            saveMessage = "An error occurred updating maker-checker setting.";
+        }
     }
 
     private async Task SaveSettings()

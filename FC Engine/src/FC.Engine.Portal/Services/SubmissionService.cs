@@ -25,6 +25,7 @@ public class SubmissionService
     private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
     private readonly NotificationService _notificationSvc;
     private readonly IFilingCalendarService _filingCalendarService;
+    private readonly ITemplateMetadataCache _templateCache;
     private readonly ILogger<SubmissionService> _logger;
 
     public SubmissionService(
@@ -37,6 +38,7 @@ public class SubmissionService
         IDbContextFactory<MetadataDbContext> dbFactory,
         NotificationService notificationSvc,
         IFilingCalendarService filingCalendarService,
+        ITemplateMetadataCache templateCache,
         ILogger<SubmissionService> logger)
     {
         _templateService = templateService;
@@ -48,8 +50,332 @@ public class SubmissionService
         _dbFactory = dbFactory;
         _notificationSvc = notificationSvc;
         _filingCalendarService = filingCalendarService;
+        _templateCache = templateCache;
         _logger = logger;
     }
+
+    // ── List & Detail reads (service-layer replacements for direct repo access) ──
+
+    /// <summary>
+    /// Gets all submissions for an institution, mapped to list view models.
+    /// Replaces direct ISubmissionRepository + ITemplateMetadataCache usage in pages.
+    /// </summary>
+    public async Task<List<SubmissionListItem>> GetSubmissionsForInstitution(int institutionId)
+    {
+        var rawSubmissions = await _submissionRepo.GetByInstitution(institutionId);
+
+        var allTemplates = await _templateCache.GetAllPublishedTemplates();
+        var templateMetaMap = allTemplates.ToDictionary(
+            t => t.ReturnCode,
+            t => new { t.Name, t.ModuleCode },
+            StringComparer.OrdinalIgnoreCase
+        );
+
+        return rawSubmissions.Select(s =>
+        {
+            templateMetaMap.TryGetValue(s.ReturnCode, out var templateMeta);
+            return new SubmissionListItem
+            {
+                Id = s.Id,
+                ReturnCode = s.ReturnCode,
+                TemplateName = templateMeta?.Name ?? s.ReturnCode,
+                ModuleCode = templateMeta?.ModuleCode,
+                PeriodLabel = s.ReturnPeriod is not null
+                    ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month, 1).ToString("MMM yyyy")
+                    : "—",
+                SubmittedAt = s.SubmittedAt,
+                Status = s.Status.ToString(),
+                ErrorCount = s.ValidationReport?.ErrorCount ?? 0,
+                WarningCount = s.ValidationReport?.WarningCount ?? 0,
+                ProcessingDurationMs = s.ProcessingDurationMs,
+                AssigneeInitials = new string(s.ReturnCode.Where(char.IsLetter).Take(2).ToArray()).ToUpperInvariant() is { Length: > 0 } ini ? ini : "ME",
+                IsCurrentUser = true,
+                DeadlineDate = s.ReturnPeriod?.EffectiveDeadline
+            };
+        }).OrderByDescending(s => s.SubmittedAt).ToList();
+    }
+
+    /// <summary>
+    /// Gets a submission detail by ID with validation errors mapped to DTOs.
+    /// Returns null if not found or doesn't belong to the institution.
+    /// </summary>
+    public async Task<SubmissionDetailModel?> GetSubmissionDetail(int submissionId, int institutionId)
+    {
+        var submission = await _submissionRepo.GetByIdWithReport(submissionId);
+        if (submission is null || submission.InstitutionId != institutionId)
+            return null;
+
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        // Resolve template metadata
+        string templateName;
+        string? moduleCode;
+        try
+        {
+            var template = _tenantContext.CurrentTenantId is { } tid
+                ? await db.ReturnTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.ReturnCode == submission.ReturnCode && t.TenantId == tid)
+                : await db.ReturnTemplates.AsNoTracking().FirstOrDefaultAsync(t => t.ReturnCode == submission.ReturnCode);
+            templateName = template?.Name ?? submission.ReturnCode;
+            var module = template?.ModuleId is int modId
+                ? await db.Modules.AsNoTracking().FirstOrDefaultAsync(m => m.Id == modId)
+                : null;
+            moduleCode = module?.ModuleCode;
+        }
+        catch
+        {
+            templateName = submission.ReturnCode;
+            moduleCode = null;
+        }
+
+        // Period label
+        var periodLabel = submission.ReturnPeriod is not null
+            ? new DateTime(submission.ReturnPeriod.Year, submission.ReturnPeriod.Month, 1).ToString("MMM yyyy")
+            : "—";
+
+        // Submitter name
+        string? submitterName = null;
+        if (submission.SubmittedByUserId.HasValue)
+        {
+            var user = await db.InstitutionUsers.FindAsync(submission.SubmittedByUserId.Value);
+            submitterName = user?.DisplayName ?? "Unknown";
+        }
+
+        // Map validation errors to unified DTOs
+        var validationErrors = submission.ValidationReport?.Errors
+            .Select(e => new Application.DTOs.ValidationErrorDto
+            {
+                RuleId = e.RuleId,
+                Field = e.Field,
+                Message = e.Message,
+                Severity = e.Severity.ToString(),
+                Category = e.Category.ToString(),
+                ExpectedValue = e.ExpectedValue,
+                ActualValue = e.ActualValue,
+                ReferencedReturnCode = e.ReferencedReturnCode
+            })
+            .OrderByDescending(e => e.Severity == "Error" ? 2 : e.Severity == "Warning" ? 1 : 0)
+            .ToList() ?? new();
+
+        var detail = new SubmissionDetailModel
+        {
+            Id = submission.Id,
+            ReturnCode = submission.ReturnCode,
+            InstitutionId = submission.InstitutionId,
+            ReturnPeriodId = submission.ReturnPeriodId,
+            Status = submission.Status.ToString(),
+            SubmittedAt = submission.SubmittedAt,
+            CreatedAt = submission.CreatedAt,
+            ProcessingDurationMs = submission.ProcessingDurationMs,
+            RawXml = submission.RawXml,
+            ApprovalRequired = submission.ApprovalRequired,
+            SubmittedByUserId = submission.SubmittedByUserId,
+            TenantId = submission.TenantId,
+            TemplateName = templateName,
+            ModuleCode = moduleCode,
+            PeriodLabel = periodLabel,
+            SubmitterName = submitterName,
+            ErrorCount = submission.ValidationReport?.ErrorCount ?? 0,
+            WarningCount = submission.ValidationReport?.WarningCount ?? 0,
+            ValidationErrors = validationErrors
+        };
+
+        // Approval
+        if (submission.ApprovalRequired ||
+            submission.Status == SubmissionStatus.PendingApproval ||
+            submission.Status == SubmissionStatus.ApprovalRejected)
+        {
+            var approval = await _approvalRepo.GetBySubmission(submission.Id);
+            if (approval is not null)
+            {
+                string? reviewerName = null;
+                if (approval.ReviewedByUserId.HasValue)
+                {
+                    var reviewer = await db.InstitutionUsers.FindAsync(approval.ReviewedByUserId.Value);
+                    reviewerName = reviewer?.DisplayName ?? "Unknown";
+                }
+
+                detail.Approval = new SubmissionApprovalModel
+                {
+                    Id = approval.Id,
+                    RequestedByUserId = approval.RequestedByUserId,
+                    RequestedAt = approval.RequestedAt,
+                    SubmitterNotes = approval.SubmitterNotes,
+                    Status = approval.Status.ToString(),
+                    ReviewedByUserId = approval.ReviewedByUserId,
+                    ReviewedAt = approval.ReviewedAt,
+                    ReviewerComments = approval.ReviewerComments,
+                    ReviewerName = reviewerName,
+                    OriginalSubmissionId = approval.OriginalSubmissionId
+                };
+            }
+        }
+
+        return detail;
+    }
+
+    /// <summary>
+    /// Transition a submission's status (for kanban move, withdraw, etc.).
+    /// Returns true if the transition succeeded.
+    /// </summary>
+    public async Task<bool> TransitionStatus(int submissionId, int institutionId, SubmissionStatus targetStatus)
+    {
+        var submission = await _submissionRepo.GetById(submissionId);
+        if (submission is null || submission.InstitutionId != institutionId)
+            return false;
+
+        switch (targetStatus)
+        {
+            case SubmissionStatus.Historical:
+                submission.MarkHistorical();
+                break;
+            case SubmissionStatus.ApprovalRejected:
+                submission.MarkApprovalRejected();
+                break;
+            default:
+                return false;
+        }
+
+        await _submissionRepo.Update(submission);
+        return true;
+    }
+
+    /// <summary>
+    /// Withdraw submissions: mark as Historical and delete any associated approval records.
+    /// Returns the number of submissions actually withdrawn.
+    /// </summary>
+    public async Task<int> WithdrawSubmissions(IEnumerable<int> submissionIds, int institutionId)
+    {
+        var withdrawn = 0;
+        foreach (var submissionId in submissionIds)
+        {
+            var submission = await _submissionRepo.GetById(submissionId);
+            if (submission is null || submission.InstitutionId != institutionId)
+                continue;
+
+            if (submission.Status is SubmissionStatus.Accepted
+                or SubmissionStatus.AcceptedWithWarnings
+                or SubmissionStatus.Historical
+                or SubmissionStatus.RegulatorAccepted
+                or SubmissionStatus.RegulatorAcknowledged
+                or SubmissionStatus.SubmittedToRegulator
+                or SubmissionStatus.RegulatorQueriesRaised)
+                continue;
+
+            var approval = await _approvalRepo.GetBySubmission(submission.Id);
+            if (approval is not null)
+                await _approvalRepo.Delete(approval);
+
+            submission.Status = SubmissionStatus.Historical;
+            await _submissionRepo.Update(submission);
+            withdrawn++;
+        }
+        return withdrawn;
+    }
+
+    /// <summary>
+    /// Gets return periods for a template (used by MigrationHome instead of direct DbContext access).
+    /// </summary>
+    public async Task<List<PeriodSelectItem>> GetPeriodsForTemplate(string returnCode, int take = 120)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (!tenantId.HasValue) return new();
+
+        var entitledTemplates = await _templateService.GetEntitledTemplates(tenantId.Value);
+        var template = entitledTemplates.FirstOrDefault(x =>
+            x.ReturnCode.Equals(returnCode, StringComparison.OrdinalIgnoreCase));
+        var moduleId = template?.ModuleId;
+
+        IQueryable<ReturnPeriod> query = db.ReturnPeriods.Where(x => x.TenantId == tenantId.Value);
+        query = moduleId.HasValue
+            ? query.Where(x => x.ModuleId == moduleId.Value)
+            : query.Where(x => x.ModuleId == null);
+
+        var periods = await query
+            .OrderByDescending(x => x.Year)
+            .ThenByDescending(x => x.Quarter)
+            .ThenByDescending(x => x.Month)
+            .Take(take)
+            .ToListAsync();
+
+        return periods.Select(p => new PeriodSelectItem
+        {
+            ReturnPeriodId = p.Id,
+            Value = $"{p.Year}-{p.Month:00}",
+            Label = p.Quarter.HasValue
+                ? $"Q{p.Quarter} {p.Year}"
+                : new DateTime(p.Year, p.Month, 1).ToString("MMMM yyyy"),
+            ReportingDate = p.ReportingDate,
+            Year = p.Year,
+            Month = p.Month,
+            DeadlineDate = p.EffectiveDeadline
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Admin override: set status to any allowed value, cleaning up approval records if needed.
+    /// </summary>
+    public async Task<(bool Success, string? Error)> AdminOverrideStatus(int submissionId, int institutionId, SubmissionStatus targetStatus)
+    {
+        var submission = await _submissionRepo.GetById(submissionId);
+        if (submission is null || submission.InstitutionId != institutionId)
+            return (false, "Submission not found.");
+
+        var approval = await _approvalRepo.GetBySubmission(submission.Id);
+        if (approval is not null && targetStatus != SubmissionStatus.PendingApproval)
+            await _approvalRepo.Delete(approval);
+
+        submission.Status = targetStatus;
+        await _submissionRepo.Update(submission);
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Admin unlock: return submission to draft, deleting any approval record.
+    /// </summary>
+    public async Task<(bool Success, string? Error)> AdminUnlockForEdit(int submissionId, int institutionId)
+    {
+        var submission = await _submissionRepo.GetById(submissionId);
+        if (submission is null || submission.InstitutionId != institutionId)
+            return (false, "Submission not found.");
+
+        if (submission.Status is SubmissionStatus.SubmittedToRegulator
+            or SubmissionStatus.RegulatorAcknowledged
+            or SubmissionStatus.RegulatorAccepted
+            or SubmissionStatus.RegulatorQueriesRaised)
+            return (false, "Regulator-submitted returns cannot be unlocked from the portal.");
+
+        var approval = await _approvalRepo.GetBySubmission(submission.Id);
+        if (approval is not null)
+            await _approvalRepo.Delete(approval);
+
+        submission.Status = SubmissionStatus.Draft;
+        await _submissionRepo.Update(submission);
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Admin withdraw: mark PendingApproval submission as Historical.
+    /// </summary>
+    public async Task<(bool Success, string? Error)> AdminWithdraw(int submissionId, int institutionId)
+    {
+        var submission = await _submissionRepo.GetById(submissionId);
+        if (submission is null || submission.InstitutionId != institutionId)
+            return (false, "Submission not found.");
+
+        if (submission.Status != SubmissionStatus.PendingApproval)
+            return (false, "Only submissions awaiting checker review can be withdrawn from this screen.");
+
+        var approval = await _approvalRepo.GetBySubmission(submission.Id);
+        if (approval is not null)
+            await _approvalRepo.Delete(approval);
+
+        submission.MarkHistorical();
+        await _submissionRepo.Update(submission);
+        return (true, null);
+    }
+
+    // ── Wizard flows ──
 
     /// <summary>
     /// Gets all published templates with "already submitted" status for the current period.

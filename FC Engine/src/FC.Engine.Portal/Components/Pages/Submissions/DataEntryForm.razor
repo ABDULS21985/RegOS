@@ -237,7 +237,7 @@
                 <div class="portal-form-progress-text">
                     @{
                         var _phComputed = sumFormulas.Select(sf => sf.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                        var _phFields = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+                        var _phFields = structuralCategory == StructuralCategory.FixedRow ? allFields : nonKeyFields;
                         int _phTotal = 0, _phFilled = 0;
                         foreach (var _phF in _phFields)
                         {
@@ -449,7 +449,7 @@
              DYNAMIC FORM BODY
              ═══════════════════════════════════════════════════════════ -->
 
-        @if (structuralCategory == "FixedRow")
+        @if (structuralCategory == StructuralCategory.FixedRow)
         {
             @for (int secIdx = 0; secIdx < _sectionNames.Count; secIdx++)
             {
@@ -537,7 +537,7 @@
                 </div>
             }
         }
-        else if (structuralCategory == "MultiRow")
+        else if (structuralCategory == StructuralCategory.MultiRow)
         {
             <div id="@GetSectionId("Return Data")"
                  class="portal-card portal-form-section">
@@ -710,7 +710,7 @@
                 }
             </div>
         }
-        else if (structuralCategory == "ItemCoded")
+        else if (structuralCategory == StructuralCategory.ItemCoded)
         {
             <div id="@GetSectionId("Return Data")"
                  class="portal-card portal-form-section">
@@ -882,7 +882,7 @@
                     {
                         var (fpsPct, _fpsErrs) = ComputeCompletionStats();
                         var fpsComputed = sumFormulas.Select(sf => sf.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                        var fpsFields = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+                        var fpsFields = structuralCategory == StructuralCategory.FixedRow ? allFields : nonKeyFields;
                         int fpsTotalReq = 0, fpsFilled = 0;
                         foreach (var fpsF in fpsFields)
                         {
@@ -1236,7 +1236,7 @@
     private bool showValidationResult;
     private string submitError = "";
     private TemplateDetailModel? templateDetail;
-    private string structuralCategory = "FixedRow";
+    private StructuralCategory structuralCategory = StructuralCategory.FixedRow;
 
     // Auth
     private int institutionId;
@@ -1381,7 +1381,8 @@
             templateDetail = await BrowserSvc.GetTemplateDetail(ReturnCode);
             if (templateDetail is not null)
             {
-                structuralCategory = templateDetail.StructuralCategory;
+                structuralCategory = Enum.TryParse<StructuralCategory>(templateDetail.StructuralCategory, out var parsedCat)
+                    ? parsedCat : StructuralCategory.FixedRow;
                 allFields = templateDetail.Fields;
                 nonKeyFields = allFields.Where(f => !f.IsKeyField).ToList();
                 fieldGroups = allFields.GroupBy(f => f.SectionName)
@@ -1445,7 +1446,7 @@
         }
 
         // Init row drag-sort once when MultiRow table first appears
-        if (structuralCategory == "MultiRow" && !isReadOnlyLocked && formRows.Any() && !_dragSortInitialized)
+        if (structuralCategory == StructuralCategory.MultiRow && !isReadOnlyLocked && formRows.Any() && !_dragSortInitialized)
         {
             try
             {
@@ -1455,7 +1456,7 @@
             catch { /* JS not ready or table not yet in DOM */ }
         }
 
-        if (structuralCategory != "MultiRow" || isReadOnlyLocked || !formRows.Any())
+        if (structuralCategory != StructuralCategory.MultiRow || isReadOnlyLocked || !formRows.Any())
             _dragSortInitialized = false;
     }
 
@@ -1593,7 +1594,7 @@
             return;
         }
 
-        if (structuralCategory == "FixedRow")
+        if (structuralCategory == StructuralCategory.FixedRow)
         {
             var row = existing.Rows.First();
             foreach (var field in allFields)
@@ -1608,7 +1609,7 @@
             return;
         }
 
-        if (structuralCategory == "MultiRow")
+        if (structuralCategory == StructuralCategory.MultiRow)
         {
             formRows.Clear();
             foreach (var existingRow in existing.Rows)
@@ -1634,7 +1635,7 @@
             return;
         }
 
-        if (structuralCategory == "ItemCoded")
+        if (structuralCategory == StructuralCategory.ItemCoded)
         {
             var keyField = allFields.FirstOrDefault(x => x.IsKeyField);
             if (keyField is null)
@@ -1836,15 +1837,15 @@
     {
         formRows.Clear();
 
-        if (structuralCategory == "FixedRow")
+        if (structuralCategory == StructuralCategory.FixedRow)
         {
             formRows.Add(CreateEmptyRow());
         }
-        else if (structuralCategory == "MultiRow")
+        else if (structuralCategory == StructuralCategory.MultiRow)
         {
             formRows.Add(CreateEmptyRow());
         }
-        else if (structuralCategory == "ItemCoded")
+        else if (structuralCategory == StructuralCategory.ItemCoded)
         {
             foreach (var ic in itemCodes)
             {
@@ -1940,7 +1941,7 @@
             var sb = new System.Text.StringBuilder();
             sb.Append('﻿'); // UTF-8 BOM for Excel
 
-            if (structuralCategory == "ItemCoded")
+            if (structuralCategory == StructuralCategory.ItemCoded)
             {
                 sb.Append("Item Code,Description");
                 foreach (var f in nonKeyFields)
@@ -1956,7 +1957,7 @@
 
             for (int i = 0; i < formRows.Count; i++)
             {
-                if (structuralCategory == "ItemCoded")
+                if (structuralCategory == StructuralCategory.ItemCoded)
                 {
                     var code = i < itemCodes.Count ? itemCodes[i].ItemCode : "";
                     var desc = i < itemCodes.Count ? (itemCodes[i].Description ?? "") : "";
@@ -2208,7 +2209,7 @@
 
         for (int rowIdx = 0; rowIdx < formRows.Count; rowIdx++)
         {
-            var fieldsToValidate = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+            var fieldsToValidate = structuralCategory == StructuralCategory.FixedRow ? allFields : nonKeyFields;
 
             foreach (var field in fieldsToValidate)
             {
@@ -2681,7 +2682,7 @@
 
     private (int percent, int errors) ComputeCompletionStats()
     {
-        var fieldsToCheck = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+        var fieldsToCheck = structuralCategory == StructuralCategory.FixedRow ? allFields : nonKeyFields;
         var computedTargets = sumFormulas.Select(f => f.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         int total = 0, filled = 0;
@@ -3362,7 +3363,7 @@
 
     private void BuildSectionNames()
     {
-        _sectionNames = structuralCategory == "FixedRow"
+        _sectionNames = structuralCategory == StructuralCategory.FixedRow
             ? fieldGroups.Keys.ToList()
             : new List<string> { "Return Data" };
         _currentSectionIndex = 0;
@@ -3374,7 +3375,7 @@
 
     private void ComputeProgress()
     {
-        var fieldsToCount = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+        var fieldsToCount = structuralCategory == StructuralCategory.FixedRow ? allFields : nonKeyFields;
         if (fieldsToCount.Count == 0 || formRows.Count == 0)
         {
             _totalFields = 0;
@@ -3400,7 +3401,7 @@
 
     private SectionStatus GetSectionStatus(string sectionName)
     {
-        var sectionFields = structuralCategory == "FixedRow"
+        var sectionFields = structuralCategory == StructuralCategory.FixedRow
             ? fieldGroups.GetValueOrDefault(sectionName, new List<FieldDisplayItem>())
             : nonKeyFields;
 
@@ -3491,7 +3492,7 @@
 
     private (int filled, int total) GetSectionFieldCounts(string sectionName)
     {
-        var fields = structuralCategory == "FixedRow"
+        var fields = structuralCategory == StructuralCategory.FixedRow
             ? fieldGroups.GetValueOrDefault(sectionName, new List<FieldDisplayItem>())
             : nonKeyFields;
         var computed = sumFormulas.Select(f => f.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -3511,7 +3512,7 @@
 
     private int GetSectionErrorCount(string sectionName)
     {
-        var fields = structuralCategory == "FixedRow"
+        var fields = structuralCategory == StructuralCategory.FixedRow
             ? fieldGroups.GetValueOrDefault(sectionName, new List<FieldDisplayItem>())
             : nonKeyFields;
         var fieldNames = fields.Select(f => f.FieldName).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -3539,11 +3540,11 @@
 
     private async Task JumpToNextEmptyField()
     {
-        var fieldsToCheck = structuralCategory == "FixedRow" ? allFields : nonKeyFields;
+        var fieldsToCheck = structuralCategory == StructuralCategory.FixedRow ? allFields : nonKeyFields;
         var computed = sumFormulas.Select(f => f.TargetField).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var section in _sectionNames)
         {
-            var sectionFields = structuralCategory == "FixedRow"
+            var sectionFields = structuralCategory == StructuralCategory.FixedRow
                 ? fieldGroups.GetValueOrDefault(section, new List<FieldDisplayItem>())
                 : fieldsToCheck;
             foreach (var f in sectionFields)
@@ -3684,9 +3685,9 @@
 
     private static string GetCategoryLabel(string cat)
     {
-        if (cat == "FixedRow") return "Fixed Row";
-        if (cat == "MultiRow") return "Multi Row";
-        if (cat == "ItemCoded") return "Item Coded";
+        if (cat == nameof(StructuralCategory.FixedRow)) return "Fixed Row";
+        if (cat == nameof(StructuralCategory.MultiRow)) return "Multi Row";
+        if (cat == nameof(StructuralCategory.ItemCoded)) return "Item Coded";
         return cat;
     }
 

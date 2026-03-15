@@ -10,13 +10,16 @@ public class PartnerPortalService
 {
     private readonly IPartnerManagementService _partnerService;
     private readonly IDashboardService _dashboardService;
+    private readonly ITenantBrandingService _brandingService;
 
     public PartnerPortalService(
         IPartnerManagementService partnerService,
-        IDashboardService dashboardService)
+        IDashboardService dashboardService,
+        ITenantBrandingService brandingService)
     {
         _partnerService = partnerService;
         _dashboardService = dashboardService;
+        _brandingService = brandingService;
     }
 
     public Task<bool> IsPartnerTenant(Guid tenantId, CancellationToken ct = default)
@@ -39,6 +42,16 @@ public class PartnerPortalService
 
     public Task<List<PartnerSubTenantSubmissionSummary>> GetSubTenantSubmissions(Guid partnerTenantId, Guid subTenantId, int take = 20, CancellationToken ct = default)
         => _partnerService.GetSubTenantSubmissions(partnerTenantId, subTenantId, take, ct);
+
+    public async Task<BrandingConfig> GetSubTenantBranding(Guid partnerTenantId, Guid subTenantId, CancellationToken ct = default)
+    {
+        // Validate that the sub-tenant belongs to this partner before fetching branding
+        var subTenantIds = await _partnerService.GetPartnerSubTenantIds(partnerTenantId, ct);
+        if (!subTenantIds.Contains(subTenantId))
+            throw new UnauthorizedAccessException("Sub-tenant does not belong to this partner.");
+
+        return await _brandingService.GetBrandingConfig(subTenantId);
+    }
 
     public Task UpdateSubTenantBranding(Guid partnerTenantId, Guid subTenantId, BrandingConfig config, CancellationToken ct = default)
         => _partnerService.UpdateSubTenantBranding(partnerTenantId, subTenantId, config, ct);

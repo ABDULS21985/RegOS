@@ -1,10 +1,8 @@
 @page "/submissions"
 @attribute [Authorize(Policy = "InstitutionUser")]
 @using FC.Engine.Infrastructure.DragDrop
-@inject ISubmissionRepository SubmissionRepo
-@inject ISubmissionApprovalRepository ApprovalRepo
+@inject SubmissionService SubmissionSvc
 @inject IExportEngine ExportEngine
-@inject ITemplateMetadataCache TemplateCache
 @inject PortalSubmissionLaunchService SubmissionLaunchService
 @inject NavigationManager Navigation
 @inject DragDropInterop DragDrop
@@ -842,23 +840,8 @@
 
         try
         {
-            var submission = await SubmissionRepo.GetById(submissionId);
-            if (submission is null || submission.InstitutionId != institutionId)
-                return;
-
-            switch (targetStatus)
-            {
-                case SubmissionStatus.Historical:
-                    submission.MarkHistorical();
-                    break;
-                case SubmissionStatus.ApprovalRejected:
-                    submission.MarkApprovalRejected();
-                    break;
-                default:
-                    return; // safety guard
-            }
-
-            await SubmissionRepo.Update(submission);
+            var ok = await SubmissionSvc.TransitionStatus(submissionId, institutionId, targetStatus);
+            if (!ok) return;
 
             // Refresh list to reflect the change
             await LoadSubmissions();
@@ -906,42 +889,7 @@
 
         try
         {
-            var rawSubmissions = await SubmissionRepo.GetByInstitution(institutionId);
-
-            var allTemplates = await TemplateCache.GetAllPublishedTemplates();
-            var templateMetaMap = allTemplates.ToDictionary(
-                t => t.ReturnCode,
-                t => new { t.Name, t.ModuleCode },
-                StringComparer.OrdinalIgnoreCase
-            );
-
-            submissions = rawSubmissions.Select(s =>
-            {
-                templateMetaMap.TryGetValue(s.ReturnCode, out var templateMeta);
-                return new SubmissionListItem
-                {
-                    Id = s.Id,
-                    ReturnCode = s.ReturnCode,
-                    TemplateName = templateMeta?.Name ?? s.ReturnCode,
-                    ModuleCode = templateMeta?.ModuleCode,
-                    PeriodLabel = s.ReturnPeriod is not null
-                        ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month, 1).ToString("MMM yyyy")
-                        : "—",
-                    SubmittedAt = s.SubmittedAt,
-                    Status = s.Status.ToString(),
-                    ErrorCount = s.ValidationReport?.ErrorCount ?? 0,
-                    WarningCount = s.ValidationReport?.WarningCount ?? 0,
-                    ProcessingDurationMs = s.ProcessingDurationMs,
-                    // Derive initials from return code (first 2 alpha chars)
-                    AssigneeInitials = new string(s.ReturnCode.Where(char.IsLetter).Take(2).ToArray()).ToUpperInvariant() is { Length: > 0 } ini ? ini : "ME",
-                    IsCurrentUser = true,
-                    // Deadline: use period end-of-month + 15 days if available, else null
-                    DeadlineDate = s.ReturnPeriod is not null
-                        ? new DateTime(s.ReturnPeriod.Year, s.ReturnPeriod.Month,
-                            DateTime.DaysInMonth(s.ReturnPeriod.Year, s.ReturnPeriod.Month)).AddDays(15)
-                        : null
-                };
-            }).OrderByDescending(s => s.SubmittedAt).ToList();
+            submissions = await SubmissionSvc.GetSubmissionsForInstitution(institutionId);
 
             availableReturnCodes = submissions
                 .Select(s => s.ReturnCode)
@@ -1195,37 +1143,7 @@
     {
         _showWithdrawConfirm = false;
         var selectedIds = _selectedIds.ToList();
-        var withdrawn = 0;
-
-        foreach (var submissionId in selectedIds)
-        {
-            var submission = await SubmissionRepo.GetById(submissionId);
-            if (submission is null || submission.InstitutionId != institutionId)
-            {
-                continue;
-            }
-
-            if (submission.Status is SubmissionStatus.Accepted
-                or SubmissionStatus.AcceptedWithWarnings
-                or SubmissionStatus.Historical
-                or SubmissionStatus.RegulatorAccepted
-                or SubmissionStatus.RegulatorAcknowledged
-                or SubmissionStatus.SubmittedToRegulator
-                or SubmissionStatus.RegulatorQueriesRaised)
-            {
-                continue;
-            }
-
-            var approval = await ApprovalRepo.GetBySubmission(submission.Id);
-            if (approval is not null)
-            {
-                await ApprovalRepo.Delete(approval);
-            }
-
-            submission.Status = SubmissionStatus.Historical;
-            await SubmissionRepo.Update(submission);
-            withdrawn++;
-        }
+        var withdrawn = await SubmissionSvc.WithdrawSubmissions(selectedIds, institutionId);
 
         DeselectAll();
         await LoadSubmissions();
@@ -1342,23 +1260,7 @@
         return $"{durationMs.Value / 60000.0:F1}m";
     }
 
-    private class SubmissionListItem
-    {
-        public int Id { get; set; }
-        public string ReturnCode { get; set; } = "";
-        public string? ModuleCode { get; set; }
-        public string TemplateName { get; set; } = "";
-        public string PeriodLabel { get; set; } = "";
-        public DateTime SubmittedAt { get; set; }
-        public string Status { get; set; } = "";
-        public int ErrorCount { get; set; }
-        public int WarningCount { get; set; }
-        public int? ProcessingDurationMs { get; set; }
-        // Kanban card v2 fields
-        public DateTime? DeadlineDate { get; set; }
-        public string AssigneeInitials { get; set; } = "ME";
-        public bool IsCurrentUser { get; set; } = true;
-    }
+    // SubmissionListItem is now defined in SubmissionModels.cs (shared via service layer)
 
     private record KanbanColumnDef(string Id, string Title, string[] Statuses, int? WipLimit = null, string Color = "gray");
     private string _primarySubmitHref = "/submit";

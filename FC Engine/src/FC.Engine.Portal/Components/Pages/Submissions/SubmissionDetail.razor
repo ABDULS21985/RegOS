@@ -1,10 +1,7 @@
 @page "/submissions/{SubmissionId:int}"
 @attribute [Authorize(Policy = "InstitutionUser")]
-@inject ISubmissionRepository SubmissionRepo
-@inject ITemplateMetadataCache TemplateCache
+@inject SubmissionService SubmissionSvc
 @inject IGenericDataRepository DataRepo
-@inject IInstitutionUserRepository UserRepo
-@inject ISubmissionApprovalRepository ApprovalRepo
 @inject ApprovalService ApprovalSvc
 @inject ExportService ExportSvc
 @inject IExportEngine ExportEngine
@@ -53,8 +50,8 @@
             <div class="portal-detail-hero-main">
                 <div class="portal-detail-hero-title-row">
                     <h1 class="portal-detail-hero-title">@submission.ReturnCode</h1>
-                    <span class="portal-badge portal-badge-lg @GetStatusBadgeClass(submission.Status.ToString())">
-                        @GetStatusIcon(submission.Status.ToString()) @GetStatusLabel(submission.Status.ToString())
+                    <span class="portal-badge portal-badge-lg @GetStatusBadgeClass(submission.Status)">
+                        @GetStatusIcon(submission.Status) @GetStatusLabel(submission.Status)
                     </span>
                     @if (!string.IsNullOrWhiteSpace(moduleCode))
                     {
@@ -144,7 +141,7 @@
                         </div>
                     }
                 </div>
-                @if (submission.Status is SubmissionStatus.Accepted or SubmissionStatus.AcceptedWithWarnings)
+                @if (submission.Status is "Accepted" or "AcceptedWithWarnings")
                 {
                     <a href="/submissions/@SubmissionId/certificate" class="portal-btn portal-btn-outline portal-btn-sm portal-cert-badge-btn">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
@@ -401,11 +398,11 @@
                             @foreach (var section in errorsByCategory.OrderBy(c => c.Key))
                             {
                                 var sectionIssues = section.Value
-                                    .OrderBy(e => e.Severity == ValidationSeverity.Error ? 0
-                                               : e.Severity == ValidationSeverity.Warning ? 1 : 2)
+                                    .OrderBy(e => e.Severity == "Error" ? 0
+                                               : e.Severity == "Warning" ? 1 : 2)
                                     .ToList();
-                                var secErrCnt = sectionIssues.Count(e => e.Severity == ValidationSeverity.Error);
-                                var secWarnCnt = sectionIssues.Count(e => e.Severity == ValidationSeverity.Warning);
+                                var secErrCnt = sectionIssues.Count(e => e.Severity == "Error");
+                                var secWarnCnt = sectionIssues.Count(e => e.Severity == "Warning");
                                 <div class="portal-vr-section">
                                     <div class="portal-vr-section-header">
                                         <span class="portal-vr-section-name">@GetCategoryLabel(section.Key)</span>
@@ -425,11 +422,11 @@
                                         {
                                             <div class="portal-vr-issue portal-vr-issue--@(issue.Severity.ToString().ToLowerInvariant())">
                                                 <div class="portal-vr-severity" aria-label="@issue.Severity">
-                                                    @if (issue.Severity == ValidationSeverity.Error)
+                                                    @if (issue.Severity == "Error")
                                                     {
                                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#dc2626" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
                                                     }
-                                                    else if (issue.Severity == ValidationSeverity.Warning)
+                                                    else if (issue.Severity == "Warning")
                                                     {
                                                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2.5" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                                                     }
@@ -467,7 +464,7 @@
                                                      InstitutionId="@institutionId"
                                                      CurrentUserId="@currentUserId"
                                                      CurrentUserName="@(string.IsNullOrEmpty(submitterName) ? _presUserName : submitterName)"
-                                                     Approval="@approval" />
+                                                     Approval="@MapApprovalForTimeline()" />
                         </div>
                     }
 
@@ -577,15 +574,15 @@
                             @if (directSubmissions is not null)
                             {
                                 <div style="margin-top:0.75rem; font-size:0.8rem; color:#6b7280;">
-                                    @if (submission?.Status == SubmissionStatus.RegulatorAccepted)
+                                    @if (submission?.Status == "RegulatorAccepted")
                                     {
                                         <span style="color:#059669; font-weight:600;">Regulator has accepted this return.</span>
                                     }
-                                    else if (submission?.Status == SubmissionStatus.RegulatorAcknowledged)
+                                    else if (submission?.Status == "RegulatorAcknowledged")
                                     {
                                         <span style="color:#2563eb;">Awaiting regulator processing.</span>
                                     }
-                                    else if (submission?.Status == SubmissionStatus.RegulatorQueriesRaised)
+                                    else if (submission?.Status == "RegulatorQueriesRaised")
                                     {
                                         <span style="color:#dc2626; font-weight:600;">Regulator has raised queries. Check your inbox.</span>
                                     }
@@ -648,7 +645,7 @@
                         </div>
                     }
 
-                    @if (isChecker && !_isAdminRole && approval?.Status == ApprovalStatus.Pending && !isSelfSubmission)
+                    @if (isChecker && !_isAdminRole && approval?.Status == "Pending" && !isSelfSubmission)
                     {
                         <div class="portal-actions-group">
                             <button class="portal-btn portal-btn-gold portal-btn-sm portal-btn-full"
@@ -696,7 +693,7 @@
                         </div>
                     }
 
-                    @if (isSelfSubmission && approval?.Status == ApprovalStatus.Pending)
+                    @if (isSelfSubmission && approval?.Status == "Pending")
                     {
                         <div class="portal-alert portal-alert-info" style="font-size:0.82rem;">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -704,7 +701,7 @@
                         </div>
                     }
 
-                    @if (approval?.Status == ApprovalStatus.Approved)
+                    @if (approval?.Status == "Approved")
                     {
                         <div class="portal-actions-status portal-actions-status--approved">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true" style="flex-shrink:0;margin-top:2px;"><polyline points="20 6 9 17 4 12"/></svg>
@@ -721,7 +718,7 @@
                             </div>
                         </div>
                     }
-                    @if (approval?.Status == ApprovalStatus.Rejected)
+                    @if (approval?.Status == "Rejected")
                     {
                         <div class="portal-actions-status portal-actions-status--rejected">
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true" style="flex-shrink:0;margin-top:2px;"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
@@ -739,7 +736,7 @@
                         </div>
                     }
 
-                    @if (!isChecker && submission!.Status == SubmissionStatus.PendingApproval)
+                    @if (!isChecker && submission!.Status == "PendingApproval")
                     {
                         <div class="portal-actions-group">
                             <button class="portal-btn portal-btn-outline portal-btn-sm portal-btn-full" @onclick="WithdrawSubmission">
@@ -749,7 +746,7 @@
                         </div>
                     }
 
-                    @if (approval is null && !_isAdminRole && submission!.Status != SubmissionStatus.PendingApproval && !(isChecker && !_isAdminRole))
+                    @if (approval is null && !_isAdminRole && submission!.Status != "PendingApproval" && !(isChecker && !_isAdminRole))
                     {
                         <p class="portal-actions-empty">No actions available for this submission.</p>
                     }
@@ -767,7 +764,7 @@
     private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool isLoading = true;
-    private Submission? submission;
+    private SubmissionDetailModel? submission;
     private string templateName = "";
     private string? moduleCode;
     private string? moduleWorkspaceHref;
@@ -775,7 +772,7 @@
     private string submissionsHref = "/submissions";
     private string periodLabel = "";
     private string submitterName = "";
-    private SubmissionApproval? approval;
+    private SubmissionApprovalModel? approval;
     private string reviewerName = "";
     private bool isChecker;
     private int institutionId;
@@ -801,8 +798,8 @@
     private string? approvalError;
     private bool isSelfSubmission;
 
-    private List<ValidationError> allErrors = new();
-    private Dictionary<string, List<ValidationError>> errorsByCategory = new();
+    private List<ValidationErrorDto> allErrors = new();
+    private Dictionary<string, List<ValidationErrorDto>> errorsByCategory = new();
     private HashSet<string> expandedCategories = new();
     private int errorCount;
     private int warningCount;
@@ -852,68 +849,35 @@
     private async Task LoadSubmission()
     {
         isLoading = true;
-        submission = await SubmissionRepo.GetByIdWithReport(SubmissionId);
+        submission = await SubmissionSvc.GetSubmissionDetail(SubmissionId, institutionId);
 
-        if (submission is null || submission.InstitutionId != institutionId)
+        if (submission is null)
         {
-            submission = null;
             exports.Clear();
             isLoading = false;
             return;
         }
 
-        try
+        templateName = submission.TemplateName;
+        moduleCode = submission.ModuleCode;
+        submissionsHref = PortalSubmissionLinkBuilder.BuildSubmissionListHref(moduleCode);
+        moduleWorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(moduleCode);
+        moduleSubmitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode, submission.ReturnPeriodId);
+        periodLabel = submission.PeriodLabel;
+        submitterName = submission.SubmitterName ?? "";
+
+        approval = submission.Approval;
+        if (approval is not null)
         {
-            var template = await TemplateCache.GetPublishedTemplate(submission.ReturnCode);
-            templateName = template.Name;
-            moduleCode = template.ModuleCode;
-            submissionsHref = PortalSubmissionLinkBuilder.BuildSubmissionListHref(moduleCode);
-            moduleWorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(moduleCode);
-            moduleSubmitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, moduleCode, submission.ReturnPeriodId);
-        }
-        catch
-        {
-            templateName = submission.ReturnCode;
-            moduleCode = null;
-            submissionsHref = PortalSubmissionLinkBuilder.BuildSubmissionListHref(null);
-            moduleWorkspaceHref = null;
-            moduleSubmitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(submission.ReturnCode, null, submission.ReturnPeriodId);
+            isSelfSubmission = currentUserId.HasValue && approval.RequestedByUserId == currentUserId.Value;
+            reviewerName = approval.ReviewerName ?? "";
         }
 
-        periodLabel = submission.ReturnPeriod is not null
-            ? new DateTime(submission.ReturnPeriod.Year, submission.ReturnPeriod.Month, 1).ToString("MMM yyyy")
-            : "—";
-
-        if (submission.SubmittedByUserId.HasValue)
-        {
-            var user = await UserRepo.GetById(submission.SubmittedByUserId.Value);
-            submitterName = user?.DisplayName ?? "Unknown";
-        }
-
-        if (submission.ApprovalRequired ||
-            submission.Status == SubmissionStatus.PendingApproval ||
-            submission.Status == SubmissionStatus.ApprovalRejected)
-        {
-            approval = await ApprovalRepo.GetBySubmission(submission.Id);
-            if (approval is not null)
-            {
-                isSelfSubmission = currentUserId.HasValue && approval.RequestedByUserId == currentUserId.Value;
-                if (approval.ReviewedByUserId.HasValue)
-                {
-                    var reviewer = await UserRepo.GetById(approval.ReviewedByUserId.Value);
-                    reviewerName = reviewer?.DisplayName ?? "Unknown";
-                }
-            }
-        }
-
-        if (submission.ValidationReport is not null)
-        {
-            allErrors = submission.ValidationReport.Errors.OrderByDescending(e => e.Severity).ToList();
-            errorsByCategory = allErrors.GroupBy(e => e.Category.ToString()).ToDictionary(g => g.Key, g => g.ToList());
-            errorCount = submission.ValidationReport.ErrorCount;
-            warningCount = submission.ValidationReport.WarningCount;
-            totalIssues = allErrors.Count;
-        }
+        allErrors = submission.ValidationErrors;
+        errorsByCategory = allErrors.GroupBy(e => e.Category).ToDictionary(g => g.Key, g => g.ToList());
+        errorCount = submission.ErrorCount;
+        warningCount = submission.WarningCount;
+        totalIssues = allErrors.Count;
 
         await LoadExportHistory();
         await LoadExaminerQueries();
@@ -1000,28 +964,12 @@
     private void ToggleCommentForm() => _showCommentForm = !_showCommentForm;
     private async Task WithdrawSubmission()
     {
-        if (submission is null)
-        {
-            return;
-        }
-
+        if (submission is null) return;
         _adminActionError = null;
         _adminActionSuccess = null;
 
-        if (submission.Status != SubmissionStatus.PendingApproval)
-        {
-            _adminActionError = "Only submissions awaiting checker review can be withdrawn from this screen.";
-            return;
-        }
-
-        var approvalRecord = await ApprovalRepo.GetBySubmission(submission.Id);
-        if (approvalRecord is not null)
-        {
-            await ApprovalRepo.Delete(approvalRecord);
-        }
-
-        submission.MarkHistorical();
-        await SubmissionRepo.Update(submission);
+        var (ok, err) = await SubmissionSvc.AdminWithdraw(submission.Id, institutionId);
+        if (!ok) { _adminActionError = err; return; }
         _adminActionSuccess = "Submission withdrawn and archived as historical.";
         await LoadSubmission();
     }
@@ -1030,18 +978,14 @@
     {
         _adminActionError = null;
         _adminActionSuccess = null;
-        _overrideStatus = submission?.Status.ToString() ?? nameof(SubmissionStatus.Draft);
+        _overrideStatus = submission?.Status ?? nameof(SubmissionStatus.Draft);
         _showOverridePanel = !_showOverridePanel;
         return Task.CompletedTask;
     }
 
     private async Task ApplyOverrideStatus()
     {
-        if (submission is null)
-        {
-            return;
-        }
-
+        if (submission is null) return;
         _adminActionError = null;
         _adminActionSuccess = null;
 
@@ -1051,14 +995,8 @@
             return;
         }
 
-        var approvalRecord = await ApprovalRepo.GetBySubmission(submission.Id);
-        if (approvalRecord is not null && targetStatus != SubmissionStatus.PendingApproval)
-        {
-            await ApprovalRepo.Delete(approvalRecord);
-        }
-
-        submission.Status = targetStatus;
-        await SubmissionRepo.Update(submission);
+        var (ok, err) = await SubmissionSvc.AdminOverrideStatus(submission.Id, institutionId, targetStatus);
+        if (!ok) { _adminActionError = err; return; }
         _showOverridePanel = false;
         _adminActionSuccess = $"Submission status overridden to {GetStatusLabel(targetStatus.ToString())}.";
         await LoadSubmission();
@@ -1066,31 +1004,12 @@
 
     private async Task UnlockForEdit()
     {
-        if (submission is null)
-        {
-            return;
-        }
-
+        if (submission is null) return;
         _adminActionError = null;
         _adminActionSuccess = null;
 
-        if (submission.Status is SubmissionStatus.SubmittedToRegulator
-            or SubmissionStatus.RegulatorAcknowledged
-            or SubmissionStatus.RegulatorAccepted
-            or SubmissionStatus.RegulatorQueriesRaised)
-        {
-            _adminActionError = "Regulator-submitted returns cannot be unlocked from the portal.";
-            return;
-        }
-
-        var approvalRecord = await ApprovalRepo.GetBySubmission(submission.Id);
-        if (approvalRecord is not null)
-        {
-            await ApprovalRepo.Delete(approvalRecord);
-        }
-
-        submission.Status = SubmissionStatus.Draft;
-        await SubmissionRepo.Update(submission);
+        var (ok, err) = await SubmissionSvc.AdminUnlockForEdit(submission.Id, institutionId);
+        if (!ok) { _adminActionError = err; return; }
         _adminActionSuccess = "Submission unlocked and returned to draft.";
         await LoadSubmission();
     }
@@ -1199,7 +1118,7 @@
             ("Submitted",      submitterName,           submission?.SubmittedAt),
             ("Validating",     "System",                submission?.SubmittedAt),
             ("Checker Review", approval != null ? submitterName : null, approval?.RequestedAt),
-            ("Approved",       approval?.Status is ApprovalStatus.Approved or ApprovalStatus.Rejected ? reviewerName : null, approval?.ReviewedAt),
+            ("Approved",       approval?.Status is "Approved" or "Rejected" ? reviewerName : null, approval?.ReviewedAt),
             ("Published",      null,                    null),
         ];
         return defs.Select((d, i) =>
@@ -1212,19 +1131,19 @@
 
     private int GetCurrentLifecycleIndex() => submission?.Status switch
     {
-        SubmissionStatus.Parsing                => 2,
-        SubmissionStatus.Validating             => 2,
-        SubmissionStatus.Rejected               => 2,
-        SubmissionStatus.PendingApproval        => 3,
-        SubmissionStatus.ApprovalRejected       => 3,
-        SubmissionStatus.Accepted               => 4,
-        SubmissionStatus.AcceptedWithWarnings   => 4,
-        SubmissionStatus.SubmittedToRegulator   => 5,
-        SubmissionStatus.RegulatorAcknowledged  => 5,
-        SubmissionStatus.RegulatorAccepted      => 5,
-        SubmissionStatus.RegulatorQueriesRaised => 5,
-        SubmissionStatus.Historical             => 5,
-        _                                       => 1,
+        "Parsing"                => 2,
+        "Validating"             => 2,
+        "Rejected"               => 2,
+        "PendingApproval"        => 3,
+        "ApprovalRejected"       => 3,
+        "Accepted"               => 4,
+        "AcceptedWithWarnings"   => 4,
+        "SubmittedToRegulator"   => 5,
+        "RegulatorAcknowledged"  => 5,
+        "RegulatorAccepted"      => 5,
+        "RegulatorQueriesRaised" => 5,
+        "Historical"             => 5,
+        _                        => 1,
     };
 
     private static string GetInitials(string name)
@@ -1288,6 +1207,18 @@
         _                        => status,
     };
 
+    private SubmissionApproval? MapApprovalForTimeline() => approval is null ? null : new SubmissionApproval
+    {
+        Id = approval.Id,
+        RequestedByUserId = approval.RequestedByUserId,
+        RequestedAt = approval.RequestedAt,
+        SubmitterNotes = approval.SubmitterNotes,
+        ReviewedByUserId = approval.ReviewedByUserId,
+        ReviewedAt = approval.ReviewedAt,
+        ReviewerComments = approval.ReviewerComments,
+        OriginalSubmissionId = approval.OriginalSubmissionId
+    };
+
     private static bool IsOverrideStatusAllowed(SubmissionStatus status) => status is
         SubmissionStatus.Draft or
         SubmissionStatus.Accepted or
@@ -1303,26 +1234,18 @@
         return $"{ms.Value / 60000.0:F1}m";
     }
 
-    private static string GetSeverityBadgeClass(ValidationSeverity s) => s switch
+    private static string GetSeverityBadgeClass(string s) => s switch
     {
-        ValidationSeverity.Error   => "portal-badge-danger",
-        ValidationSeverity.Warning => "portal-badge-warning",
-        _                          => "portal-badge-info",
+        "Error"   => "portal-badge-danger",
+        "Warning" => "portal-badge-warning",
+        _         => "portal-badge-info",
     };
 
-    private static string GetSeverityIcon(ValidationSeverity s) => s switch
+    private static string GetSeverityIcon(string s) => s switch
     {
-        ValidationSeverity.Error   => "✗",
-        ValidationSeverity.Warning => "⚠",
-        _                          => "ℹ",
-    };
-
-    private static string GetCategoryLabel(ValidationCategory c) => c switch
-    {
-        ValidationCategory.TypeRange  => "Type & Range",
-        ValidationCategory.IntraSheet => "Intra-Sheet",
-        ValidationCategory.CrossSheet => "Cross-Sheet",
-        _                             => c.ToString(),
+        "Error"   => "✗",
+        "Warning" => "⚠",
+        _         => "ℹ",
     };
 
     private static string GetCategoryLabel(string c) => c switch
@@ -1352,24 +1275,24 @@
 
     private string GetApprovalStepClass() => approval?.Status switch
     {
-        ApprovalStatus.Pending => "portal-approval-step-active",
+        "Pending" => "portal-approval-step-active",
         _ => approval is null ? "" : "portal-approval-step-done",
     };
 
     private string GetApprovalStatusBadgeClass() => approval?.Status switch
     {
-        ApprovalStatus.Pending  => "portal-badge-info",
-        ApprovalStatus.Approved => "portal-badge-success",
-        ApprovalStatus.Rejected => "portal-badge-danger",
-        _                       => "portal-badge-neutral",
+        "Pending"  => "portal-badge-info",
+        "Approved" => "portal-badge-success",
+        "Rejected" => "portal-badge-danger",
+        _          => "portal-badge-neutral",
     };
 
     private string GetApprovalStatusLabel() => approval?.Status switch
     {
-        ApprovalStatus.Pending  => "Pending Review",
-        ApprovalStatus.Approved => "Approved",
-        ApprovalStatus.Rejected => "Rejected",
-        _                       => approval?.Status.ToString() ?? "",
+        "Pending"  => "Pending Review",
+        "Approved" => "Approved",
+        "Rejected" => "Rejected",
+        _          => approval?.Status ?? "",
     };
 
     // ── Direct Submission (RG-34) ──
@@ -1389,8 +1312,8 @@
     private bool CanTriggerDirectSubmission()
     {
         return submission is not null
-            && (submission.Status == SubmissionStatus.Accepted
-                || submission.Status == SubmissionStatus.AcceptedWithWarnings);
+            && (submission.Status == "Accepted"
+                || submission.Status == "AcceptedWithWarnings");
     }
 
     private async Task SubmitToRegulatorAsync()
@@ -1415,7 +1338,7 @@
             await LoadDirectSubmissions();
             if (result.Success)
             {
-                submission = await SubmissionRepo.GetByIdWithReport(SubmissionId);
+                await LoadSubmission();
             }
         }
         catch (Exception ex)

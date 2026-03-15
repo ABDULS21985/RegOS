@@ -1,4 +1,76 @@
+using FC.Engine.Application.DTOs;
+
 namespace FC.Engine.Portal.Services;
+
+/// <summary>
+/// View model for the submission list page — one item per submission.
+/// </summary>
+public class SubmissionListItem
+{
+    public int Id { get; set; }
+    public string ReturnCode { get; set; } = "";
+    public string TemplateName { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string PeriodLabel { get; set; } = "—";
+    public DateTime SubmittedAt { get; set; }
+    public string Status { get; set; } = "";
+    public int ErrorCount { get; set; }
+    public int WarningCount { get; set; }
+    public int? ProcessingDurationMs { get; set; }
+    public DateTime? DeadlineDate { get; set; }
+    public string AssigneeInitials { get; set; } = "ME";
+    public bool IsCurrentUser { get; set; } = true;
+}
+
+/// <summary>
+/// View model for the submission detail page.
+/// </summary>
+public class SubmissionDetailModel
+{
+    public int Id { get; set; }
+    public string ReturnCode { get; set; } = "";
+    public int InstitutionId { get; set; }
+    public int ReturnPeriodId { get; set; }
+    public string Status { get; set; } = "";
+    public DateTime SubmittedAt { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public int? ProcessingDurationMs { get; set; }
+    public string? RawXml { get; set; }
+    public bool ApprovalRequired { get; set; }
+    public int? SubmittedByUserId { get; set; }
+    public Guid TenantId { get; set; }
+
+    // Resolved display values
+    public string TemplateName { get; set; } = "";
+    public string? ModuleCode { get; set; }
+    public string PeriodLabel { get; set; } = "—";
+    public string? SubmitterName { get; set; }
+
+    // Validation data (unified as DTOs)
+    public int ErrorCount { get; set; }
+    public int WarningCount { get; set; }
+    public List<ValidationErrorDto> ValidationErrors { get; set; } = new();
+
+    // Approval data
+    public SubmissionApprovalModel? Approval { get; set; }
+}
+
+/// <summary>
+/// View model for the approval record on a submission detail.
+/// </summary>
+public class SubmissionApprovalModel
+{
+    public int Id { get; set; }
+    public int RequestedByUserId { get; set; }
+    public DateTime RequestedAt { get; set; }
+    public string? SubmitterNotes { get; set; }
+    public string Status { get; set; } = "";
+    public int? ReviewedByUserId { get; set; }
+    public DateTime? ReviewedAt { get; set; }
+    public string? ReviewerComments { get; set; }
+    public string? ReviewerName { get; set; }
+    public int? OriginalSubmissionId { get; set; }
+}
 
 /// <summary>
 /// View model for template selection in the submission wizard.

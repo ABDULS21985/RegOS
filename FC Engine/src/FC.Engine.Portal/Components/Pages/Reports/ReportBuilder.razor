@@ -803,6 +803,7 @@
                     {
                         _selectedFields = def.Fields;
                         _filters = def.Filters;
+                        _filterLogic = def.FilterLogic;
                         _aggregations = def.Aggregations;
                         _sorts = def.SortBy;
                         _saveName = report.Name;
@@ -1137,6 +1138,7 @@
     {
         Fields = _selectedFields.ToList(),
         Filters = _filters.Where(f => !string.IsNullOrWhiteSpace(f.Field)).ToList(),
+        FilterLogic = _filterLogic,
         Aggregations = _aggregations.Where(a => !string.IsNullOrWhiteSpace(a.Field)).ToList(),
         SortBy = _sorts.Where(s => !string.IsNullOrWhiteSpace(s.Field)).ToList(),
         Limit = limit,
@@ -1180,7 +1182,10 @@
                         };
                         if (!string.IsNullOrWhiteSpace(cron))
                         {
-                            await ReportSvc.SetSchedule(existing.Id, cron, _scheduleFormat, new List<int>());
+                            var emails = string.IsNullOrWhiteSpace(_scheduleEmail)
+                                ? new List<string>()
+                                : _scheduleEmail.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+                            await ReportSvc.SetSchedule(existing.Id, cron, _scheduleFormat, emails);
                         }
                     }
                 }

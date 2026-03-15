@@ -116,7 +116,7 @@
                     var isOverdue = invoice.Status == InvoiceStatus.Overdue;
                     var isDueSoon = invoice.DueDate.HasValue
                         && invoice.Status == InvoiceStatus.Issued
-                        && (invoice.DueDate.Value.ToDateTime(TimeOnly.MinValue) - DateTime.UtcNow).TotalDays <= 7;
+                        && (invoice.DueDate.Value.DayNumber - DateOnly.FromDateTime(DateTime.UtcNow).DayNumber) <= 7;
 
                     <article class="portal-sub-inv-card @(isOverdue ? "portal-sub-inv-card--overdue" : "") @(invoice.Status == InvoiceStatus.Voided ? "portal-sub-inv-card--voided" : "")">
 
@@ -160,7 +160,7 @@
                                         }
                                         else if (isDueSoon)
                                         {
-                                            var daysLeft = (int)(invoice.DueDate.Value.ToDateTime(TimeOnly.MinValue) - DateTime.UtcNow).TotalDays;
+                                            var daysLeft = invoice.DueDate.Value.DayNumber - DateOnly.FromDateTime(DateTime.UtcNow).DayNumber;
                                             <span> — @daysLeft day@(daysLeft == 1 ? "" : "s") left</span>
                                         }
                                     </span>

@@ -298,6 +298,15 @@
                 </div>
             }
 
+            @if (requiresApproval)
+            {
+                <div class="portal-form-group" style="margin-top:1rem;">
+                    <label for="submitterNotes" class="portal-form-label">Notes for Checker <span class="portal-text-muted">(optional)</span></label>
+                    <textarea id="submitterNotes" class="portal-form-input" rows="2"
+                              @bind="submitterNotes" placeholder="Add context for the reviewer…"></textarea>
+                </div>
+            }
+
             <div class="portal-wizard-actions">
                 <button class="portal-btn portal-btn-outline" @onclick="GoBack">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -591,6 +600,7 @@
     [SupplyParameterFromQuery(Name = "returnCode")] public string? ReturnCodeParam { get; set; }
     [SupplyParameterFromQuery(Name = "module")] public string? ModuleCodeParam { get; set; }
     [SupplyParameterFromQuery(Name = "periodId")] public int? ReturnPeriodIdParam { get; set; }
+    [SupplyParameterFromQuery(Name = "resubmitFrom")] public int? ResubmitFromParam { get; set; }
     private int institutionId;
     private int? userId;
     private bool requiresApproval;
@@ -611,6 +621,9 @@
     private int selectedReturnPeriodId;
     private string selectedPeriodLabel = "";
     private bool isLoadingPeriods;
+
+    // ── Submission notes (maker-checker) ─────────────────────────
+    private string submitterNotes = "";
 
     // ── Step 3: File Upload ──────────────────────────────────────
     private IBrowserFile? uploadedFile;
@@ -882,7 +895,9 @@
 
             var result = await SubmissionService.ProcessSubmission(
                 xmlStream, selectedReturnCode, institutionId, selectedReturnPeriodId,
-                submittedByUserId: userId);
+                submittedByUserId: userId,
+                submitterNotes: string.IsNullOrWhiteSpace(submitterNotes) ? null : submitterNotes.Trim(),
+                originalSubmissionId: ResubmitFromParam);
 
             // All phases done
             currentPhase = validationPhases.Length;

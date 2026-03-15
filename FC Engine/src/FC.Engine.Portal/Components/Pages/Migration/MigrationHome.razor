@@ -5,12 +5,11 @@
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Domain.Enums
 @using Microsoft.AspNetCore.Components.Forms
-@using Microsoft.EntityFrameworkCore
 @inject IHistoricalMigrationService MigrationService
 @inject ITenantContext TenantContext
 @inject ITemplateMetadataCache TemplateCache
 @inject FC.Engine.Portal.Services.TemplateBrowserService TemplateBrowserService
-@inject IDbContextFactory<FC.Engine.Infrastructure.Metadata.MetadataDbContext> DbFactory
+@inject FC.Engine.Portal.Services.SubmissionService SubmissionSvc
 @inject NavigationManager Navigation
 
 <PageTitle>Historical Migration — RegOS™ Portal</PageTitle>
@@ -169,7 +168,7 @@
                                     <option value="0">Select period...</option>
                                     @foreach (var period in periods)
                                     {
-                                        <option value="@period.Id">@FormatPeriod(period)</option>
+                                        <option value="@period.ReturnPeriodId">@period.Label</option>
                                     }
                                 </select>
                             </div>
@@ -380,7 +379,7 @@
     ];
 
     private List<TemplateBrowseItem> templates = [];
-    private List<ReturnPeriod> periods = [];
+    private List<FC.Engine.Portal.Services.PeriodSelectItem> periods = [];
     private List<ImportJobDto> jobs = [];
     private string selectedReturnCode = string.Empty;
     private int selectedPeriodId;
@@ -435,13 +434,8 @@
         if (!tenantId.HasValue || string.IsNullOrWhiteSpace(selectedReturnCode)) return;
         try
         {
-            var template = await TemplateCache.GetPublishedTemplate(tenantId.Value, selectedReturnCode);
-            var moduleId = template.ModuleId;
-            await using var db = await DbFactory.CreateDbContextAsync();
-            IQueryable<ReturnPeriod> query = db.ReturnPeriods.Where(x => x.TenantId == tenantId.Value);
-            query = moduleId.HasValue ? query.Where(x => x.ModuleId == moduleId.Value) : query.Where(x => x.ModuleId == null);
-            periods = await query.OrderByDescending(x => x.Year).ThenByDescending(x => x.Quarter).ThenByDescending(x => x.Month).Take(120).ToListAsync();
-            selectedPeriodId = periods.FirstOrDefault()?.Id ?? 0;
+            periods = await SubmissionSvc.GetPeriodsForTemplate(selectedReturnCode);
+            selectedPeriodId = periods.FirstOrDefault()?.ReturnPeriodId ?? 0;
         }
         catch (Exception ex) { errorMessage = ex.Message; }
     }
@@ -539,17 +533,6 @@
         ImportJobStatus.Staged => "portal-badge-info",
         _ => "portal-badge-neutral"
     };
-
-    private static string FormatPeriod(ReturnPeriod period)
-    {
-        if (period.Frequency.Equals("Quarterly", StringComparison.OrdinalIgnoreCase) && period.Quarter.HasValue)
-            return $"Q{period.Quarter.Value} {period.Year}";
-        if (period.Frequency.Equals("Annual", StringComparison.OrdinalIgnoreCase))
-            return $"FY {period.Year}";
-        if (period.Frequency.Equals("SemiAnnual", StringComparison.OrdinalIgnoreCase))
-            return $"H{(period.Month <= 6 ? 1 : 2)} {period.Year}";
-        return new DateTime(period.Year, Math.Clamp(period.Month, 1, 12), 1).ToString("MMM yyyy");
-    }
 
     private static string FormatBytes(long bytes)
     {

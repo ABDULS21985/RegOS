@@ -12,7 +12,7 @@ public static class PortalSubmissionLinkBuilder
         return $"/submissions?module={Uri.EscapeDataString(moduleCode)}";
     }
 
-    public static string BuildSubmitHref(string? returnCode, string? moduleCode, int? periodId = null)
+    public static string BuildSubmitHref(string? returnCode, string? moduleCode, int? periodId = null, int? resubmitFrom = null)
     {
         var query = new List<string>();
 
@@ -29,6 +29,11 @@ public static class PortalSubmissionLinkBuilder
         if (periodId is > 0)
         {
             query.Add($"periodId={periodId.Value}");
+        }
+
+        if (resubmitFrom is > 0)
+        {
+            query.Add($"resubmitFrom={resubmitFrom.Value}");
         }
 
         return query.Count == 0

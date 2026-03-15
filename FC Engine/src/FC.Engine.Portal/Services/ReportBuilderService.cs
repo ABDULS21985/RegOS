@@ -148,7 +148,7 @@ public class ReportBuilderService
         int reportId,
         string cronExpression,
         string format,
-        List<int> recipientIds,
+        List<string> recipientEmails,
         CancellationToken ct = default)
     {
         var report = await _reportRepo.GetById(reportId, ct);
@@ -156,7 +156,7 @@ public class ReportBuilderService
 
         report.ScheduleCron = cronExpression;
         report.ScheduleFormat = format;
-        report.ScheduleRecipients = JsonSerializer.Serialize(recipientIds);
+        report.ScheduleRecipients = JsonSerializer.Serialize(recipientEmails);
         report.IsScheduleActive = true;
 
         await _reportRepo.Update(report, ct);

@@ -7,6 +7,7 @@ public class ReportDefinition
     public List<string> GroupBy { get; set; } = new();
     public List<ReportAggregationDef> Aggregations { get; set; } = new();
     public List<ReportSortDef> SortBy { get; set; } = new();
+    public string FilterLogic { get; set; } = "AND";
     public int Limit { get; set; } = 1000;
     public string DisplayMode { get; set; } = "Grid";
     public ReportChartConfig? ChartConfig { get; set; }
