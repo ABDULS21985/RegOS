@@ -384,6 +384,18 @@
                     _saving = false;
                     return;
                 }
+                if (_formPassword.Length < 8)
+                {
+                    _formError = "Password must be at least 8 characters.";
+                    _saving = false;
+                    return;
+                }
+                if (!string.IsNullOrWhiteSpace(_formEmail) && !_formEmail.Contains('@'))
+                {
+                    _formError = "Please enter a valid email address.";
+                    _saving = false;
+                    return;
+                }
 
                 await AuthService.CreateUser(_formUsername.Trim(), _formDisplayName.Trim(), _formEmail.Trim(), _formPassword, _formRole);
                 Toast.Success($"User '{_formDisplayName.Trim()}' created successfully.");
@@ -397,12 +409,33 @@
                     _saving = false;
                     return;
                 }
+                if (!string.IsNullOrWhiteSpace(_formEmail) && !_formEmail.Contains('@'))
+                {
+                    _formError = "Please enter a valid email address.";
+                    _saving = false;
+                    return;
+                }
 
-                _editingUser.DisplayName = _formDisplayName.Trim();
-                _editingUser.Email = _formEmail.Trim();
-                _editingUser.Role = _formRole;
-                await UserRepo.Update(_editingUser);
-                Toast.Success($"User '{_editingUser.DisplayName}' updated successfully.");
+                // Apply changes only after validation passes — avoid mutating entity before save
+                var previousDisplayName = _editingUser.DisplayName;
+                var previousEmail = _editingUser.Email;
+                var previousRole = _editingUser.Role;
+                try
+                {
+                    _editingUser.DisplayName = _formDisplayName.Trim();
+                    _editingUser.Email = _formEmail.Trim();
+                    _editingUser.Role = _formRole;
+                    await UserRepo.Update(_editingUser);
+                    Toast.Success($"User '{_editingUser.DisplayName}' updated successfully.");
+                }
+                catch
+                {
+                    // Revert local entity on failure so UI stays consistent
+                    _editingUser.DisplayName = previousDisplayName;
+                    _editingUser.Email = previousEmail;
+                    _editingUser.Role = previousRole;
+                    throw;
+                }
             }
 
             _users = await UserRepo.GetAll();

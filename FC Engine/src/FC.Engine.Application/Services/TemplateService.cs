@@ -205,7 +205,8 @@ public class TemplateService
                 Id = ic.Id,
                 ItemCode = ic.ItemCode,
                 ItemName = ic.ItemDescription,
-                SortOrder = ic.SortOrder
+                SortOrder = ic.SortOrder,
+                IsTotalRow = ic.IsTotalRow
             }).ToList()
         }).ToList();
 

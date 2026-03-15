@@ -1,6 +1,7 @@
 @page "/templates"
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize]
+@using FC.Engine.Admin.Utilities
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Application.DTOs
@@ -184,8 +185,10 @@
     [Parameter, SupplyParameterFromQuery(Name = "search")]    public string? QSearch    { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "frequency")] public string? QFrequency { get; set; }
     [Parameter, SupplyParameterFromQuery(Name = "category")]  public string? QCategory  { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _loading = true;
+    private string _currentUser = string.Empty;
     private IReadOnlyList<CachedTemplate> _templates = Array.Empty<CachedTemplate>();
     private string _searchTerm = "";
     private string _filterTerm = "";   // debounced; FilteredTemplates uses this
@@ -222,6 +225,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var state = AuthState is null ? null : await AuthState;
+        _currentUser = UserIdentityResolver.ResolveActor(state?.User);
+
         // Register loader so NavMenu hover-prefetch can warm this data
         DataCache.RegisterLoader("/templates", async () =>
         {
@@ -306,7 +312,7 @@
     private void ShowCreateForm()
     {
         _showCreateForm = true;
-        _createRequest = new CreateTemplateRequest { CreatedBy = "system" };
+        _createRequest = new CreateTemplateRequest { CreatedBy = _currentUser };
     }
 
     private void CancelCreate() => _showCreateForm = false;
@@ -317,7 +323,7 @@
         {
             _createRequest.Frequency = _createFrequency;
             _createRequest.StructuralCategory = _createCategory;
-            _createRequest.CreatedBy = "system";
+            _createRequest.CreatedBy = _currentUser;
             var result = await TemplateService.CreateTemplate(_createRequest);
             DataCache.Invalidate("templates:all");
             Toast.Success($"Template '{result.ReturnCode}' created successfully.", "Template Created");

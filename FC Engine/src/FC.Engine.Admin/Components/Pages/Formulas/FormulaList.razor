@@ -2,6 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @attribute [Authorize]
+@using FC.Engine.Admin.Utilities
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.Metadata
@@ -235,11 +236,14 @@
 </div>
 
 @code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
     private bool _loading = true;
     private bool _isSaving;
     private string _search = "", _typeFilter = "", _templateFilter = "";
     private List<string> _returnCodes = new();
     private List<(string ReturnCode, IntraSheetFormula Formula)> _allFormulas = new();
+    private string _currentUser = string.Empty;
 
     // Add/Edit form state
     private bool _showAddForm;
@@ -264,6 +268,8 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var state = AuthState is null ? null : await AuthState;
+        _currentUser = UserIdentityResolver.ResolveActor(state?.User);
         await LoadFormulas();
         _loading = false;
     }
@@ -364,7 +370,7 @@
                 _addRuleCode, _addRuleName, _addFormulaType,
                 _addTargetField, operandJson,
                 _addFormulaType == FormulaType.Custom ? _addExpression : null,
-                _addTolerance, _addSeverity, "admin");
+                _addTolerance, _addSeverity, _currentUser);
 
             Toast.Success($"Formula '{_addRuleCode}' added successfully.", "Formula Added");
             _showAddForm = false;
@@ -397,7 +403,7 @@
                 _addTargetField, string.IsNullOrWhiteSpace(_addTargetLineCode) ? null : _addTargetLineCode,
                 operandJson,
                 _addFormulaType == FormulaType.Custom ? _addExpression : null,
-                _addTolerance, _addSeverity, "admin");
+                _addTolerance, _addSeverity, _currentUser);
 
             Toast.Success($"Formula '{_addRuleCode}' updated successfully.", "Formula Updated");
             _showAddForm = false;
@@ -423,7 +429,7 @@
 
         try
         {
-            await FormulaService.DeleteIntraSheetFormula(formula.Id, "admin");
+            await FormulaService.DeleteIntraSheetFormula(formula.Id, _currentUser);
             Toast.Success($"Formula '{formula.RuleCode}' deleted.", "Formula Deleted");
 
             Cache.InvalidateAll();

@@ -64,6 +64,7 @@ public class TemplateItemCodeDto
     public string ItemCode { get; set; } = string.Empty;
     public string ItemName { get; set; } = string.Empty;
     public int SortOrder { get; set; }
+    public bool IsTotalRow { get; set; }
 }
 
 public class CreateTemplateRequest

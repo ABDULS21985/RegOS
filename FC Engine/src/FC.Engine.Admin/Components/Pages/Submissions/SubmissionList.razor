@@ -244,31 +244,47 @@
 
     private static string FormatStatus(SubmissionStatus status) => status switch
     {
-        SubmissionStatus.Accepted => "Accepted",
-        SubmissionStatus.AcceptedWithWarnings => "Warnings",
-        SubmissionStatus.Rejected => "Rejected",
-        SubmissionStatus.Validating => "Validating",
+        SubmissionStatus.Draft => "Draft",
         SubmissionStatus.Parsing => "Parsing",
-        _ => "Draft"
+        SubmissionStatus.Validating => "Validating",
+        SubmissionStatus.Accepted => "Accepted",
+        SubmissionStatus.AcceptedWithWarnings => "Accepted with Warnings",
+        SubmissionStatus.Rejected => "Rejected",
+        SubmissionStatus.PendingApproval => "Pending Approval",
+        SubmissionStatus.ApprovalRejected => "Approval Rejected",
+        SubmissionStatus.Historical => "Historical",
+        SubmissionStatus.SubmittedToRegulator => "Submitted to Regulator",
+        SubmissionStatus.RegulatorAcknowledged => "Regulator Acknowledged",
+        SubmissionStatus.RegulatorAccepted => "Regulator Accepted",
+        SubmissionStatus.RegulatorQueriesRaised => "Queries Raised",
+        _ => status.ToString()
     };
 
     private static string GetStatusClass(SubmissionStatus status) => status switch
     {
+        SubmissionStatus.Draft => "draft",
+        SubmissionStatus.Parsing => "parsing",
+        SubmissionStatus.Validating => "validating",
         SubmissionStatus.Accepted => "accepted",
         SubmissionStatus.AcceptedWithWarnings => "acceptedwithwarnings",
         SubmissionStatus.Rejected => "rejected",
-        SubmissionStatus.Validating => "validating",
-        SubmissionStatus.Parsing => "parsing",
-        _ => "draft"
+        SubmissionStatus.PendingApproval => "pendingapproval",
+        SubmissionStatus.ApprovalRejected => "approvalrejected",
+        SubmissionStatus.Historical => "historical",
+        SubmissionStatus.SubmittedToRegulator => "submittedtoregulator",
+        SubmissionStatus.RegulatorAcknowledged => "regulatoracknowledged",
+        SubmissionStatus.RegulatorAccepted => "regulatoraccepted",
+        SubmissionStatus.RegulatorQueriesRaised => "regulatorqueriesraised",
+        _ => status.ToString().ToLowerInvariant()
     };
 
     private static string StatusBadge(string status) => status.ToLowerInvariant() switch
     {
-        "published" or "active" or "accepted" => "fc-badge--success",
-        "draft" or "pending" => "fc-badge--warning",
-        "review" or "inreview" => "fc-badge--review",
-        "deprecated" or "retired" or "disabled" or "archived" => "fc-badge--muted",
-        "rejected" or "failed" or "error" => "fc-badge--danger",
+        "published" or "active" or "accepted" or "regulatoraccepted" => "fc-badge--success",
+        "draft" or "pending" or "pendingapproval" => "fc-badge--warning",
+        "review" or "inreview" or "regulatoracknowledged" or "submittedtoregulator" => "fc-badge--review",
+        "deprecated" or "retired" or "disabled" or "archived" or "historical" => "fc-badge--muted",
+        "rejected" or "failed" or "error" or "approvalrejected" or "regulatorqueriesraised" => "fc-badge--danger",
         "processing" or "validating" or "parsing" => "fc-badge--info",
         "acceptedwithwarnings" or "warnings" or "warning" => "fc-badge--warning",
         _ => "fc-badge--neutral"
