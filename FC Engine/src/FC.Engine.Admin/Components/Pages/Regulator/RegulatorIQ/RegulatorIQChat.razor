@@ -42,385 +42,461 @@
     }
     else
     {
-        <div id="regiq-print-root" class="regiq-chat-shell">
+        <div id="regiq-print-root" class="regiq-shell">
             <div class="row g-4 align-items-start">
                 <div class="col-12 col-xl-8">
                     <section class="regiq-chat">
-                        <header class="regiq-chat__hero">
-                            <div class="regiq-chat__hero-copy">
-                                <div class="regiq-chat__badges">
-                                    <span class="badge text-bg-dark">@(_session?.TenantName ?? "Regulator Session")</span>
-                                    <span class="badge text-bg-light border">Cross-tenant intelligence</span>
-                                    <span class="badge text-bg-info">Live grounded responses</span>
+
+                        {{/* ── HERO ── */}}
+                        <header class="regiq-hero">
+                            <div class="regiq-hero__top">
+                                <div class="regiq-hero__badges">
+                                    <span class="regiq-hero__badge-session">
+                                        <i class="bi bi-shield-check" aria-hidden="true"></i>
+                                        @(_session?.TenantName ?? "Regulator Session")
+                                    </span>
+                                    <span class="regiq-hero__badge-tag">Cross-tenant intelligence</span>
+                                    <span class="regiq-hero__badge-tag regiq-hero__badge-tag--live">
+                                        <span class="regiq-hero__live-dot" aria-hidden="true"></span>
+                                        Live grounded responses
+                                    </span>
                                 </div>
-                                <h2>Regulator intelligence workspace</h2>
-                                <p>
+                                <div class="regiq-hero__actions">
+                                    <button type="button"
+                                            class="regiq-hero__btn @(HasActiveExamination ? "regiq-hero__btn--active" : "")"
+                                            @onclick="ToggleExaminationPickerAsync">
+                                        <i class="bi @(HasActiveExamination ? "bi-binoculars-fill" : "bi-binoculars")" aria-hidden="true"></i>
+                                        @(HasActiveExamination ? "Switch Examination" : "Start Examination")
+                                    </button>
+                                    @if (HasActiveExamination)
+                                    {
+                                        <button type="button" class="regiq-hero__btn" @onclick="EndExaminationSession">
+                                            <i class="bi bi-x-circle" aria-hidden="true"></i>
+                                            End Session
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <div class="regiq-hero__copy">
+                                <h2 class="regiq-hero__title">Regulator intelligence workspace</h2>
+                                <p class="regiq-hero__subtitle">
                                     Ask about a single institution, compare peers, scan sector trends, or move into a focused examination session without leaving the regulator console.
                                 </p>
                             </div>
-
-                            <div class="regiq-chat__hero-actions">
-                                <button type="button"
-                                        class="btn @(HasActiveExamination ? "btn-success" : "btn-outline-success")"
-                                        @onclick="ToggleExaminationPickerAsync">
-                                    <i class="bi @(HasActiveExamination ? "bi-binoculars-fill" : "bi-binoculars") me-2" aria-hidden="true"></i>
-                                    @(HasActiveExamination ? "Switch Examination" : "Start Examination Session")
-                                </button>
-                                @if (HasActiveExamination)
-                                {
-                                    <button type="button" class="btn btn-outline-secondary" @onclick="EndExaminationSession">
-                                        <i class="bi bi-x-circle me-2" aria-hidden="true"></i>
-                                        End Examination
-                                    </button>
-                                }
-                            </div>
                         </header>
 
+                        {{/* ── EXAMINATION BANNER ── */}}
                         @if (HasActiveExamination)
                         {
-                            <div class="alert alert-success regiq-chat__banner" role="status">
-                                <div>
-                                    <strong>Examining:</strong> @_currentExaminationEntityName
-                                    <span class="text-secondary ms-2">Subsequent queries default to this entity until you end the session or explicitly name another institution.</span>
+                            <div class="regiq-exam-banner" role="status">
+                                <div class="regiq-exam-banner__left">
+                                    <span class="regiq-exam-banner__icon">
+                                        <i class="bi bi-binoculars-fill" aria-hidden="true"></i>
+                                    </span>
+                                    <div>
+                                        <strong>Examination mode active —</strong>
+                                        <span class="regiq-exam-banner__entity">@_currentExaminationEntityName</span>
+                                        <span class="regiq-exam-banner__hint">Queries default to this entity until you end the session.</span>
+                                    </div>
                                 </div>
-                                <button type="button" class="btn btn-sm btn-light" @onclick="EndExaminationSession">Clear</button>
+                                <button type="button" class="regiq-exam-banner__close" @onclick="EndExaminationSession">
+                                    <i class="bi bi-x" aria-hidden="true"></i>
+                                    Clear
+                                </button>
                             </div>
                         }
 
-                        <section class="regiq-chat__command-bar" aria-label="Quick access commands">
-                            <div class="regiq-chat__command-pills">
-                                <button type="button" class="btn btn-sm btn-outline-dark" @onclick="OpenLookupAsync">
-                                    <i class="bi bi-search me-1" aria-hidden="true"></i>
-                                    Entity Lookup
+                        {{/* ── COMMAND BAR ── */}}
+                        <section class="regiq-cmd-bar" aria-label="Quick access commands">
+                            <div class="regiq-cmd-grid">
+                                <button type="button" class="regiq-cmd-card" @onclick="OpenLookupAsync">
+                                    <span class="regiq-cmd-card__icon regiq-cmd-card__icon--blue">
+                                        <i class="bi bi-buildings-fill" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="regiq-cmd-card__label">Entity Lookup</span>
+                                    <span class="regiq-cmd-card__hint">Search by name</span>
                                 </button>
-                                <button type="button" class="btn btn-sm btn-outline-dark" @onclick="RunTrySectorHealthAsync">
-                                    <i class="bi bi-bar-chart-line me-1" aria-hidden="true"></i>
-                                    Sector Health
+                                <button type="button" class="regiq-cmd-card" @onclick="RunTrySectorHealthAsync">
+                                    <span class="regiq-cmd-card__icon regiq-cmd-card__icon--green">
+                                        <i class="bi bi-bar-chart-line-fill" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="regiq-cmd-card__label">Sector Health</span>
+                                    <span class="regiq-cmd-card__hint">Sector-wide view</span>
                                 </button>
-                                <button type="button" class="btn btn-sm btn-outline-dark" @onclick="RunShowSystemicRiskAsync">
-                                    <i class="bi bi-activity me-1" aria-hidden="true"></i>
-                                    Systemic Risk
+                                <button type="button" class="regiq-cmd-card" @onclick="RunShowSystemicRiskAsync">
+                                    <span class="regiq-cmd-card__icon regiq-cmd-card__icon--red">
+                                        <i class="bi bi-activity" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="regiq-cmd-card__label">Systemic Risk</span>
+                                    <span class="regiq-cmd-card__hint">Contagion indicators</span>
                                 </button>
-                                <button type="button" class="btn btn-sm btn-outline-dark" @onclick="HandleMyExaminationsAsync">
-                                    <i class="bi bi-briefcase me-1" aria-hidden="true"></i>
-                                    My Examinations
+                                <button type="button" class="regiq-cmd-card" @onclick="HandleMyExaminationsAsync">
+                                    <span class="regiq-cmd-card__icon regiq-cmd-card__icon--amber">
+                                        <i class="bi bi-briefcase-fill" aria-hidden="true"></i>
+                                    </span>
+                                    <span class="regiq-cmd-card__label">Examinations</span>
+                                    <span class="regiq-cmd-card__hint">My active cases</span>
                                 </button>
                             </div>
 
                             @if (_entityLookupOpen)
                             {
-                                <div class="regiq-chat__lookup">
-                                    <div class="input-group">
-                                        <span class="input-group-text bg-white">
-                                            <i class="bi bi-buildings" aria-hidden="true"></i>
-                                        </span>
-                                        <input class="form-control"
-                                               placeholder="@(_lookupMode == LookupMode.Examination ? "Select institution for examination mode" : "Search institution name or alias")"
+                                <div class="regiq-lookup">
+                                    <div class="regiq-lookup__search">
+                                        <i class="bi bi-search regiq-lookup__icon" aria-hidden="true"></i>
+                                        <input class="regiq-lookup__input"
+                                               placeholder="@(_lookupMode == LookupMode.Examination ? "Select institution for examination mode…" : "Search institution name or alias…")"
                                                value="@_entityLookupTerm"
                                                @oninput="HandleLookupInputAsync"
                                                aria-label="Entity lookup" />
-                                        <button type="button" class="btn btn-outline-secondary" @onclick="CloseLookup">
-                                            Close
+                                        <button type="button" class="regiq-lookup__close" @onclick="CloseLookup" aria-label="Close lookup">
+                                            <i class="bi bi-x" aria-hidden="true"></i>
                                         </button>
                                     </div>
 
                                     @if (_entityLookupLoading)
                                     {
-                                        <div class="mt-2">
+                                        <div class="regiq-lookup__loading">
                                             <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="3" />
                                         </div>
                                     }
                                     else if (_entityLookupResults.Count > 0)
                                     {
-                                        <div class="regiq-chat__lookup-results" role="listbox" aria-label="Entity lookup results">
+                                        <div class="regiq-lookup__results" role="listbox" aria-label="Entity lookup results">
                                             @foreach (var result in _entityLookupResults)
                                             {
                                                 <button type="button"
-                                                        class="regiq-chat__lookup-result"
+                                                        class="regiq-lookup__result"
                                                         @onclick="() => SelectLookupResultAsync(result)">
-                                                    <div>
-                                                        <strong>@result.Name</strong>
-                                                        <div class="text-secondary">@result.LicenceCategory</div>
+                                                    <div class="regiq-lookup__result-icon">
+                                                        <i class="bi bi-bank" aria-hidden="true"></i>
                                                     </div>
-                                                    <i class="bi bi-arrow-up-right" aria-hidden="true"></i>
+                                                    <div class="regiq-lookup__result-text">
+                                                        <strong>@result.Name</strong>
+                                                        <span>@result.LicenceCategory</span>
+                                                    </div>
+                                                    <i class="bi bi-arrow-right regiq-lookup__result-arrow" aria-hidden="true"></i>
                                                 </button>
                                             }
                                         </div>
                                     }
                                     else if (!string.IsNullOrWhiteSpace(_entityLookupTerm))
                                     {
-                                        <div class="regiq-chat__lookup-empty">No matching institution aliases were found.</div>
+                                        <div class="regiq-lookup__empty">
+                                            <i class="bi bi-search" aria-hidden="true"></i>
+                                            No matching institutions found for "<strong>@_entityLookupTerm</strong>"
+                                        </div>
                                     }
                                 </div>
                             }
                         </section>
 
-                        <div class="regiq-chat__thread" aria-live="polite">
+                        {{/* ── THREAD ── */}}
+                        <div class="regiq-thread" id="regiq-thread" aria-live="polite">
                             @if (_messages.Count == 0 && !_isSubmitting)
                             {
-                                <EmptyState Context="data"
-                                            Heading="Start a regulator conversation"
-                                            Description="RegulatorIQ can work entity-first, sector-first, or systemically across the regulator scope."
-                                            PrimaryActionLabel="Try sector health"
-                                            OnPrimaryAction="RunTrySectorHealthAsync"
-                                            SecondaryActionLabel="Try entity profile"
-                                            OnSecondaryAction="RunTryEntityProfileAsync" />
+                                <div class="regiq-thread__empty">
+                                    <EmptyState Context="data"
+                                                Heading="Start a regulator conversation"
+                                                Description="RegulatorIQ can work entity-first, sector-first, or systemically across the regulator scope."
+                                                PrimaryActionLabel="Try sector health"
+                                                OnPrimaryAction="RunTrySectorHealthAsync"
+                                                SecondaryActionLabel="Try entity profile"
+                                                OnSecondaryAction="RunTryEntityProfileAsync" />
+                                </div>
                             }
                             else
                             {
                                 @foreach (var message in _messages)
                                 {
-                                    <article class="regiq-message @(message.IsUser ? "regiq-message--user" : "regiq-message--assistant") @ResolveClassificationClass(message.Response?.ClassificationLevel)"
-                                             @key="message.Id">
-                                        <div class="regiq-message__meta">
-                                            <div class="regiq-message__meta-left">
-                                                <span class="regiq-message__author">@(message.IsUser ? "You" : "RegulatorIQ")</span>
-                                                @if (!message.IsUser && message.Response is not null)
-                                                {
-                                                    <span class="badge @ResolveClassificationBadge(message.Response.ClassificationLevel)">@message.Response.ClassificationLevel</span>
-                                                    <span class="badge text-bg-light border">@message.Response.AnswerFormat</span>
-                                                }
+                                    @if (message.IsUser)
+                                    {
+                                        <article class="regiq-msg regiq-msg--user" @key="message.Id">
+                                            <div class="regiq-msg__bubble--user">
+                                                <p class="regiq-msg__text">@message.Text</p>
+                                                <time class="regiq-msg__time">@message.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture)</time>
                                             </div>
-                                            <time class="text-secondary">@message.Timestamp.ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture)</time>
-                                        </div>
-
-                                        <div class="regiq-message__content">
-                                            <p class="mb-0">@message.Text</p>
-
-                                            @if (!message.IsUser && message.Response is not null)
-                                            {
-                                                var response = message.Response;
-
-                                                @switch (response.AnswerFormat.ToLowerInvariant())
-                                                {
-                                                    case "profile":
-                                                        if (response.StructuredData is RegulatorProfileData profileData)
-                                                        {
-                                                            <EntityProfileCard Profile="profileData.Profile" OnDeepDive="HandleDeepDiveAsync" />
-                                                        }
-                                                        else if (response.StructuredData is ExaminationBriefing briefing)
-                                                        {
-                                                            <div class="regiq-briefing">
-                                                                <EntityProfileCard Profile="briefing.Profile" OnDeepDive="HandleDeepDiveAsync" />
-                                                                <div class="regiq-briefing__grid">
-                                                                    <section class="regiq-briefing__card">
-                                                                        <h5>Suggested Focus Areas</h5>
-                                                                        <ul class="regiq-briefing__list">
-                                                                            @foreach (var focusArea in briefing.FocusAreas.Take(5))
-                                                                            {
-                                                                                <li>
-                                                                                    <span class="badge @ResolvePriorityBadge(focusArea.Priority)">@focusArea.Priority</span>
-                                                                                    <div>
-                                                                                        <strong>@focusArea.Area</strong>
-                                                                                        <div class="text-secondary">@focusArea.Reason</div>
-                                                                                    </div>
-                                                                                </li>
-                                                                            }
-                                                                        </ul>
-                                                                    </section>
-
-                                                                    <section class="regiq-briefing__card">
-                                                                        <h5>Peer Context</h5>
-                                                                        <div class="regiq-briefing__stats">
-                                                                            <div><span>Avg CAR</span><strong>@FormatPercent(briefing.PeerContext.AverageCarRatio)</strong></div>
-                                                                            <div><span>Avg NPL</span><strong>@FormatPercent(briefing.PeerContext.AverageNplRatio)</strong></div>
-                                                                            <div><span>High-risk entities</span><strong>@briefing.PeerContext.HighRiskEntityCount</strong></div>
-                                                                            <div><span>Overdue filings</span><strong>@briefing.PeerContext.OverdueFilingCount</strong></div>
-                                                                        </div>
-                                                                    </section>
-                                                                </div>
-                                                            </div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="regiq-message__fallback">The profile payload was returned in an unsupported shape.</div>
-                                                        }
-                                                        break;
-
-                                                    case "comparison":
-                                                        if (response.StructuredData is RegulatorComparisonData comparisonData)
-                                                        {
-                                                            <ComparisonMatrix Comparison="comparisonData" />
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="regiq-message__fallback">The comparison payload was returned in an unsupported shape.</div>
-                                                        }
-                                                        break;
-
-                                                    case "ranking":
-                                                        if (response.StructuredData is RegulatorRankingData rankingData)
-                                                        {
-                                                            <RankingTable Ranking="rankingData" OnEntitySelected="HandleDeepDiveAsync" />
-                                                        }
-                                                        else
-                                                        {
-                                                            <div class="regiq-message__fallback">The ranking payload was returned in an unsupported shape.</div>
-                                                        }
-                                                        break;
-
-                                                    case "chart_data":
-                                                        <RegulatorChartPayload Payload="response.StructuredData" />
-                                                        break;
-
-                                                    case "table":
-                                                        if (response.StructuredData is RegulatorTableData tableData)
-                                                        {
-                                                            <div class="table-responsive">
-                                                                <table class="table table-hover align-middle regiq-table">
-                                                                    <thead>
-                                                                        <tr>
-                                                                            @foreach (var column in tableData.Columns)
-                                                                            {
-                                                                                <th scope="col">
-                                                                                    <button type="button"
-                                                                                            class="btn btn-link p-0 regiq-table__sort"
-                                                                                            @onclick="() => SortTable(message, column)">
-                                                                                        @HumanizeColumn(column)
-                                                                                        @if (string.Equals(message.SortColumn, column, StringComparison.OrdinalIgnoreCase))
-                                                                                        {
-                                                                                            <i class="bi @(message.SortAscending ? "bi-sort-down" : "bi-sort-up") ms-1" aria-hidden="true"></i>
-                                                                                        }
-                                                                                    </button>
-                                                                                </th>
-                                                                            }
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody>
-                                                                        @foreach (var row in GetSortedRows(message, tableData))
-                                                                        {
-                                                                            <tr>
-                                                                                @foreach (var column in tableData.Columns)
-                                                                                {
-                                                                                    row.TryGetValue(column, out var cellValue);
-                                                                                    <td>
-                                                                                        <span class="@ResolveTableCellTone(column, cellValue)">
-                                                                                            @FormatTableValue(cellValue)
-                                                                                        </span>
-                                                                                    </td>
-                                                                                }
-                                                                            </tr>
-                                                                        }
-                                                                    </tbody>
-                                                                </table>
-                                                            </div>
-                                                        }
-                                                        else
-                                                        {
-                                                            <RegulatorStructuredPayload Payload="response.StructuredData" />
-                                                        }
-                                                        break;
-
-                                                    default:
-                                                        <RegulatorStructuredPayload Payload="response.StructuredData" />
-                                                        break;
-                                                }
-
-                                                @if (response.Flags.Count > 0)
-                                                {
-                                                    <div class="regiq-message__flags">
-                                                        @foreach (var flag in response.Flags.Take(6))
-                                                        {
-                                                            <div class="regiq-flag @ResolveFlagCard(flag.FlagType)">
-                                                                <span class="badge @ResolveFlagBadge(flag.FlagType)">@flag.FlagType.Replace('_', ' ')</span>
-                                                                <div>
-                                                                    <strong>@flag.Source</strong>
-                                                                    <div>@flag.Message</div>
-                                                                </div>
-                                                            </div>
-                                                        }
-                                                    </div>
-                                                }
-
-                                                @if (response.Citations.Count > 0)
-                                                {
-                                                    <div class="regiq-message__citations">
-                                                        <div class="regiq-message__section-label">Citations</div>
-                                                        <div class="regiq-message__citation-list">
-                                                            @foreach (var citation in response.Citations.Take(5))
+                                            <div class="regiq-msg__avatar regiq-msg__avatar--user" aria-hidden="true">
+                                                <i class="bi bi-person-fill"></i>
+                                            </div>
+                                        </article>
+                                    }
+                                    else
+                                    {
+                                        <article class="regiq-msg regiq-msg--ai @ResolveClassificationClass(message.Response?.ClassificationLevel)" @key="message.Id">
+                                            <div class="regiq-msg__avatar regiq-msg__avatar--ai" aria-hidden="true">RIQ</div>
+                                            <div class="regiq-msg__body">
+                                                <div class="regiq-msg__card">
+                                                    <div class="regiq-msg__header">
+                                                        <div class="regiq-msg__header-left">
+                                                            <span class="regiq-msg__author">RegulatorIQ</span>
+                                                            @if (message.Response is not null)
                                                             {
-                                                                <span class="badge text-bg-light border">@BuildCitationLabel(citation)</span>
+                                                                <span class="badge @ResolveClassificationBadge(message.Response.ClassificationLevel)">@message.Response.ClassificationLevel</span>
+                                                                <span class="badge text-bg-light border">@message.Response.AnswerFormat</span>
                                                             }
                                                         </div>
+                                                        <time class="regiq-msg__time">@message.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture)</time>
                                                     </div>
-                                                }
 
-                                                @if (response.DataSourcesUsed.Count > 0)
-                                                {
-                                                    <div class="regiq-message__sources">
-                                                        @foreach (var source in response.DataSourcesUsed.Distinct(StringComparer.OrdinalIgnoreCase))
+                                                    <div class="regiq-msg__content">
+                                                        <p class="mb-0">@message.Text</p>
+
+                                                        @if (message.Response is not null)
                                                         {
-                                                            <span class="badge text-bg-dark">@source</span>
+                                                            var response = message.Response;
+
+                                                            @switch (response.AnswerFormat.ToLowerInvariant())
+                                                            {
+                                                                case "profile":
+                                                                    if (response.StructuredData is RegulatorProfileData profileData)
+                                                                    {
+                                                                        <EntityProfileCard Profile="profileData.Profile" OnDeepDive="HandleDeepDiveAsync" />
+                                                                    }
+                                                                    else if (response.StructuredData is ExaminationBriefing briefing)
+                                                                    {
+                                                                        <div class="regiq-briefing">
+                                                                            <EntityProfileCard Profile="briefing.Profile" OnDeepDive="HandleDeepDiveAsync" />
+                                                                            <div class="regiq-briefing__grid">
+                                                                                <section class="regiq-briefing__card">
+                                                                                    <h5>Suggested Focus Areas</h5>
+                                                                                    <ul class="regiq-briefing__list">
+                                                                                        @foreach (var focusArea in briefing.FocusAreas.Take(5))
+                                                                                        {
+                                                                                            <li>
+                                                                                                <span class="badge @ResolvePriorityBadge(focusArea.Priority)">@focusArea.Priority</span>
+                                                                                                <div>
+                                                                                                    <strong>@focusArea.Area</strong>
+                                                                                                    <div class="text-secondary">@focusArea.Reason</div>
+                                                                                                </div>
+                                                                                            </li>
+                                                                                        }
+                                                                                    </ul>
+                                                                                </section>
+                                                                                <section class="regiq-briefing__card">
+                                                                                    <h5>Peer Context</h5>
+                                                                                    <div class="regiq-briefing__stats">
+                                                                                        <div><span>Avg CAR</span><strong>@FormatPercent(briefing.PeerContext.AverageCarRatio)</strong></div>
+                                                                                        <div><span>Avg NPL</span><strong>@FormatPercent(briefing.PeerContext.AverageNplRatio)</strong></div>
+                                                                                        <div><span>High-risk entities</span><strong>@briefing.PeerContext.HighRiskEntityCount</strong></div>
+                                                                                        <div><span>Overdue filings</span><strong>@briefing.PeerContext.OverdueFilingCount</strong></div>
+                                                                                    </div>
+                                                                                </section>
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <div class="regiq-msg__fallback">The profile payload was returned in an unsupported shape.</div>
+                                                                    }
+                                                                    break;
+
+                                                                case "comparison":
+                                                                    if (response.StructuredData is RegulatorComparisonData comparisonData)
+                                                                    {
+                                                                        <ComparisonMatrix Comparison="comparisonData" />
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <div class="regiq-msg__fallback">The comparison payload was returned in an unsupported shape.</div>
+                                                                    }
+                                                                    break;
+
+                                                                case "ranking":
+                                                                    if (response.StructuredData is RegulatorRankingData rankingData)
+                                                                    {
+                                                                        <RankingTable Ranking="rankingData" OnEntitySelected="HandleDeepDiveAsync" />
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <div class="regiq-msg__fallback">The ranking payload was returned in an unsupported shape.</div>
+                                                                    }
+                                                                    break;
+
+                                                                case "chart_data":
+                                                                    <RegulatorChartPayload Payload="response.StructuredData" />
+                                                                    break;
+
+                                                                case "table":
+                                                                    if (response.StructuredData is RegulatorTableData tableData)
+                                                                    {
+                                                                        <div class="table-responsive">
+                                                                            <table class="table table-hover align-middle regiq-table">
+                                                                                <thead>
+                                                                                    <tr>
+                                                                                        @foreach (var column in tableData.Columns)
+                                                                                        {
+                                                                                            <th scope="col">
+                                                                                                <button type="button"
+                                                                                                        class="btn btn-link p-0 regiq-table__sort"
+                                                                                                        @onclick="() => SortTable(message, column)">
+                                                                                                    @HumanizeColumn(column)
+                                                                                                    @if (string.Equals(message.SortColumn, column, StringComparison.OrdinalIgnoreCase))
+                                                                                                    {
+                                                                                                        <i class="bi @(message.SortAscending ? "bi-sort-down" : "bi-sort-up") ms-1" aria-hidden="true"></i>
+                                                                                                    }
+                                                                                                </button>
+                                                                                            </th>
+                                                                                        }
+                                                                                    </tr>
+                                                                                </thead>
+                                                                                <tbody>
+                                                                                    @foreach (var row in GetSortedRows(message, tableData))
+                                                                                    {
+                                                                                        <tr>
+                                                                                            @foreach (var column in tableData.Columns)
+                                                                                            {
+                                                                                                row.TryGetValue(column, out var cellValue);
+                                                                                                <td>
+                                                                                                    <span class="@ResolveTableCellTone(column, cellValue)">
+                                                                                                        @FormatTableValue(cellValue)
+                                                                                                    </span>
+                                                                                                </td>
+                                                                                            }
+                                                                                        </tr>
+                                                                                    }
+                                                                                </tbody>
+                                                                            </table>
+                                                                        </div>
+                                                                    }
+                                                                    else
+                                                                    {
+                                                                        <RegulatorStructuredPayload Payload="response.StructuredData" />
+                                                                    }
+                                                                    break;
+
+                                                                default:
+                                                                    <RegulatorStructuredPayload Payload="response.StructuredData" />
+                                                                    break;
+                                                            }
+
+                                                            @if (response.Flags.Count > 0)
+                                                            {
+                                                                <div class="regiq-flags">
+                                                                    @foreach (var flag in response.Flags.Take(6))
+                                                                    {
+                                                                        <div class="regiq-flag @ResolveFlagCard(flag.FlagType)">
+                                                                            <span class="badge @ResolveFlagBadge(flag.FlagType)">@flag.FlagType.Replace('_', ' ')</span>
+                                                                            <div>
+                                                                                <strong>@flag.Source</strong>
+                                                                                <div>@flag.Message</div>
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                </div>
+                                                            }
+
+                                                            @if (response.Citations.Count > 0)
+                                                            {
+                                                                <div class="regiq-citations">
+                                                                    <span class="regiq-citations__label">Citations</span>
+                                                                    <div class="regiq-citations__list">
+                                                                        @foreach (var citation in response.Citations.Take(5))
+                                                                        {
+                                                                            <span class="badge text-bg-light border">@BuildCitationLabel(citation)</span>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                            }
+
+                                                            @if (response.DataSourcesUsed.Count > 0)
+                                                            {
+                                                                <div class="regiq-sources">
+                                                                    <span class="regiq-sources__label">Data sources</span>
+                                                                    <div class="regiq-sources__list">
+                                                                        @foreach (var source in response.DataSourcesUsed.Distinct(StringComparer.OrdinalIgnoreCase))
+                                                                        {
+                                                                            <span class="regiq-sources__tag">@source</span>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                            }
+
+                                                            @if (response.FollowUpSuggestions.Count > 0)
+                                                            {
+                                                                <div class="regiq-followups">
+                                                                    <span class="regiq-followups__label">Follow up</span>
+                                                                    <div class="regiq-followups__list">
+                                                                        @foreach (var suggestion in response.FollowUpSuggestions.Take(4))
+                                                                        {
+                                                                            <button type="button" class="regiq-followup-btn" @onclick="() => SubmitQueryAsync(suggestion)">
+                                                                                <i class="bi bi-arrow-return-right" aria-hidden="true"></i>
+                                                                                @suggestion
+                                                                            </button>
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                            }
+                                                        }
+
+                                                        @if (message.DisambiguationOptions.Count > 0)
+                                                        {
+                                                            <div class="regiq-followups">
+                                                                <span class="regiq-followups__label">Did you mean?</span>
+                                                                <div class="regiq-followups__list">
+                                                                    @foreach (var option in message.DisambiguationOptions)
+                                                                    {
+                                                                        <button type="button"
+                                                                                class="regiq-followup-btn regiq-followup-btn--primary"
+                                                                                @onclick="() => SubmitQueryAsync(option)">
+                                                                            @option
+                                                                        </button>
+                                                                    }
+                                                                </div>
+                                                            </div>
                                                         }
                                                     </div>
-                                                }
-
-                                                @if (response.FollowUpSuggestions.Count > 0)
-                                                {
-                                                    <div class="regiq-message__followups">
-                                                        @foreach (var suggestion in response.FollowUpSuggestions.Take(4))
-                                                        {
-                                                            <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => SubmitQueryAsync(suggestion)">
-                                                                @suggestion
-                                                            </button>
-                                                        }
-                                                    </div>
-                                                }
-                                            }
-
-                                            @if (message.DisambiguationOptions.Count > 0)
-                                            {
-                                                <div class="regiq-message__followups">
-                                                    @foreach (var option in message.DisambiguationOptions)
-                                                    {
-                                                        <button type="button"
-                                                                class="btn btn-sm btn-outline-primary"
-                                                                @onclick="() => SubmitQueryAsync(option)">
-                                                            @option
-                                                        </button>
-                                                    }
                                                 </div>
-                                            }
-                                        </div>
-                                    </article>
+                                            </div>
+                                        </article>
+                                    }
                                 }
                             }
 
                             @if (_isSubmitting)
                             {
-                                <div class="regiq-message regiq-message--assistant regiq-message--loading">
-                                    <div class="regiq-message__meta">
-                                        <span class="regiq-message__author">RegulatorIQ</span>
-                                        <span class="badge text-bg-light border">Generating</span>
-                                    </div>
-                                    <div class="regiq-message__content">
-                                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TextLarge" Width="60%" />
-                                        <div class="mt-2">
-                                            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="3" />
+                                <div class="regiq-msg regiq-msg--ai">
+                                    <div class="regiq-msg__avatar regiq-msg__avatar--ai" aria-hidden="true">RIQ</div>
+                                    <div class="regiq-msg__body">
+                                        <div class="regiq-msg__card regiq-msg__card--thinking">
+                                            <div class="regiq-typing" aria-label="RegulatorIQ is generating a response">
+                                                <span></span><span></span><span></span>
+                                            </div>
+                                            <small class="regiq-thinking-label">Analysing data sources…</small>
                                         </div>
                                     </div>
                                 </div>
                             }
+
+                            <div id="regiq-thread-end" aria-hidden="true"></div>
                         </div>
 
-                        <footer class="regiq-chat__composer">
-                            <label class="form-label fw-semibold" for="regiq-chat-input">Ask RegulatorIQ</label>
-                            <textarea id="regiq-chat-input"
-                                      class="form-control regiq-chat__input"
-                                      rows="3"
-                                      placeholder="Try 'Compare GTBank vs Zenith on CAR and NPL' or 'Show me the systemic risk dashboard'."
-                                      @bind="_query"
-                                      @bind:event="oninput"
-                                      @onkeydown="HandleInputKeyDown"
-                                      aria-label="Regulator intelligence query"></textarea>
-                            <div class="regiq-chat__composer-actions">
-                                <small class="text-secondary">Sensitive results remain inside the regulator session and are visually marked when classification rises.</small>
-                                <button type="button" class="btn btn-dark" @onclick="() => SubmitQueryAsync(_query)" disabled="@_isSubmitting">
-                                    <i class="bi bi-send me-2" aria-hidden="true"></i>
-                                    Send query
+                        {{/* ── COMPOSER ── */}}
+                        <div class="regiq-composer-wrap">
+                            <div class="regiq-composer @(_isSubmitting ? "regiq-composer--loading" : "")">
+                                <textarea id="regiq-chat-input"
+                                          class="regiq-composer__input"
+                                          rows="3"
+                                          placeholder="Try 'Compare GTBank vs Zenith on CAR and NPL' or 'Show me the systemic risk dashboard'…"
+                                          @bind="_query"
+                                          @bind:event="oninput"
+                                          @onkeydown="HandleInputKeyDown"
+                                          disabled="@_isSubmitting"
+                                          aria-label="Regulator intelligence query"></textarea>
+                                <button type="button"
+                                        class="regiq-composer__send"
+                                        @onclick="() => SubmitQueryAsync(_query)"
+                                        disabled="@(_isSubmitting || string.IsNullOrWhiteSpace(_query))"
+                                        aria-label="Send query">
+                                    <i class="bi @(_isSubmitting ? "bi-hourglass-split" : "bi-send-fill")" aria-hidden="true"></i>
                                 </button>
                             </div>
-                        </footer>
+                            <div class="regiq-composer__footer">
+                                <small><kbd>↵</kbd> Send · <kbd>Shift ↵</kbd> New line</small>
+                                <small class="@(_query.Length > 800 ? "text-warning" : "")">@_query.Length / 1000</small>
+                            </div>
+                        </div>
+
                     </section>
                 </div>
 
@@ -482,9 +558,24 @@
         builder.CloseElement();
     };
 
+    private bool _shouldScrollToBottom;
+
     protected override async Task OnInitializedAsync()
     {
         await LoadInitialStateAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_shouldScrollToBottom)
+        {
+            _shouldScrollToBottom = false;
+            try
+            {
+                await JS.InvokeVoidAsync("eval", "var el=document.getElementById('regiq-thread-end');if(el)el.scrollIntoView({block:'end'})");
+            }
+            catch { }
+        }
     }
 
     private async Task LoadInitialStateAsync()
@@ -546,6 +637,7 @@
         _messages.Add(userMessage);
 
         _isSubmitting = true;
+        _shouldScrollToBottom = true;
         StateHasChanged();
 
         try
@@ -592,6 +684,7 @@
         finally
         {
             _isSubmitting = false;
+            _shouldScrollToBottom = true;
             StateHasChanged();
         }
     }
