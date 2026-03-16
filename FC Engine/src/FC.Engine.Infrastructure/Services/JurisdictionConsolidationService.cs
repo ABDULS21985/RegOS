@@ -9,11 +9,11 @@ namespace FC.Engine.Infrastructure.Services;
 
 public class JurisdictionConsolidationService : IJurisdictionConsolidationService
 {
-    private readonly MetadataDbContext _db;
+    private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
 
-    public JurisdictionConsolidationService(MetadataDbContext db)
+    public JurisdictionConsolidationService(IDbContextFactory<MetadataDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<CrossJurisdictionConsolidation> GetConsolidation(
@@ -21,13 +21,15 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
         string reportingCurrency = "NGN",
         CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
         var currency = string.IsNullOrWhiteSpace(reportingCurrency)
             ? "NGN"
             : reportingCurrency.Trim().ToUpperInvariant();
         var today = DateOnly.FromDateTime(DateTime.UtcNow.Date);
 
         // ── Tenant tree ──────────────────────────────────────────────────────
-        var allTenants = await _db.Tenants
+        var allTenants = await db.Tenants
             .AsNoTracking()
             .Where(t => t.TenantId == tenantId || t.ParentTenantId == tenantId)
             .ToListAsync(ct);
@@ -36,7 +38,7 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
         if (!relatedTenantIds.Contains(tenantId))
             relatedTenantIds.Add(tenantId);
 
-        var institutions = await _db.Institutions
+        var institutions = await db.Institutions
             .AsNoTracking()
             .Where(i => relatedTenantIds.Contains(i.TenantId))
             .ToListAsync(ct);
@@ -52,18 +54,18 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
             };
         }
 
-        var jurisdictions = await _db.Jurisdictions
+        var jurisdictions = await db.Jurisdictions
             .AsNoTracking()
             .Where(j => institutions.Select(i => i.JurisdictionId).Contains(j.Id))
             .ToDictionaryAsync(j => j.Id, ct);
 
-        var invoiceRows = await _db.Invoices
+        var invoiceRows = await db.Invoices
             .AsNoTracking()
             .Where(i => relatedTenantIds.Contains(i.TenantId) && i.Status != InvoiceStatus.Voided)
             .Select(i => new { i.TenantId, i.TotalAmount, i.Currency })
             .ToListAsync(ct);
 
-        var submissionRows = await _db.Submissions
+        var submissionRows = await db.Submissions
             .AsNoTracking()
             .Where(s => relatedTenantIds.Contains(s.TenantId))
             .Select(s => new
@@ -77,13 +79,13 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
             })
             .ToListAsync(ct);
 
-        var overdueRows = await _db.ReturnPeriods
+        var overdueRows = await db.ReturnPeriods
             .AsNoTracking()
             .Where(rp => relatedTenantIds.Contains(rp.TenantId) && rp.Status == "Overdue")
             .Select(rp => rp.TenantId)
             .ToListAsync(ct);
 
-        var adjustments = await _db.ConsolidationAdjustments
+        var adjustments = await db.ConsolidationAdjustments
             .AsNoTracking()
             .Where(a => a.TenantId == tenantId && a.EffectiveDate <= today)
             .Include(a => a.SourceInstitution)
@@ -117,7 +119,7 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
                 .Where(i => tenantIdsInJurisdiction.Contains(i.TenantId))
                 .Sum(i => i.TotalAmount);
 
-            var (fxRate, fxRateDate) = await ResolveFxRateWithDate(jurisdiction.Currency, currency, today, ct);
+            var (fxRate, fxRateDate) = await ResolveFxRateWithDate(db, jurisdiction.Currency, currency, today, ct);
 
             // Cache per jurisdiction for aggregation fields
             foreach (var inst in group)
@@ -147,7 +149,7 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
         decimal adjustmentTotal = 0;
         foreach (var adj in adjustments)
         {
-            var (rate, _) = await ResolveFxRateWithDate(adj.Currency, currency, today, ct);
+            var (rate, _) = await ResolveFxRateWithDate(db, adj.Currency, currency, today, ct);
             var amountReporting = decimal.Round(adj.Amount * rate, 2, MidpointRounding.AwayFromZero);
             adjustmentTotal += amountReporting;
 
@@ -422,7 +424,8 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
 
     // ── FX Rate Helpers ───────────────────────────────────────────────────────
 
-    private async Task<(decimal Rate, DateTime RateDate)> ResolveFxRateWithDate(
+    private static async Task<(decimal Rate, DateTime RateDate)> ResolveFxRateWithDate(
+        MetadataDbContext db,
         string baseCurrency,
         string quoteCurrency,
         DateOnly rateDate,
@@ -431,7 +434,7 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
         if (string.Equals(baseCurrency, quoteCurrency, StringComparison.OrdinalIgnoreCase))
             return (1m, DateTime.UtcNow);
 
-        var exact = await _db.JurisdictionFxRates
+        var exact = await db.JurisdictionFxRates
             .AsNoTracking()
             .Where(r => r.BaseCurrency == baseCurrency && r.QuoteCurrency == quoteCurrency && r.RateDate <= rateDate)
             .OrderByDescending(r => r.RateDate)
@@ -441,7 +444,7 @@ public class JurisdictionConsolidationService : IJurisdictionConsolidationServic
         if (exact is { Rate: > 0 })
             return (exact.Rate, exact.RateDate.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc));
 
-        var inverse = await _db.JurisdictionFxRates
+        var inverse = await db.JurisdictionFxRates
             .AsNoTracking()
             .Where(r => r.BaseCurrency == quoteCurrency && r.QuoteCurrency == baseCurrency && r.RateDate <= rateDate)
             .OrderByDescending(r => r.RateDate)

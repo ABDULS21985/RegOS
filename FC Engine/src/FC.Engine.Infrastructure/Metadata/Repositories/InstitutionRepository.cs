@@ -6,24 +6,32 @@ namespace FC.Engine.Infrastructure.Metadata.Repositories;
 
 public class InstitutionRepository : IInstitutionRepository
 {
-    private readonly MetadataDbContext _db;
+    private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
 
-    public InstitutionRepository(MetadataDbContext db) => _db = db;
+    public InstitutionRepository(IDbContextFactory<MetadataDbContext> dbFactory) => _dbFactory = dbFactory;
 
     public async Task<Institution?> GetById(int id, CancellationToken ct = default)
-        => await _db.Set<Institution>()
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Set<Institution>()
             .Include(i => i.ChildInstitutions)
             .FirstOrDefaultAsync(i => i.Id == id, ct);
+    }
 
     public async Task Update(Institution institution, CancellationToken ct = default)
     {
-        _db.Set<Institution>().Update(institution);
-        await _db.SaveChangesAsync(ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        db.Set<Institution>().Update(institution);
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<IReadOnlyList<Institution>> GetChildren(int parentInstitutionId, CancellationToken ct = default)
     {
-        return await _db.Set<Institution>()
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Set<Institution>()
             .Where(i => i.ParentInstitutionId == parentInstitutionId && i.IsActive)
             .OrderBy(i => i.InstitutionName)
             .ToListAsync(ct);
@@ -31,11 +39,13 @@ public class InstitutionRepository : IInstitutionRepository
 
     public async Task<IReadOnlyList<Institution>> GetHierarchy(int rootInstitutionId, CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
         // Load all institutions for the same tenant, then build tree in memory
-        var root = await _db.Set<Institution>().FindAsync(new object[] { rootInstitutionId }, ct);
+        var root = await db.Set<Institution>().FindAsync(new object[] { rootInstitutionId }, ct);
         if (root is null) return Array.Empty<Institution>();
 
-        var allInTenant = await _db.Set<Institution>()
+        var allInTenant = await db.Set<Institution>()
             .Where(i => i.TenantId == root.TenantId && i.IsActive)
             .ToListAsync(ct);
 
@@ -47,7 +57,9 @@ public class InstitutionRepository : IInstitutionRepository
 
     public async Task<IReadOnlyList<Institution>> GetByTenant(Guid tenantId, CancellationToken ct = default)
     {
-        return await _db.Set<Institution>()
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Set<Institution>()
             .Where(i => i.TenantId == tenantId && i.IsActive)
             .Include(i => i.ChildInstitutions)
             .OrderBy(i => i.ParentInstitutionId.HasValue ? 1 : 0)
@@ -57,10 +69,12 @@ public class InstitutionRepository : IInstitutionRepository
 
     public async Task<IReadOnlyList<int>> GetDescendantIds(int parentInstitutionId, CancellationToken ct = default)
     {
-        var root = await _db.Set<Institution>().FindAsync(new object[] { parentInstitutionId }, ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var root = await db.Set<Institution>().FindAsync(new object[] { parentInstitutionId }, ct);
         if (root is null) return Array.Empty<int>();
 
-        var allInTenant = await _db.Set<Institution>()
+        var allInTenant = await db.Set<Institution>()
             .Where(i => i.TenantId == root.TenantId && i.IsActive)
             .Select(i => new { i.Id, i.ParentInstitutionId })
             .ToListAsync(ct);

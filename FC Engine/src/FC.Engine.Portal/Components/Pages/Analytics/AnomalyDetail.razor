@@ -202,9 +202,7 @@
         try
         {
             var auth = await AuthenticationStateTask;
-            var tenantValue = auth.User.FindFirst("tenant_id")?.Value
-                ?? throw new InvalidOperationException("Tenant context is missing from the current session.");
-            var tenantId = Guid.Parse(tenantValue);
+            var tenantId = PortalTenantClaimResolver.ResolveTenantId(auth.User);
             _report = await AnomalyService.GetReportByIdAsync(ReportId, tenantId);
         }
         catch (Exception ex)
@@ -239,7 +237,7 @@
         try
         {
             var auth = await AuthenticationStateTask;
-            var tenantId = Guid.Parse(auth.User.FindFirst("tenant_id")!.Value);
+            var tenantId = PortalTenantClaimResolver.ResolveTenantId(auth.User);
             var acknowledgedBy = auth.User.Identity?.Name
                 ?? auth.User.FindFirst(ClaimTypes.Email)?.Value
                 ?? "portal-user";
@@ -266,7 +264,7 @@
         try
         {
             var auth = await AuthenticationStateTask;
-            var tenantId = Guid.Parse(auth.User.FindFirst("tenant_id")!.Value);
+            var tenantId = PortalTenantClaimResolver.ResolveTenantId(auth.User);
             var revokedBy = auth.User.Identity?.Name
                 ?? auth.User.FindFirst(ClaimTypes.Email)?.Value
                 ?? "portal-user";

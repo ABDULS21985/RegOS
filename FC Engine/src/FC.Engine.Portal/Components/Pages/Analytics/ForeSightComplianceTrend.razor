@@ -273,11 +273,7 @@
         try
         {
             var auth = await AuthenticationStateTask;
-            var tenantValue = auth.User.FindFirst("tenant_id")?.Value
-                ?? auth.User.FindFirst("TenantId")?.Value
-                ?? throw new InvalidOperationException("Tenant context is missing from the current session.");
-
-            var tenantId = Guid.Parse(tenantValue);
+            var tenantId = PortalTenantClaimResolver.ResolveTenantId(auth.User);
             await using var scope = ScopeFactory.CreateAsyncScope();
             var foreSightService = scope.ServiceProvider.GetRequiredService<IForeSightService>();
             var dashboard = await foreSightService.GetTenantDashboardAsync(tenantId);

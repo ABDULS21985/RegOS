@@ -518,9 +518,7 @@
         try
         {
             var auth = await AuthenticationStateTask;
-            var tenantValue = auth.User.FindFirst("tenant_id")?.Value
-                ?? throw new InvalidOperationException("Tenant context is missing from the current session.");
-            var tenantId = Guid.Parse(tenantValue);
+            var tenantId = PortalTenantClaimResolver.ResolveTenantId(auth.User);
             _reports.AddRange(await AnomalyService.GetReportsForTenantAsync(tenantId));
         }
         catch (Exception ex)

@@ -20,7 +20,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         WriteIndented = false
     };
 
-    private readonly MetadataDbContext _db;
+    private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
     private readonly ITemplateMetadataCache _templateCache;
     private readonly IEnumerable<IFileParser> _parsers;
     private readonly IGenericDataRepository _dataRepository;
@@ -29,7 +29,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
     private readonly ILogger<HistoricalMigrationService> _logger;
 
     public HistoricalMigrationService(
-        MetadataDbContext db,
+        IDbContextFactory<MetadataDbContext> dbFactory,
         ITemplateMetadataCache templateCache,
         IEnumerable<IFileParser> parsers,
         IGenericDataRepository dataRepository,
@@ -37,7 +37,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         IAuditLogger auditLogger,
         ILogger<HistoricalMigrationService> logger)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _templateCache = templateCache;
         _parsers = parsers;
         _dataRepository = dataRepository;
@@ -51,7 +51,9 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         int? institutionId = null,
         CancellationToken ct = default)
     {
-        var query = _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var query = db.ImportJobs
             .AsNoTracking()
             .Where(x => x.TenantId == tenantId);
 
@@ -70,7 +72,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         }
 
         var templateIds = jobs.Select(x => x.TemplateId).Distinct().ToList();
-        var templateCodes = await _db.ReturnTemplates
+        var templateCodes = await db.ReturnTemplates
             .AsNoTracking()
             .Where(x => templateIds.Contains(x.Id))
             .ToDictionaryAsync(x => x.Id, x => x.ReturnCode, ct);
@@ -90,6 +92,8 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         int importedBy,
         CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
         var template = await _templateCache.GetPublishedTemplate(tenantId, returnCode, ct);
         var parser = ResolveParser(fileName);
 
@@ -135,15 +139,17 @@ public class HistoricalMigrationService : IHistoricalMigrationService
             UpdatedAt = DateTime.UtcNow
         };
 
-        _db.ImportJobs.Add(job);
-        await _db.SaveChangesAsync(ct);
+        db.ImportJobs.Add(job);
+        await db.SaveChangesAsync(ct);
 
         return ToDto(job, template.ReturnCode);
     }
 
     public async Task<ImportJobDto?> GetJob(Guid tenantId, int importJobId, CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == importJobId && x.TenantId == tenantId, ct);
         if (job is null)
@@ -151,7 +157,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
             return null;
         }
 
-        var returnCode = await _db.ReturnTemplates
+        var returnCode = await db.ReturnTemplates
             .Where(x => x.Id == job.TemplateId)
             .Select(x => x.ReturnCode)
             .FirstOrDefaultAsync(ct) ?? string.Empty;
@@ -161,13 +167,15 @@ public class HistoricalMigrationService : IHistoricalMigrationService
 
     public async Task<ImportMappingEditorDto> GetMappingEditor(Guid tenantId, int importJobId, CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == importJobId && x.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Import job {importJobId} was not found for tenant.");
 
         var template = await _templateCache.GetPublishedTemplate(tenantId,
-            await _db.ReturnTemplates.Where(x => x.Id == job.TemplateId).Select(x => x.ReturnCode).FirstAsync(ct),
+            await db.ReturnTemplates.Where(x => x.Id == job.TemplateId).Select(x => x.ReturnCode).FirstAsync(ct),
             ct);
 
         var staged = DeserializeStaged(job.StagedData);
@@ -198,7 +206,9 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         string? sourceIdentifier,
         CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .FirstOrDefaultAsync(x => x.Id == importJobId && x.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Import job {importJobId} was not found for tenant.");
 
@@ -224,7 +234,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         }
 
         var template = await _templateCache.GetPublishedTemplate(tenantId,
-            await _db.ReturnTemplates.Where(x => x.Id == job.TemplateId).Select(x => x.ReturnCode).FirstAsync(ct),
+            await db.ReturnTemplates.Where(x => x.Id == job.TemplateId).Select(x => x.ReturnCode).FirstAsync(ct),
             ct);
 
         staged.UnmappedColumns = staged.Mappings
@@ -248,7 +258,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
             ignored = x.Ignored
         }), JsonOptions);
 
-        var existing = await _db.ImportMappings.FirstOrDefaultAsync(x =>
+        var existing = await db.ImportMappings.FirstOrDefaultAsync(x =>
             x.TenantId == tenantId
             && x.InstitutionId == job.InstitutionId
             && x.TemplateId == job.TemplateId
@@ -256,7 +266,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
 
         if (existing is null)
         {
-            _db.ImportMappings.Add(new ImportMapping
+            db.ImportMappings.Add(new ImportMapping
             {
                 TenantId = tenantId,
                 InstitutionId = job.InstitutionId,
@@ -275,16 +285,18 @@ public class HistoricalMigrationService : IHistoricalMigrationService
             existing.UpdatedAt = DateTime.UtcNow;
         }
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<ImportJobDto> ValidateJob(Guid tenantId, int importJobId, CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .FirstOrDefaultAsync(x => x.Id == importJobId && x.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Import job {importJobId} was not found for tenant.");
 
-        var returnCode = await _db.ReturnTemplates
+        var returnCode = await db.ReturnTemplates
             .Where(x => x.Id == job.TemplateId)
             .Select(x => x.ReturnCode)
             .FirstAsync(ct);
@@ -309,14 +321,16 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         job.RecordCount = mappedRecords.Count;
         job.Status = ImportJobStatus.Validated;
         job.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
         return ToDto(job, template.ReturnCode);
     }
 
     public async Task<ImportJobDto> StageJob(Guid tenantId, int importJobId, CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .FirstOrDefaultAsync(x => x.Id == importJobId && x.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Import job {importJobId} was not found for tenant.");
 
@@ -327,15 +341,17 @@ public class HistoricalMigrationService : IHistoricalMigrationService
 
         job.Status = ImportJobStatus.Staged;
         job.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
-        var returnCode = await _db.ReturnTemplates.Where(x => x.Id == job.TemplateId).Select(x => x.ReturnCode).FirstAsync(ct);
+        var returnCode = await db.ReturnTemplates.Where(x => x.Id == job.TemplateId).Select(x => x.ReturnCode).FirstAsync(ct);
         return ToDto(job, returnCode);
     }
 
     public async Task<ImportJobDto> CommitJob(Guid tenantId, int importJobId, CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .FirstOrDefaultAsync(x => x.Id == importJobId && x.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Import job {importJobId} was not found for tenant.");
 
@@ -344,7 +360,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
             throw new InvalidOperationException("Import job is missing ReturnPeriodId.");
         }
 
-        var returnCode = await _db.ReturnTemplates
+        var returnCode = await db.ReturnTemplates
             .Where(x => x.Id == job.TemplateId)
             .Select(x => x.ReturnCode)
             .FirstAsync(ct);
@@ -362,8 +378,8 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         submission.SubmittedAt = DateTime.UtcNow;
         submission.CreatedAt = DateTime.UtcNow;
 
-        _db.Submissions.Add(submission);
-        await _db.SaveChangesAsync(ct);
+        db.Submissions.Add(submission);
+        await db.SaveChangesAsync(ct);
 
         var record = BuildRecord(template, mappedRecords);
         await _dataRepository.DeleteBySubmission(returnCode, submission.Id, ct);
@@ -371,7 +387,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
 
         job.Status = ImportJobStatus.Committed;
         job.UpdatedAt = DateTime.UtcNow;
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
         await _auditLogger.Log(
             "ImportJob",
@@ -391,12 +407,14 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         int take = 200,
         CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.Id == importJobId && x.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Import job {importJobId} was not found for tenant.");
 
-        var returnCode = await _db.ReturnTemplates
+        var returnCode = await db.ReturnTemplates
             .AsNoTracking()
             .Where(x => x.Id == job.TemplateId)
             .Select(x => x.ReturnCode)
@@ -444,7 +462,9 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         IReadOnlyList<ImportStagedRecordDto> records,
         CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .FirstOrDefaultAsync(x => x.Id == importJobId && x.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Import job {importJobId} was not found for tenant.");
 
@@ -462,28 +482,30 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         job.Status = ImportJobStatus.Staged;
         job.UpdatedAt = DateTime.UtcNow;
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task<MigrationTrackerDto> GetTracker(Guid tenantId, CancellationToken ct = default)
     {
-        var templateModules = await _db.ReturnTemplates
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var templateModules = await db.ReturnTemplates
             .AsNoTracking()
             .Where(t => t.ModuleId != null)
             .Select(t => new { t.Id, t.ModuleId })
             .ToListAsync(ct);
 
-        var jobs = await _db.ImportJobs
+        var jobs = await db.ImportJobs
             .AsNoTracking()
             .Where(x => x.TenantId == tenantId)
             .ToListAsync(ct);
 
-        var signOffs = await _db.MigrationModuleSignOffs
+        var signOffs = await db.MigrationModuleSignOffs
             .AsNoTracking()
             .Where(x => x.TenantId == tenantId)
             .ToDictionaryAsync(x => x.ModuleId, x => x, ct);
 
-        var modules = await _db.Modules.AsNoTracking()
+        var modules = await db.Modules.AsNoTracking()
             .OrderBy(x => x.ModuleCode)
             .ToListAsync(ct);
 
@@ -502,7 +524,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
             var moduleJobs = jobs.Where(j => templateIds.Contains(j.TemplateId)).ToList();
             var committed = moduleJobs.Where(j => j.Status == ImportJobStatus.Committed).ToList();
 
-            var totalPeriods = await _db.ReturnPeriods
+            var totalPeriods = await db.ReturnPeriods
                 .AsNoTracking()
                 .CountAsync(rp => rp.TenantId == tenantId && rp.ModuleId == module.Id, ct);
 
@@ -545,12 +567,14 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         string? notes,
         CancellationToken ct = default)
     {
-        var existing = await _db.MigrationModuleSignOffs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var existing = await db.MigrationModuleSignOffs
             .FirstOrDefaultAsync(x => x.TenantId == tenantId && x.ModuleId == moduleId, ct);
 
         if (existing is null)
         {
-            _db.MigrationModuleSignOffs.Add(new MigrationModuleSignOff
+            db.MigrationModuleSignOffs.Add(new MigrationModuleSignOff
             {
                 TenantId = tenantId,
                 ModuleId = moduleId,
@@ -568,7 +592,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
             existing.Notes = notes;
         }
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
     }
 
     private IFileParser ResolveParser(string fileName)
@@ -598,7 +622,9 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         ParseResult parseResult,
         CancellationToken ct)
     {
-        var existing = await _db.ImportMappings
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var existing = await db.ImportMappings
             .AsNoTracking()
             .FirstOrDefaultAsync(x => x.TenantId == tenantId
                                       && x.InstitutionId == institutionId
@@ -816,7 +842,9 @@ public class HistoricalMigrationService : IHistoricalMigrationService
 
     public async Task<ImportJobDto> RollbackJob(Guid tenantId, int importJobId, int rolledBackByUserId, CancellationToken ct = default)
     {
-        var job = await _db.ImportJobs
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var job = await db.ImportJobs
             .FirstOrDefaultAsync(j => j.Id == importJobId && j.TenantId == tenantId, ct)
             ?? throw new InvalidOperationException($"Import job #{importJobId} not found.");
 
@@ -830,7 +858,7 @@ public class HistoricalMigrationService : IHistoricalMigrationService
         job.StagedData = null;
         job.UpdatedAt = DateTime.UtcNow;
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
         _logger.LogInformation("Import job {JobId} rolled back by user {UserId}", importJobId, rolledBackByUserId);
 
         return MapToDto(job);

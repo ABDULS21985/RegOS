@@ -2,7 +2,6 @@
 @attribute [Authorize]
 @using System.Globalization
 @using System.Security.Claims
-@using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Models
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
@@ -12,177 +11,427 @@
 
 <PageTitle>ComplianceIQ</PageTitle>
 
-<div class="container-fluid px-4 py-3" style="height: calc(100vh - 120px); display: flex; flex-direction: column;">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-3">
-        <div>
-            <h1 class="h3 mb-1">ComplianceIQ</h1>
-            <p class="text-muted mb-0">Ask grounded questions about returns, anomalies, compliance health, deadlines, and regulatory knowledge.</p>
-        </div>
-        <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="GoToHistory">
-                Query History
-            </button>
-            <button class="btn btn-outline-secondary btn-sm" type="button" @onclick="ExportConversationAsync" disabled="@(!_conversationId.HasValue)">
-                Export PDF
-            </button>
-            <button class="btn btn-primary btn-sm" type="button" @onclick="StartNewConversation">
-                New Chat
-            </button>
-        </div>
-    </div>
+<div class="portal-iq-shell">
+    <div class="portal-iq-orb portal-iq-orb--emerald" aria-hidden="true"></div>
+    <div class="portal-iq-orb portal-iq-orb--gold" aria-hidden="true"></div>
 
-    <div class="card border-0 shadow-sm flex-grow-1 d-flex flex-column">
-        <div class="card-body overflow-auto" style="min-height: 420px;">
-            @if (_messages.Count == 0)
-            {
-                <div class="text-center py-5">
-                    <div class="display-6 mb-3">ComplianceIQ</div>
-                    <p class="text-muted mb-4">Try one of these grounded prompts.</p>
-                    <div class="d-flex flex-wrap justify-content-center gap-2">
-                        @foreach (var question in _quickQuestions)
-                        {
-                            <button class="btn btn-outline-primary btn-sm rounded-pill" type="button" @onclick="() => AskQuickQuestionAsync(question.QuestionText)">
-                                <i class="@question.IconClass me-1"></i>@question.QuestionText
-                            </button>
-                        }
+    <div class="portal-iq-frame">
+        <aside class="portal-iq-rail">
+            <div class="portal-iq-brand">
+                <div class="portal-iq-brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 36 36" width="36" height="36">
+                        <rect width="36" height="36" rx="9" fill="var(--cbn-green-deep, #006B3F)" />
+                        <text x="18" y="24" text-anchor="middle" fill="white" font-size="12" font-weight="700" font-family="sans-serif">IQ</text>
+                    </svg>
+                </div>
+                <div class="portal-iq-brand-copy">
+                    <span class="portal-iq-brand-name">ComplianceIQ</span>
+                    <span class="portal-iq-brand-tagline">Institution analyst workspace</span>
+                </div>
+            </div>
+
+            <section class="portal-iq-rail-hero">
+                <span class="portal-iq-overline">Analytics workspace</span>
+                <h1 class="portal-iq-rail-title">Turn filings, anomalies, and compliance signals into grounded answers.</h1>
+                <p class="portal-iq-rail-desc">Investigate regulatory questions with cited tenant evidence, structured tables, and follow-up prompts that keep the thread moving.</p>
+
+                <div class="portal-iq-progress-cluster">
+                    <div class="portal-iq-progress-ring" style="@SessionReadinessStyle" aria-hidden="true">
+                        <div class="portal-iq-progress-ring-inner">
+                            <strong>@SessionReadinessPct%</strong>
+                            <span>@SessionReadinessLabel</span>
+                        </div>
+                    </div>
+                    <div class="portal-iq-progress-copy">
+                        <span class="portal-iq-progress-chip">@ConversationStatusLabel</span>
+                        <strong>@ConversationHeadline</strong>
+                        <p>@ConversationSupportingText</p>
                     </div>
                 </div>
-            }
-            else
-            {
-                @foreach (var message in _messages)
+            </section>
+
+            <section class="portal-iq-rail-card">
+                <div class="portal-iq-rail-card-head">
+                    <span>Live workspace snapshot</span>
+                    <strong>@ConversationStatusLabel</strong>
+                </div>
+
+                <div class="portal-iq-rail-metrics">
+                    <div class="portal-iq-rail-metric">
+                        <span>Turns</span>
+                        <strong>@AnalystTurnCount</strong>
+                        <small>assistant responses captured</small>
+                    </div>
+                    <div class="portal-iq-rail-metric">
+                        <span>Evidence</span>
+                        <strong>@CitationCount</strong>
+                        <small>citations surfaced so far</small>
+                    </div>
+                    <div class="portal-iq-rail-metric">
+                        <span>Latest intent</span>
+                        <strong>@LatestIntentLabel</strong>
+                        <small>@LatestLatencyLabel</small>
+                    </div>
+                    <div class="portal-iq-rail-metric">
+                        <span>Export</span>
+                        <strong>@ExportStateLabel</strong>
+                        <small>@ExportStateSupportingText</small>
+                    </div>
+                </div>
+            </section>
+
+            <section class="portal-iq-rail-card portal-iq-rail-card--prompts">
+                <div class="portal-iq-rail-card-head">
+                    <span>Suggested asks</span>
+                    <strong>Grounded starting points</strong>
+                </div>
+
+                @foreach (var group in RailQuestionGroups)
                 {
-                    @if (message.IsUser)
-                    {
-                        <div class="d-flex justify-content-end mb-3">
-                            <div class="bg-primary text-white rounded-3 px-3 py-2" style="max-width: 75%;">
-                                <div>@message.Text</div>
-                            </div>
-                        </div>
-                    }
-                    else
-                    {
-                        <div class="d-flex mb-3">
-                            <div class="bg-light border rounded-3 px-3 py-2 w-100" style="max-width: 92%;">
-                                <div style="white-space: pre-wrap;">@message.Text</div>
-
-                                @if (message.Response?.Rows.Count > 0)
-                                {
-                                    <div class="table-responsive mt-3">
-                                        <table class="table table-sm table-striped align-middle mb-2" aria-label="ComplianceIQ response data">
-                                            <thead class="table-light">
-                                                <tr>
-                                                    @foreach (var header in message.Response.Rows[0].Keys)
-                                                    {
-                                                        <th scope="col">@FormatHeader(header)</th>
-                                                    }
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                @foreach (var row in message.Response.Rows.Take(10))
-                                                {
-                                                    <tr>
-                                                        @foreach (var header in message.Response.Rows[0].Keys)
-                                                        {
-                                                            <td>@FormatCell(row.GetValueOrDefault(header))</td>
-                                                        }
-                                                    </tr>
-                                                }
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                }
-
-                                <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 border-top pt-2 mt-2">
-                                    <div class="small text-muted">
-                                        @if (message.Response?.Citations.Count > 0)
-                                        {
-                                            <span>Sources: @string.Join(", ", message.Response.Citations.Take(3).Select(FormatCitation))</span>
-                                        }
-                                    </div>
-                                    <div class="d-flex align-items-center gap-2">
-                                        @if (message.Response is not null)
-                                        {
-                                            <span class="@message.Response.ConfidenceCssClass">@message.Response.ConfidenceLevel</span>
-                                            <span class="small text-muted">@message.Response.TotalTimeMs ms</span>
-                                        }
-                                    </div>
-                                </div>
-
-                                @if (message.Response?.FollowUpSuggestions.Count > 0)
-                                {
-                                    <div class="d-flex flex-wrap gap-2 mt-2">
-                                        @foreach (var suggestion in message.Response.FollowUpSuggestions)
-                                        {
-                                            <button class="btn btn-outline-secondary btn-sm rounded-pill" type="button" @onclick="() => AskQuickQuestionAsync(suggestion)">
-                                                @suggestion
-                                            </button>
-                                        }
-                                    </div>
-                                }
-
-                                @if (message.Response?.TurnId is int turnId)
-                                {
-                                    <div class="d-flex align-items-center gap-2 mt-2">
-                                        <button class="btn btn-link btn-sm p-0" type="button" @onclick="() => SubmitFeedbackAsync(turnId, (short)5)">
-                                            Helpful
-                                        </button>
-                                        <button class="btn btn-link btn-sm p-0 text-muted" type="button" @onclick="() => SubmitFeedbackAsync(turnId, (short)2)">
-                                            Needs work
-                                        </button>
-                                    </div>
-                                }
-                            </div>
-                        </div>
-                    }
-                }
-
-                @if (_isLoading)
-                {
-                    <div class="d-flex mb-3">
-                        <div class="bg-light border rounded-3 px-3 py-2">
-                            <div class="d-flex align-items-center gap-2">
-                                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-                                <span class="text-muted">Processing grounded query...</span>
-                            </div>
+                    <div class="portal-iq-question-group">
+                        <div class="portal-iq-question-group-title">@group.Key</div>
+                        <div class="portal-iq-question-group-list">
+                            @foreach (var question in group.Take(2))
+                            {
+                                <button class="portal-iq-quick-link"
+                                        type="button"
+                                        @onclick="() => AskQuickQuestionAsync(question.QuestionText)"
+                                        disabled="@_isLoading">
+                                    <i class="@question.IconClass" aria-hidden="true"></i>
+                                    <span>@question.QuestionText</span>
+                                </button>
+                            }
                         </div>
                     </div>
                 }
-            }
-        </div>
+            </section>
 
-        <div class="card-footer bg-white border-top">
-            @if (!string.IsNullOrWhiteSpace(_error))
-            {
-                <div class="alert alert-danger py-2 mb-3">@_error</div>
-            }
+            <section class="portal-iq-rail-card portal-iq-rail-card--trust">
+                <div class="portal-iq-rail-card-head">
+                    <span>Current focus</span>
+                    <strong>Analyst guardrails</strong>
+                </div>
 
-            <div class="input-group">
-                <input class="form-control"
-                       type="text"
-                       placeholder="Ask about CAR, NPL trend, deadlines, anomalies, or compliance health..."
-                       @bind="_query"
-                       @bind:event="oninput"
-                       @onkeydown="HandleKeyDown"
-                       disabled="@_isLoading"
-                       aria-label="ComplianceIQ query input" />
-                <button class="btn btn-primary"
-                        type="button"
-                        @onclick="SendAsync"
-                        disabled="@(_isLoading || string.IsNullOrWhiteSpace(_query))">
-                    Ask
-                </button>
+                <ul class="portal-iq-mini-list">
+                    @foreach (var signal in _trustSignals)
+                    {
+                        <li>
+                            <span class="portal-iq-mini-list-dot" aria-hidden="true"></span>
+                            <span>@signal</span>
+                        </li>
+                    }
+                </ul>
+            </section>
+        </aside>
+
+        <main class="portal-iq-main">
+            <section class="portal-iq-main-head">
+                <div class="portal-iq-main-copy">
+                    <span class="portal-iq-overline">Live workspace</span>
+                    <h2>ComplianceIQ analyst desk</h2>
+                    <p>Review grounded answers, inspect supporting evidence, and move from broad questions into precise follow-ups without leaving the workspace.</p>
+                </div>
+
+                <div class="portal-iq-main-actions">
+                    <button class="portal-btn portal-btn-outline portal-btn-sm" type="button" @onclick="GoToHistory">
+                        Query History
+                    </button>
+                    <button class="portal-btn portal-btn-outline portal-btn-sm" type="button" @onclick="ExportConversationAsync" disabled="@(!_conversationId.HasValue)">
+                        Export PDF
+                    </button>
+                    <button class="portal-btn portal-btn-primary portal-btn-sm" type="button" @onclick="StartNewConversation">
+                        New Chat
+                    </button>
+                </div>
+            </section>
+
+            <div class="portal-iq-main-badges" aria-label="Workspace qualities">
+                <span class="portal-iq-main-badge">Grounded answers only</span>
+                <span class="portal-iq-main-badge">Tenant-linked citations</span>
+                <span class="portal-iq-main-badge">Read-only and audit-logged</span>
             </div>
-            <div class="d-flex justify-content-between mt-2">
-                <small class="text-muted">Responses are grounded in your tenant's approved returns and linked platform records.</small>
-                <small class="text-muted">Read-only and audit-logged</small>
+
+            <div class="portal-iq-workspace">
+                <section class="portal-iq-stat-grid" aria-label="Conversation metrics">
+                    <article class="portal-iq-stat-card">
+                        <span class="portal-iq-stat-label">Conversation</span>
+                        <strong class="portal-iq-stat-value">@ConversationStatusLabel</strong>
+                        <p>@ConversationStatSupportingText</p>
+                    </article>
+                    <article class="portal-iq-stat-card">
+                        <span class="portal-iq-stat-label">Turns processed</span>
+                        <strong class="portal-iq-stat-value">@_messages.Count</strong>
+                        <p>@UserTurnCount user prompts, @AnalystTurnCount assistant replies</p>
+                    </article>
+                    <article class="portal-iq-stat-card">
+                        <span class="portal-iq-stat-label">Evidence surfaced</span>
+                        <strong class="portal-iq-stat-value">@CitationCount</strong>
+                        <p>@TableResponseCount table-backed response@(TableResponseCount == 1 ? "" : "s")</p>
+                    </article>
+                    <article class="portal-iq-stat-card">
+                        <span class="portal-iq-stat-label">Latest posture</span>
+                        <strong class="portal-iq-stat-value">@LatestConfidenceLabel</strong>
+                        <p>@LatestIntentLabel</p>
+                    </article>
+                </section>
+
+                <section class="portal-iq-stage">
+                    <div class="portal-iq-stage-head">
+                        <div>
+                            <span class="portal-iq-stage-label">Conversation canvas</span>
+                            <strong>@StageHeadline</strong>
+                        </div>
+
+                        @if (LatestResponse is not null)
+                        {
+                            <div class="portal-iq-stage-meta">
+                                <span class="@ResolveConfidenceClass(LatestResponse.ConfidenceLevel)">@LatestResponse.ConfidenceLevel</span>
+                                <span class="portal-iq-stage-meta-item">@LatestResponse.TotalTimeMs ms</span>
+                                @if (LatestResponse.Citations.Count > 0)
+                                {
+                                    <span class="portal-iq-stage-meta-item">@LatestResponse.Citations.Count source@(LatestResponse.Citations.Count == 1 ? "" : "s")</span>
+                                }
+                            </div>
+                        }
+                    </div>
+
+                    <div class="portal-iq-transcript" aria-live="polite">
+                        @if (_messages.Count == 0)
+                        {
+                            <div class="portal-iq-empty-state">
+                                <div class="portal-iq-empty-copy">
+                                    <span class="portal-iq-overline">Start from a grounded prompt</span>
+                                    <h3>Ask about risk, deadlines, anomalies, or filing health.</h3>
+                                    <p>ComplianceIQ responds with tenant-scoped evidence, structured results where possible, and follow-up suggestions to help your team move faster.</p>
+                                </div>
+
+                                <div class="portal-iq-starter-grid">
+                                    @foreach (var question in StarterQuestions)
+                                    {
+                                        <button class="portal-iq-starter-card"
+                                                type="button"
+                                                @onclick="() => AskQuickQuestionAsync(question.QuestionText)"
+                                                disabled="@_isLoading">
+                                            <div class="portal-iq-starter-icon" aria-hidden="true">
+                                                <i class="@question.IconClass"></i>
+                                            </div>
+                                            <div class="portal-iq-starter-body">
+                                                <span class="portal-iq-starter-category">@NormalizeCategory(question.Category)</span>
+                                                <strong>@question.QuestionText</strong>
+                                            </div>
+                                        </button>
+                                    }
+                                </div>
+
+                                <div class="portal-iq-highlight-row">
+                                    <article class="portal-iq-highlight-card">
+                                        <span>Grounded evidence</span>
+                                        <strong>Every answer stays linked to your tenant context.</strong>
+                                    </article>
+                                    <article class="portal-iq-highlight-card">
+                                        <span>Structured outputs</span>
+                                        <strong>Tables appear inline when the query returns measurable data.</strong>
+                                    </article>
+                                    <article class="portal-iq-highlight-card">
+                                        <span>Actionable follow-ups</span>
+                                        <strong>Suggested next asks keep the investigation moving.</strong>
+                                    </article>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            @foreach (var message in _messages)
+                            {
+                                @if (message.IsUser)
+                                {
+                                    <div class="portal-iq-message portal-iq-message--user">
+                                        <article class="portal-iq-message-card portal-iq-message-card--user">
+                                            <div class="portal-iq-message-head">
+                                                <span class="portal-iq-message-author">You</span>
+                                                <span class="portal-iq-message-kicker">Question</span>
+                                            </div>
+                                            <div class="portal-iq-message-text">@message.Text</div>
+                                        </article>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="portal-iq-message portal-iq-message--assistant">
+                                        <div class="portal-iq-avatar" aria-hidden="true">IQ</div>
+                                        <article class="portal-iq-message-card portal-iq-message-card--assistant">
+                                            <div class="portal-iq-message-head portal-iq-message-head--assistant">
+                                                <div>
+                                                    <span class="portal-iq-message-author">ComplianceIQ</span>
+                                                    <strong>@ResolveAssistantHeading(message.Response)</strong>
+                                                </div>
+                                                @if (message.Response is not null)
+                                                {
+                                                    <div class="portal-iq-response-meta">
+                                                        <span class="@ResolveConfidenceClass(message.Response.ConfidenceLevel)">@message.Response.ConfidenceLevel</span>
+                                                        <span class="portal-iq-response-time">@message.Response.TotalTimeMs ms</span>
+                                                    </div>
+                                                }
+                                            </div>
+
+                                            <div class="portal-iq-message-text portal-iq-message-text--assistant">@message.Text</div>
+
+                                            @if (message.Response?.Rows.Count > 0)
+                                            {
+                                                <div class="portal-iq-table-shell">
+                                                    <table class="portal-iq-table" aria-label="ComplianceIQ response data">
+                                                        <thead>
+                                                            <tr>
+                                                                @foreach (var header in message.Response.Rows[0].Keys)
+                                                                {
+                                                                    <th scope="col">@FormatHeader(header)</th>
+                                                                }
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            @foreach (var row in message.Response.Rows.Take(10))
+                                                            {
+                                                                <tr>
+                                                                    @foreach (var header in message.Response.Rows[0].Keys)
+                                                                    {
+                                                                        <td>@FormatCell(row.GetValueOrDefault(header))</td>
+                                                                    }
+                                                                </tr>
+                                                            }
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            }
+
+                                            @if (message.Response?.Citations.Count > 0)
+                                            {
+                                                <div class="portal-iq-citation-block">
+                                                    <span class="portal-iq-block-label">Sources</span>
+                                                    <div class="portal-iq-chip-row">
+                                                        @foreach (var citation in message.Response.Citations.Take(5))
+                                                        {
+                                                            <span class="portal-iq-chip">@FormatCitation(citation)</span>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+
+                                            @if (message.Response?.FollowUpSuggestions.Count > 0)
+                                            {
+                                                <div class="portal-iq-followups">
+                                                    <span class="portal-iq-block-label">Suggested follow-ups</span>
+                                                    <div class="portal-iq-chip-row">
+                                                        @foreach (var suggestion in message.Response.FollowUpSuggestions)
+                                                        {
+                                                            <button class="portal-iq-chip portal-iq-chip--action"
+                                                                    type="button"
+                                                                    @onclick="() => AskQuickQuestionAsync(suggestion)"
+                                                                    disabled="@_isLoading">
+                                                                @suggestion
+                                                            </button>
+                                                        }
+                                                    </div>
+                                                </div>
+                                            }
+
+                                            @if (message.Response?.TurnId is int turnId)
+                                            {
+                                                <div class="portal-iq-feedback-row">
+                                                    <span class="portal-iq-block-label">Was this useful?</span>
+                                                    <div class="portal-iq-feedback-actions">
+                                                        <button class="portal-iq-feedback-btn" type="button" @onclick="() => SubmitFeedbackAsync(turnId, (short)5)">
+                                                            Helpful
+                                                        </button>
+                                                        <button class="portal-iq-feedback-btn portal-iq-feedback-btn--muted" type="button" @onclick="() => SubmitFeedbackAsync(turnId, (short)2)">
+                                                            Needs work
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            }
+                                        </article>
+                                    </div>
+                                }
+                            }
+
+                            @if (_isLoading)
+                            {
+                                <div class="portal-iq-message portal-iq-message--assistant">
+                                    <div class="portal-iq-avatar" aria-hidden="true">IQ</div>
+                                    <article class="portal-iq-message-card portal-iq-message-card--assistant portal-iq-message-card--loading">
+                                        <div class="portal-iq-loading-row">
+                                            <span class="portal-iq-spinner" aria-hidden="true"></span>
+                                            <div>
+                                                <strong>Processing grounded query...</strong>
+                                                <p>Pulling the most relevant tenant evidence and shaping the response.</p>
+                                            </div>
+                                        </div>
+                                    </article>
+                                </div>
+                            }
+                        }
+                    </div>
+                </section>
+
+                <section class="portal-iq-composer">
+                    <div class="portal-iq-composer-head">
+                        <div>
+                            <span class="portal-iq-overline">Compose</span>
+                            <h3>Ask a grounded follow-up</h3>
+                        </div>
+                        <div class="portal-iq-composer-status">Read-only and audit-logged</div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_error))
+                    {
+                        <div class="portal-iq-error-banner">@_error</div>
+                    }
+
+                    <div class="portal-iq-composer-box">
+                        <input class="portal-iq-input"
+                               type="text"
+                               placeholder="@ComposerPlaceholder"
+                               @bind="_query"
+                               @bind:event="oninput"
+                               @onkeydown="HandleKeyDown"
+                               disabled="@_isLoading"
+                               aria-label="ComplianceIQ query input" />
+                        <button class="portal-btn portal-btn-primary portal-iq-send-btn"
+                                type="button"
+                                @onclick="SendAsync"
+                                disabled="@(_isLoading || string.IsNullOrWhiteSpace(_query))">
+                            @(_isLoading ? "Working..." : "Ask ComplianceIQ")
+                        </button>
+                    </div>
+
+                    <div class="portal-iq-composer-foot">
+                        <small>Responses are grounded in approved returns, linked analytics, and platform records for the active institution workspace.</small>
+                        <small>Press Enter to submit</small>
+                    </div>
+                </section>
             </div>
-        </div>
+        </main>
     </div>
 </div>
 
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private static readonly ComplianceIqQuickQuestionView[] _fallbackQuestions =
+    [
+        new() { Id = 1, QuestionText = "Which anomalies need attention before the next submission?", Category = "Anomalies", IconClass = "bi-exclamation-diamond" },
+        new() { Id = 2, QuestionText = "Summarize the latest compliance health signals for this institution.", Category = "Health", IconClass = "bi-activity" },
+        new() { Id = 3, QuestionText = "Which returns are closest to deadline this cycle?", Category = "Deadlines", IconClass = "bi-calendar-event" },
+        new() { Id = 4, QuestionText = "Show the biggest CAR and liquidity movements in the latest period.", Category = "Capital", IconClass = "bi-graph-up-arrow" },
+        new() { Id = 5, QuestionText = "What filing trends should I escalate to the checker today?", Category = "Workflow", IconClass = "bi-person-check" },
+        new() { Id = 6, QuestionText = "List overdue compliance actions with the strongest regulatory impact.", Category = "Actions", IconClass = "bi-shield-check" }
+    ];
+
+    private static readonly string[] _trustSignals =
+    [
+        "Answers stay grounded in the active tenant workspace rather than generic guidance.",
+        "Returned tables, citations, and follow-up prompts remain attached to the current thread.",
+        "The workspace is read-only, so analysts can explore safely before formal submission actions."
+    ];
 
     private readonly List<ChatMessage> _messages = new();
     private IReadOnlyList<ComplianceIqQuickQuestionView> _quickQuestions = Array.Empty<ComplianceIqQuickQuestionView>();
@@ -191,9 +440,95 @@
     private bool _isLoading;
     private string? _error;
 
+    private IEnumerable<ComplianceIqQuickQuestionView> PromptCatalog => _quickQuestions.Count > 0 ? _quickQuestions : _fallbackQuestions;
+
+    private IEnumerable<ComplianceIqQuickQuestionView> StarterQuestions =>
+        PromptCatalog.Take(6);
+
+    private IEnumerable<IGrouping<string, ComplianceIqQuickQuestionView>> RailQuestionGroups =>
+        PromptCatalog
+            .Where(x => !string.IsNullOrWhiteSpace(x.QuestionText))
+            .GroupBy(x => NormalizeCategory(x.Category))
+            .Take(3);
+
+    private ComplianceIqQueryResponse? LatestResponse =>
+        _messages.LastOrDefault(x => !x.IsUser)?.Response;
+
+    private int UserTurnCount => _messages.Count(x => x.IsUser);
+
+    private int AnalystTurnCount => _messages.Count(x => !x.IsUser);
+
+    private int CitationCount => _messages.Sum(x => x.Response?.Citations.Count ?? 0);
+
+    private int TableResponseCount => _messages.Count(x => x.Response?.Rows.Count > 0);
+
+    private string ConversationStatusLabel => _conversationId.HasValue ? "Live conversation" : "Fresh briefing";
+
+    private string ConversationHeadline => _conversationId.HasValue
+        ? "Evidence-linked dialogue is in progress."
+        : "Start with a focused regulatory or filing question.";
+
+    private string ConversationSupportingText => _conversationId.HasValue
+        ? "Continue the active thread to preserve context, citations, and suggested follow-ups."
+        : "Launch a new thread with anomalies, deadlines, return trends, or compliance health signals.";
+
+    private string ConversationStatSupportingText => _conversationId.HasValue
+        ? "Thread memory is active for this session."
+        : "A new thread is created after the first answer.";
+
+    private string ExportStateLabel => _conversationId.HasValue ? "Ready" : "Pending";
+
+    private string ExportStateSupportingText => _conversationId.HasValue
+        ? "Conversation can be exported to PDF."
+        : "Available after the first assistant response.";
+
+    private string LatestConfidenceLabel => LatestResponse?.ConfidenceLevel ?? "Awaiting reply";
+
+    private string LatestIntentLabel => ResolveAssistantHeading(LatestResponse);
+
+    private string LatestLatencyLabel => LatestResponse is null
+        ? "No query issued yet"
+        : $"{LatestResponse.TotalTimeMs} ms on last response";
+
+    private string StageHeadline => _messages.Count == 0
+        ? "Prompt library and grounded analysis"
+        : "Threaded investigation workspace";
+
+    private string ComposerPlaceholder => _messages.Count == 0
+        ? "Ask about CAR, NPL trend, deadlines, anomalies, or compliance health..."
+        : "Ask a follow-up about the latest anomaly, deadline, return variance, or compliance signal...";
+
+    private string SessionReadinessLabel => AnalystTurnCount switch
+    {
+        0 => "Ready",
+        1 or 2 => "Active",
+        3 or 4 => "In flow",
+        _ => "Deep dive"
+    };
+
+    private int SessionReadinessPct => AnalystTurnCount switch
+    {
+        0 => 18,
+        1 => 46,
+        2 => 62,
+        3 => 78,
+        4 => 90,
+        _ => 100
+    };
+
+    private string SessionReadinessStyle =>
+        $"background: conic-gradient(var(--cbn-green-deep, #006B3F) 0 {SessionReadinessPct}%, rgba(0, 107, 63, 0.12) {SessionReadinessPct}% 100%)";
+
     protected override async Task OnInitializedAsync()
     {
-        _quickQuestions = await ComplianceIqService.GetQuickQuestionsAsync(false);
+        try
+        {
+            _quickQuestions = await ComplianceIqService.GetQuickQuestionsAsync(false);
+        }
+        catch
+        {
+            _quickQuestions = _fallbackQuestions;
+        }
     }
 
     private async Task SendAsync()
@@ -213,8 +548,7 @@
         {
             var authState = await AuthenticationStateTask;
             var principal = authState.User;
-            var tenantId = Guid.Parse(principal.FindFirst("TenantId")?.Value
-                ?? throw new InvalidOperationException("Tenant context is unavailable."));
+            var tenantId = PortalTenantClaimResolver.ResolveTenantId(principal);
             var userId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? principal.Identity?.Name
                 ?? "unknown";
@@ -244,7 +578,7 @@
             _messages.Add(new ChatMessage
             {
                 IsUser = false,
-                Text = "ComplianceIQ could not process that question. Try a more specific metric or period."
+                Text = "ComplianceIQ could not process that question. Try a more specific metric, period, or module."
             });
         }
         finally
@@ -271,6 +605,7 @@
     {
         _conversationId = null;
         _messages.Clear();
+        _query = string.Empty;
         _error = null;
     }
 
@@ -294,8 +629,7 @@
         try
         {
             var authState = await AuthenticationStateTask;
-            var tenantId = Guid.Parse(authState.User.FindFirst("TenantId")?.Value
-                ?? throw new InvalidOperationException("Tenant context is unavailable."));
+            var tenantId = PortalTenantClaimResolver.ResolveTenantId(authState.User);
             var userId = authState.User.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? authState.User.Identity?.Name
                 ?? "unknown";
@@ -304,9 +638,30 @@
         }
         catch
         {
-            // Feedback is optional; swallow non-critical failures.
         }
     }
+
+    private static string NormalizeCategory(string? category) =>
+        string.IsNullOrWhiteSpace(category) ? "Grounded prompts" : category.Trim();
+
+    private static string ResolveAssistantHeading(ComplianceIqQueryResponse? response)
+    {
+        if (response is null || string.IsNullOrWhiteSpace(response.IntentCode))
+        {
+            return "Grounded response";
+        }
+
+        var normalized = response.IntentCode.Replace("_", " ", StringComparison.Ordinal).ToLowerInvariant();
+        return CultureInfo.InvariantCulture.TextInfo.ToTitleCase(normalized);
+    }
+
+    private static string ResolveConfidenceClass(string? confidenceLevel) => confidenceLevel switch
+    {
+        "HIGH" => "portal-iq-status-chip portal-iq-status-chip--high",
+        "MEDIUM" => "portal-iq-status-chip portal-iq-status-chip--medium",
+        "LOW" => "portal-iq-status-chip portal-iq-status-chip--low",
+        _ => "portal-iq-status-chip"
+    };
 
     private static string FormatHeader(string value) =>
         value.Replace("_", " ", StringComparison.Ordinal).Trim();

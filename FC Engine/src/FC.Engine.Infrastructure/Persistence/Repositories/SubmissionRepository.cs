@@ -8,18 +8,20 @@ namespace FC.Engine.Infrastructure.Persistence.Repositories;
 
 public class SubmissionRepository : ISubmissionRepository
 {
-    private readonly MetadataDbContext _db;
+    private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
     private readonly ITenantContext _tenantContext;
 
-    public SubmissionRepository(MetadataDbContext db, ITenantContext tenantContext)
+    public SubmissionRepository(IDbContextFactory<MetadataDbContext> dbFactory, ITenantContext tenantContext)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _tenantContext = tenantContext;
     }
 
     public async Task<Submission?> GetById(int id, CancellationToken ct = default)
     {
-        return await _db.Submissions
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Submissions
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .FirstOrDefaultAsync(s => s.Id == id, ct);
@@ -27,7 +29,9 @@ public class SubmissionRepository : ISubmissionRepository
 
     public async Task<Submission?> GetByIdWithReport(int id, CancellationToken ct = default)
     {
-        return await _db.Submissions
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Submissions
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
@@ -37,7 +41,9 @@ public class SubmissionRepository : ISubmissionRepository
 
     public async Task<IReadOnlyList<Submission>> GetAll(CancellationToken ct = default)
     {
-        return await _db.Submissions
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Submissions
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
@@ -50,7 +56,9 @@ public class SubmissionRepository : ISubmissionRepository
     public async Task<IReadOnlyList<Submission>> GetFiltered(
         string? search, string? status, int take = 500, CancellationToken ct = default)
     {
-        var query = _db.Submissions
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var query = db.Submissions
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
@@ -73,7 +81,9 @@ public class SubmissionRepository : ISubmissionRepository
 
     public async Task<IReadOnlyList<Submission>> GetByInstitution(int institutionId, CancellationToken ct = default)
     {
-        return await _db.Submissions
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Submissions
             .Where(s => s.InstitutionId == institutionId)
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
@@ -85,7 +95,9 @@ public class SubmissionRepository : ISubmissionRepository
 
     public async Task<IReadOnlyList<Submission>> GetRecent(int count = 10, CancellationToken ct = default)
     {
-        return await _db.Submissions
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Submissions
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
@@ -97,23 +109,31 @@ public class SubmissionRepository : ISubmissionRepository
 
     public async Task<int> GetCountByStatus(SubmissionStatus status, CancellationToken ct = default)
     {
-        return await _db.Submissions.CountAsync(s => s.Status == status, ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Submissions.CountAsync(s => s.Status == status, ct);
     }
 
     public async Task<int> GetTotalCount(CancellationToken ct = default)
     {
-        return await _db.Submissions.CountAsync(ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.Submissions.CountAsync(ct);
     }
 
     public async Task Add(Submission submission, CancellationToken ct = default)
     {
-        _db.Submissions.Add(submission);
-        await _db.SaveChangesAsync(ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        db.Submissions.Add(submission);
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task Update(Submission submission, CancellationToken ct = default)
     {
-        _db.Submissions.Update(submission);
-        await _db.SaveChangesAsync(ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        db.Submissions.Update(submission);
+        await db.SaveChangesAsync(ct);
     }
 }

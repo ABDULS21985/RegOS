@@ -7,16 +7,18 @@ namespace FC.Engine.Infrastructure.Metadata.Repositories;
 
 public class SubmissionApprovalRepository : ISubmissionApprovalRepository
 {
-    private readonly MetadataDbContext _db;
+    private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
 
-    public SubmissionApprovalRepository(MetadataDbContext db)
+    public SubmissionApprovalRepository(IDbContextFactory<MetadataDbContext> dbFactory)
     {
-        _db = db;
+        _dbFactory = dbFactory;
     }
 
     public async Task<SubmissionApproval?> GetBySubmission(int submissionId, CancellationToken ct = default)
     {
-        return await _db.SubmissionApprovals
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.SubmissionApprovals
             .Include(a => a.RequestedBy)
             .Include(a => a.ReviewedBy)
             .FirstOrDefaultAsync(a => a.SubmissionId == submissionId, ct);
@@ -24,7 +26,9 @@ public class SubmissionApprovalRepository : ISubmissionApprovalRepository
 
     public async Task<IReadOnlyList<SubmissionApproval>> GetPendingByInstitution(int institutionId, CancellationToken ct = default)
     {
-        return await _db.SubmissionApprovals
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.SubmissionApprovals
             .Include(a => a.Submission)
             .Include(a => a.RequestedBy)
             .Where(a => a.Status == ApprovalStatus.Pending
@@ -36,19 +40,25 @@ public class SubmissionApprovalRepository : ISubmissionApprovalRepository
 
     public async Task Create(SubmissionApproval approval, CancellationToken ct = default)
     {
-        _db.SubmissionApprovals.Add(approval);
-        await _db.SaveChangesAsync(ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        db.SubmissionApprovals.Add(approval);
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task Update(SubmissionApproval approval, CancellationToken ct = default)
     {
-        _db.SubmissionApprovals.Update(approval);
-        await _db.SaveChangesAsync(ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        db.SubmissionApprovals.Update(approval);
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task Delete(SubmissionApproval approval, CancellationToken ct = default)
     {
-        _db.SubmissionApprovals.Remove(approval);
-        await _db.SaveChangesAsync(ct);
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        db.SubmissionApprovals.Remove(approval);
+        await db.SaveChangesAsync(ct);
     }
 }

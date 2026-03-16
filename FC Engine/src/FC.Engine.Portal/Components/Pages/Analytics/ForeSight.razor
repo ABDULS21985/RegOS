@@ -979,11 +979,7 @@
         try
         {
             var auth = await AuthenticationStateTask;
-            var tenantValue = auth.User.FindFirst("tenant_id")?.Value
-                ?? auth.User.FindFirst("TenantId")?.Value
-                ?? throw new InvalidOperationException("Tenant context is missing from the current session.");
-
-            _tenantId = Guid.Parse(tenantValue);
+            _tenantId = PortalTenantClaimResolver.ResolveTenantId(auth.User);
             _dashboard = await LoadDashboardAsync(_tenantId);
         }
         catch (Exception ex)
