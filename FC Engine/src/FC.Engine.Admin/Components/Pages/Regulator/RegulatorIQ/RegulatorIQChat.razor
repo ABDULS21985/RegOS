@@ -20,15 +20,59 @@
 <SectionErrorBoundary>
     @if (_initializing)
     {
-        <div class="row g-4">
+        <div class="row g-4 align-items-start">
             <div class="col-12 col-xl-8">
-                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" />
-                <div class="mt-3">
-                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="6" />
-                </div>
+                <section class="regiq-chat">
+                    <!-- Hero skeleton -->
+                    <header class="regiq-hero-skel fc-skel">
+                        <div class="regiq-hero-skel__top">
+                            <div class="regiq-hero-skel__badges">
+                                <span class="fc-skel__rect" style="width: 180px; height: 24px;"></span>
+                                <span class="fc-skel__rect" style="width: 140px; height: 24px;"></span>
+                                <span class="fc-skel__rect" style="width: 160px; height: 24px;"></span>
+                            </div>
+                        </div>
+                        <div class="regiq-hero-skel__copy">
+                            <div class="fc-skel__rect" style="width: 280px; height: 32px; margin-bottom: 8px;"></div>
+                            <div class="fc-skel__rect" style="width: 100%; height: 20px;"></div>
+                            <div class="fc-skel__rect" style="width: 85%; height: 20px; margin-top: 4px;"></div>
+                        </div>
+                    </header>
+
+                    <!-- Chat thread skeleton -->
+                    <div class="regiq-thread">
+                        <!-- User message skeleton -->
+                        <article class="regiq-msg regiq-msg--user fc-skel">
+                            <div class="regiq-msg__bubble--user fc-skel__rect" style="width: 320px; height: 48px;"></div>
+                        </article>
+                        <!-- AI message skeleton -->
+                        <article class="regiq-msg regiq-msg--ai fc-skel">
+                            <div class="regiq-msg__avatar fc-skel__circle" style="width: 42px; height: 42px;"></div>
+                            <div class="regiq-msg__body">
+                                <div class="regiq-msg__card fc-skel__rect" style="width: 480px; height: 120px;"></div>
+                            </div>
+                        </article>
+                        <!-- User message skeleton -->
+                        <article class="regiq-msg regiq-msg--user fc-skel">
+                            <div class="regiq-msg__bubble--user fc-skel__rect" style="width: 280px; height: 36px;"></div>
+                        </article>
+                        <!-- AI message skeleton -->
+                        <article class="regiq-msg regiq-msg--ai fc-skel">
+                            <div class="regiq-msg__avatar fc-skel__circle" style="width: 42px; height: 42px;"></div>
+                            <div class="regiq-msg__body">
+                                <div class="regiq-msg__card fc-skel__rect" style="width: 520px; height: 180px;"></div>
+                            </div>
+                        </article>
+                    </div>
+                </section>
             </div>
             <div class="col-12 col-xl-4">
-                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" />
+                <!-- Intelligence panel skeleton -->
+                <div class="regiq-panel-skel fc-skel">
+                    <div class="fc-skel__rect" style="width: 100%; height: 200px; margin-bottom: 16px;"></div>
+                    <div class="fc-skel__rect" style="width: 100%; height: 150px; margin-bottom: 16px;"></div>
+                    <div class="fc-skel__rect" style="width: 100%; height: 120px;"></div>
+                </div>
             </div>
         </div>
     }
@@ -42,7 +86,24 @@
     }
     else
     {
-        <div id="regiq-print-root" class="regiq-shell">
+        <div id="regiq-print-root" class="regiq-shell @(HasActiveExamination ? "regiq-shell--examination" : "")">
+            <!-- Print header -->
+            <header class="regiq-print-header">
+                <div class="regiq-print-header__left">
+                    <h1 class="regiq-print-header__title">RegulatorIQ Intelligence Report</h1>
+                    <p class="regiq-print-header__subtitle">@_session?.TenantName — Session @_conversationId?.ToString("D")</p>
+                </div>
+                <div class="regiq-print-header__right">
+                    <p class="regiq-print-header__date">@DateTime.Now.ToString("MMMM dd, yyyy")</p>
+                    <p class="regiq-print-header__classification">@ResolveClassificationBadge(_messages.LastOrDefault()?.Response?.ClassificationLevel ?? "UNCLASSIFIED")</p>
+                </div>
+            </header>
+
+            <style>
+                :root {
+                    --regiq-thread-offset: 460px;
+                }
+            </style>
             <div class="row g-4 align-items-start">
                 <div class="col-12 col-xl-8">
                     <section class="regiq-chat">
@@ -55,7 +116,7 @@
                                         @(_session?.TenantName ?? "Regulator Session")
                                     </span>
                                     <span class="regiq-hero__badge-tag">Cross-tenant intelligence</span>
-                                    <span class="regiq-hero__badge-tag regiq-hero__badge-tag--live">
+                                    <span class="regiq-hero__badge-tag regiq-hero__badge-tag--live @(HasActiveExamination ? "regiq-hero__badge-tag--exam" : "")">
                                         <span class="regiq-hero__live-dot" aria-hidden="true"></span>
                                         Live grounded responses
                                     </span>
@@ -94,6 +155,7 @@
                                     <div>
                                         <strong>Examination mode active —</strong>
                                         <span class="regiq-exam-banner__entity">@_currentExaminationEntityName</span>
+                                        <span class="regiq-exam-banner__timer">@_examElapsed</span>
                                         <span class="regiq-exam-banner__hint">Queries default to this entity until you end the session.</span>
                                     </div>
                                 </div>
@@ -191,14 +253,73 @@
                         <div class="regiq-thread" id="regiq-thread" aria-live="polite">
                             @if (_messages.Count == 0 && !_isSubmitting)
                             {
-                                <div class="regiq-thread__empty">
-                                    <EmptyState Context="data"
-                                                Heading="Start a regulator conversation"
-                                                Description="RegulatorIQ can work entity-first, sector-first, or systemically across the regulator scope."
-                                                PrimaryActionLabel="Try sector health"
-                                                OnPrimaryAction="RunTrySectorHealthAsync"
-                                                SecondaryActionLabel="Try entity profile"
-                                                OnSecondaryAction="RunTryEntityProfileAsync" />
+                                <div class="regiq-zero-state">
+                                    <div class="regiq-zero-state__graphic">
+                                        <svg class="regiq-zero-state__shield" viewBox="0 0 120 140" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                            <path d="M60 10 L110 30 L110 80 Q110 110 85 125 Q60 140 35 125 Q10 110 10 80 L10 30 Z" fill="url(#shield-gradient)" stroke="#006B3F" stroke-width="2"/>
+                                            <circle cx="60" cy="60" r="25" fill="none" stroke="#C8A415" stroke-width="2" stroke-dasharray="5,5" class="regiq-spotlight"/>
+                                            <defs>
+                                                <linearGradient id="shield-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                                                    <stop offset="0%" style="stop-color:#E8F5EE;stop-opacity:1" />
+                                                    <stop offset="100%" style="stop-color:#F5FBE8;stop-opacity:1" />
+                                                </linearGradient>
+                                            </defs>
+                                        </svg>
+                                    </div>
+                                    <h3 class="regiq-zero-state__heading">What would you like to investigate?</h3>
+                                    <div class="regiq-zero-state__categories">
+                                        <div class="regiq-zero-state__category">
+                                            <h4 class="regiq-zero-state__category-title">Sector</h4>
+                                            <div class="regiq-zero-state__chips">
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("Show sector health")'>
+                                                    <i class="bi bi-bar-chart-line" aria-hidden="true"></i>
+                                                    Show sector health
+                                                </button>
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("Top overdue filers")'>
+                                                    <i class="bi bi-clock-history" aria-hidden="true"></i>
+                                                    Top overdue filers
+                                                </button>
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("License category breakdown")'>
+                                                    <i class="bi bi-pie-chart" aria-hidden="true"></i>
+                                                    License category breakdown
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="regiq-zero-state__category">
+                                            <h4 class="regiq-zero-state__category-title">Entity</h4>
+                                            <div class="regiq-zero-state__chips">
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("Give me a full profile of Access Bank")'>
+                                                    <i class="bi bi-building" aria-hidden="true"></i>
+                                                    Profile: Access Bank
+                                                </button>
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("Compare GTBank vs Zenith")'>
+                                                    <i class="bi bi-arrow-left-right" aria-hidden="true"></i>
+                                                    Compare GTBank vs Zenith
+                                                </button>
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("Generate an examination brief for Zenith Bank")'>
+                                                    <i class="bi bi-binoculars" aria-hidden="true"></i>
+                                                    Examination brief
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div class="regiq-zero-state__category">
+                                            <h4 class="regiq-zero-state__category-title">Systemic</h4>
+                                            <div class="regiq-zero-state__chips">
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("Show me the systemic risk dashboard")'>
+                                                    <i class="bi bi-graph-up" aria-hidden="true"></i>
+                                                    Systemic risk dashboard
+                                                </button>
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("Show contagion indicators")'>
+                                                    <i class="bi bi-diagram-3" aria-hidden="true"></i>
+                                                    Contagion indicators
+                                                </button>
+                                                <button class="regiq-chip" @onclick='() => SubmitQueryAsync("Run stress test summary")'>
+                                                    <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                                                    Stress test summary
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
                                 </div>
                             }
                             else
@@ -207,7 +328,7 @@
                                 {
                                     @if (message.IsUser)
                                     {
-                                        <article class="regiq-msg regiq-msg--user" @key="message.Id">
+                                        <article class="regiq-msg regiq-msg--user @(HasActiveExamination ? "regiq-msg--exam-mode" : "")" @key="message.Id">
                                             <div class="regiq-msg__bubble--user">
                                                 <p class="regiq-msg__text">@message.Text</p>
                                                 <time class="regiq-msg__time">@message.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture)</time>
@@ -219,8 +340,12 @@
                                     }
                                     else
                                     {
-                                        <article class="regiq-msg regiq-msg--ai @ResolveClassificationClass(message.Response?.ClassificationLevel)" @key="message.Id">
-                                            <div class="regiq-msg__avatar regiq-msg__avatar--ai" aria-hidden="true">RIQ</div>
+                                        <article class="regiq-msg regiq-msg--ai @ResolveClassificationClass(message.Response?.ClassificationLevel) @(HasActiveExamination ? "regiq-msg--exam-mode" : "")" @key="message.Id">
+                                            <div class="regiq-msg__avatar regiq-msg__avatar--ai" aria-hidden="true">
+                                                <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                                    <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+                                                </svg>
+                                            </div>
                                             <div class="regiq-msg__body">
                                                 <div class="regiq-msg__card">
                                                     <div class="regiq-msg__header">
@@ -233,6 +358,20 @@
                                                             }
                                                         </div>
                                                         <time class="regiq-msg__time">@message.Timestamp.ToString("HH:mm", CultureInfo.InvariantCulture)</time>
+                                                    </div>
+                                                    <div class="regiq-msg__actions">
+                                                        <button type="button" class="regiq-msg__action-btn" @onclick="() => CopyMessageAsync(message)" title="Copy message">
+                                                            <i class="bi bi-clipboard"></i>
+                                                        </button>
+                                                        <button type="button" class="regiq-msg__action-btn" @onclick="() => ExportMessageAsync(message)" title="Export message">
+                                                            <i class="bi bi-file-earmark-arrow-down"></i>
+                                                        </button>
+                                                        <button type="button" class="regiq-msg__action-btn" @onclick="() => ThumbsUpAsync(message)" title="Thumbs up">
+                                                            <i class="bi bi-hand-thumbs-up"></i>
+                                                        </button>
+                                                        <button type="button" class="regiq-msg__action-btn" @onclick="() => ThumbsDownAsync(message)" title="Thumbs down">
+                                                            <i class="bi bi-hand-thumbs-down"></i>
+                                                        </button>
                                                     </div>
 
                                                     <div class="regiq-msg__content">
@@ -452,13 +591,17 @@
                             @if (_isSubmitting)
                             {
                                 <div class="regiq-msg regiq-msg--ai">
-                                    <div class="regiq-msg__avatar regiq-msg__avatar--ai" aria-hidden="true">RIQ</div>
+                                    <div class="regiq-msg__avatar regiq-msg__avatar--ai regiq-msg__avatar--ai--thinking" aria-hidden="true">
+                                        <svg width="10" height="12" viewBox="0 0 24 24" fill="currentColor">
+                                            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+                                        </svg>
+                                    </div>
                                     <div class="regiq-msg__body">
                                         <div class="regiq-msg__card regiq-msg__card--thinking">
                                             <div class="regiq-typing" aria-label="RegulatorIQ is generating a response">
                                                 <span></span><span></span><span></span>
                                             </div>
-                                            <small class="regiq-thinking-label">Analysing data sources…</small>
+                                            <small class="regiq-thinking-label">@_thinkingLabel</small>
                                         </div>
                                     </div>
                                 </div>
@@ -467,35 +610,99 @@
                             <div id="regiq-thread-end" aria-hidden="true"></div>
                         </div>
 
+                        @if (_messages.Count == 0 || HasActiveExamination)
+                        {
+                            <div class="regiq-prompt-chips">
+                                @if (HasActiveExamination)
+                                {
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Generate examination briefing")'>
+                                        <i class="bi bi-clipboard-check"></i>
+                                        Generate examination briefing
+                                    </button>
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Compare with peer average")'>
+                                        <i class="bi bi-bar-chart"></i>
+                                        Compare with peer average
+                                    </button>
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Last 3 periods trend")'>
+                                        <i class="bi bi-graph-up"></i>
+                                        Last 3 periods trend
+                                    </button>
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Risk assessment summary")'>
+                                        <i class="bi bi-exclamation-triangle"></i>
+                                        Risk assessment summary
+                                    </button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Sector health snapshot")'>
+                                        <i class="bi bi-activity"></i>
+                                        Sector health snapshot
+                                    </button>
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Top 5 by NPL ratio")'>
+                                        <i class="bi bi-trophy"></i>
+                                        Top 5 by NPL ratio
+                                    </button>
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Overdue filers this quarter")'>
+                                        <i class="bi bi-clock"></i>
+                                        Overdue filers this quarter
+                                    </button>
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Systemic risk indicators")'>
+                                        <i class="bi bi-shield-exclamation"></i>
+                                        Systemic risk indicators
+                                    </button>
+                                    <button type="button" class="regiq-prompt-chip" @onclick='() => SubmitQueryAsync("Entity concentration analysis")'>
+                                        <i class="bi bi-diagram-3"></i>
+                                        Entity concentration analysis
+                                    </button>
+                                }
+                            </div>
+                        }
+
                         <div class="regiq-composer-wrap">
                             <div class="regiq-composer @(_isSubmitting ? "regiq-composer--loading" : "")">
-                                <textarea id="regiq-chat-input"
-                                          class="regiq-composer__input"
-                                          rows="3"
-                                          placeholder="Try 'Compare GTBank vs Zenith on CAR and NPL' or 'Show me the systemic risk dashboard'…"
-                                          @bind="_query"
-                                          @bind:event="oninput"
-                                          @onkeydown="HandleInputKeyDown"
-                                          disabled="@_isSubmitting"
-                                          aria-label="Regulator intelligence query"></textarea>
                                 <button type="button"
-                                        class="regiq-composer__send"
+                                        class="regiq-composer__send @(_isSubmitting ? "regiq-composer__send--loading" : "")"
                                         @onclick="() => SubmitQueryAsync(_query)"
                                         disabled="@(_isSubmitting || string.IsNullOrWhiteSpace(_query))"
                                         aria-label="Send query">
-                                    <i class="bi @(_isSubmitting ? "bi-hourglass-split" : "bi-send-fill")" aria-hidden="true"></i>
+                                    @if (_isSubmitting)
+                                    {
+                                        <svg class="regiq-send-spinner" width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" opacity="0.3"></circle>
+                                            <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-send-fill"></i>
+                                    }
                                 </button>
                             </div>
                             <div class="regiq-composer__footer">
-                                <small><kbd>↵</kbd> Send · <kbd>Shift ↵</kbd> New line</small>
-                                <small class="@(_query.Length > 800 ? "text-warning" : "")">@_query.Length / 1000</small>
+                                <small>
+                                    <kbd>↵</kbd> Send · <kbd>Shift ↵</kbd> New line
+                                    @if (HasActiveExamination)
+                                    {
+                                        <span class="regiq-exam-hint">
+                                            <kbd>Esc</kbd> End exam
+                                        </span>
+                                    }
+                                    @if (_queryHistory.Count > 0)
+                                    {
+                                        <span class="regiq-history-badge">
+                                            <i class="bi bi-arrow-up"></i>
+                                            History
+                                        </span>
+                                    }
+                                </small>
+                                <progress class="regiq-composer__progress @(_query.Length >= 950 ? "regiq-composer__progress--danger" : _query.Length >= 800 ? "regiq-composer__progress--warning" : "")" value="@_query.Length" max="1000"></progress>
                             </div>
                         </div>
 
                     </section>
                 </div>
 
-                <div class="col-12 col-xl-4">
+                <div class="col-12 col-xl-4 regiq-panel-col @(_panelDrawerOpen ? "regiq-panel-col--drawer" : "")">
                     <IntelligencePanel CurrentScope="@_currentScope"
                                        EntityProfile="@_currentEntityProfile"
                                        SectorSummary="@_sectorSummary"
@@ -504,6 +711,11 @@
                                        OnQuickQuery="SubmitQueryAsync" />
                 </div>
             </div>
+
+            <!-- Mobile panel FAB -->
+            <button class="regiq-panel-fab d-xl-none" @onclick="TogglePanelDrawer" aria-label="Toggle intelligence panel">
+                <i class="bi bi-info-circle-fill" aria-hidden="true"></i>
+            </button>
         </div>
     }
 </SectionErrorBoundary>
@@ -514,6 +726,7 @@
     private readonly List<ConversationMessage> _messages = new();
     private readonly List<RecentEntityContext> _recentEntities = new();
     private readonly List<(string Query, string Intent)> _recentTurns = new();
+    private readonly List<string> _queryHistory = new();
 
     private RegulatorSessionContext? _session;
     private SectorIntelligenceSummary? _sectorSummary;
@@ -526,6 +739,7 @@
     private string _currentScope = "SECTOR";
     private bool _initializing = true;
     private bool _isSubmitting;
+    private int _historyIndex = -1;
 
     private bool _entityLookupOpen;
     private bool _entityLookupLoading;
@@ -535,6 +749,21 @@
 
     private Guid? _currentExaminationEntityId;
     private string? _currentExaminationEntityName;
+    private DateTime? _examinationStartedAt;
+    private System.Timers.Timer? _examTimer;
+    private string _examElapsed = "00:00:00";
+
+    private System.Timers.Timer? _thinkingTimer;
+    private int _thinkingIndex;
+    private string _thinkingLabel = "Analysing data sources…";
+    private readonly string[] _thinkingLabels = {
+        "Querying regulator data sources…",
+        "Resolving entity profiles…",
+        "Applying supervisory rules…",
+        "Generating intelligence summary…"
+    };
+
+    private bool _panelDrawerOpen;
 
     private bool HasActiveExamination => _currentExaminationEntityId.HasValue && !string.IsNullOrWhiteSpace(_currentExaminationEntityName);
 
@@ -623,6 +852,17 @@
         _query = string.Empty;
         CloseLookup();
 
+        // Add to history
+        if (!_queryHistory.Contains(trimmedQuery, StringComparer.OrdinalIgnoreCase))
+        {
+            _queryHistory.Insert(0, trimmedQuery);
+            if (_queryHistory.Count > 20)
+            {
+                _queryHistory.RemoveRange(20, _queryHistory.Count - 20);
+            }
+        }
+        _historyIndex = -1;
+
         var userMessage = new ConversationMessage
         {
             IsUser = true,
@@ -632,6 +872,7 @@
         _messages.Add(userMessage);
 
         _isSubmitting = true;
+        StartThinkingTimer();
         _shouldScrollToBottom = true;
         StateHasChanged();
 
@@ -679,6 +920,7 @@
         finally
         {
             _isSubmitting = false;
+            StopThinkingTimer();
             _shouldScrollToBottom = true;
             StateHasChanged();
         }
@@ -793,9 +1035,51 @@
 
     private async Task HandleInputKeyDown(KeyboardEventArgs args)
     {
+        // Handle Esc to end examination
+        if (args.Key == "Escape" && HasActiveExamination)
+        {
+            await EndExaminationSession();
+            return;
+        }
+
         if (args.Key == "Enter" && !args.ShiftKey)
         {
             await SubmitQueryAsync(_query);
+            return;
+        }
+
+        // Handle @ mention
+        if (args.Key == "@" && string.IsNullOrEmpty(_query))
+        {
+            await OpenLookupAsync();
+            return;
+        }
+
+        // Handle history navigation
+        if (_queryHistory.Count > 0)
+        {
+            if (args.Key == "ArrowUp" && _historyIndex < _queryHistory.Count - 1)
+            {
+                _historyIndex++;
+                _query = _queryHistory[_historyIndex];
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
+            else if (args.Key == "ArrowDown")
+            {
+                if (_historyIndex > 0)
+                {
+                    _historyIndex--;
+                    _query = _queryHistory[_historyIndex];
+                }
+                else
+                {
+                    _historyIndex = -1;
+                    _query = string.Empty;
+                }
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
         }
     }
 
@@ -838,6 +1122,9 @@
     {
         if (_conversationId.HasValue && _session is not null)
         {
+            // Auto-submit session summary query
+            await SubmitQueryAsync($"Provide a comprehensive summary of the examination session for {_currentExaminationEntityName}, including key findings, risk assessments, and any follow-up actions recommended.");
+
             await RegulatorIqService.EndExaminationSessionAsync(
                 _conversationId.Value,
                 _session.UserId.ToString(CultureInfo.InvariantCulture));
@@ -845,10 +1132,63 @@
 
         _currentExaminationEntityId = null;
         _currentExaminationEntityName = null;
+        StopExaminationTimer();
         if (_messages.Count == 0)
         {
             _currentScope = "SECTOR";
         }
+    }
+
+    private void StartExaminationTimer()
+    {
+        _examinationStartedAt = DateTime.Now;
+        _examTimer = new System.Timers.Timer(1000); // Update every second
+        _examTimer.Elapsed += (sender, e) =>
+        {
+            if (_examinationStartedAt.HasValue)
+            {
+                var elapsed = DateTime.Now - _examinationStartedAt.Value;
+                _examElapsed = $"{elapsed.Hours:D2}:{elapsed.Minutes:D2}:{elapsed.Seconds:D2}";
+                InvokeAsync(StateHasChanged);
+            }
+        };
+        _examTimer.Start();
+    }
+
+    private void StopExaminationTimer()
+    {
+        _examTimer?.Stop();
+        _examTimer?.Dispose();
+        _examTimer = null;
+        _examElapsed = "00:00:00";
+    }
+
+    private void StartThinkingTimer()
+    {
+        _thinkingIndex = 0;
+        _thinkingLabel = _thinkingLabels[0];
+        _thinkingTimer = new System.Timers.Timer(1800); // 1.8 seconds
+        _thinkingTimer.Elapsed += (sender, e) =>
+        {
+            _thinkingIndex = (_thinkingIndex + 1) % _thinkingLabels.Length;
+            _thinkingLabel = _thinkingLabels[_thinkingIndex];
+            InvokeAsync(StateHasChanged);
+        };
+        _thinkingTimer.Start();
+    }
+
+    private void StopThinkingTimer()
+    {
+        _thinkingTimer?.Stop();
+        _thinkingTimer?.Dispose();
+        _thinkingTimer = null;
+        _thinkingLabel = "Analysing data sources…";
+    }
+
+    private void TogglePanelDrawer()
+    {
+        _panelDrawerOpen = !_panelDrawerOpen;
+        StateHasChanged();
     }
 
     private async Task HandleLookupInputAsync(ChangeEventArgs args)
@@ -892,6 +1232,7 @@
             _messages.Clear();
             _recentEntities.Clear();
             _recentTurns.Clear();
+            StartExaminationTimer();
             if (_session is not null)
             {
                 _currentEntityProfile = await RegulatorIntelligence.GetEntityProfileAsync(result.TenantId, _session.RegulatorCode);
@@ -927,6 +1268,29 @@
         }
 
         await JS.InvokeVoidAsync("fcScenarios.exportComparison", "regiq-print-root");
+    }
+
+    private async Task CopyMessageAsync(ConversationMessage message)
+    {
+        await JS.InvokeVoidAsync("navigator.clipboard.writeText", message.Text);
+    }
+
+    private async Task ExportMessageAsync(ConversationMessage message)
+    {
+        // Placeholder for export functionality
+        await JS.InvokeVoidAsync("alert", "Export functionality not yet implemented");
+    }
+
+    private async Task ThumbsUpAsync(ConversationMessage message)
+    {
+        // Placeholder for feedback functionality
+        await JS.InvokeVoidAsync("alert", "Feedback functionality not yet implemented");
+    }
+
+    private async Task ThumbsDownAsync(ConversationMessage message)
+    {
+        // Placeholder for feedback functionality
+        await JS.InvokeVoidAsync("alert", "Feedback functionality not yet implemented");
     }
 
     private void SortTable(ConversationMessage message, string column)

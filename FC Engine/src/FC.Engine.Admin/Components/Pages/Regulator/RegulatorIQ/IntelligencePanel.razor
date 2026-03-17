@@ -1,17 +1,34 @@
 @using System.Globalization
 
-<aside class="regiq-panel" aria-label="Contextual intelligence panel">
+<aside class="regiq-panel @(_collapsed ? "regiq-panel--collapsed" : "")" aria-label="Contextual intelligence panel">
     <div class="regiq-panel__header">
         <div>
             <span class="regiq-panel__eyebrow">Context Panel</span>
             <h3 class="mb-1">Current supervisory picture</h3>
             <p class="mb-0 text-secondary">@ResolveSubtitle()</p>
         </div>
+        <button type="button" class="regiq-panel__toggle" @onclick="ToggleCollapsedAsync" aria-label="@(_collapsed ? "Expand panel" : "Collapse panel")">
+            <i class="bi bi-chevron-@(_collapsed ? "up" : "down")" aria-hidden="true"></i>
+        </button>
         <span class="badge @ResolveScopeBadge(CurrentScope)">@ResolveScopeLabel(CurrentScope)</span>
     </div>
 
     @if (EntityProfile is not null && CurrentScope.Equals("ENTITY", StringComparison.OrdinalIgnoreCase))
     {
+        <div class="regiq-panel__quick-actions">
+            <button type="button" class="regiq-panel__quick-action" @onclick='() => OnQuickQuery.InvokeAsync($"Generate an examination briefing for {EntityProfile.InstitutionName}")'>
+                <i class="bi bi-clipboard-check"></i>
+                Examination Brief
+            </button>
+            <button type="button" class="regiq-panel__quick-action" @onclick='() => OnQuickQuery.InvokeAsync($"Compare {EntityProfile.InstitutionName} with peer median on CAR and NPL")'>
+                <i class="bi bi-bar-chart"></i>
+                Peer Compare
+            </button>
+            <button type="button" class="regiq-panel__quick-action" @onclick='() => OnQuickQuery.InvokeAsync($"Show filing history for {EntityProfile.InstitutionName}")'>
+                <i class="bi bi-clock"></i>
+                Filing History
+            </button>
+        </div>
         <EntityProfileCard Profile="EntityProfile" Compact="true" OnDeepDive="OnDeepDive" />
     }
     else if (SystemicDashboard is not null && CurrentScope.Equals("SYSTEMIC", StringComparison.OrdinalIgnoreCase))
@@ -19,8 +36,14 @@
         <section class="regiq-panel__card regiq-panel__card--systemic">
             <div class="regiq-panel__gauge">
                 <div class="regiq-panel__gauge-ring @ResolveGaugeTone(SystemicDashboard.Summary.SystemicRiskIndex)">
-                    <strong>@SystemicDashboard.Summary.SystemicRiskIndex.ToString("N1", CultureInfo.InvariantCulture)</strong>
-                    <span>Systemic Index</span>
+                    <svg class="regiq-panel__gauge-svg" viewBox="0 0 120 120">
+                        <circle cx="60" cy="60" r="50" fill="none" stroke="rgba(148, 163, 184, 0.2)" stroke-width="8"/>
+                        <path d="M60,60 L60,10 A50,50 0 0,1 60,10 Z" fill="none" stroke="currentColor" stroke-width="8" stroke-linecap="round" transform="rotate(-90 60 60)" style="stroke-dasharray: @(Math.Clamp((double)SystemicDashboard.Summary.SystemicRiskIndex / 100.0 * 270.0, 0.0, 270.0)) 270; transition: stroke-dasharray 0.6s ease;"/>
+                    </svg>
+                    <div class="regiq-panel__gauge-content">
+                        <strong>@SystemicDashboard.Summary.SystemicRiskIndex.ToString("N1", CultureInfo.InvariantCulture)</strong>
+                        <span>Systemic Index</span>
+                    </div>
                 </div>
                 <div class="regiq-panel__gauge-meta">
                     <div>
@@ -136,6 +159,20 @@
     [Parameter] public SystemicRiskDashboard? SystemicDashboard { get; set; }
     [Parameter] public EventCallback<string> OnDeepDive { get; set; }
     [Parameter] public EventCallback<string> OnQuickQuery { get; set; }
+    [Parameter] public bool Collapsed { get; set; }
+
+    private bool _collapsed;
+
+    protected override void OnParametersSet()
+    {
+        _collapsed = Collapsed;
+    }
+
+    private Task ToggleCollapsedAsync()
+    {
+        _collapsed = !_collapsed;
+        return Task.CompletedTask;
+    }
 
     private Task OpenSystemicDashboardAsync() => OnQuickQuery.InvokeAsync("Show me the systemic risk dashboard");
     private Task OpenSectorOverviewAsync() => OnQuickQuery.InvokeAsync("Show sector health summary");

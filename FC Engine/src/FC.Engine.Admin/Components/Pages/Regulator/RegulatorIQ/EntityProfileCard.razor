@@ -53,15 +53,23 @@ else
         </header>
 
         <div class="regiq-profile-card__metrics">
-            @foreach (var metric in BuildMetricTiles())
+            @foreach (var metric in BuildMetricGauges())
             {
-                <section class="regiq-profile-card__metric @metric.Tone" aria-label="@metric.Label">
-                    <span class="regiq-profile-card__metric-label">@metric.Label</span>
-                    <strong class="regiq-profile-card__metric-value">@metric.Value</strong>
-                    @if (!string.IsNullOrWhiteSpace(metric.Hint))
-                    {
-                        <small class="regiq-profile-card__metric-hint">@metric.Hint</small>
-                    }
+                <section class="regiq-profile-card__metric-gauge @metric.Tone" aria-label="@metric.Label">
+                    <svg class="regiq-profile-card__gauge-svg" viewBox="0 0 44 44">
+                        <circle cx="22" cy="22" r="18" fill="none" stroke="rgba(148, 163, 184, 0.2)" stroke-width="4"/>
+                        <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="@metric.Percentage 100" stroke-dashoffset="25" transform="rotate(-90 22 22)" style="transition: stroke-dasharray 0.6s ease;"/>
+                    </svg>
+                    <div class="regiq-profile-card__gauge-content">
+                        <span class="regiq-profile-card__gauge-label">@metric.Label</span>
+                        <strong class="regiq-profile-card__gauge-value">
+                            @metric.Value
+                            @if (metric.Trend != TrendDirection.Flat)
+                            {
+                                <i class="bi bi-arrow-@(metric.Trend == TrendDirection.Up ? "up" : "down")-right text-@(metric.TrendColor) ms-1" aria-hidden="true"></i>
+                            }
+                        </strong>
+                    </div>
                 </section>
             }
         </div>
@@ -125,7 +133,7 @@ else
         }
     }
 
-    private List<MetricTile> BuildMetricTiles()
+    private List<MetricGauge> BuildMetricGauges()
     {
         if (Profile is null)
         {
@@ -134,20 +142,47 @@ else
 
         var car = Profile.KeyMetrics.FirstOrDefault(x => x.MetricCode.Equals("carratio", StringComparison.OrdinalIgnoreCase))?.Value;
         var npl = Profile.KeyMetrics.FirstOrDefault(x => x.MetricCode.Equals("nplratio", StringComparison.OrdinalIgnoreCase))?.Value;
-        var liquidity = Profile.KeyMetrics.FirstOrDefault(x => x.MetricCode.Equals("liquidityratio", StringComparison.OrdinalIgnoreCase))?.Value;
         var chs = Profile.ComplianceHealth?.OverallScore;
-        var ewiCount = Profile.EarlyWarningFlags.Count;
-        var overdueCount = Profile.FilingTimeliness?.OverdueFilings ?? 0;
 
-        return new List<MetricTile>
+        return new List<MetricGauge>
         {
-            new("CAR", FormatMetric(car, "carratio"), ResolveCarTone(car), "CBN min 15%"),
-            new("NPL Ratio", FormatMetric(npl, "nplratio"), ResolveNplTone(npl), "Warning above 5%"),
-            new("Liquidity", FormatMetric(liquidity, "liquidityratio"), ResolveLiquidityTone(liquidity), "Minimum 30%"),
-            new("CHS Score", chs.HasValue ? chs.Value.ToString("N1", CultureInfo.InvariantCulture) : "N/A", ResolveChsTone(chs), "Adequate at 70+"),
-            new("EWI Flags", ewiCount.ToString(CultureInfo.InvariantCulture), ResolveCountTone(ewiCount, 1, 3), ewiCount == 0 ? "No active flags" : "Current early warnings"),
-            new("Filing Status", overdueCount == 0 ? "Current" : $"{overdueCount} overdue", ResolveCountTone(overdueCount, 1, 2), overdueCount == 0 ? "No overdue returns" : "Outstanding obligations")
+            BuildGauge("CAR", car, 15m, higherIsBetter: true),
+            BuildGauge("NPL", npl, 5m, higherIsBetter: false),
+            BuildGauge("CHS", chs, 70m, higherIsBetter: true)
         };
+    }
+
+    private MetricGauge BuildGauge(string label, decimal? value, decimal median, bool higherIsBetter)
+    {
+        if (!value.HasValue)
+        {
+            return new MetricGauge(label, "N/A", "regiq-profile-card__metric--neutral", 0, TrendDirection.Flat, "secondary");
+        }
+
+        var percentage = Math.Clamp((double)(value.Value / (higherIsBetter ? 25m : 15m) * 100m), 0, 100);
+        var tone = ResolveThresholdTone(value, higherIsBetter ? 15m : 5m, higherIsBetter ? 10m : 10m, higherIsBetter);
+
+        TrendDirection trend;
+        string trendColor;
+        if (value.Value > median)
+        {
+            trend = higherIsBetter ? TrendDirection.Up : TrendDirection.Down;
+            trendColor = higherIsBetter ? "success" : "danger";
+        }
+        else if (value.Value < median)
+        {
+            trend = higherIsBetter ? TrendDirection.Down : TrendDirection.Up;
+            trendColor = higherIsBetter ? "danger" : "success";
+        }
+        else
+        {
+            trend = TrendDirection.Flat;
+            trendColor = "secondary";
+        }
+
+        var displayValue = label == "CHS" ? value.Value.ToString("N1", CultureInfo.InvariantCulture) : $"{value.Value:N1}%";
+
+        return new MetricGauge(label, displayValue, tone, percentage, trend, trendColor);
     }
 
     private static string FormatMetric(decimal? value, string metricCode)
@@ -250,5 +285,12 @@ else
         };
     }
 
-    private sealed record MetricTile(string Label, string Value, string Tone, string Hint);
+    private sealed record MetricGauge(string Label, string Value, string Tone, double Percentage, TrendDirection Trend, string TrendColor);
+
+    private enum TrendDirection
+    {
+        Up,
+        Down,
+        Flat
+    }
 }
