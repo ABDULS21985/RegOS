@@ -2248,9 +2248,36 @@ textarea.form-control {
     top: 50%;
     transform: translateY(-50%);
     color: var(--cbn-gray-400);
-    transition: color var(--transition-slow) var(--ease-standard);
+    transition: color 0.2s var(--ease-standard), opacity 0.2s ease, transform 0.2s ease;
     pointer-events: none;
     z-index: 1;
+}
+
+/* Fade out field icon when input is focused or has a value */
+.fc-floating-input:focus ~ .field-icon,
+.fc-floating-input:not(:placeholder-shown) ~ .field-icon,
+.fc-floating-input.has-value ~ .field-icon {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-50%) scale(0.7);
+}
+
+/* Also handle browser autofill */
+.fc-floating-input:-webkit-autofill ~ .field-icon {
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-50%) scale(0.7);
+}
+
+.fc-floating-input {
+    transition: padding-left 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+/* Shift input text left when icon fades out */
+.fc-floating-input:focus,
+.fc-floating-input:not(:placeholder-shown),
+.fc-floating-input.has-value {
+    padding-left: 1rem;
 }
 
 .fc-floating-label {
@@ -2265,13 +2292,11 @@ textarea.form-control {
     transform-origin: left center;
 }
 
-.fc-floating-input:focus ~ .field-icon {
-    color: var(--cbn-primary);
-}
-
 .fc-floating-input:focus + .fc-floating-label,
-.fc-floating-input:not(:placeholder-shown) + .fc-floating-label {
+.fc-floating-input:not(:placeholder-shown) + .fc-floating-label,
+.fc-floating-input.has-value + .fc-floating-label {
     top: 0.55rem;
+    left: 1rem;
     transform: translateY(0);
     font-size: 0.7rem;
     font-weight: var(--font-weight-semibold);
@@ -2279,8 +2304,24 @@ textarea.form-control {
     letter-spacing: var(--tracking-wide);
 }
 
-.fc-floating-input:not(:focus):not(:placeholder-shown) + .fc-floating-label {
+.fc-floating-input:not(:focus):not(:placeholder-shown) + .fc-floating-label,
+.fc-floating-input.has-value:not(:focus) + .fc-floating-label {
     color: var(--cbn-gray-500);
+}
+
+/* Handle browser autofill — float label and shift left */
+.fc-floating-input:-webkit-autofill + .fc-floating-label {
+    top: 0.55rem;
+    left: 1rem;
+    transform: translateY(0);
+    font-size: 0.7rem;
+    font-weight: var(--font-weight-semibold);
+    color: var(--cbn-gray-500);
+    letter-spacing: var(--tracking-wide);
+}
+
+.fc-floating-input:-webkit-autofill {
+    padding-left: 1rem;
 }
 
 /* Password Toggle — overridden by premium section below */
@@ -2867,8 +2908,20 @@ textarea.form-control {
         font-size: 0.9rem;
     }
 
+    .fc-floating-input:focus,
+    .fc-floating-input:not(:placeholder-shown),
+    .fc-floating-input.has-value {
+        padding-left: 0.875rem;
+    }
+
     .fc-floating-label {
         left: 2.5rem;
+    }
+
+    .fc-floating-input:focus + .fc-floating-label,
+    .fc-floating-input:not(:placeholder-shown) + .fc-floating-label,
+    .fc-floating-input.has-value + .fc-floating-label {
+        left: 0.875rem;
     }
 
     .field-icon {

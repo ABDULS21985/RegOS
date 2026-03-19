@@ -8,6 +8,8 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 
+using FC.Engine.Infrastructure.Tests;
+
 namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class ConsultationFeedbackTests
@@ -25,7 +27,7 @@ public class ConsultationFeedbackTests
         var db = CreateDb(testName);
         var audit = new PolicyAuditLogger(db, NullLogger<PolicyAuditLogger>.Instance);
         var scenarioSvc = new PolicyScenarioService(db, audit, NullLogger<PolicyScenarioService>.Instance);
-        var consultationSvc = new ConsultationService(db, audit, NullLogger<ConsultationService>.Instance);
+        var consultationSvc = new ConsultationService(new TestDbContextFactory(db), audit, NullLogger<ConsultationService>.Instance);
         return (scenarioSvc, consultationSvc, db);
     }
 

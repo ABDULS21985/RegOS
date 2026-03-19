@@ -33,7 +33,7 @@ public class TenantOnboardingServiceTests : IDisposable
 
         var cache = new MemoryCache(new MemoryCacheOptions());
         var entitlementService = new EntitlementService(dbFactory, cache, NullLogger<EntitlementService>.Instance);
-        var subscriptionService = new SubscriptionService(_db, entitlementService, NullLogger<SubscriptionService>.Instance);
+        var subscriptionService = new SubscriptionService(new TestMetadataDbContextFactory(options), entitlementService, NullLogger<SubscriptionService>.Instance);
         _sut = new TenantOnboardingService(
             _db,
             entitlementService,

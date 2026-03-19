@@ -167,6 +167,19 @@ app.MapPost("/account/login", async (
 {
     var form = await context.Request.ReadFormAsync();
     var challengeId = form["challengeId"].ToString().Trim();
+    var returnUrl = form["returnUrl"].ToString().Trim();
+
+    // Validate returnUrl to prevent open redirect attacks
+    static string SafeRedirect(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return "/";
+        // Only allow relative paths starting with /
+        if (url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\"))
+            return url;
+        return "/";
+    }
+
     if (!string.IsNullOrWhiteSpace(challengeId))
     {
         var challenge = await mfaChallengeStore.GetChallenge(challengeId, context.RequestAborted);
@@ -213,7 +226,7 @@ app.MapPost("/account/login", async (
                 ExpiresUtc = DateTimeOffset.UtcNow.AddHours(8)
             });
 
-        context.Response.Redirect("/");
+        context.Response.Redirect(SafeRedirect(returnUrl));
         return;
     }
 
@@ -279,7 +292,7 @@ app.MapPost("/account/login", async (
                 : DateTimeOffset.UtcNow.AddHours(8)
         });
 
-    context.Response.Redirect("/");
+    context.Response.Redirect(SafeRedirect(returnUrl));
 });
 
 app.MapGet("/account/logout", async (HttpContext context) =>
@@ -405,8 +418,18 @@ app.MapPost("/account/reconsent", async (HttpContext context, IConsentService co
     baseRequest.ConsentGiven = allowAnalytics;
     await consentService.RecordConsent(baseRequest, context.RequestAborted);
 
-    context.Response.Redirect(string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl);
+    context.Response.Redirect(SafeRedirectReconsent(returnUrl));
 });
+
+// Validate returnUrl for reconsent — same logic, different local function scope
+static string SafeRedirectReconsent(string? url)
+{
+    if (string.IsNullOrWhiteSpace(url))
+        return "/";
+    if (url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\"))
+        return url;
+    return "/";
+}
 
 app.MapGet("/platform/tenants/export", async (
     HttpContext context,

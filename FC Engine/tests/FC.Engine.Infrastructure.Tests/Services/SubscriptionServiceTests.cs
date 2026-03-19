@@ -11,6 +11,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
+using FC.Engine.Infrastructure.Tests;
+
 namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class SubscriptionServiceTests
@@ -151,7 +153,7 @@ public class SubscriptionServiceTests
             .Returns(Task.CompletedTask);
 
         return new SubscriptionService(
-            db,
+            new TestDbContextFactory(db),
             entitlementMock.Object,
             NullLogger<SubscriptionService>.Instance,
             null,

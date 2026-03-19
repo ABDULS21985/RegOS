@@ -8,6 +8,8 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using FC.Engine.Infrastructure.Tests;
+
 namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class BenchmarkingServiceTests
@@ -33,7 +35,7 @@ public class BenchmarkingServiceTests
             .ReturnsAsync(false);
 
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var sut = new BenchmarkingService(db, cache, entitlementSvc.Object, NullLogger<BenchmarkingService>.Instance);
+        var sut = new BenchmarkingService(new TestDbContextFactory(db), cache, entitlementSvc.Object, NullLogger<BenchmarkingService>.Instance);
 
         var result = await sut.GetPeerBenchmark(tenantId, "FC");
         result.Should().BeNull();
@@ -76,7 +78,7 @@ public class BenchmarkingServiceTests
             .ReturnsAsync(true);
 
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var sut = new BenchmarkingService(db, cache, entitlementSvc.Object, NullLogger<BenchmarkingService>.Instance);
+        var sut = new BenchmarkingService(new TestDbContextFactory(db), cache, entitlementSvc.Object, NullLogger<BenchmarkingService>.Instance);
 
         var result = await sut.GetPeerBenchmark(tenantA, "FC");
 

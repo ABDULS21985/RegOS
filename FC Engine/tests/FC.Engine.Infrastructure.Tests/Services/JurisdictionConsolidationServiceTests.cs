@@ -6,6 +6,8 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Xunit;
 
+using FC.Engine.Infrastructure.Tests;
+
 namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class JurisdictionConsolidationServiceTests
@@ -116,7 +118,7 @@ public class JurisdictionConsolidationServiceTests
 
         await db.SaveChangesAsync();
 
-        var sut = new JurisdictionConsolidationService(db);
+        var sut = new JurisdictionConsolidationService(new TestDbContextFactory(db));
         var result = await sut.GetConsolidation(holding.TenantId, "NGN");
 
         result.SubsidiaryCount.Should().Be(2);
@@ -180,7 +182,7 @@ public class JurisdictionConsolidationServiceTests
         });
         await db.SaveChangesAsync();
 
-        var sut = new JurisdictionConsolidationService(db);
+        var sut = new JurisdictionConsolidationService(new TestDbContextFactory(db));
         var result = await sut.GetConsolidation(holding.TenantId, "NGN");
 
         result.GrossAmount.Should().Be(1000m);

@@ -52,7 +52,9 @@
             {
                 <form id="loginForm" method="post" action="/account/login" novalidate>
                     <input type="hidden" name="challengeId" value="@_challenge" />
+                    <input type="hidden" name="returnUrl" value="@ReturnUrl" />
                     <input type="hidden" name="mfaCode" id="mfaCodeHidden" />
+                    <AntiforgeryToken />
 
                     <!-- MFA header icon -->
                     <div class="fc-mfa-header fc-anim-entrance" style="--anim-delay: 0.3s">
@@ -126,6 +128,8 @@
             {
                 <!-- ── Login Form ───────────────────────────────────── -->
                 <form id="loginForm" method="post" action="/account/login" novalidate>
+                    <input type="hidden" name="returnUrl" value="@ReturnUrl" />
+                    <AntiforgeryToken />
 
                     <!-- Username Field -->
                     <div class="fc-floating-field fc-anim-entrance" style="--anim-delay: 0.35s">
@@ -292,6 +296,23 @@
     /* ── Helpers ──────────────────────────────────────────────────── */
     function $(id) { return document.getElementById(id); }
     function hasError() { return !!document.querySelector('[id="errorAlert"]'); }
+
+    /* ── Robust has-value detection (autofill, paste, programmatic) ── */
+    function syncHasValue() {
+        document.querySelectorAll('.fc-floating-input').forEach(function (inp) {
+            inp.classList.toggle('has-value', !!inp.value);
+        });
+    }
+    // Detect on input/change events
+    document.querySelectorAll('.fc-floating-input').forEach(function (inp) {
+        inp.addEventListener('input', function () { inp.classList.toggle('has-value', !!inp.value); });
+        inp.addEventListener('change', function () { inp.classList.toggle('has-value', !!inp.value); });
+    });
+    // Detect autofill: browsers fill before JS runs, so poll briefly on load
+    syncHasValue();
+    setTimeout(syncHasValue, 100);
+    setTimeout(syncHasValue, 500);
+    setTimeout(syncHasValue, 1500);
 
     /* ── Password visibility toggle (crossfade) ───────────────────── */
     var pwdInput  = $('password');
@@ -570,6 +591,9 @@
 
     [SupplyParameterFromQuery(Name = "challenge")]
     private string? Challenge { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnUrl")]
+    private string? ReturnUrl { get; set; }
 
     private bool _resetSuccess => Reset == "success";
     private bool _hasError => !string.IsNullOrEmpty(Error);

@@ -166,6 +166,16 @@ app.MapPost("/account/login", async (
     IMfaService mfaService,
     IMfaChallengeStore mfaChallengeStore) =>
 {
+    // Validate returnUrl to prevent open redirect attacks
+    static string SafeRedirect(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return "/";
+        if (url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\"))
+            return url;
+        return "/";
+    }
+
     var form = await context.Request.ReadFormAsync();
     var challengeId = form["challengeId"].ToString().Trim();
     var returnUrl = form["returnUrl"].ToString().Trim();
@@ -226,7 +236,7 @@ app.MapPost("/account/login", async (
             return;
         }
 
-        var challengeRedirect = string.IsNullOrWhiteSpace(challenge.ReturnUrl) ? "/" : challenge.ReturnUrl;
+        var challengeRedirect = SafeRedirect(challenge.ReturnUrl);
         context.Response.Redirect(challengeRedirect);
         return;
     }
@@ -305,8 +315,7 @@ app.MapPost("/account/login", async (
         return;
     }
 
-    var redirect = string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl;
-    context.Response.Redirect(redirect);
+    context.Response.Redirect(SafeRedirect(returnUrl));
 });
 
 app.MapGet("/account/logout", async (HttpContext context) =>
@@ -371,8 +380,18 @@ app.MapPost("/account/reconsent", async (HttpContext context, IConsentService co
     baseRequest.ConsentGiven = allowAnalytics;
     await consentService.RecordConsent(baseRequest, context.RequestAborted);
 
-    context.Response.Redirect(string.IsNullOrWhiteSpace(returnUrl) ? "/" : returnUrl);
+    context.Response.Redirect(SafeRedirectReconsent(returnUrl));
 });
+
+// Open redirect prevention for reconsent
+static string SafeRedirectReconsent(string? url)
+{
+    if (string.IsNullOrWhiteSpace(url))
+        return "/";
+    if (url.StartsWith('/') && !url.StartsWith("//") && !url.StartsWith("/\\"))
+        return url;
+    return "/";
+}
 
 app.MapGet("/exports/{exportRequestId:int}/download", async (
     int exportRequestId,

@@ -10,6 +10,8 @@ using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
+using FC.Engine.Infrastructure.Tests;
+
 namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class DashboardAnalyticsServiceTests
@@ -126,7 +128,7 @@ public class DashboardAnalyticsServiceTests
             .ReturnsAsync(entitlement);
 
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var sut = new DashboardService(db, cache, entitlementSvc.Object, NullLogger<DashboardService>.Instance);
+        var sut = new DashboardService(new TestDbContextFactory(db), cache, entitlementSvc.Object, NullLogger<DashboardService>.Instance);
 
         var result = await sut.GetModuleDashboard(tenantId, "FC");
 
@@ -168,7 +170,7 @@ public class DashboardAnalyticsServiceTests
             });
 
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var sut = new DashboardService(db, cache, entitlementSvc.Object, NullLogger<DashboardService>.Instance);
+        var sut = new DashboardService(new TestDbContextFactory(db), cache, entitlementSvc.Object, NullLogger<DashboardService>.Instance);
 
         var act = async () => await sut.GetSubmissionTrend(tenantId, "FC");
         await act.Should().ThrowAsync<InvalidOperationException>()
@@ -211,7 +213,7 @@ public class DashboardAnalyticsServiceTests
             .ReturnsAsync(BuildEntitlement(tenantId, module));
 
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var sut = new DashboardService(db, cache, entitlementSvc.Object, NullLogger<DashboardService>.Instance);
+        var sut = new DashboardService(new TestDbContextFactory(db), cache, entitlementSvc.Object, NullLogger<DashboardService>.Instance);
 
         var first = await sut.GetSummary(tenantId);
         var second = await sut.GetSummary(tenantId);
@@ -364,7 +366,7 @@ public class DashboardAnalyticsServiceTests
 
         var entitlementSvc = new Mock<IEntitlementService>();
         using var cache = new MemoryCache(new MemoryCacheOptions());
-        var sut = new DashboardService(db, cache, entitlementSvc.Object, NullLogger<DashboardService>.Instance);
+        var sut = new DashboardService(new TestDbContextFactory(db), cache, entitlementSvc.Object, NullLogger<DashboardService>.Instance);
 
         var result = await sut.GetPartnerDashboard(partner.TenantId);
 

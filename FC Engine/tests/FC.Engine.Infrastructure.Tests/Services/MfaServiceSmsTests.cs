@@ -9,6 +9,8 @@ using Microsoft.EntityFrameworkCore;
 using Moq;
 using OtpNet;
 
+using FC.Engine.Infrastructure.Tests;
+
 namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class MfaServiceSmsTests
@@ -80,7 +82,7 @@ public class MfaServiceSmsTests
             .Callback<NotificationRequest, CancellationToken>((request, _) => captured = request)
             .Returns(Task.CompletedTask);
 
-        var sut = new MfaService(db, tenantContext.Object, orchestrator.Object);
+        var sut = new MfaService(new TestDbContextFactory(db), tenantContext.Object, orchestrator.Object);
 
         var sent = await sut.SendMfaCodeSms(200, "InstitutionUser");
 

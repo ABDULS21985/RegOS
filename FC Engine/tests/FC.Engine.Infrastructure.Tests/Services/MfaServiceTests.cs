@@ -8,6 +8,8 @@ using Microsoft.EntityFrameworkCore;
 using Moq;
 using OtpNet;
 
+using FC.Engine.Infrastructure.Tests;
+
 namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class MfaServiceTests
@@ -25,7 +27,7 @@ public class MfaServiceTests
         tenantContext.SetupGet(x => x.IsPlatformAdmin).Returns(false);
         tenantContext.SetupGet(x => x.ImpersonatingTenantId).Returns((Guid?)null);
 
-        var sut = new MfaService(db, tenantContext.Object);
+        var sut = new MfaService(new TestDbContextFactory(db), tenantContext.Object);
         return (sut, db, tenantId);
     }
 

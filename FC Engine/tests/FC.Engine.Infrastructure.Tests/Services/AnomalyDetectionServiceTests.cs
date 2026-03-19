@@ -10,6 +10,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using UglyToad.PdfPig;
 
+using FC.Engine.Infrastructure.Tests;
+
 namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class AnomalyDetectionServiceTests
@@ -61,7 +63,7 @@ public class AnomalyDetectionServiceTests
         await db.SaveChangesAsync();
 
         var sut = new AnomalyDetectionService(
-            db,
+            new TestDbContextFactory(db),
             trainer,
             audit.Object,
             NullLogger<AnomalyDetectionService>.Instance);
@@ -98,7 +100,7 @@ public class AnomalyDetectionServiceTests
 
         var trainer = new AnomalyModelTrainingService(db, audit.Object, NullLogger<AnomalyModelTrainingService>.Instance);
         var sut = new AnomalyDetectionService(
-            db,
+            new TestDbContextFactory(db),
             trainer,
             audit.Object,
             NullLogger<AnomalyDetectionService>.Instance);
@@ -136,7 +138,7 @@ public class AnomalyDetectionServiceTests
 
         var trainer = new AnomalyModelTrainingService(db, audit.Object, NullLogger<AnomalyModelTrainingService>.Instance);
         var sut = new AnomalyDetectionService(
-            db,
+            new TestDbContextFactory(db),
             trainer,
             audit.Object,
             NullLogger<AnomalyDetectionService>.Instance);
@@ -191,7 +193,7 @@ public class AnomalyDetectionServiceTests
         await db.SaveChangesAsync();
 
         var sut = new AnomalyDetectionService(
-            db,
+            new TestDbContextFactory(db),
             trainer,
             audit.Object,
             NullLogger<AnomalyDetectionService>.Instance);

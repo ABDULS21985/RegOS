@@ -2,6 +2,7 @@ using System.Reflection;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Persistence;
+using FC.Engine.Infrastructure.Tests;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Moq;
@@ -78,7 +79,7 @@ public class GenericDataRepositoryMetadataTests
             tenantContext.Object,
             cache.Object,
             sqlBuilder,
-            db);
+            new TestDbContextFactory(db));
     }
 
     private static MetadataDbContext CreateDbContext(string databaseName)

@@ -225,7 +225,7 @@ public class TemplateBrowserService
         // Header section
         sb.AppendLine("  <Header>");
         sb.AppendLine("    <InstitutionCode>INST001</InstitutionCode>");
-        sb.AppendLine("    <ReportingDate>2026-01-31</ReportingDate>");
+        sb.AppendLine($"    <ReportingDate>{DateTime.UtcNow.AddMonths(-1):yyyy-MM-dd}</ReportingDate>");
         sb.AppendLine($"    <ReturnCode>{template.ReturnCode}</ReturnCode>");
         sb.AppendLine("  </Header>");
 
@@ -333,10 +333,13 @@ public class TemplateBrowserService
                     var latest = g.OrderByDescending(s => s.SubmittedAt).First();
                     return latest.Status.ToString() switch
                     {
-                        "Accepted" or "AcceptedWithWarnings" => "Submitted",
-                        "Rejected" or "ApprovalRejected" => "Overdue",
+                        "Accepted" or "AcceptedWithWarnings"
+                            or "SubmittedToRegulator" or "RegulatorAcknowledged"
+                            or "RegulatorAccepted" or "Historical" => "Submitted",
+                        "Rejected" or "ApprovalRejected" or "RegulatorQueriesRaised" => "Overdue",
                         "PendingApproval" or "Validating" or "Parsing" => "Pending",
-                        _ => "Submitted"
+                        "Draft" => "Pending",
+                        _ => "Pending"
                     };
                 },
                 StringComparer.OrdinalIgnoreCase);

@@ -1,5 +1,4 @@
 using FC.Engine.Domain.Abstractions;
-using FC.Engine.Domain.Enums;
 
 namespace FC.Engine.Portal.Services;
 
@@ -33,10 +32,8 @@ public class SubscriptionOverdueStateService
 
         try
         {
-            var invoices = await _subscriptionService.GetInvoices(tenantId, 1, 100);
-            _overdueAmount = invoices
-                .Where(i => i.Status == InvoiceStatus.Overdue)
-                .Sum(i => i.TotalAmount);
+            var stats = await _subscriptionService.GetInvoiceStats(tenantId);
+            _overdueAmount = stats.OutstandingAmount;
         }
         catch
         {

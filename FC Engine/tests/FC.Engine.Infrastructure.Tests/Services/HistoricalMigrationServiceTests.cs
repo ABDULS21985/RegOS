@@ -11,6 +11,7 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
+using FC.Engine.Infrastructure.Tests;
 
 namespace FC.Engine.Infrastructure.Tests.Services;
 
@@ -267,7 +268,7 @@ public class HistoricalMigrationServiceTests
             new Mock<IBusinessRuleEvaluator>().Object);
 
         return new HistoricalMigrationService(
-            db,
+            new TestDbContextFactory(db),
             templateCache,
             parsers,
             dataRepository,
