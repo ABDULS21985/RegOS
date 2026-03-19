@@ -289,10 +289,12 @@ public class TenantOnboardingService : ITenantOnboardingService
         result.AdminTemporaryPassword = tempPassword;
 
         // ── Step 6: Create Subscription + auto-activate required modules ──
+        // Pass the current DbContext so the subscription service participates in the same transaction
         await _subscriptionService.CreateSubscription(
             tenant.TenantId,
             selectedPlan.PlanCode,
             BillingFrequency.Monthly,
+            _db,
             ct);
 
         var baselineEntitlement = await ResolveEntitlementsUsingCurrentContext(tenant.TenantId, ct);
@@ -300,7 +302,7 @@ public class TenantOnboardingService : ITenantOnboardingService
         {
             try
             {
-                await _subscriptionService.ActivateModule(tenant.TenantId, requiredModule.ModuleCode, ct);
+                await _subscriptionService.ActivateModule(tenant.TenantId, requiredModule.ModuleCode, _db, ct);
             }
             catch (Exception ex)
             {

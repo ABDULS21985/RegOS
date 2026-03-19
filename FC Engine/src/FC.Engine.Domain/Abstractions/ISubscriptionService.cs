@@ -6,11 +6,13 @@ namespace FC.Engine.Domain.Abstractions;
 public interface ISubscriptionService
 {
     Task<Subscription> CreateSubscription(Guid tenantId, string planCode, BillingFrequency frequency, CancellationToken ct = default);
+    Task<Subscription> CreateSubscription(Guid tenantId, string planCode, BillingFrequency frequency, object? sharedDbContext, CancellationToken ct = default);
     Task<Subscription> UpgradePlan(Guid tenantId, string newPlanCode, CancellationToken ct = default);
     Task<Subscription> DowngradePlan(Guid tenantId, string newPlanCode, CancellationToken ct = default);
     Task CancelSubscription(Guid tenantId, string reason, CancellationToken ct = default);
 
     Task<SubscriptionModule> ActivateModule(Guid tenantId, string moduleCode, CancellationToken ct = default);
+    Task<SubscriptionModule> ActivateModule(Guid tenantId, string moduleCode, object? sharedDbContext, CancellationToken ct = default);
     Task DeactivateModule(Guid tenantId, string moduleCode, CancellationToken ct = default);
     Task<List<ModuleAvailability>> GetAvailableModules(Guid tenantId, CancellationToken ct = default);
 

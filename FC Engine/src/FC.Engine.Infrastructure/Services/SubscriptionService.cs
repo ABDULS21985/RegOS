@@ -36,57 +36,82 @@ public class SubscriptionService : ISubscriptionService
         _subscriptionModuleEntitlementBootstrapService = subscriptionModuleEntitlementBootstrapService;
     }
 
-    public async Task<Subscription> CreateSubscription(
+    public Task<Subscription> CreateSubscription(
         Guid tenantId,
         string planCode,
         BillingFrequency frequency,
         CancellationToken ct = default)
+        => CreateSubscriptionInternal(tenantId, planCode, frequency, null, ct);
+
+    public Task<Subscription> CreateSubscription(
+        Guid tenantId,
+        string planCode,
+        BillingFrequency frequency,
+        object? sharedDbContext,
+        CancellationToken ct = default)
+        => CreateSubscriptionInternal(tenantId, planCode, frequency, sharedDbContext as MetadataDbContext, ct);
+
+    private async Task<Subscription> CreateSubscriptionInternal(
+        Guid tenantId,
+        string planCode,
+        BillingFrequency frequency,
+        MetadataDbContext? externalDb,
+        CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-
-        var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.TenantId == tenantId, ct)
-            ?? throw new InvalidOperationException($"Tenant {tenantId} not found");
-
-        var existing = await db.Subscriptions
-            .FirstOrDefaultAsync(s => s.TenantId == tenantId
-                && s.Status != SubscriptionStatus.Cancelled
-                && s.Status != SubscriptionStatus.Expired, ct);
-
-        if (existing is not null)
-            throw new InvalidOperationException($"Tenant {tenantId} already has an active/trial subscription");
-
-        var plan = await db.SubscriptionPlans
-            .FirstOrDefaultAsync(p => p.PlanCode == planCode && p.IsActive, ct)
-            ?? throw new InvalidOperationException($"Plan {planCode} not found or inactive");
-
-        var now = DateTime.UtcNow;
-        var sub = new Subscription
+        MetadataDbContext? ownedDb = null;
+        try
         {
-            TenantId = tenantId,
-            PlanId = plan.Id,
-            BillingFrequency = frequency,
-            CurrentPeriodStart = now,
-            CurrentPeriodEnd = frequency == BillingFrequency.Monthly ? now.AddMonths(1) : now.AddYears(1),
-            TrialEndsAt = now.AddDays(plan.TrialDays),
-            CreatedAt = now,
-            UpdatedAt = now
-        };
+            var db = externalDb ?? (ownedDb = await _dbFactory.CreateDbContextAsync(ct));
 
-        db.Subscriptions.Add(sub);
-        await db.SaveChangesAsync(ct);
+            var tenant = await db.Tenants.FirstOrDefaultAsync(t => t.TenantId == tenantId, ct)
+                ?? throw new InvalidOperationException($"Tenant {tenantId} not found");
 
-        _logger.LogInformation("Created {Status} subscription for tenant {TenantId} on plan {PlanCode}",
-            sub.Status, tenantId, planCode);
+            var existing = await db.Subscriptions
+                .FirstOrDefaultAsync(s => s.TenantId == tenantId
+                    && s.Status != SubscriptionStatus.Cancelled
+                    && s.Status != SubscriptionStatus.Expired, ct);
 
-        if (_subscriptionModuleEntitlementBootstrapService is not null)
-        {
-            await _subscriptionModuleEntitlementBootstrapService.EnsureIncludedModulesForSubscriptionAsync(sub.Id, ct);
+            if (existing is not null)
+                throw new InvalidOperationException($"Tenant {tenantId} already has an active/trial subscription");
+
+            var plan = await db.SubscriptionPlans
+                .FirstOrDefaultAsync(p => p.PlanCode == planCode && p.IsActive, ct)
+                ?? throw new InvalidOperationException($"Plan {planCode} not found or inactive");
+
+            var now = DateTime.UtcNow;
+            var sub = new Subscription
+            {
+                TenantId = tenantId,
+                PlanId = plan.Id,
+                BillingFrequency = frequency,
+                CurrentPeriodStart = now,
+                CurrentPeriodEnd = frequency == BillingFrequency.Monthly ? now.AddMonths(1) : now.AddYears(1),
+                TrialEndsAt = now.AddDays(plan.TrialDays),
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+
+            db.Subscriptions.Add(sub);
+            await db.SaveChangesAsync(ct);
+
+            _logger.LogInformation("Created {Status} subscription for tenant {TenantId} on plan {PlanCode}",
+                sub.Status, tenantId, planCode);
+
+            if (_subscriptionModuleEntitlementBootstrapService is not null)
+            {
+                await _subscriptionModuleEntitlementBootstrapService.EnsureIncludedModulesForSubscriptionAsync(sub.Id, ct);
+            }
+
+            await _entitlementService.InvalidateCache(tenantId);
+            sub.Plan = plan;
+            sub.Tenant = tenant;
+            return sub;
         }
-
-        await _entitlementService.InvalidateCache(tenantId);
-        sub.Plan = plan;
-        sub.Tenant = tenant;
-        return sub;
+        finally
+        {
+            if (ownedDb is not null)
+                await ownedDb.DisposeAsync();
+        }
     }
 
     public Task<Subscription> UpgradePlan(Guid tenantId, string newPlanCode, CancellationToken ct = default)
@@ -105,109 +130,124 @@ public class SubscriptionService : ISubscriptionService
         await _entitlementService.InvalidateCache(tenantId);
     }
 
-    public async Task<SubscriptionModule> ActivateModule(Guid tenantId, string moduleCode, CancellationToken ct = default)
+    public Task<SubscriptionModule> ActivateModule(Guid tenantId, string moduleCode, CancellationToken ct = default)
+        => ActivateModuleInternal(tenantId, moduleCode, null, ct);
+
+    public Task<SubscriptionModule> ActivateModule(Guid tenantId, string moduleCode, object? sharedDbContext, CancellationToken ct = default)
+        => ActivateModuleInternal(tenantId, moduleCode, sharedDbContext as MetadataDbContext, ct);
+
+    private async Task<SubscriptionModule> ActivateModuleInternal(Guid tenantId, string moduleCode, MetadataDbContext? externalDb, CancellationToken ct)
     {
-        await using var db = await _dbFactory.CreateDbContextAsync(ct);
-
-        var subscription = await GetActiveSubscriptionInternal(db, tenantId, includeModules: true, ct);
-        var plan = subscription.Plan ?? await db.SubscriptionPlans.FindAsync(new object[] { subscription.PlanId }, ct)
-            ?? throw new InvalidOperationException("Subscription plan not found");
-
-        var module = await db.Modules
-            .FirstOrDefaultAsync(m => m.ModuleCode == moduleCode && m.IsActive, ct)
-            ?? throw new InvalidOperationException($"Module {moduleCode} not found");
-
-        // GATE 1: Licence eligibility
-        var licenceIds = await db.TenantLicenceTypes
-            .Where(t => t.TenantId == tenantId && t.IsActive)
-            .Select(t => t.LicenceTypeId)
-            .ToListAsync(ct);
-
-        var eligible = await db.LicenceModuleMatrix
-            .AnyAsync(m => licenceIds.Contains(m.LicenceTypeId) && m.ModuleId == module.Id, ct);
-
-        if (!eligible)
-            throw new InvalidOperationException($"Module {moduleCode} not eligible for tenant licence type(s)");
-
-        // GATE 2: Plan availability
-        var pricing = await db.PlanModulePricing
-            .FirstOrDefaultAsync(p => p.PlanId == subscription.PlanId && p.ModuleId == module.Id, ct);
-
-        if (pricing is null)
-            throw new InvalidOperationException($"Module {moduleCode} not available on plan {plan.PlanName}");
-
-        // GATE 3: Plan module limit
-        var activeCount = await db.SubscriptionModules
-            .CountAsync(sm => sm.SubscriptionId == subscription.Id && sm.IsActive, ct);
-
-        var existing = await db.SubscriptionModules
-            .FirstOrDefaultAsync(sm => sm.SubscriptionId == subscription.Id && sm.ModuleId == module.Id, ct);
-
-        if (existing?.IsActive == true)
-            throw new InvalidOperationException($"Module {moduleCode} already active");
-
-        if (existing is null && activeCount >= plan.MaxModules)
-            throw new InvalidOperationException($"Module limit reached ({activeCount}/{plan.MaxModules})");
-
-        if (existing is not null)
+        MetadataDbContext? ownedDb = null;
+        try
         {
-            existing.Reactivate(pricing.PriceMonthly, pricing.PriceAnnual);
-        }
-        else
-        {
-            existing = new SubscriptionModule
+            var db = externalDb ?? (ownedDb = await _dbFactory.CreateDbContextAsync(ct));
+
+            var subscription = await GetActiveSubscriptionInternal(db, tenantId, includeModules: true, ct);
+            var plan = subscription.Plan ?? await db.SubscriptionPlans.FindAsync(new object[] { subscription.PlanId }, ct)
+                ?? throw new InvalidOperationException("Subscription plan not found");
+
+            var module = await db.Modules
+                .FirstOrDefaultAsync(m => m.ModuleCode == moduleCode && m.IsActive, ct)
+                ?? throw new InvalidOperationException($"Module {moduleCode} not found");
+
+            // GATE 1: Licence eligibility
+            var licenceIds = await db.TenantLicenceTypes
+                .Where(t => t.TenantId == tenantId && t.IsActive)
+                .Select(t => t.LicenceTypeId)
+                .ToListAsync(ct);
+
+            var eligible = await db.LicenceModuleMatrix
+                .AnyAsync(m => licenceIds.Contains(m.LicenceTypeId) && m.ModuleId == module.Id, ct);
+
+            if (!eligible)
+                throw new InvalidOperationException($"Module {moduleCode} not eligible for tenant licence type(s)");
+
+            // GATE 2: Plan availability
+            var pricing = await db.PlanModulePricing
+                .FirstOrDefaultAsync(p => p.PlanId == subscription.PlanId && p.ModuleId == module.Id, ct);
+
+            if (pricing is null)
+                throw new InvalidOperationException($"Module {moduleCode} not available on plan {plan.PlanName}");
+
+            // GATE 3: Plan module limit
+            var activeCount = await db.SubscriptionModules
+                .CountAsync(sm => sm.SubscriptionId == subscription.Id && sm.IsActive, ct);
+
+            var existing = await db.SubscriptionModules
+                .FirstOrDefaultAsync(sm => sm.SubscriptionId == subscription.Id && sm.ModuleId == module.Id, ct);
+
+            if (existing?.IsActive == true)
+                throw new InvalidOperationException($"Module {moduleCode} already active");
+
+            if (existing is null && activeCount >= plan.MaxModules)
+                throw new InvalidOperationException($"Module limit reached ({activeCount}/{plan.MaxModules})");
+
+            if (existing is not null)
             {
-                SubscriptionId = subscription.Id,
-                ModuleId = module.Id,
-                PriceMonthly = pricing.PriceMonthly,
-                PriceAnnual = pricing.PriceAnnual,
-                IsActive = true
-            };
-            db.SubscriptionModules.Add(existing);
-        }
-
-        await db.SaveChangesAsync(ct);
-        await _entitlementService.InvalidateCache(tenantId);
-
-        if (_notificationOrchestrator is not null)
-        {
-            try
+                existing.Reactivate(pricing.PriceMonthly, pricing.PriceAnnual);
+            }
+            else
             {
-                await _notificationOrchestrator.Notify(new NotificationRequest
+                existing = new SubscriptionModule
                 {
-                    TenantId = tenantId,
-                    EventType = NotificationEvents.ModuleActivated,
-                    Title = $"Module activated: {module.ModuleName}",
-                    Message = $"{module.ModuleName} ({module.ModuleCode}) is now active for your subscription.",
-                    Priority = NotificationPriority.Normal,
-                    RecipientRoles = new List<string> { "Admin" },
-                    ActionUrl = "/subscription/modules",
-                    Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                    SubscriptionId = subscription.Id,
+                    ModuleId = module.Id,
+                    PriceMonthly = pricing.PriceMonthly,
+                    PriceAnnual = pricing.PriceAnnual,
+                    IsActive = true
+                };
+                db.SubscriptionModules.Add(existing);
+            }
+
+            await db.SaveChangesAsync(ct);
+            await _entitlementService.InvalidateCache(tenantId);
+
+            if (_notificationOrchestrator is not null)
+            {
+                try
+                {
+                    await _notificationOrchestrator.Notify(new NotificationRequest
                     {
-                        ["ModuleName"] = module.ModuleName,
-                        ["ModuleCode"] = module.ModuleCode
-                    }
-                }, ct);
+                        TenantId = tenantId,
+                        EventType = NotificationEvents.ModuleActivated,
+                        Title = $"Module activated: {module.ModuleName}",
+                        Message = $"{module.ModuleName} ({module.ModuleCode}) is now active for your subscription.",
+                        Priority = NotificationPriority.Normal,
+                        RecipientRoles = new List<string> { "Admin" },
+                        ActionUrl = "/subscription/modules",
+                        Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["ModuleName"] = module.ModuleName,
+                            ["ModuleCode"] = module.ModuleCode
+                        }
+                    }, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to emit module activation notification for tenant {TenantId}", tenantId);
+                }
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to emit module activation notification for tenant {TenantId}", tenantId);
-            }
-        }
 
-        // Publish domain event for webhook/event bus (RG-30)
-        if (_domainEventPublisher is not null)
+            // Publish domain event for webhook/event bus (RG-30)
+            if (_domainEventPublisher is not null)
+            {
+                try
+                {
+                    await _domainEventPublisher.PublishAsync(new ModuleActivatedEvent(
+                        tenantId, module.ModuleCode, module.ModuleName,
+                        DateTime.UtcNow, DateTime.UtcNow, Guid.NewGuid()), ct);
+                }
+                catch { }
+            }
+
+            return existing;
+        }
+        finally
         {
-            try
-            {
-                await _domainEventPublisher.PublishAsync(new ModuleActivatedEvent(
-                    tenantId, module.ModuleCode, module.ModuleName,
-                    DateTime.UtcNow, DateTime.UtcNow, Guid.NewGuid()), ct);
-            }
-            catch { }
+            if (ownedDb is not null)
+                await ownedDb.DisposeAsync();
         }
-
-        return existing;
     }
 
     public async Task DeactivateModule(Guid tenantId, string moduleCode, CancellationToken ct = default)
