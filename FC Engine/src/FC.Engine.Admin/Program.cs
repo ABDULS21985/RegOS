@@ -343,7 +343,7 @@ app.MapPost("/account/reset-password", async (HttpContext context, AuthService a
         return;
     }
 
-    if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 8)
+    if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 12)
     {
         context.Response.Redirect($"/reset-password?token={token}&error=weak");
         return;

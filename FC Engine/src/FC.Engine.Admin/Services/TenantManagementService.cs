@@ -411,6 +411,27 @@ public class TenantManagementService
             .ToListAsync(ct);
     }
 
+    /// <summary>
+    /// Returns the licence-module eligibility matrix for active licences and modules.
+    /// Used by the TenantSetupWizard for module selection.
+    /// </summary>
+    public async Task<List<LicenceModuleMatrixRow>> GetLicenceModuleMatrixAsync(CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        return await (
+            from matrix in db.LicenceModuleMatrix.AsNoTracking()
+            join licence in db.LicenceTypes.AsNoTracking() on matrix.LicenceTypeId equals licence.Id
+            join module in db.Modules.AsNoTracking() on matrix.ModuleId equals module.Id
+            where licence.IsActive && module.IsActive
+            select new LicenceModuleMatrixRow
+            {
+                ModuleCode = module.ModuleCode,
+                LicenceCode = licence.Code,
+                IsRequired = matrix.IsRequired
+            })
+            .ToListAsync(ct);
+    }
+
     public async Task<string?> GetTenantName(Guid tenantId, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
@@ -869,4 +890,11 @@ public class TenantModuleReconciliationBatchResult
     public int RequestedTenants { get; set; }
     public int ProcessedTenants { get; set; }
     public SubscriptionModuleEntitlementBootstrapResult Reconciliation { get; set; } = new();
+}
+
+public class LicenceModuleMatrixRow
+{
+    public string ModuleCode { get; set; } = string.Empty;
+    public string LicenceCode { get; set; } = string.Empty;
+    public bool IsRequired { get; set; }
 }

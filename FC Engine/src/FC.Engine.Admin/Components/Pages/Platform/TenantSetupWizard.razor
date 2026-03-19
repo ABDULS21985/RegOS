@@ -3,13 +3,11 @@
 @attribute [Authorize(Policy = "PlatformAdmin")]
 @using FC.Engine.Admin.Components.Shared
 @using FC.Engine.Admin.Services
-@using FC.Engine.Infrastructure.Metadata
 @using Microsoft.AspNetCore.Authorization
-@using Microsoft.EntityFrameworkCore
 @inject NavigationManager Navigation
 @inject ToastService Toast
 @inject TenantManagementService TenantService
-@inject IDbContextFactory<MetadataDbContext> DbFactory
+@* Catalogue queries now use TenantService instead of direct DbContext access *@
 
 <PageTitle>New Tenant Setup | RegOS Platform</PageTitle>
 
@@ -382,40 +380,13 @@
 
         try
         {
-            await using var db = await DbFactory.CreateDbContextAsync();
-
-            _licenceOptions = await db.LicenceTypes
-                .AsNoTracking()
-                .Where(x => x.IsActive)
-                .OrderBy(x => x.DisplayOrder)
+            var licenceTypes = await TenantService.GetAllLicenceTypesAsync();
+            _licenceOptions = licenceTypes
                 .Select(x => new LicenceOption(x.Code, x.Name, x.Regulator))
-                .ToListAsync();
+                .ToList();
 
-            var modules = await db.Modules
-                .AsNoTracking()
-                .Where(x => x.IsActive)
-                .OrderBy(x => x.DisplayOrder)
-                .Select(x => new
-                {
-                    x.ModuleCode,
-                    x.ModuleName,
-                    x.Description,
-                    x.RegulatorCode
-                })
-                .ToListAsync();
-
-            var matrixRows = await (
-                from matrix in db.LicenceModuleMatrix.AsNoTracking()
-                join licence in db.LicenceTypes.AsNoTracking() on matrix.LicenceTypeId equals licence.Id
-                join module in db.Modules.AsNoTracking() on matrix.ModuleId equals module.Id
-                where licence.IsActive && module.IsActive
-                select new
-                {
-                    module.ModuleCode,
-                    LicenceCode = licence.Code,
-                    matrix.IsRequired
-                })
-                .ToListAsync();
+            var modules = await TenantService.GetAllModulesAsync();
+            var matrixRows = await TenantService.GetLicenceModuleMatrixAsync();
 
             _availableModules = modules
                 .Select(module =>

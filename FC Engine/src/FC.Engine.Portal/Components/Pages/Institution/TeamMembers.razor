@@ -870,6 +870,21 @@
         finally { isLoading = false; }
     }
 
+    protected override Task OnParametersSetAsync()
+    {
+        // Sync filter state from URL query params on browser back/forward navigation
+        if (!string.IsNullOrEmpty(Q) && Q != tmSearch) tmSearch = Q;
+        else if (string.IsNullOrEmpty(Q) && !string.IsNullOrEmpty(tmSearch)) tmSearch = "";
+
+        if (!string.IsNullOrEmpty(RoleParam) && RoleParam != tmFilterRole) tmFilterRole = RoleParam;
+        else if (string.IsNullOrEmpty(RoleParam) && !string.IsNullOrEmpty(tmFilterRole)) tmFilterRole = "";
+
+        if (!string.IsNullOrEmpty(StatusParam) && StatusParam != tmFilterStatus) tmFilterStatus = StatusParam;
+        else if (string.IsNullOrEmpty(StatusParam) && !string.IsNullOrEmpty(tmFilterStatus)) tmFilterStatus = "";
+
+        return Task.CompletedTask;
+    }
+
     protected override void OnAfterRender(bool firstRender)
     {
         if (firstRender)

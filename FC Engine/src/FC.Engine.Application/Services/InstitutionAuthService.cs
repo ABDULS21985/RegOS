@@ -192,11 +192,11 @@ public class InstitutionAuthService
     }
 
     /// <summary>
-    /// Validates password meets minimum requirements: 8+ chars, uppercase, lowercase, digit.
+    /// Validates password meets minimum requirements: 12+ chars, uppercase, lowercase, digit.
     /// </summary>
     private static bool IsPasswordValid(string password)
     {
-        return password.Length >= 8
+        return password.Length >= 12
             && password.Any(char.IsUpper)
             && password.Any(char.IsLower)
             && password.Any(char.IsDigit);

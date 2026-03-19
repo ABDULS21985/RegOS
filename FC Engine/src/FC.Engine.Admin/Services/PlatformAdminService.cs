@@ -594,6 +594,17 @@ public class PlatformAdminService
             .Take(100)
             .ToListAsync(ct);
 
+        // Batch-query MFA status for all institution users to avoid N+1
+        var institutionUserIds = institutionUsers.Select(u => u.Id).ToList();
+        var mfaEnabledUserIds = institutionUserIds.Count > 0
+            ? (await db.UserMfaConfigs
+                .AsNoTracking()
+                .Where(c => institutionUserIds.Contains(c.UserId) && c.UserType == "InstitutionUser" && c.IsEnabled)
+                .Select(c => c.UserId)
+                .ToListAsync(ct))
+                .ToHashSet()
+            : new HashSet<int>();
+
         return new PlatformTenantDetailData
         {
             TenantId = tenant.TenantId,
@@ -662,7 +673,7 @@ public class PlatformAdminService
                 Email = u.Email,
                 Role = u.Role.ToString(),
                 LastLoginAt = u.LastLoginAt,
-                MfaEnabled = false
+                MfaEnabled = mfaEnabledUserIds.Contains(u.Id)
             }).ToList(),
             Entities = entities.Select(e => new TenantEntityItem
             {
