@@ -3,8 +3,13 @@ namespace FC.Engine.Application.Models;
 public class ModuleDefinition
 {
     public string ModuleCode { get; set; } = string.Empty;
+    public string ModuleName { get; set; } = string.Empty;
     public string ModuleVersion { get; set; } = "1.0.0";
+    public string RegulatorCode { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string DefaultFrequency { get; set; } = "Monthly";
+    public int? DeadlineOffsetDays { get; set; }
+    public int DisplayOrder { get; set; }
     public List<TemplateDef> Templates { get; set; } = new();
     public List<DataFlowDef> InterModuleDataFlows { get; set; } = new();
 }

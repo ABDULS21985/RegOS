@@ -1090,7 +1090,8 @@
         _sendingInvite = true;
         try
         {
-            var ok = await MgmtSvc.SendInvitation(institutionId, inviteEmail.Trim(), inviteRole);
+            var permissions = _invitePerms.Where(p => p.Granted).Select(p => p.Name).ToList();
+            var ok = await MgmtSvc.SendInvitation(institutionId, inviteEmail.Trim(), inviteRole, permissions);
             if (ok)
             {
                 _inviteSent = true;

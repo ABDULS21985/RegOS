@@ -223,17 +223,9 @@ public class SubmissionService
         if (submission is null || submission.InstitutionId != institutionId)
             return false;
 
-        switch (targetStatus)
-        {
-            case SubmissionStatus.Historical:
-                submission.MarkHistorical();
-                break;
-            case SubmissionStatus.ApprovalRejected:
-                submission.MarkApprovalRejected();
-                break;
-            default:
-                return false;
-        }
+        // Use the entity's transition guard to validate the state change
+        if (!submission.TryTransitionTo(targetStatus))
+            return false;
 
         await _submissionRepo.Update(submission);
         return true;

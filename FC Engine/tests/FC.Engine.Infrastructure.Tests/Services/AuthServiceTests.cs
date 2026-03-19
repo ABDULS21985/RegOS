@@ -363,7 +363,7 @@ public class AuthServiceTests
             .Callback<PortalUser, CancellationToken>((u, _) => captured = u)
             .ReturnsAsync((PortalUser u, CancellationToken _) => u);
 
-        var result = await _sut.CreateUser("newuser", "New User", "new@fcengine.local", "NewPass1!", PortalRole.Approver);
+        var result = await _sut.CreateUser("newuser", "New User", "new@fcengine.local", "NewPass1!Secure", PortalRole.Approver);
 
         captured.Should().NotBeNull();
         captured!.Username.Should().Be("newuser");
@@ -371,7 +371,7 @@ public class AuthServiceTests
         captured.Email.Should().Be("new@fcengine.local");
         captured.Role.Should().Be(PortalRole.Approver);
         captured.IsActive.Should().BeTrue();
-        captured.PasswordHash.Should().NotBe("NewPass1!");
+        captured.PasswordHash.Should().NotBe("NewPass1!Secure");
         captured.PasswordHash.Should().Contain(":");
         captured.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
     }
@@ -383,7 +383,7 @@ public class AuthServiceTests
             .Setup(r => r.UsernameExists("existing", It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        var act = () => _sut.CreateUser("existing", "Name", "e@e.com", "P@ss1!", PortalRole.Viewer);
+        var act = () => _sut.CreateUser("existing", "Name", "e@e.com", "P@ss1!Secure12", PortalRole.Viewer);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*'existing'*");
@@ -442,7 +442,7 @@ public class AuthServiceTests
         _userRepoMock.Setup(r => r.GetById(10, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        await _sut.ChangePassword(10, "NewPass1!");
+        await _sut.ChangePassword(10, "NewPass1!Secure");
 
         user.PasswordHash.Should().NotBe(oldHash);
         user.PasswordHash.Should().Contain(":");
@@ -463,7 +463,7 @@ public class AuthServiceTests
         _userRepoMock.Setup(r => r.GetById(10, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        await _sut.ChangePassword(10, "NewPass1!");
+        await _sut.ChangePassword(10, "NewPass1!Secure");
 
         user.FailedLoginAttempts.Should().Be(0);
         user.LockoutEnd.Should().BeNull();
@@ -474,7 +474,7 @@ public class AuthServiceTests
     {
         _userRepoMock.Setup(r => r.GetById(999, It.IsAny<CancellationToken>())).ReturnsAsync((PortalUser?)null);
 
-        var act = () => _sut.ChangePassword(999, "NewPass1!");
+        var act = () => _sut.ChangePassword(999, "NewPass1!Secure");
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*User not found*");
     }
@@ -859,7 +859,7 @@ public class AuthServiceTests
     public async Task FullLifecycle_CreateUser_Login_Lockout_ResetPassword_LoginAgain()
     {
         // Step 1: Create user
-        var password = "Initial1!";
+        var password = "Initial1!Secure";
         PortalUser? createdUser = null;
 
         _userRepoMock.Setup(r => r.UsernameExists("lifecycle", It.IsAny<CancellationToken>())).ReturnsAsync(false);

@@ -17,11 +17,22 @@ public class SubmissionRepository : ISubmissionRepository
         _tenantContext = tenantContext;
     }
 
+    /// <summary>
+    /// Applies automatic tenant scoping to queries. Platform admins (no tenant) see all data.
+    /// </summary>
+    private IQueryable<Submission> ApplyTenantFilter(IQueryable<Submission> query)
+    {
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (tenantId.HasValue)
+            query = query.Where(s => s.TenantId == tenantId.Value);
+        return query;
+    }
+
     public async Task<Submission?> GetById(int id, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        return await db.Submissions
+        return await ApplyTenantFilter(db.Submissions)
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .FirstOrDefaultAsync(s => s.Id == id, ct);
@@ -31,7 +42,7 @@ public class SubmissionRepository : ISubmissionRepository
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        return await db.Submissions
+        return await ApplyTenantFilter(db.Submissions)
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
@@ -43,7 +54,7 @@ public class SubmissionRepository : ISubmissionRepository
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        return await db.Submissions
+        return await ApplyTenantFilter(db.Submissions)
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
@@ -58,7 +69,7 @@ public class SubmissionRepository : ISubmissionRepository
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        var query = db.Submissions
+        var query = ApplyTenantFilter(db.Submissions)
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
@@ -83,7 +94,7 @@ public class SubmissionRepository : ISubmissionRepository
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        return await db.Submissions
+        return await ApplyTenantFilter(db.Submissions)
             .Where(s => s.InstitutionId == institutionId)
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
@@ -97,7 +108,7 @@ public class SubmissionRepository : ISubmissionRepository
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        return await db.Submissions
+        return await ApplyTenantFilter(db.Submissions)
             .Include(s => s.Institution)
             .Include(s => s.ReturnPeriod)
             .Include(s => s.ValidationReport)
@@ -111,14 +122,14 @@ public class SubmissionRepository : ISubmissionRepository
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        return await db.Submissions.CountAsync(s => s.Status == status, ct);
+        return await ApplyTenantFilter(db.Submissions).CountAsync(s => s.Status == status, ct);
     }
 
     public async Task<int> GetTotalCount(CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
 
-        return await db.Submissions.CountAsync(ct);
+        return await ApplyTenantFilter(db.Submissions).CountAsync(ct);
     }
 
     public async Task Add(Submission submission, CancellationToken ct = default)

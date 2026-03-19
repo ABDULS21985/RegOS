@@ -67,6 +67,10 @@ public class TemplateVersionConfiguration : IEntityTypeConfiguration<TemplateVer
         builder.HasMany(v => v.IntraSheetFormulas)
             .WithOne()
             .HasForeignKey(f => f.TemplateVersionId);
+
+        builder.HasMany(v => v.Sections)
+            .WithOne()
+            .HasForeignKey(s => s.TemplateVersionId);
     }
 }
 

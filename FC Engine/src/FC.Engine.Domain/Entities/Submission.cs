@@ -70,14 +70,17 @@ public class Submission
     private static readonly IReadOnlyDictionary<SubmissionStatus, IReadOnlySet<SubmissionStatus>> _allowedTransitions =
         new Dictionary<SubmissionStatus, IReadOnlySet<SubmissionStatus>>
         {
-            [SubmissionStatus.Draft]           = new HashSet<SubmissionStatus> { SubmissionStatus.PendingApproval, SubmissionStatus.Rejected },
-            [SubmissionStatus.PendingApproval] = new HashSet<SubmissionStatus> { SubmissionStatus.Accepted, SubmissionStatus.AcceptedWithWarnings, SubmissionStatus.Rejected, SubmissionStatus.ApprovalRejected, SubmissionStatus.Draft },
+            [SubmissionStatus.Draft]           = new HashSet<SubmissionStatus> { SubmissionStatus.PendingApproval, SubmissionStatus.Parsing, SubmissionStatus.Rejected, SubmissionStatus.Historical },
+            [SubmissionStatus.Parsing]         = new HashSet<SubmissionStatus> { SubmissionStatus.Validating, SubmissionStatus.Rejected },
             [SubmissionStatus.Validating]      = new HashSet<SubmissionStatus> { SubmissionStatus.Accepted, SubmissionStatus.AcceptedWithWarnings, SubmissionStatus.Rejected },
-            [SubmissionStatus.Parsing]         = new HashSet<SubmissionStatus> { SubmissionStatus.Rejected },
-            [SubmissionStatus.Accepted]        = new HashSet<SubmissionStatus> { SubmissionStatus.Historical },
-            [SubmissionStatus.AcceptedWithWarnings] = new HashSet<SubmissionStatus> { SubmissionStatus.Historical },
+            [SubmissionStatus.PendingApproval] = new HashSet<SubmissionStatus> { SubmissionStatus.Accepted, SubmissionStatus.AcceptedWithWarnings, SubmissionStatus.Rejected, SubmissionStatus.ApprovalRejected, SubmissionStatus.Draft, SubmissionStatus.Historical },
+            [SubmissionStatus.Accepted]        = new HashSet<SubmissionStatus> { SubmissionStatus.Historical, SubmissionStatus.SubmittedToRegulator },
+            [SubmissionStatus.AcceptedWithWarnings] = new HashSet<SubmissionStatus> { SubmissionStatus.Historical, SubmissionStatus.SubmittedToRegulator },
             [SubmissionStatus.Rejected]        = new HashSet<SubmissionStatus> { SubmissionStatus.Draft },
             [SubmissionStatus.ApprovalRejected] = new HashSet<SubmissionStatus> { SubmissionStatus.Draft },
+            [SubmissionStatus.SubmittedToRegulator] = new HashSet<SubmissionStatus> { SubmissionStatus.RegulatorAcknowledged, SubmissionStatus.RegulatorAccepted, SubmissionStatus.RegulatorQueriesRaised },
+            [SubmissionStatus.RegulatorAcknowledged] = new HashSet<SubmissionStatus> { SubmissionStatus.RegulatorAccepted, SubmissionStatus.RegulatorQueriesRaised },
+            [SubmissionStatus.RegulatorQueriesRaised] = new HashSet<SubmissionStatus> { SubmissionStatus.Draft, SubmissionStatus.SubmittedToRegulator },
         };
 
     /// <summary>

@@ -6,10 +6,12 @@
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Application.Services
 @using FC.Engine.Admin.Services
+@using Microsoft.EntityFrameworkCore
 @inject IPortalUserRepository UserRepo
 @inject AuthService AuthService
 @inject ToastService Toast
 @inject DialogService Dialog
+@inject IDbContextFactory<FC.Engine.Infrastructure.Metadata.MetadataDbContext> DbFactory
 
 <PageHeader Title="User Management"
             Subtitle="Manage platform identities, roles, and access across the RegOS™ administrative portal.">
@@ -174,6 +176,18 @@
             }
 
             <div class="fc-form-group">
+                <label class="fc-form-label">Tenant Scope</label>
+                <select class="fc-form-input" @bind="_formTenantId">
+                    <option value="">Platform Admin (no tenant)</option>
+                    @foreach (var t in _tenantOptions)
+                    {
+                        <option value="@t.TenantId">@t.TenantName</option>
+                    }
+                </select>
+                <small class="fc-form-hint">Leave as "Platform Admin" for users who need cross-tenant access.</small>
+            </div>
+
+            <div class="fc-form-group">
                 <label class="fc-form-label fc-form-label-required">Display Name</label>
                 <input class="fc-form-input" @bind="_formDisplayName" placeholder="e.g. John Doe" />
             </div>
@@ -281,8 +295,12 @@
     private string _formEmail = "";
     private string _formPassword = "";
     private PortalRole _formRole = PortalRole.Viewer;
+    private string _formTenantId = "";
     private string? _formError;
     private bool _saving;
+
+    // Tenant options for scoping
+    private List<TenantOption> _tenantOptions = new();
 
     // Password reset modal
     private bool _showPasswordModal;
@@ -307,6 +325,12 @@
     protected override async Task OnInitializedAsync()
     {
         _users = await UserRepo.GetAll();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _tenantOptions = await db.Tenants
+            .Where(t => t.Status == Domain.Enums.TenantStatus.Active)
+            .OrderBy(t => t.TenantName)
+            .Select(t => new TenantOption { TenantId = t.TenantId, TenantName = t.TenantName })
+            .ToListAsync();
         _loading = false;
     }
 
@@ -342,6 +366,7 @@
         _formEmail = "";
         _formPassword = "";
         _formRole = PortalRole.Viewer;
+        _formTenantId = "";
         _formError = null;
         _showModal = true;
     }
@@ -352,6 +377,7 @@
         _formDisplayName = user.DisplayName;
         _formEmail = user.Email;
         _formRole = user.Role;
+        _formTenantId = user.TenantId?.ToString() ?? "";
         _formError = null;
         _showModal = true;
     }
@@ -397,7 +423,8 @@
                     return;
                 }
 
-                await AuthService.CreateUser(_formUsername.Trim(), _formDisplayName.Trim(), _formEmail.Trim(), _formPassword, _formRole);
+                Guid? tenantId = string.IsNullOrEmpty(_formTenantId) ? null : Guid.Parse(_formTenantId);
+                await AuthService.CreateUser(_formUsername.Trim(), _formDisplayName.Trim(), _formEmail.Trim(), _formPassword, _formRole, tenantId);
                 Toast.Success($"User '{_formDisplayName.Trim()}' created successfully.");
             }
             else
@@ -420,11 +447,13 @@
                 var previousDisplayName = _editingUser.DisplayName;
                 var previousEmail = _editingUser.Email;
                 var previousRole = _editingUser.Role;
+                var previousTenantId = _editingUser.TenantId;
                 try
                 {
                     _editingUser.DisplayName = _formDisplayName.Trim();
                     _editingUser.Email = _formEmail.Trim();
                     _editingUser.Role = _formRole;
+                    _editingUser.TenantId = string.IsNullOrEmpty(_formTenantId) ? null : Guid.Parse(_formTenantId);
                     await UserRepo.Update(_editingUser);
                     Toast.Success($"User '{_editingUser.DisplayName}' updated successfully.");
                 }
@@ -434,6 +463,7 @@
                     _editingUser.DisplayName = previousDisplayName;
                     _editingUser.Email = previousEmail;
                     _editingUser.Role = previousRole;
+                    _editingUser.TenantId = previousTenantId;
                     throw;
                 }
             }
@@ -508,5 +538,11 @@
         await UserRepo.Update(user);
         _users = await UserRepo.GetAll();
         Toast.Success($"User '{user.DisplayName}' has been {(user.IsActive ? "enabled" : "disabled")}.");
+    }
+
+    private sealed class TenantOption
+    {
+        public Guid TenantId { get; set; }
+        public string TenantName { get; set; } = string.Empty;
     }
 }

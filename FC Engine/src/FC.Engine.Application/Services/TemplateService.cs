@@ -114,15 +114,22 @@ public class TemplateService
             XmlElementName = request.XmlElementName,
             LineCode = request.LineCode,
             SectionName = request.SectionName,
+            SectionOrder = request.SectionOrder,
             FieldOrder = request.FieldOrder,
             DataType = request.DataType,
             SqlType = _sqlTypeMapper.MapToSqlType(request.DataType),
             IsRequired = request.IsRequired,
+            IsComputed = request.IsComputed,
             IsKeyField = request.IsKeyField,
+            DefaultValue = request.DefaultValue,
             MinValue = request.MinValue,
             MaxValue = request.MaxValue,
             MaxLength = request.MaxLength,
             AllowedValues = request.AllowedValues,
+            HelpText = request.HelpText,
+            ValidationNote = request.ValidationNote,
+            RegulatoryReference = request.RegulatoryReference,
+            DataClassification = request.DataClassification,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -176,12 +183,17 @@ public class TemplateService
             Id = v.Id,
             VersionNumber = v.VersionNumber,
             Status = v.Status.ToString(),
+            EffectiveFrom = v.EffectiveFrom,
+            EffectiveTo = v.EffectiveTo,
             PublishedAt = v.PublishedAt,
+            ApprovedAt = v.ApprovedAt,
             ApprovedBy = v.ApprovedBy,
             ChangeSummary = v.ChangeSummary,
+            CreatedAt = v.CreatedAt,
+            CreatedBy = v.CreatedBy,
             FieldCount = v.Fields.Count,
             FormulaCount = v.IntraSheetFormulas.Count,
-            Fields = v.Fields.OrderBy(f => f.FieldOrder).Select(f => new TemplateFieldDto
+            Fields = v.Fields.OrderBy(f => f.SectionOrder).ThenBy(f => f.FieldOrder).Select(f => new TemplateFieldDto
             {
                 Id = f.Id,
                 FieldName = f.FieldName,
@@ -189,16 +201,22 @@ public class TemplateService
                 XmlElementName = f.XmlElementName,
                 LineCode = f.LineCode,
                 SectionName = f.SectionName,
+                SectionOrder = f.SectionOrder,
                 FieldOrder = f.FieldOrder,
                 DataType = f.DataType.ToString(),
                 SqlType = f.SqlType,
                 IsRequired = f.IsRequired,
                 IsComputed = f.IsComputed,
                 IsKeyField = f.IsKeyField,
+                DefaultValue = f.DefaultValue,
                 MinValue = f.MinValue,
                 MaxValue = f.MaxValue,
                 MaxLength = f.MaxLength,
-                AllowedValues = f.AllowedValues
+                AllowedValues = f.AllowedValues,
+                HelpText = f.HelpText,
+                ValidationNote = f.ValidationNote,
+                RegulatoryReference = f.RegulatoryReference,
+                DataClassification = f.DataClassification.ToString()
             }).ToList(),
             ItemCodes = v.ItemCodes.Select(ic => new TemplateItemCodeDto
             {

@@ -535,7 +535,7 @@ public class InstitutionManagementService
 
     // ── Invitation methods ────────────────────────────────────────
 
-    public async Task<bool> SendInvitation(int institutionId, string email, string role, CancellationToken ct = default)
+    public async Task<bool> SendInvitation(int institutionId, string email, string role, List<string>? grantedPermissions = null, CancellationToken ct = default)
     {
         var inst = await _institutionRepo.GetById(institutionId, ct)
             ?? throw new InvalidOperationException("Institution was not found.");
@@ -572,7 +572,8 @@ public class InstitutionManagementService
             Email = normalizedEmail,
             Role = parsedRole.ToString(),
             SentAt = DateTime.UtcNow,
-            ExpiresAt = DateTime.UtcNow.AddDays(7)
+            ExpiresAt = DateTime.UtcNow.AddDays(7),
+            GrantedPermissions = grantedPermissions ?? new List<string>()
         };
         invite.InvitationUrl = BuildInvitationUrl(institutionId, invite.Id);
 
@@ -936,6 +937,8 @@ public class PendingInviteModel
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
     public DateTime ExpiresAt { get; set; } = DateTime.UtcNow.AddDays(7);
     public string? InvitationUrl { get; set; }
+    /// <summary>Permission overrides selected during invite (e.g. "Submit Returns", "View Reports").</summary>
+    public List<string> GrantedPermissions { get; set; } = new();
 }
 
 public class InviteAcceptanceResult

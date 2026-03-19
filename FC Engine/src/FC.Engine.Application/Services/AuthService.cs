@@ -170,7 +170,7 @@ public class AuthService
 
     public async Task<PortalUser> CreateUser(
         string username, string displayName, string email,
-        string password, PortalRole role, CancellationToken ct = default)
+        string password, PortalRole role, Guid? tenantId = null, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(password) || password.Length < 12)
             throw new ArgumentException("Password must be at least 12 characters.");
@@ -185,6 +185,7 @@ public class AuthService
             Email = email,
             PasswordHash = HashPassword(password),
             Role = role,
+            TenantId = tenantId,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
