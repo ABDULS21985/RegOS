@@ -19,7 +19,8 @@ public class AnomalyDetectionServiceTests
     [Fact]
     public async Task AnalyzeSubmissionAsync_Raises_Field_Relationship_Temporal_And_Peer_Findings()
     {
-        await using var db = CreateDb(nameof(AnalyzeSubmissionAsync_Raises_Field_Relationship_Temporal_And_Peer_Findings));
+        var dbName = nameof(AnalyzeSubmissionAsync_Raises_Field_Relationship_Temporal_And_Peer_Findings);
+        await using var db = CreateDb(dbName);
         var module = SeedBaselineEnvironment(db);
         var licenceType = SeedLicenceType(db);
 
@@ -63,7 +64,7 @@ public class AnomalyDetectionServiceTests
         await db.SaveChangesAsync();
 
         var sut = new AnomalyDetectionService(
-            new TestDbContextFactory(db),
+            new TestDbContextFactory(dbName),
             trainer,
             audit.Object,
             NullLogger<AnomalyDetectionService>.Instance);
@@ -82,8 +83,8 @@ public class AnomalyDetectionServiceTests
     [Fact]
     public async Task AcknowledgeFindingAsync_Recalculates_Report_Quality_Score()
     {
-        await using var db = CreateDb(nameof(AcknowledgeFindingAsync_Recalculates_Report_Quality_Score));
-        var report = await BuildAnalyzedReportAsync(db);
+        var dbName = nameof(AcknowledgeFindingAsync_Recalculates_Report_Quality_Score);
+        var (report, db) = await BuildAnalyzedReportAsync(dbName);
         var initialScore = report.OverallQualityScore;
         var finding = report.Findings.OrderByDescending(x => x.Severity).First();
 
@@ -100,7 +101,7 @@ public class AnomalyDetectionServiceTests
 
         var trainer = new AnomalyModelTrainingService(db, audit.Object, NullLogger<AnomalyModelTrainingService>.Instance);
         var sut = new AnomalyDetectionService(
-            new TestDbContextFactory(db),
+            new TestDbContextFactory(dbName),
             trainer,
             audit.Object,
             NullLogger<AnomalyDetectionService>.Instance);
@@ -122,8 +123,8 @@ public class AnomalyDetectionServiceTests
     [Fact]
     public async Task ExportReportPdfAsync_Generates_Pdf_With_Report_Title()
     {
-        await using var db = CreateDb(nameof(ExportReportPdfAsync_Generates_Pdf_With_Report_Title));
-        var report = await BuildAnalyzedReportAsync(db);
+        var dbName = nameof(ExportReportPdfAsync_Generates_Pdf_With_Report_Title);
+        var (report, db) = await BuildAnalyzedReportAsync(dbName);
 
         var audit = new Mock<IAuditLogger>();
         audit.Setup(x => x.Log(
@@ -138,7 +139,7 @@ public class AnomalyDetectionServiceTests
 
         var trainer = new AnomalyModelTrainingService(db, audit.Object, NullLogger<AnomalyModelTrainingService>.Instance);
         var sut = new AnomalyDetectionService(
-            new TestDbContextFactory(db),
+            new TestDbContextFactory(dbName),
             trainer,
             audit.Object,
             NullLogger<AnomalyDetectionService>.Instance);
@@ -150,8 +151,9 @@ public class AnomalyDetectionServiceTests
         document.GetPages().Select(x => x.Text).Should().Contain(x => x.Contains("AI Anomaly Detection Report", StringComparison.Ordinal));
     }
 
-    private static async Task<AnomalyReport> BuildAnalyzedReportAsync(MetadataDbContext db)
+    private static async Task<(AnomalyReport Report, MetadataDbContext Db)> BuildAnalyzedReportAsync(string dbName)
     {
+        var db = CreateDb(dbName);
         var module = SeedBaselineEnvironment(db);
         var licenceType = SeedLicenceType(db);
 
@@ -193,12 +195,13 @@ public class AnomalyDetectionServiceTests
         await db.SaveChangesAsync();
 
         var sut = new AnomalyDetectionService(
-            new TestDbContextFactory(db),
+            new TestDbContextFactory(dbName),
             trainer,
             audit.Object,
             NullLogger<AnomalyDetectionService>.Instance);
 
-        return await sut.AnalyzeSubmissionAsync(currentSubmission.Id, currentTenant.TenantId, "tester");
+        var report = await sut.AnalyzeSubmissionAsync(currentSubmission.Id, currentTenant.TenantId, "tester");
+        return (report, db);
     }
 
     private static MetadataDbContext CreateDb(string name)

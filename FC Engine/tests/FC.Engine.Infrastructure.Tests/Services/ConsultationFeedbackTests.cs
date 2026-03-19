@@ -22,12 +22,20 @@ public class ConsultationFeedbackTests
         return new MetadataDbContext(options);
     }
 
+    private static MetadataDbContext OpenDb(string name)
+    {
+        var options = new DbContextOptionsBuilder<MetadataDbContext>()
+            .UseInMemoryDatabase(name)
+            .Options;
+        return new MetadataDbContext(options);
+    }
+
     private static (IPolicyScenarioService scenarioSvc, IConsultationService consultationSvc, MetadataDbContext db) CreateServices(string testName)
     {
         var db = CreateDb(testName);
         var audit = new PolicyAuditLogger(db, NullLogger<PolicyAuditLogger>.Instance);
         var scenarioSvc = new PolicyScenarioService(db, audit, NullLogger<PolicyScenarioService>.Instance);
-        var consultationSvc = new ConsultationService(new TestDbContextFactory(db), audit, NullLogger<ConsultationService>.Instance);
+        var consultationSvc = new ConsultationService(new TestDbContextFactory(testName), audit, NullLogger<ConsultationService>.Instance);
         return (scenarioSvc, consultationSvc, db);
     }
 
@@ -98,7 +106,8 @@ public class ConsultationFeedbackTests
 
         consultationId.Should().BeGreaterThan(0);
 
-        var loaded = await db.ConsultationRounds
+        await using var readDb = OpenDb(nameof(CreateConsultation_CreatesWithProvisions));
+        var loaded = await readDb.ConsultationRounds
             .Include(c => c.Provisions)
             .FirstAsync(c => c.Id == consultationId);
 
@@ -123,11 +132,12 @@ public class ConsultationFeedbackTests
 
         await consultationSvc.PublishConsultationAsync(cId, 1, 1);
 
-        var consultation = await db.ConsultationRounds.FindAsync(cId);
+        await using var readDb = OpenDb(nameof(PublishConsultation_UpdatesStatusAndScenario));
+        var consultation = await readDb.ConsultationRounds.FindAsync(cId);
         consultation!.Status.Should().Be(ConsultationStatus.Published);
         consultation.PublishedAt.Should().NotBeNull();
 
-        var scenario = await db.PolicyScenarios.FindAsync(scenarioId);
+        var scenario = await readDb.PolicyScenarios.FindAsync(scenarioId);
         scenario!.Status.Should().Be(PolicyStatus.Consultation);
     }
 
@@ -148,7 +158,8 @@ public class ConsultationFeedbackTests
 
         await consultationSvc.PublishConsultationAsync(cId, 1, 1);
 
-        var provisionIds = await db.ConsultationProvisions
+        await using var readDb = OpenDb(nameof(SubmitFeedback_RecordsOverallAndPerProvision));
+        var provisionIds = await readDb.ConsultationProvisions
             .Where(p => p.ConsultationId == cId)
             .Select(p => p.Id)
             .ToListAsync();
@@ -159,7 +170,8 @@ public class ConsultationFeedbackTests
 
         feedbackId.Should().BeGreaterThan(0);
 
-        var feedback = await db.ConsultationFeedback
+        await using var readDb2 = OpenDb(nameof(SubmitFeedback_RecordsOverallAndPerProvision));
+        var feedback = await readDb2.ConsultationFeedback
             .Include(f => f.ProvisionFeedback)
             .FirstAsync(f => f.Id == feedbackId);
 
@@ -186,7 +198,8 @@ public class ConsultationFeedbackTests
 
         await consultationSvc.PublishConsultationAsync(cId, 1, 1);
 
-        var provisionIds = await db.ConsultationProvisions
+        await using var readDb = OpenDb(nameof(SubmitFeedback_DuplicatePerInstitution_Throws));
+        var provisionIds = await readDb.ConsultationProvisions
             .Where(p => p.ConsultationId == cId)
             .Select(p => p.Id).ToListAsync();
 
@@ -197,7 +210,8 @@ public class ConsultationFeedbackTests
 
         // In-memory DB doesn't enforce unique constraints, but we can verify the count
         // In real SQL Server, this would throw due to unique constraint
-        var feedbackCount = await db.ConsultationFeedback
+        await using var readDb2 = OpenDb(nameof(SubmitFeedback_DuplicatePerInstitution_Throws));
+        var feedbackCount = await readDb2.ConsultationFeedback
             .CountAsync(f => f.ConsultationId == cId && f.InstitutionId == 31);
         feedbackCount.Should().Be(1);
     }
@@ -227,7 +241,8 @@ public class ConsultationFeedbackTests
             new DateOnly(2026, 6, 1), provisions, 1);
         await consultationSvc.PublishConsultationAsync(cId, 1, 1);
 
-        var provisionIds = await db.ConsultationProvisions
+        await using var readDb = OpenDb(nameof(AggregateFeedback_ComputesCorrectPercentages));
+        var provisionIds = await readDb.ConsultationProvisions
             .Where(p => p.ConsultationId == cId)
             .OrderBy(p => p.ProvisionNumber)
             .Select(p => p.Id).ToListAsync();
@@ -286,7 +301,8 @@ public class ConsultationFeedbackTests
 
         await consultationSvc.PublishConsultationAsync(cId, 1, 1);
 
-        var provisionIds = await db.ConsultationProvisions
+        await using var readDb = OpenDb(nameof(GetConsultation_ReturnsProvisionsAndAggregations));
+        var provisionIds = await readDb.ConsultationProvisions
             .Where(p => p.ConsultationId == cId).Select(p => p.Id).ToListAsync();
 
         await consultationSvc.SubmitFeedbackAsync(cId, 50, FeedbackPosition.Support, null,
@@ -343,10 +359,11 @@ public class ConsultationFeedbackTests
         await consultationSvc.PublishConsultationAsync(cId, 1, 1);
         await consultationSvc.CloseConsultationAsync(cId, 1, 1);
 
-        var consultation = await db.ConsultationRounds.FindAsync(cId);
+        await using var readDb = OpenDb(nameof(CloseConsultation_UpdatesStatusToClosedAndScenarioToFeedbackClosed));
+        var consultation = await readDb.ConsultationRounds.FindAsync(cId);
         consultation!.Status.Should().Be(ConsultationStatus.Closed);
 
-        var scenario = await db.PolicyScenarios.FindAsync(scenarioId);
+        var scenario = await readDb.PolicyScenarios.FindAsync(scenarioId);
         scenario!.Status.Should().Be(PolicyStatus.FeedbackClosed);
     }
 }

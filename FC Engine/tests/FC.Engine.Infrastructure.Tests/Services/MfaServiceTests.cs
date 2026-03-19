@@ -14,12 +14,9 @@ namespace FC.Engine.Infrastructure.Tests.Services;
 
 public class MfaServiceTests
 {
-    private static (MfaService Service, MetadataDbContext Db, Guid TenantId) CreateSut()
+    private static (MfaService Service, string DbName, Guid TenantId) CreateSut()
     {
-        var options = new DbContextOptionsBuilder<MetadataDbContext>()
-            .UseInMemoryDatabase(Guid.NewGuid().ToString())
-            .Options;
-        var db = new MetadataDbContext(options);
+        var dbName = Guid.NewGuid().ToString();
         var tenantId = Guid.NewGuid();
 
         var tenantContext = new Mock<ITenantContext>();
@@ -27,20 +24,29 @@ public class MfaServiceTests
         tenantContext.SetupGet(x => x.IsPlatformAdmin).Returns(false);
         tenantContext.SetupGet(x => x.ImpersonatingTenantId).Returns((Guid?)null);
 
-        var sut = new MfaService(new TestDbContextFactory(db), tenantContext.Object);
-        return (sut, db, tenantId);
+        var sut = new MfaService(new TestDbContextFactory(dbName), tenantContext.Object);
+        return (sut, dbName, tenantId);
+    }
+
+    private static MetadataDbContext OpenDb(string dbName)
+    {
+        var options = new DbContextOptionsBuilder<MetadataDbContext>()
+            .UseInMemoryDatabase(dbName)
+            .Options;
+        return new MetadataDbContext(options);
     }
 
     [Fact]
     public async Task MFA_Setup_Generates_Valid_QR_Code()
     {
-        var (sut, db, _) = CreateSut();
+        var (sut, dbName, _) = CreateSut();
         var result = await sut.InitiateSetup(101, "InstitutionUser", "mfa.user@test.local");
 
         result.SecretKey.Should().NotBeNullOrWhiteSpace();
         result.QrCodeDataUri.Should().StartWith("data:image/png;base64,");
         result.Issuer.Should().Be("RegOS");
 
+        await using var db = OpenDb(dbName);
         var stored = await db.UserMfaConfigs.FirstOrDefaultAsync(x => x.UserId == 101 && x.UserType == "InstitutionUser");
         stored.Should().NotBeNull();
         stored!.IsEnabled.Should().BeFalse();
@@ -66,7 +72,7 @@ public class MfaServiceTests
     [Fact]
     public async Task MFA_Backup_Code_Works_And_Is_Single_Use()
     {
-        var (sut, db, _) = CreateSut();
+        var (sut, dbName, _) = CreateSut();
         var setup = await sut.InitiateSetup(303, "InstitutionUser", "backup@test.local");
         var totp = new Totp(Base32Encoding.ToBytes(setup.SecretKey));
         var code = totp.ComputeTotp();
@@ -79,6 +85,7 @@ public class MfaServiceTests
         firstUse.Should().BeTrue();
         secondUse.Should().BeFalse();
 
+        await using var db = OpenDb(dbName);
         var persisted = await db.UserMfaConfigs.FirstAsync(x => x.UserId == 303);
         persisted.IsEnabled.Should().BeTrue();
     }
@@ -86,7 +93,8 @@ public class MfaServiceTests
     [Fact]
     public async Task MFA_Required_For_Checker_Role()
     {
-        var (sut, db, tenantId) = CreateSut();
+        var (sut, dbName, tenantId) = CreateSut();
+        await using var db = OpenDb(dbName);
         db.Tenants.Add(Tenant.Create("MFA Tenant", "mfa-tenant", TenantType.Institution));
         await db.SaveChangesAsync();
 
@@ -100,7 +108,8 @@ public class MfaServiceTests
     [Fact]
     public async Task MFA_Not_Required_For_Viewer_Role()
     {
-        var (sut, db, tenantId) = CreateSut();
+        var (sut, dbName, tenantId) = CreateSut();
+        await using var db = OpenDb(dbName);
         var tenant = Tenant.Create("Viewer Tenant", "viewer-tenant", TenantType.Institution);
         tenant.Activate();
         db.Tenants.Add(tenant);

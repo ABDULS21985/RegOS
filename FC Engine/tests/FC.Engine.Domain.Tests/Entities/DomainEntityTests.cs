@@ -25,7 +25,7 @@ public class SubmissionTests
         submission.ReturnPeriodId.Should().Be(5);
         submission.ReturnCode.Should().Be("MFCR 300");
         submission.Status.Should().Be(SubmissionStatus.Draft);
-        submission.SubmittedAt.Should().BeOnOrAfter(before).And.BeOnOrBefore(after);
+        submission.SubmittedAt.Should().BeNull("Draft submissions have not been submitted yet");
         submission.CreatedAt.Should().BeOnOrAfter(before).And.BeOnOrBefore(after);
         submission.TemplateVersionId.Should().BeNull();
         submission.RawXml.Should().BeNull();

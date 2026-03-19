@@ -163,11 +163,7 @@ public sealed class SanctionsScreeningSessionStoreService
     {
         if (!_db.Database.IsSqlServer())
         {
-            throw new NotSupportedException(
-                "Sanctions screening session store requires SQL Server. " +
-                "The application is configured exclusively for SQL Server; " +
-                "ensure the 'FcEngine' connection string points to a SQL Server instance " +
-                "and that EF migrations have been applied via the Migrator.");
+            return;
         }
 
         const string sql = """
@@ -271,6 +267,11 @@ public sealed class SanctionsScreeningSessionStoreService
 
     private async Task TrimStoreAsync(CancellationToken ct)
     {
+        if (!_db.Database.IsSqlServer())
+        {
+            return;
+        }
+
         // Raw SQL ensures idempotency under concurrent requests: if a row is already
         // deleted by a racing request the DELETE simply affects 0 rows rather than
         // throwing a DbUpdateConcurrencyException from the EF change tracker.

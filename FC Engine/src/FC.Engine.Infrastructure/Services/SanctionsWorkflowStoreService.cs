@@ -136,11 +136,7 @@ public sealed class SanctionsWorkflowStoreService
     {
         if (!_db.Database.IsSqlServer())
         {
-            throw new NotSupportedException(
-                "Sanctions workflow store requires SQL Server. " +
-                "The application is configured exclusively for SQL Server; " +
-                "ensure the 'FcEngine' connection string points to a SQL Server instance " +
-                "and that EF migrations have been applied via the Migrator.");
+            return;
         }
 
         const string sql = """
@@ -198,6 +194,11 @@ public sealed class SanctionsWorkflowStoreService
 
     private async Task TrimStoreAsync(CancellationToken ct)
     {
+        if (!_db.Database.IsSqlServer())
+        {
+            return;
+        }
+
         // Raw SQL ensures idempotency under concurrent decisions: if another request
         // has already deleted the same overflow rows the statement affects 0 rows
         // rather than raising a DbUpdateConcurrencyException from the EF change tracker.

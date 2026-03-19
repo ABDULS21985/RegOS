@@ -144,7 +144,7 @@ public class SubscriptionServiceTests
     }
 
     private static SubscriptionService CreateSut(
-        MetadataDbContext db,
+        string databaseName,
         Mock<IEntitlementService> entitlementMock,
         SubscriptionModuleEntitlementBootstrapService? entitlementBootstrapService = null)
     {
@@ -153,7 +153,7 @@ public class SubscriptionServiceTests
             .Returns(Task.CompletedTask);
 
         return new SubscriptionService(
-            new TestDbContextFactory(db),
+            new TestDbContextFactory(databaseName),
             entitlementMock.Object,
             NullLogger<SubscriptionService>.Instance,
             null,
@@ -164,14 +164,15 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Starter_Limits_To_2_Modules()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "starter-limit");
         AssignLicence(db, tenant.TenantId, "FC");
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
 
         await sut.ActivateModule(tenant.TenantId, "FC_RETURNS");
@@ -184,14 +185,15 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Enterprise_Allows_10_Modules()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "enterprise-limit");
         AssignLicence(db, tenant.TenantId, "FC");
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "ENTERPRISE", BillingFrequency.Monthly);
 
         await sut.ActivateModule(tenant.TenantId, "FC_RETURNS");
@@ -205,13 +207,14 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Cannot_Activate_Without_Licence()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "without-licence");
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "ENTERPRISE", BillingFrequency.Monthly);
 
         var act = () => sut.ActivateModule(tenant.TenantId, "DMB_BASEL3");
@@ -221,13 +224,14 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Cannot_Activate_Not_On_Plan()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "not-on-plan");
         AssignLicence(db, tenant.TenantId, "FC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
 
         var act = () => sut.ActivateModule(tenant.TenantId, "DMB_BASEL3");
@@ -237,7 +241,8 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task CreateSubscription_Auto_Activates_Included_Base_Modules()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "auto-included-create");
         AssignLicence(db, tenant.TenantId, "FC");
@@ -247,7 +252,7 @@ public class SubscriptionServiceTests
             db,
             ent.Object,
             NullLogger<SubscriptionModuleEntitlementBootstrapService>.Instance);
-        var sut = CreateSut(db, ent, entitlementBootstrap);
+        var sut = CreateSut(databaseName, ent, entitlementBootstrap);
 
         var subscription = await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
 
@@ -266,7 +271,8 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task UpgradePlan_Auto_Activates_Newly_Included_Base_Modules()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "auto-included-upgrade");
         AssignLicence(db, tenant.TenantId, "FC");
@@ -284,7 +290,7 @@ public class SubscriptionServiceTests
             db,
             ent.Object,
             NullLogger<SubscriptionModuleEntitlementBootstrapService>.Instance);
-        var sut = CreateSut(db, ent, entitlementBootstrap);
+        var sut = CreateSut(databaseName, ent, entitlementBootstrap);
 
         await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
         await sut.UpgradePlan(tenant.TenantId, "ENTERPRISE");
@@ -298,13 +304,14 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Deactivation_Removes_From_Entitlements()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "deactivate");
         AssignLicence(db, tenant.TenantId, "FC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "ENTERPRISE", BillingFrequency.Monthly);
 
         await sut.ActivateModule(tenant.TenantId, "DMB_BASEL3");
@@ -318,13 +325,14 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Invoice_Includes_7_5_Percent_VAT()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "vat");
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
         await sut.ActivateModule(tenant.TenantId, "BDC_CBN");
 
@@ -338,13 +346,14 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Invoice_Number_Format_INV_SLUG_YYYYMM_SEQ()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "invoice-format");
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
 
         var invoice = await sut.GenerateInvoice(tenant.TenantId);
@@ -354,13 +363,14 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Invoice_Has_BasePlan_Plus_Module_Lines()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "invoice-lines");
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
         await sut.ActivateModule(tenant.TenantId, "BDC_CBN");
 
@@ -373,13 +383,14 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Sequential_Invoice_Numbers()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "invoice-seq");
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
 
         var i1 = await sut.GenerateInvoice(tenant.TenantId);
@@ -392,13 +403,14 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Included_Module_Not_Billed_Separately()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
         var tenant = CreateTenant(db, "included-module");
         AssignLicence(db, tenant.TenantId, "FC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
         await sut.ActivateModule(tenant.TenantId, "FC_RETURNS");
 
@@ -418,12 +430,19 @@ public class SubscriptionServiceTests
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var entitlementMock = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, entitlementMock);
+        var sut = CreateSut(databaseName, entitlementMock);
         var subscription = await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
-        subscription.Activate();
+
+        // Re-fetch through the test db context so changes are tracked and persisted
+        var tracked = await db.Subscriptions.FirstAsync(s => s.Id == subscription.Id);
+        tracked.Activate();
+        await db.SaveChangesAsync();
 
         var invoice = await sut.GenerateInvoice(tenant.TenantId);
-        invoice.Issue(DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2).Date));
+
+        // Re-fetch the invoice through db to issue it (the returned invoice is detached)
+        var trackedInvoice = await db.Invoices.FirstAsync(i => i.Id == invoice.Id);
+        trackedInvoice.Issue(DateOnly.FromDateTime(DateTime.UtcNow.AddDays(-2).Date));
         await db.SaveChangesAsync();
 
         var services = new ServiceCollection();
@@ -451,11 +470,14 @@ public class SubscriptionServiceTests
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var entitlementMock = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, entitlementMock);
+        var sut = CreateSut(databaseName, entitlementMock);
         var subscription = await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
-        subscription.Activate();
-        subscription.MarkPastDue();
-        subscription.GracePeriodEndsAt = DateTime.UtcNow.AddHours(-1);
+
+        // Re-fetch through the test db context so changes are tracked and persisted
+        var tracked = await db.Subscriptions.FirstAsync(s => s.Id == subscription.Id);
+        tracked.Activate();
+        tracked.MarkPastDue();
+        tracked.GracePeriodEndsAt = DateTime.UtcNow.AddHours(-1);
         await db.SaveChangesAsync();
 
         var services = new ServiceCollection();
@@ -481,9 +503,12 @@ public class SubscriptionServiceTests
         AssignLicence(db, tenant.TenantId, "BDC");
 
         var entitlementMock = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, entitlementMock);
+        var sut = CreateSut(databaseName, entitlementMock);
         var subscription = await sut.CreateSubscription(tenant.TenantId, "STARTER", BillingFrequency.Monthly);
-        subscription.TrialEndsAt = DateTime.UtcNow.AddMinutes(-1);
+
+        // Re-fetch through the test db context so changes are tracked and persisted
+        var tracked = await db.Subscriptions.FirstAsync(s => s.Id == subscription.Id);
+        tracked.TrialEndsAt = DateTime.UtcNow.AddMinutes(-1);
         await db.SaveChangesAsync();
 
         var services = new ServiceCollection();
@@ -502,7 +527,8 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Direct_Billing_Records_Partner_Commission()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
 
         var partner = CreatePartnerTenant(db, "direct-partner");
@@ -525,13 +551,14 @@ public class SubscriptionServiceTests
         AssignLicence(db, subTenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(subTenant.TenantId, "STARTER", BillingFrequency.Monthly);
         await sut.ActivateModule(subTenant.TenantId, "BDC_CBN");
 
         var invoice = await sut.GenerateInvoice(subTenant.TenantId);
 
-        var record = await db.PartnerRevenueRecords
+        using var verifyDb = CreateDbContext(databaseName);
+        var record = await verifyDb.PartnerRevenueRecords
             .AsNoTracking()
             .SingleAsync(x => x.InvoiceId == invoice.Id);
 
@@ -545,7 +572,8 @@ public class SubscriptionServiceTests
     [Fact]
     public async Task Reseller_Billing_Applies_Wholesale_Discount()
     {
-        using var db = CreateDbContext();
+        var databaseName = Guid.NewGuid().ToString();
+        using var db = CreateDbContext(databaseName);
         SeedPlansAndModules(db);
 
         var partner = CreatePartnerTenant(db, "reseller-partner");
@@ -568,7 +596,7 @@ public class SubscriptionServiceTests
         AssignLicence(db, subTenant.TenantId, "BDC");
 
         var ent = new Mock<IEntitlementService>();
-        var sut = CreateSut(db, ent);
+        var sut = CreateSut(databaseName, ent);
         await sut.CreateSubscription(subTenant.TenantId, "STARTER", BillingFrequency.Monthly);
         await sut.ActivateModule(subTenant.TenantId, "BDC_CBN");
 
@@ -576,7 +604,8 @@ public class SubscriptionServiceTests
 
         invoice.LineItems.Should().Contain(li => li.LineType == "PartnerDiscount" && li.UnitPrice < 0);
 
-        var record = await db.PartnerRevenueRecords
+        using var verifyDb = CreateDbContext(databaseName);
+        var record = await verifyDb.PartnerRevenueRecords
             .AsNoTracking()
             .SingleAsync(x => x.InvoiceId == invoice.Id);
 

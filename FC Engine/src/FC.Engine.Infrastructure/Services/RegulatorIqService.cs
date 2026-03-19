@@ -97,7 +97,7 @@ public sealed class RegulatorIqService : IRegulatorIqService
 
         await using var db = await _dbFactory.CreateDbContextAsync(ct);
         var context = await ResolveExecutionContextAsync(db, request, request.RegulatorId, ct);
-        var config = await LoadComplianceIqConfigMapAsync(db, ct);
+        var config = await LoadRegulatorIqConfigMapAsync(db, ct);
         var rateLimit = CheckRateLimit(context, config);
         if (rateLimit.IsExceeded)
         {
@@ -341,23 +341,14 @@ public sealed class RegulatorIqService : IRegulatorIqService
             ?? throw new InvalidOperationException($"RegulatorIQ turn {turnId} was not found.");
 
         var safeRating = (short)Math.Clamp(rating, 1, 5);
-        db.ComplianceIqFeedback.Add(new ComplianceIqFeedback
-        {
-            TurnId = turn.Id,
-            UserId = context.RegulatorId,
-            Rating = safeRating,
-            FeedbackText = string.IsNullOrWhiteSpace(feedbackText) ? null : feedbackText.Trim(),
-            CreatedAt = DateTime.UtcNow
-        });
-
-        await db.SaveChangesAsync(ct);
+        var trimmedFeedback = string.IsNullOrWhiteSpace(feedbackText) ? null : feedbackText.Trim();
 
         await _auditLogger.Log(
             "RegIqTurn",
             turn.Id,
             "REGULATORIQ_FEEDBACK_SUBMITTED",
             null,
-            new { turn.Id, safeRating, feedbackText },
+            new { turn.Id, safeRating, feedbackText = trimmedFeedback },
             context.RegulatorId,
             ct);
     }
@@ -744,7 +735,7 @@ Existing deterministic focus areas:
         string intentCode,
         CancellationToken ct)
     {
-        return await db.ComplianceIqTemplates
+        return await db.RegIqQueryTemplates
             .AsNoTracking()
             .Where(x => x.IntentCode == intentCode && x.IsActive)
             .OrderBy(x => x.SortOrder)
@@ -779,9 +770,9 @@ Existing deterministic focus areas:
         ResolvedExecutionContext context,
         IReadOnlyDictionary<string, string> config)
     {
-        var perMinute = ParseInt(config, "rate.regulator_queries_per_minute", 30);
-        var perHour = ParseInt(config, "rate.regulator_queries_per_hour", 300);
-        var perDay = ParseInt(config, "rate.regulator_queries_per_day", 1500);
+        var perMinute = ParseInt(config, "rate.queries_per_minute", ParseInt(config, "rate.regulator_queries_per_minute", 30));
+        var perHour = ParseInt(config, "rate.queries_per_hour", ParseInt(config, "rate.regulator_queries_per_hour", 300));
+        var perDay = ParseInt(config, "rate.queries_per_day", ParseInt(config, "rate.regulator_queries_per_day", 1500));
         var now = DateTime.UtcNow;
         var key = $"{context.RegulatorTenantId:N}:{context.RegulatorId}".ToLowerInvariant();
         var timestamps = RateWindows.GetOrAdd(key, _ => new List<DateTime>());
@@ -839,20 +830,58 @@ Existing deterministic focus areas:
         }
     }
 
-    private static async Task<Dictionary<string, string>> LoadComplianceIqConfigMapAsync(MetadataDbContext db, CancellationToken ct)
+    private static async Task<Dictionary<string, string>> LoadRegulatorIqConfigMapAsync(MetadataDbContext db, CancellationToken ct)
     {
-        var rows = await db.ComplianceIqConfigs
+        var rows = await db.RegIqConfigs
             .AsNoTracking()
             .Where(x => x.EffectiveTo == null)
             .OrderByDescending(x => x.EffectiveFrom)
             .ToListAsync(ct);
 
-        return rows
+        var config = rows
             .GroupBy(x => x.ConfigKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 x => x.Key,
                 x => x.First().ConfigValue,
                 StringComparer.OrdinalIgnoreCase);
+
+        // Backward-compatible fallback while environments still carry RegulatorIQ limits under ComplianceIQ config keys.
+        if (!config.ContainsKey("rate.queries_per_minute") ||
+            !config.ContainsKey("rate.queries_per_hour") ||
+            !config.ContainsKey("rate.queries_per_day"))
+        {
+            var fallbackRows = await db.ComplianceIqConfigs
+                .AsNoTracking()
+                .Where(x => x.EffectiveTo == null)
+                .Where(x => x.ConfigKey == "rate.regulator_queries_per_minute" ||
+                            x.ConfigKey == "rate.regulator_queries_per_hour" ||
+                            x.ConfigKey == "rate.regulator_queries_per_day")
+                .OrderByDescending(x => x.EffectiveFrom)
+                .ToListAsync(ct);
+
+            foreach (var row in fallbackRows)
+            {
+                if (string.Equals(row.ConfigKey, "rate.regulator_queries_per_minute", StringComparison.OrdinalIgnoreCase)
+                    && !config.ContainsKey("rate.queries_per_minute"))
+                {
+                    config["rate.queries_per_minute"] = row.ConfigValue;
+                }
+
+                if (string.Equals(row.ConfigKey, "rate.regulator_queries_per_hour", StringComparison.OrdinalIgnoreCase)
+                    && !config.ContainsKey("rate.queries_per_hour"))
+                {
+                    config["rate.queries_per_hour"] = row.ConfigValue;
+                }
+
+                if (string.Equals(row.ConfigKey, "rate.regulator_queries_per_day", StringComparison.OrdinalIgnoreCase)
+                    && !config.ContainsKey("rate.queries_per_day"))
+                {
+                    config["rate.queries_per_day"] = row.ConfigValue;
+                }
+            }
+        }
+
+        return config;
     }
 
     private async Task<ResolvedExecutionContext> ResolveExecutionContextAsync(

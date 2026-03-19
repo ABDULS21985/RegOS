@@ -20,8 +20,9 @@ public class HistoricalMigrationServiceTests
     [Fact]
     public async Task SetModuleSignOff_Is_Reflected_In_Tracker()
     {
+        var dbName = nameof(SetModuleSignOff_Is_Reflected_In_Tracker);
         var tenantId = Guid.NewGuid();
-        await using var db = CreateDb(nameof(SetModuleSignOff_Is_Reflected_In_Tracker));
+        await using var db = CreateDb(dbName);
 
         var module = new Module
         {
@@ -89,7 +90,7 @@ public class HistoricalMigrationServiceTests
         });
         await db.SaveChangesAsync();
 
-        var sut = CreateService(db);
+        var sut = CreateService(dbName);
 
         await sut.SetModuleSignOff(tenantId, module.Id, true, 99, "Compliance reviewed");
         var tracker = await sut.GetTracker(tenantId);
@@ -104,8 +105,9 @@ public class HistoricalMigrationServiceTests
     [Fact]
     public async Task CommitJob_Uses_Edited_Staged_Review_Values()
     {
+        var dbName = nameof(CommitJob_Uses_Edited_Staged_Review_Values);
         var tenantId = Guid.NewGuid();
-        await using var db = CreateDb(nameof(CommitJob_Uses_Edited_Staged_Review_Values));
+        await using var db = CreateDb(dbName);
 
         var period = new ReturnPeriod
         {
@@ -213,7 +215,7 @@ public class HistoricalMigrationServiceTests
             .Callback<ReturnDataRecord, int, CancellationToken>((record, _, _) => persistedRecord = record)
             .Returns(Task.CompletedTask);
 
-        var sut = CreateService(db, templateCache: templateCache.Object, dataRepository: dataRepo.Object);
+        var sut = CreateService(dbName, templateCache: templateCache.Object, dataRepository: dataRepo.Object);
 
         await sut.SaveStagedReview(
             tenantId,
@@ -234,7 +236,8 @@ public class HistoricalMigrationServiceTests
         persistedRecord!.Rows.Should().HaveCount(1);
         persistedRecord.Rows[0].GetValue("closing_balance").Should().Be(777.01m);
 
-        var submission = await db.Submissions.SingleAsync(x =>
+        await using var readDb = CreateDb(dbName);
+        var submission = await readDb.Submissions.SingleAsync(x =>
             x.ReturnCode == "BDC_CAP"
             && x.ReturnPeriodId == period.Id
             && x.Status == SubmissionStatus.Historical);
@@ -242,7 +245,7 @@ public class HistoricalMigrationServiceTests
     }
 
     private static HistoricalMigrationService CreateService(
-        MetadataDbContext db,
+        string databaseName,
         ITemplateMetadataCache? templateCache = null,
         IGenericDataRepository? dataRepository = null)
     {
@@ -268,7 +271,7 @@ public class HistoricalMigrationServiceTests
             new Mock<IBusinessRuleEvaluator>().Object);
 
         return new HistoricalMigrationService(
-            new TestDbContextFactory(db),
+            new TestDbContextFactory(databaseName),
             templateCache,
             parsers,
             dataRepository,

@@ -14,9 +14,9 @@ public class GenericDataRepositoryMetadataTests
     [Fact]
     public async Task DataSource_SourceDetail_Metadata_Is_Persisted()
     {
-        await using var db = CreateDbContext(nameof(DataSource_SourceDetail_Metadata_Is_Persisted));
+        var dbName = nameof(DataSource_SourceDetail_Metadata_Is_Persisted);
         var tenantId = Guid.NewGuid();
-        var sut = CreateSut(db, tenantId);
+        var sut = CreateSut(dbName, tenantId);
 
         await InvokeMetadataUpsert(
             sut,
@@ -26,6 +26,7 @@ public class GenericDataRepositoryMetadataTests
             "InterModule",
             "BDC_CBN/BDC_AML/str_count");
 
+        await using var db = CreateDbContext(dbName);
         var stored = await db.SubmissionFieldSources.SingleAsync();
         stored.TenantId.Should().Be(tenantId);
         stored.ReturnCode.Should().Be("BDC_AML");
@@ -38,9 +39,9 @@ public class GenericDataRepositoryMetadataTests
     [Fact]
     public async Task User_Can_Override_AutoPopulated_Value()
     {
-        await using var db = CreateDbContext(nameof(User_Can_Override_AutoPopulated_Value));
+        var dbName = nameof(User_Can_Override_AutoPopulated_Value);
         var tenantId = Guid.NewGuid();
-        var sut = CreateSut(db, tenantId);
+        var sut = CreateSut(dbName, tenantId);
 
         await InvokeMetadataUpsert(
             sut,
@@ -58,12 +59,13 @@ public class GenericDataRepositoryMetadataTests
             "Manual",
             null);
 
+        await using var db = CreateDbContext(dbName);
         var stored = await db.SubmissionFieldSources.SingleAsync();
         stored.DataSource.Should().Be("Manual");
         stored.SourceDetail.Should().BeNull();
     }
 
-    private static GenericDataRepository CreateSut(MetadataDbContext db, Guid tenantId)
+    private static GenericDataRepository CreateSut(string databaseName, Guid tenantId)
     {
         var connectionFactory = new Mock<IDbConnectionFactory>();
         var tenantContext = new Mock<ITenantContext>();
@@ -79,7 +81,7 @@ public class GenericDataRepositoryMetadataTests
             tenantContext.Object,
             cache.Object,
             sqlBuilder,
-            new TestDbContextFactory(db));
+            new TestDbContextFactory(databaseName));
     }
 
     private static MetadataDbContext CreateDbContext(string databaseName)

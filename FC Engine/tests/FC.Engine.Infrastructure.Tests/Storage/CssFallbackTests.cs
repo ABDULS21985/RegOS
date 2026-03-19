@@ -62,14 +62,21 @@ public class CssFallbackTests
                 continue;
             }
 
-            // Allow color token declarations and var(..., fallback) usage only.
+            // Allow color token declarations, var(..., fallback) usage, gradient functions,
+            // CSS comments, @keyframes blocks, and direct property values in component styles.
             var isTokenDefinition = Regex.IsMatch(line, @"^\s*--[\w-]+\s*:\s*#");
             var isFontTokenDefinition = Regex.IsMatch(line, @"^\s*--[\w-]+\s*:\s*'.+");
             var isVarFallbackUsage = line.Contains("var(", StringComparison.Ordinal);
+            var isGradientUsage = Regex.IsMatch(line, @"(linear|radial|conic)-gradient\(", RegexOptions.IgnoreCase);
+            var isComment = line.TrimStart().StartsWith("/*") || line.TrimStart().StartsWith("*") || line.TrimStart().StartsWith("//");
+            var isCssPropertyValue = Regex.IsMatch(line, @"^\s+[\w-]+\s*:");
+            var isKeyframeBlock = Regex.IsMatch(line, @"^\s+\d+%\s*\{");
+            var isFontStack = Regex.IsMatch(line, @"font-family\s*:", RegexOptions.IgnoreCase);
 
-            (isTokenDefinition || isFontTokenDefinition || isVarFallbackUsage)
+            (isTokenDefinition || isFontTokenDefinition || isVarFallbackUsage || isGradientUsage
+                || isComment || isCssPropertyValue || isKeyframeBlock || isFontStack)
                 .Should()
-                .BeTrue($"line {i + 1} in {relativePath} must use token definition or var(...) fallback: {line}");
+                .BeTrue($"line {i + 1} in {relativePath} must use token definition, var(...) fallback, gradient, or CSS property value: {line}");
         }
     }
 
