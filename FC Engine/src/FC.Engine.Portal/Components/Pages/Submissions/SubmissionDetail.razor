@@ -1,5 +1,6 @@
 @page "/submissions/{SubmissionId:int}"
 @attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Enums
 @inject SubmissionService SubmissionSvc
 @inject IGenericDataRepository DataRepo
 @inject ApprovalService ApprovalSvc
@@ -141,7 +142,7 @@
                         </div>
                     }
                 </div>
-                @if (submission.Status is "Accepted" or "AcceptedWithWarnings")
+                @if (SubmissionStatusNames.IsAcceptedLike(submission.Status))
                 {
                     <a href="/submissions/@SubmissionId/certificate" class="portal-btn portal-btn-outline portal-btn-sm portal-cert-badge-btn">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
@@ -590,15 +591,15 @@
                             @if (directSubmissions is not null)
                             {
                                 <div style="margin-top:0.75rem; font-size:0.8rem; color:#6b7280;">
-                                    @if (submission?.Status == "RegulatorAccepted")
+                                    @if (submission?.Status == SubmissionStatusNames.RegulatorAccepted)
                                     {
                                         <span style="color:#059669; font-weight:600;">Regulator has accepted this return.</span>
                                     }
-                                    else if (submission?.Status == "RegulatorAcknowledged")
+                                    else if (submission?.Status == SubmissionStatusNames.RegulatorAcknowledged)
                                     {
                                         <span style="color:#2563eb;">Awaiting regulator processing.</span>
                                     }
-                                    else if (submission?.Status == "RegulatorQueriesRaised")
+                                    else if (submission?.Status == SubmissionStatusNames.RegulatorQueriesRaised)
                                     {
                                         <span style="color:#dc2626; font-weight:600;">Regulator has raised queries. Check your inbox.</span>
                                     }
@@ -752,7 +753,7 @@
                         </div>
                     }
 
-                    @if (!isChecker && submission!.Status == "PendingApproval")
+                    @if (!isChecker && submission!.Status == SubmissionStatusNames.PendingApproval)
                     {
                         <div class="portal-actions-group">
                             <button class="portal-btn portal-btn-outline portal-btn-sm portal-btn-full" @onclick="WithdrawSubmission">
@@ -762,7 +763,7 @@
                         </div>
                     }
 
-                    @if (approval is null && !_isAdminRole && submission!.Status != "PendingApproval" && !(isChecker && !_isAdminRole))
+                    @if (approval is null && !_isAdminRole && submission!.Status != SubmissionStatusNames.PendingApproval && !(isChecker && !_isAdminRole))
                     {
                         <p class="portal-actions-empty">No actions available for this submission.</p>
                     }
@@ -1148,19 +1149,19 @@
 
     private int GetCurrentLifecycleIndex() => submission?.Status switch
     {
-        "Parsing"                => 2,
-        "Validating"             => 2,
-        "Rejected"               => 2,
-        "PendingApproval"        => 3,
-        "ApprovalRejected"       => 3,
-        "Accepted"               => 4,
-        "AcceptedWithWarnings"   => 4,
-        "SubmittedToRegulator"   => 5,
-        "RegulatorAcknowledged"  => 5,
-        "RegulatorAccepted"      => 5,
-        "RegulatorQueriesRaised" => 5,
-        "Historical"             => 5,
-        _                        => 1,
+        SubmissionStatusNames.Parsing => 2,
+        SubmissionStatusNames.Validating => 2,
+        SubmissionStatusNames.Rejected => 2,
+        SubmissionStatusNames.PendingApproval => 3,
+        SubmissionStatusNames.ApprovalRejected => 3,
+        SubmissionStatusNames.Accepted => 4,
+        SubmissionStatusNames.AcceptedWithWarnings => 4,
+        SubmissionStatusNames.SubmittedToRegulator => 5,
+        SubmissionStatusNames.RegulatorAcknowledged => 5,
+        SubmissionStatusNames.RegulatorAccepted => 5,
+        SubmissionStatusNames.RegulatorQueriesRaised => 5,
+        SubmissionStatusNames.Historical => 5,
+        _ => 1,
     };
 
     private static string GetInitials(string name)
@@ -1183,45 +1184,45 @@
 
     private static string GetStatusBadgeClass(string status) => status switch
     {
-        "Accepted"               => "portal-badge-success",
-        "AcceptedWithWarnings"   => "portal-badge-warning",
-        "Rejected"               => "portal-badge-danger",
-        "PendingApproval"        => "portal-badge-info",
-        "ApprovalRejected"       => "portal-badge-danger",
-        "Historical"             => "portal-badge-neutral",
-        "SubmittedToRegulator"   => "portal-badge-info",
-        "RegulatorAcknowledged"  => "portal-badge-info",
-        "RegulatorAccepted"      => "portal-badge-success",
-        "RegulatorQueriesRaised" => "portal-badge-warning",
-        _                        => "portal-badge-neutral",
+        SubmissionStatusNames.Accepted => "portal-badge-success",
+        SubmissionStatusNames.AcceptedWithWarnings => "portal-badge-warning",
+        SubmissionStatusNames.Rejected => "portal-badge-danger",
+        SubmissionStatusNames.PendingApproval => "portal-badge-info",
+        SubmissionStatusNames.ApprovalRejected => "portal-badge-danger",
+        SubmissionStatusNames.Historical => "portal-badge-neutral",
+        SubmissionStatusNames.SubmittedToRegulator => "portal-badge-info",
+        SubmissionStatusNames.RegulatorAcknowledged => "portal-badge-info",
+        SubmissionStatusNames.RegulatorAccepted => "portal-badge-success",
+        SubmissionStatusNames.RegulatorQueriesRaised => "portal-badge-warning",
+        _ => "portal-badge-neutral",
     };
 
     private static string GetStatusIcon(string status) => status switch
     {
-        "Accepted"               => "✓",
-        "AcceptedWithWarnings"   => "⚠",
-        "Rejected"               => "✗",
-        "PendingApproval"        => "◷",
-        "ApprovalRejected"       => "↩",
-        "Historical"             => "H",
-        "SubmittedToRegulator"   => "⬆",
-        "RegulatorAcknowledged"  => "✓",
-        "RegulatorAccepted"      => "✔",
-        "RegulatorQueriesRaised" => "❓",
-        _                        => "",
+        SubmissionStatusNames.Accepted => "✓",
+        SubmissionStatusNames.AcceptedWithWarnings => "⚠",
+        SubmissionStatusNames.Rejected => "✗",
+        SubmissionStatusNames.PendingApproval => "◷",
+        SubmissionStatusNames.ApprovalRejected => "↩",
+        SubmissionStatusNames.Historical => "H",
+        SubmissionStatusNames.SubmittedToRegulator => "⬆",
+        SubmissionStatusNames.RegulatorAcknowledged => "✓",
+        SubmissionStatusNames.RegulatorAccepted => "✔",
+        SubmissionStatusNames.RegulatorQueriesRaised => "❓",
+        _ => "",
     };
 
     private static string GetStatusLabel(string status) => status switch
     {
-        "AcceptedWithWarnings"   => "Accepted (Warnings)",
-        "PendingApproval"        => "Pending Approval",
-        "ApprovalRejected"       => "Approval Rejected",
-        "Historical"             => "Historical (Read-Only)",
-        "SubmittedToRegulator"   => "Submitted to Regulator",
-        "RegulatorAcknowledged"  => "Regulator Acknowledged",
-        "RegulatorAccepted"      => "Regulator Accepted",
-        "RegulatorQueriesRaised" => "Regulator Queries",
-        _                        => status,
+        SubmissionStatusNames.AcceptedWithWarnings => "Accepted (Warnings)",
+        SubmissionStatusNames.PendingApproval => "Pending Approval",
+        SubmissionStatusNames.ApprovalRejected => "Approval Rejected",
+        SubmissionStatusNames.Historical => "Historical (Read-Only)",
+        SubmissionStatusNames.SubmittedToRegulator => "Submitted to Regulator",
+        SubmissionStatusNames.RegulatorAcknowledged => "Regulator Acknowledged",
+        SubmissionStatusNames.RegulatorAccepted => "Regulator Accepted",
+        SubmissionStatusNames.RegulatorQueriesRaised => "Regulator Queries",
+        _ => status,
     };
 
     private SubmissionApproval? MapApprovalForTimeline() => approval is null ? null : new SubmissionApproval
@@ -1330,8 +1331,7 @@
     private bool CanTriggerDirectSubmission()
     {
         return submission is not null
-            && (submission.Status == "Accepted"
-                || submission.Status == "AcceptedWithWarnings");
+            && SubmissionStatusNames.IsAcceptedLike(submission.Status);
     }
 
     private async Task SubmitToRegulatorAsync()

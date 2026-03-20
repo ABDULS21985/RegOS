@@ -1,5 +1,6 @@
 @page "/submissions"
 @attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.Security
 @using FC.Engine.Infrastructure.DragDrop
 @inject SubmissionService SubmissionSvc
@@ -69,19 +70,19 @@
                 <label for="filterStatus" class="portal-sr-only">Status</label>
                 <select id="filterStatus" class="portal-form-select" @bind="filterStatus" @bind:after="() => ApplyFilters()">
                     <option value="">All Statuses</option>
-                    <option value="Draft">Draft</option>
-                    <option value="Parsing">Parsing</option>
-                    <option value="Validating">Validating</option>
-                    <option value="Accepted">Accepted</option>
-                    <option value="AcceptedWithWarnings">Accepted with Warnings</option>
-                    <option value="Rejected">Rejected</option>
-                    <option value="PendingApproval">Pending Approval</option>
-                    <option value="ApprovalRejected">Approval Rejected</option>
-                    <option value="Historical">Historical</option>
-                    <option value="SubmittedToRegulator">Submitted to Regulator</option>
-                    <option value="RegulatorAcknowledged">Regulator Acknowledged</option>
-                    <option value="RegulatorAccepted">Regulator Accepted</option>
-                    <option value="RegulatorQueriesRaised">Regulator Queries Raised</option>
+                    <option value="@SubmissionStatusNames.Draft">Draft</option>
+                    <option value="@SubmissionStatusNames.Parsing">Parsing</option>
+                    <option value="@SubmissionStatusNames.Validating">Validating</option>
+                    <option value="@SubmissionStatusNames.Accepted">Accepted</option>
+                    <option value="@SubmissionStatusNames.AcceptedWithWarnings">Accepted with Warnings</option>
+                    <option value="@SubmissionStatusNames.Rejected">Rejected</option>
+                    <option value="@SubmissionStatusNames.PendingApproval">Pending Approval</option>
+                    <option value="@SubmissionStatusNames.ApprovalRejected">Approval Rejected</option>
+                    <option value="@SubmissionStatusNames.Historical">Historical</option>
+                    <option value="@SubmissionStatusNames.SubmittedToRegulator">Submitted to Regulator</option>
+                    <option value="@SubmissionStatusNames.RegulatorAcknowledged">Regulator Acknowledged</option>
+                    <option value="@SubmissionStatusNames.RegulatorAccepted">Regulator Accepted</option>
+                    <option value="@SubmissionStatusNames.RegulatorQueriesRaised">Regulator Queries Raised</option>
                 </select>
             </div>
 
@@ -297,7 +298,7 @@
                             @foreach (var sub in colCards)
                             {
                                 var overdue = sub.DeadlineDate.HasValue && sub.DeadlineDate.Value < DateTime.Today
-                                              && sub.Status is not ("Accepted" or "AcceptedWithWarnings" or "Historical");
+                                              && sub.Status is not (SubmissionStatusNames.Accepted or SubmissionStatusNames.AcceptedWithWarnings or SubmissionStatusNames.Historical);
                                 <div class="portal-kanban-card-v2 @GetCardAccentClass(sub.Status)"
                                      data-card-id="@sub.Id"
                                      role="listitem" tabindex="0"
@@ -356,7 +357,7 @@
                                             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                                             View
                                         </a>
-                                        @if (sub.Status == "PendingApproval")
+                                        @if (sub.Status == SubmissionStatusNames.PendingApproval)
                                         {
                                             <button class="portal-kanban-card-v2-action portal-kanban-card-v2-action--approve"
                                                     @onclick="() => NavigateToApproval(sub.Id)">
@@ -684,13 +685,13 @@
 
     private static readonly KanbanColumnDef[] kanbanColumns =
     [
-        new("draft",      "Draft",        ["Draft"],                                      WipLimit: 10,  Color: "gray"),
-        new("submitted",  "Submitted",    ["Parsing", "Validating"],                      WipLimit: null, Color: "blue"),
-        new("review",     "Under Review", ["PendingApproval"],                            WipLimit: 5,   Color: "amber"),
-        new("approved",   "Approved",     ["Accepted", "AcceptedWithWarnings"],           WipLimit: null, Color: "green"),
-        new("regulator",  "Regulator",    ["SubmittedToRegulator", "RegulatorAcknowledged", "RegulatorAccepted", "RegulatorQueriesRaised"], WipLimit: null, Color: "teal"),
-        new("rejected",   "Rejected",     ["Rejected", "ApprovalRejected"],               WipLimit: null, Color: "red"),
-        new("archived",   "Archived",     ["Historical"],                                 WipLimit: null, Color: "dark-green"),
+        new("draft", "Draft", [SubmissionStatusNames.Draft], WipLimit: 10, Color: "gray"),
+        new("submitted", "Submitted", [SubmissionStatusNames.Parsing, SubmissionStatusNames.Validating], WipLimit: null, Color: "blue"),
+        new("review", "Under Review", [SubmissionStatusNames.PendingApproval], WipLimit: 5, Color: "amber"),
+        new("approved", "Approved", [SubmissionStatusNames.Accepted, SubmissionStatusNames.AcceptedWithWarnings], WipLimit: null, Color: "green"),
+        new("regulator", "Regulator", [SubmissionStatusNames.SubmittedToRegulator, SubmissionStatusNames.RegulatorAcknowledged, SubmissionStatusNames.RegulatorAccepted, SubmissionStatusNames.RegulatorQueriesRaised], WipLimit: null, Color: "teal"),
+        new("rejected", "Rejected", [SubmissionStatusNames.Rejected, SubmissionStatusNames.ApprovalRejected], WipLimit: null, Color: "red"),
+        new("archived", "Archived", [SubmissionStatusNames.Historical], WipLimit: null, Color: "dark-green"),
     ];
 
     // Column collapse / per-column search
@@ -765,7 +766,7 @@
             var role = state.User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value;
             if (role == "Checker")
             {
-                filterStatus = "PendingApproval";
+                filterStatus = SubmissionStatusNames.PendingApproval;
                 _smartDefaultApplied = true;
             }
         }
@@ -894,10 +895,10 @@
 
     private static string GetCardAccentClass(string status) => status switch
     {
-        "Accepted" => "portal-kanban-card--accent-success",
-        "AcceptedWithWarnings" => "portal-kanban-card--accent-warning",
-        "Rejected" or "ApprovalRejected" => "portal-kanban-card--accent-danger",
-        "PendingApproval" => "portal-kanban-card--accent-info",
+        SubmissionStatusNames.Accepted => "portal-kanban-card--accent-success",
+        SubmissionStatusNames.AcceptedWithWarnings => "portal-kanban-card--accent-warning",
+        SubmissionStatusNames.Rejected or SubmissionStatusNames.ApprovalRejected => "portal-kanban-card--accent-danger",
+        SubmissionStatusNames.PendingApproval => "portal-kanban-card--accent-info",
         _ => "portal-kanban-card--accent-neutral"
     };
 
@@ -1232,52 +1233,61 @@
 
     private static string GetStatusBadgeClass(string status)
     {
-        if (status == "Accepted") return "portal-badge-success";
-        if (status == "AcceptedWithWarnings") return "portal-badge-warning";
-        if (status == "Rejected") return "portal-badge-danger";
-        if (status == "PendingApproval") return "portal-badge-info";
-        if (status == "ApprovalRejected") return "portal-badge-danger";
-        if (status == "Historical") return "portal-badge-neutral";
-        if (status == "SubmittedToRegulator") return "portal-badge-info";
-        if (status == "RegulatorAcknowledged") return "portal-badge-info";
-        if (status == "RegulatorAccepted") return "portal-badge-success";
-        if (status == "RegulatorQueriesRaised") return "portal-badge-warning";
-        return "portal-badge-neutral";
+        return status switch
+        {
+            SubmissionStatusNames.Accepted => "portal-badge-success",
+            SubmissionStatusNames.AcceptedWithWarnings => "portal-badge-warning",
+            SubmissionStatusNames.Rejected => "portal-badge-danger",
+            SubmissionStatusNames.PendingApproval => "portal-badge-info",
+            SubmissionStatusNames.ApprovalRejected => "portal-badge-danger",
+            SubmissionStatusNames.Historical => "portal-badge-neutral",
+            SubmissionStatusNames.SubmittedToRegulator => "portal-badge-info",
+            SubmissionStatusNames.RegulatorAcknowledged => "portal-badge-info",
+            SubmissionStatusNames.RegulatorAccepted => "portal-badge-success",
+            SubmissionStatusNames.RegulatorQueriesRaised => "portal-badge-warning",
+            _ => "portal-badge-neutral"
+        };
     }
 
     private static string GetStatusIcon(string status)
     {
-        if (status == "Accepted") return "✓ ";
-        if (status == "AcceptedWithWarnings") return "⚠ ";
-        if (status == "Rejected") return "✗ ";
-        if (status == "PendingApproval") return "◷ ";
-        if (status == "ApprovalRejected") return "↩ ";
-        if (status == "Historical") return "H ";
-        if (status == "SubmittedToRegulator") return "⬆ ";
-        if (status == "RegulatorAcknowledged") return "✓ ";
-        if (status == "RegulatorAccepted") return "✔ ";
-        if (status == "RegulatorQueriesRaised") return "❓ ";
-        return "";
+        return status switch
+        {
+            SubmissionStatusNames.Accepted => "✓ ",
+            SubmissionStatusNames.AcceptedWithWarnings => "⚠ ",
+            SubmissionStatusNames.Rejected => "✗ ",
+            SubmissionStatusNames.PendingApproval => "◷ ",
+            SubmissionStatusNames.ApprovalRejected => "↩ ",
+            SubmissionStatusNames.Historical => "H ",
+            SubmissionStatusNames.SubmittedToRegulator => "⬆ ",
+            SubmissionStatusNames.RegulatorAcknowledged => "✓ ",
+            SubmissionStatusNames.RegulatorAccepted => "✔ ",
+            SubmissionStatusNames.RegulatorQueriesRaised => "❓ ",
+            _ => ""
+        };
     }
 
     private static string GetStatusLabel(string status)
     {
-        if (status == "AcceptedWithWarnings") return "Accepted (Warnings)";
-        if (status == "PendingApproval") return "Pending Approval";
-        if (status == "ApprovalRejected") return "Approval Rejected";
-        if (status == "Historical") return "Historical (Read-Only)";
-        if (status == "SubmittedToRegulator") return "Submitted to Regulator";
-        if (status == "RegulatorAcknowledged") return "Regulator Acknowledged";
-        if (status == "RegulatorAccepted") return "Regulator Accepted";
-        if (status == "RegulatorQueriesRaised") return "Regulator Queries";
-        return status;
+        return status switch
+        {
+            SubmissionStatusNames.AcceptedWithWarnings => "Accepted (Warnings)",
+            SubmissionStatusNames.PendingApproval => "Pending Approval",
+            SubmissionStatusNames.ApprovalRejected => "Approval Rejected",
+            SubmissionStatusNames.Historical => "Historical (Read-Only)",
+            SubmissionStatusNames.SubmittedToRegulator => "Submitted to Regulator",
+            SubmissionStatusNames.RegulatorAcknowledged => "Regulator Acknowledged",
+            SubmissionStatusNames.RegulatorAccepted => "Regulator Accepted",
+            SubmissionStatusNames.RegulatorQueriesRaised => "Regulator Queries",
+            _ => status
+        };
     }
 
     private bool HasBatchEligibleSelection => submissions.Any(submission =>
         _selectedIds.Contains(submission.Id)
         && IsBatchEligibleStatus(submission.Status));
 
-    private static bool IsBatchEligibleStatus(string status) => status is "Accepted" or "AcceptedWithWarnings";
+    private static bool IsBatchEligibleStatus(string status) => SubmissionStatusNames.IsAcceptedLike(status);
 
     private void NavigateToBatchCreate()
     {

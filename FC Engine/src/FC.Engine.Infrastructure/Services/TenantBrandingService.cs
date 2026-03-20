@@ -167,7 +167,10 @@ public class TenantBrandingService : ITenantBrandingService
 
         var featureBlob = await db.Subscriptions
             .AsNoTracking()
-            .Where(s => s.TenantId == tenantId && SubscriptionStatusRules.EntitlementEligibleStatuses.Contains(s.Status))
+            .Where(s => s.TenantId == tenantId
+                     && (s.Status == SubscriptionStatus.Trial
+                         || s.Status == SubscriptionStatus.Active
+                         || s.Status == SubscriptionStatus.PastDue))
             .Join(
                 db.SubscriptionPlans.AsNoTracking(),
                 s => s.PlanId,

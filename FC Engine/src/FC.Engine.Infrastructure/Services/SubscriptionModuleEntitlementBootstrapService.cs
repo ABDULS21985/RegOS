@@ -42,7 +42,10 @@ public sealed class SubscriptionModuleEntitlementBootstrapService
         CancellationToken ct)
     {
         var subscriptionQuery = _db.Subscriptions
-            .Where(subscription => SubscriptionStatusRules.EntitlementEligibleStatuses.Contains(subscription.Status));
+            .Where(subscription =>
+                subscription.Status == SubscriptionStatus.Trial
+                || subscription.Status == SubscriptionStatus.Active
+                || subscription.Status == SubscriptionStatus.PastDue);
 
         if (subscriptionId.HasValue)
         {
@@ -73,7 +76,9 @@ public sealed class SubscriptionModuleEntitlementBootstrapService
             join pricing in _db.PlanModulePricing on new { subscription.PlanId, licenceModule.ModuleId }
                 equals new { pricing.PlanId, pricing.ModuleId }
             join module in _db.Modules on licenceModule.ModuleId equals module.Id
-            where SubscriptionStatusRules.EntitlementEligibleStatuses.Contains(subscription.Status)
+            where (subscription.Status == SubscriptionStatus.Trial
+                   || subscription.Status == SubscriptionStatus.Active
+                   || subscription.Status == SubscriptionStatus.PastDue)
                   && tenantLicence.IsActive
                   && pricing.IsIncludedInBase
                   && module.IsActive

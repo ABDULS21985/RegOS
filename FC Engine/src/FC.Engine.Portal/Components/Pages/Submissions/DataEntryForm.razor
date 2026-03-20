@@ -4,6 +4,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @using System.Globalization
+@using FC.Engine.Domain.Enums
 @using Microsoft.AspNetCore.SignalR.Client
 
 <PageTitle>Data Entry: @ReturnCode — RegOS™ Portal</PageTitle>
@@ -31,9 +32,9 @@
         var _vr           = submissionResult?.ValidationReport;
         var _errCount     = _vr?.ErrorCount ?? 0;
         var _warnCount    = _vr?.WarningCount ?? 0;
-        var _isAccepted   = submissionResult?.Status is "Accepted" or "AcceptedWithWarnings";
-        var _statusBadge  = submissionResult?.Status == "Accepted"             ? "portal-badge-success"
-                          : submissionResult?.Status == "AcceptedWithWarnings" ? "portal-badge-warning"
+        var _isAccepted   = SubmissionStatusNames.IsAcceptedLike(submissionResult?.Status);
+        var _statusBadge  = submissionResult?.Status == SubmissionStatusNames.Accepted             ? "portal-badge-success"
+                          : submissionResult?.Status == SubmissionStatusNames.AcceptedWithWarnings ? "portal-badge-warning"
                           : "portal-badge-danger";
         var _iconColor    = _isAccepted ? "var(--cbn-success-text, #16a34a)" : "#dc2626";
         <div class="portal-card portal-form-success-card">

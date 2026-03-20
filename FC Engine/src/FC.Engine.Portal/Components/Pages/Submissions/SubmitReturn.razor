@@ -2,6 +2,7 @@
 @attribute [Authorize(Policy = "InstitutionMaker")]
 @inject SubmissionService SubmissionService
 @inject NavigationManager Navigation
+@using FC.Engine.Domain.Enums
 @implements IDisposable
 
 <PageTitle>Submit Return — RegOS™ Portal</PageTitle>
@@ -934,8 +935,8 @@
             }
             else
             {
-                validationPassed = result.Status == "Accepted" || result.Status == "AcceptedWithWarnings"
-                    || result.Status == "PendingApproval";
+                validationPassed = SubmissionStatusNames.IsAcceptedLike(result.Status)
+                    || result.Status == SubmissionStatusNames.PendingApproval;
             }
         }
         catch (Exception ex)

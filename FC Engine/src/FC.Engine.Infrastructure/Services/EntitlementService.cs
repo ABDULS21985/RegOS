@@ -170,7 +170,9 @@ public class EntitlementService : IEntitlementService
             .AsNoTracking()
             .Include(s => s.Plan)
             .Where(s => s.TenantId == tenantId)
-            .Where(s => SubscriptionStatusRules.EntitlementEligibleStatuses.Contains(s.Status))
+            .Where(s => s.Status == SubscriptionStatus.Trial
+                     || s.Status == SubscriptionStatus.Active
+                     || s.Status == SubscriptionStatus.PastDue)
             .OrderByDescending(s => s.Id)
             .FirstOrDefaultAsync(ct);
 

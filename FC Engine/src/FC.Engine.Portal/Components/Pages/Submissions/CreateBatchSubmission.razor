@@ -1,5 +1,6 @@
 @page "/submissions/batches/new"
 @attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.Security
 @inject SubmissionService SubmissionSvc
 @inject SubmissionBatchPortalService BatchPortalService
@@ -190,7 +191,7 @@
                                         <td>@submission.TemplateName</td>
                                         <td>@submission.PeriodLabel</td>
                                         <td>
-                                            <span class="portal-badge @(submission.Status == "Accepted" ? "portal-badge-success" : "portal-badge-warning")">
+                                            <span class="portal-badge @(submission.Status == SubmissionStatusNames.Accepted ? "portal-badge-success" : "portal-badge-warning")">
                                                 @submission.Status
                                             </span>
                                         </td>
@@ -334,7 +335,7 @@
     }
 
     private static bool IsEligibleForBatch(SubmissionListItem submission) =>
-        submission.Status is "Accepted" or "AcceptedWithWarnings";
+        SubmissionStatusNames.IsAcceptedLike(submission.Status);
 
     private void ParsePreselectedIds()
     {

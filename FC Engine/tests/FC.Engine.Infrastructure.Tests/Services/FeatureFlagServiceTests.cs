@@ -145,6 +145,60 @@ public class FeatureFlagServiceTests
     }
 
     [Fact]
+    public async Task IsEnabled_Does_Not_Grant_Plan_Targeting_For_Suspended_Subscription()
+    {
+        await using var db = CreateDb();
+
+        var tenant = Tenant.Create("Suspended Plan", "suspended-plan", TenantType.Institution, "suspended@test.com");
+        tenant.Activate();
+        db.Tenants.Add(tenant);
+
+        var plan = new SubscriptionPlan
+        {
+            PlanCode = "ENTERPRISE",
+            PlanName = "Enterprise",
+            Tier = 3,
+            MaxModules = 10,
+            MaxUsersPerEntity = 50,
+            MaxEntities = 10,
+            MaxApiCallsPerMonth = 0,
+            MaxStorageMb = 5000,
+            BasePriceMonthly = 750000,
+            BasePriceAnnual = 7500000,
+            IsActive = true,
+            DisplayOrder = 1
+        };
+        db.SubscriptionPlans.Add(plan);
+        await db.SaveChangesAsync();
+
+        var subscription = new Subscription
+        {
+            TenantId = tenant.TenantId,
+            PlanId = plan.Id,
+            BillingFrequency = BillingFrequency.Monthly,
+            CurrentPeriodStart = DateTime.UtcNow.AddDays(-15),
+            CurrentPeriodEnd = DateTime.UtcNow.AddDays(15)
+        };
+        subscription.Activate();
+        subscription.Suspend("payment overdue");
+        db.Subscriptions.Add(subscription);
+
+        db.FeatureFlags.Add(new FeatureFlag
+        {
+            FlagCode = "plan-flag",
+            Description = "Plan-based",
+            IsEnabled = false,
+            RolloutPercent = 0,
+            AllowedPlans = "[\"ENTERPRISE\"]"
+        });
+        await db.SaveChangesAsync();
+
+        var svc = CreateService(db);
+
+        (await svc.IsEnabled("plan-flag", tenant.TenantId)).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task IsEnabled_Rollout_Percent_Is_Deterministic()
     {
         await using var db = CreateDb();
