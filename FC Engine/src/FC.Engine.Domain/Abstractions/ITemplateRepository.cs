@@ -27,4 +27,9 @@ public interface ITemplateRepository
     /// Returns <c>null</c> when no in-flight version exists.
     /// </summary>
     Task<TemplateVersion?> GetLatestDraftVersion(string returnCode, CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns <c>true</c> when the template already has an active Draft or Review version.
+    /// </summary>
+    Task<bool> HasExistingDraft(int templateId, CancellationToken ct = default);
 }

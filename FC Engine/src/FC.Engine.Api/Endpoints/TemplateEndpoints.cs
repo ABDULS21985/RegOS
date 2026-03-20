@@ -71,6 +71,35 @@ public static class TemplateEndpoints
         .WithName("AddField")
         .WithSummary("Add a field to a draft template version");
 
+        group.MapPut("/{templateId:int}/versions/{versionId:int}/fields/{fieldId:int}", async (
+            int templateId, int versionId, int fieldId,
+            AddFieldRequest request,
+            TemplateService templateService,
+            ClaimsPrincipal principal,
+            CancellationToken ct) =>
+        {
+            var actingUser = ResolveUserIdentity(principal);
+            await templateService.UpdateFieldInVersion(templateId, versionId, fieldId, request, actingUser, ct);
+            return Results.Ok();
+        })
+        .RequireAuthorization("CanEditTemplates")
+        .WithName("UpdateField")
+        .WithSummary("Update a field on a draft template version");
+
+        group.MapDelete("/{templateId:int}/versions/{versionId:int}/fields/{fieldId:int}", async (
+            int templateId, int versionId, int fieldId,
+            TemplateService templateService,
+            ClaimsPrincipal principal,
+            CancellationToken ct) =>
+        {
+            var actingUser = ResolveUserIdentity(principal);
+            await templateService.RemoveFieldFromVersion(templateId, versionId, fieldId, actingUser, ct);
+            return Results.Ok();
+        })
+        .RequireAuthorization("CanEditTemplates")
+        .WithName("RemoveField")
+        .WithSummary("Remove a field from a draft template version");
+
         // Version lifecycle
         group.MapPost("/{templateId:int}/versions", async (
             int templateId,

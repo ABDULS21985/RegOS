@@ -15,4 +15,5 @@ public interface ISubmissionRepository
     Task<int> GetTotalCount(CancellationToken ct = default);
     Task Add(Submission submission, CancellationToken ct = default);
     Task Update(Submission submission, CancellationToken ct = default);
+    Task UpdateStatus(int submissionId, SubmissionStatus status, CancellationToken ct = default);
 }

@@ -38,6 +38,15 @@ public class TemplateVersion
         _fields.Add(field);
     }
 
+    public TemplateField GetField(int fieldId) =>
+        _fields.First(f => f.Id == fieldId);
+
+    public void RemoveField(int fieldId)
+    {
+        var field = GetField(fieldId);
+        _fields.Remove(field);
+    }
+
     public void AddItemCode(TemplateItemCode itemCode)
     {
         itemCode.TemplateVersionId = Id;

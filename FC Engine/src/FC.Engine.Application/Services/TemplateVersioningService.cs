@@ -31,6 +31,9 @@ public class TemplateVersioningService
 
     public async Task<TemplateVersion> CreateNewDraftVersion(int templateId, string createdBy, CancellationToken ct = default)
     {
+        if (await _templateRepo.HasExistingDraft(templateId, ct))
+            throw new InvalidOperationException("Template already has an active draft or review version");
+
         var template = await _templateRepo.GetById(templateId, ct)
             ?? throw new InvalidOperationException($"Template {templateId} not found");
 

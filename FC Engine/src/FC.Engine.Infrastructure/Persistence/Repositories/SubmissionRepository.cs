@@ -147,4 +147,20 @@ public class SubmissionRepository : ISubmissionRepository
         db.Submissions.Update(submission);
         await db.SaveChangesAsync(ct);
     }
+
+    public async Task UpdateStatus(int submissionId, SubmissionStatus status, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var submission = new Submission
+        {
+            Id = submissionId,
+            Status = status
+        };
+
+        var entry = db.Attach(submission);
+        entry.Property(s => s.Status).IsModified = true;
+
+        await db.SaveChangesAsync(ct);
+    }
 }

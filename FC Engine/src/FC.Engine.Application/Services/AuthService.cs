@@ -16,6 +16,7 @@ public class AuthService
     private readonly IEntitlementService _entitlementService;
     private readonly IPermissionService _permissionService;
     private readonly IConsentService? _consentService;
+    private readonly IPortalRoleCatalogService? _portalRoleCatalogService;
 
     // Lockout policy
     private const int MaxFailedAttempts = 5;
@@ -31,7 +32,8 @@ public class AuthService
         IPasswordResetTokenRepository resetTokenRepo,
         IEntitlementService entitlementService,
         IPermissionService permissionService,
-        IConsentService? consentService = null)
+        IConsentService? consentService = null,
+        IPortalRoleCatalogService? portalRoleCatalogService = null)
     {
         _userRepo = userRepo;
         _loginAttemptRepo = loginAttemptRepo;
@@ -39,6 +41,7 @@ public class AuthService
         _entitlementService = entitlementService;
         _permissionService = permissionService;
         _consentService = consentService;
+        _portalRoleCatalogService = portalRoleCatalogService;
     }
 
     /// <summary>
@@ -175,6 +178,8 @@ public class AuthService
         if (string.IsNullOrWhiteSpace(password) || password.Length < 12)
             throw new ArgumentException("Password must be at least 12 characters.");
 
+        await EnsureRoleConfigured(role, tenantId, ct);
+
         if (await _userRepo.UsernameExists(username, ct))
             throw new InvalidOperationException($"Username '{username}' already exists");
 
@@ -211,6 +216,42 @@ public class AuthService
         }
 
         return created;
+    }
+
+    public async Task UpdateUser(
+        int userId,
+        string displayName,
+        string email,
+        PortalRole role,
+        Guid? tenantId = null,
+        CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(displayName))
+            throw new ArgumentException("Display name is required.");
+
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            throw new ArgumentException("A valid email address is required.");
+
+        await EnsureRoleConfigured(role, tenantId, ct);
+
+        var user = await _userRepo.GetById(userId, ct)
+            ?? throw new InvalidOperationException("User not found");
+
+        user.DisplayName = displayName.Trim();
+        user.Email = email.Trim();
+        user.Role = role;
+        user.TenantId = tenantId;
+
+        await _userRepo.Update(user, ct);
+    }
+
+    public async Task SetUserStatus(int userId, bool isActive, CancellationToken ct = default)
+    {
+        var user = await _userRepo.GetById(userId, ct)
+            ?? throw new InvalidOperationException("User not found");
+
+        user.IsActive = isActive;
+        await _userRepo.Update(user, ct);
     }
 
     public async Task ChangePassword(int userId, string newPassword, CancellationToken ct = default)
@@ -382,5 +423,11 @@ public class AuthService
             .Replace("+", "-")
             .Replace("/", "_")
             .TrimEnd('=');
+    }
+
+    private Task EnsureRoleConfigured(PortalRole role, Guid? tenantId, CancellationToken ct)
+    {
+        return _portalRoleCatalogService?.EnsurePortalRoleConfigured(role, tenantId, ct)
+            ?? Task.CompletedTask;
     }
 }

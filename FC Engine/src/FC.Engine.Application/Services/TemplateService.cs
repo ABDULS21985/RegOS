@@ -36,9 +36,12 @@ public class TemplateService
             throw new InvalidOperationException($"Template '{request.ReturnCode}' already exists");
 
         var returnCode = Domain.ValueObjects.ReturnCode.Parse(request.ReturnCode);
+        var tenantId = request.TenantId ?? _tenantContext.CurrentTenantId;
 
         var template = new ReturnTemplate
         {
+            TenantId = tenantId,
+            ModuleId = request.ModuleId,
             ReturnCode = request.ReturnCode,
             Name = request.Name,
             Description = request.Description,
@@ -137,6 +140,113 @@ public class TemplateService
         await _templateRepo.Update(template, ct);
         await _audit.Log("TemplateField", field.Id, "Added", null, field, performedBy, ct);
     }
+
+    public async Task UpdateFieldInVersion(
+        int templateId,
+        int versionId,
+        int fieldId,
+        AddFieldRequest request,
+        string performedBy,
+        CancellationToken ct = default)
+    {
+        var (template, version) = await LoadDraftVersion(templateId, versionId, ct);
+
+        var field = version.Fields.FirstOrDefault(f => f.Id == fieldId)
+            ?? throw new InvalidOperationException($"Field {fieldId} not found");
+
+        var before = SnapshotField(field);
+        ApplyFieldRequest(field, request);
+
+        await _templateRepo.Update(template, ct);
+        await _audit.Log("TemplateField", field.Id, "Updated", before, SnapshotField(field), performedBy, ct);
+    }
+
+    public async Task RemoveFieldFromVersion(
+        int templateId,
+        int versionId,
+        int fieldId,
+        string performedBy,
+        CancellationToken ct = default)
+    {
+        var (template, version) = await LoadDraftVersion(templateId, versionId, ct);
+
+        var field = version.Fields.FirstOrDefault(f => f.Id == fieldId)
+            ?? throw new InvalidOperationException($"Field {fieldId} not found");
+
+        var before = SnapshotField(field);
+        version.RemoveField(fieldId);
+
+        await _templateRepo.Update(template, ct);
+        await _audit.Log("TemplateField", fieldId, "Removed", before, null, performedBy, ct);
+    }
+
+    private async Task<(ReturnTemplate Template, TemplateVersion Version)> LoadDraftVersion(
+        int templateId,
+        int versionId,
+        CancellationToken ct)
+    {
+        var template = await _templateRepo.GetById(templateId, ct)
+            ?? throw new InvalidOperationException($"Template {templateId} not found");
+
+        var version = template.GetVersion(versionId);
+        if (version.Status != TemplateStatus.Draft)
+            throw new InvalidOperationException("Fields can only be modified on Draft versions");
+
+        return (template, version);
+    }
+
+    private void ApplyFieldRequest(TemplateField field, AddFieldRequest request)
+    {
+        field.FieldName = request.FieldName;
+        field.DisplayName = request.DisplayName;
+        field.XmlElementName = string.IsNullOrWhiteSpace(request.XmlElementName)
+            ? request.FieldName
+            : request.XmlElementName;
+        field.LineCode = request.LineCode;
+        field.SectionName = request.SectionName;
+        field.SectionOrder = request.SectionOrder;
+        field.FieldOrder = request.FieldOrder;
+        field.DataType = request.DataType;
+        field.SqlType = _sqlTypeMapper.MapToSqlType(request.DataType);
+        field.IsRequired = request.IsRequired;
+        field.IsComputed = request.IsComputed;
+        field.IsKeyField = request.IsKeyField;
+        field.DefaultValue = request.DefaultValue;
+        field.MinValue = request.MinValue;
+        field.MaxValue = request.MaxValue;
+        field.MaxLength = request.MaxLength;
+        field.AllowedValues = request.AllowedValues;
+        field.HelpText = request.HelpText;
+        field.ValidationNote = request.ValidationNote;
+        field.RegulatoryReference = request.RegulatoryReference;
+        field.DataClassification = request.DataClassification;
+    }
+
+    private static object SnapshotField(TemplateField field) => new
+    {
+        field.Id,
+        field.FieldName,
+        field.DisplayName,
+        field.XmlElementName,
+        field.LineCode,
+        field.SectionName,
+        field.SectionOrder,
+        field.FieldOrder,
+        DataType = field.DataType.ToString(),
+        field.SqlType,
+        field.IsRequired,
+        field.IsComputed,
+        field.IsKeyField,
+        field.DefaultValue,
+        field.MinValue,
+        field.MaxValue,
+        field.MaxLength,
+        field.AllowedValues,
+        field.HelpText,
+        field.ValidationNote,
+        field.RegulatoryReference,
+        DataClassification = field.DataClassification.ToString()
+    };
 
     private static TemplateDto MapToDto(ReturnTemplate t)
     {

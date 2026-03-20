@@ -1,5 +1,5 @@
 @page "/approvals"
-@attribute [Authorize(Policy = "InstitutionUser")]
+@attribute [Authorize(Policy = "InstitutionChecker")]
 @inject NavigationManager Navigation
 @inject ToastService Toast
 @inject IPresenceService PresenceService
@@ -308,6 +308,7 @@
     // ── Component state ───────────────────────────────────────────
     private bool               _isLoading      = true;
     private bool               _isCheckerOrAdmin;
+    private bool               _disposed;
     private List<ApprovalCard> _cards          = new();
 
     // Reject modal — reason is preserved across dismissals (decision memory)
@@ -453,10 +454,14 @@
             // Wait for undo window to expire
             await Task.Delay(5_000, cts.Token);
 
+            if (_disposed) return;
+
             // Execute the actual server call
             var result = isApproval
                 ? await ApprovalSvc.Approve(submissionId, _currentUserId, comments)
                 : await ApprovalSvc.Reject(submissionId, _currentUserId, comments ?? "");
+
+            if (_disposed) return;
 
             if (result != ApprovalActionResult.Success)
             {
@@ -478,19 +483,27 @@
             else
             {
                 // Clean up tracking on success
-                await InvokeAsync(() =>
+                if (!_disposed)
                 {
-                    _pendingActions.Remove(submissionId);
-                    _undoSnapshots.Remove(submissionId);
-                });
+                    await InvokeAsync(() =>
+                    {
+                        _pendingActions.Remove(submissionId);
+                        _undoSnapshots.Remove(submissionId);
+                    });
+                }
             }
         }
         catch (OperationCanceledException)
         {
             // Undo was triggered — card already restored by UndoActionAsync
         }
+        catch (ObjectDisposedException)
+        {
+            // Component disposed during deferred execution — safe to ignore
+        }
         catch
         {
+            if (_disposed) return;
             try
             {
                 await InvokeAsync(() =>
@@ -509,7 +522,7 @@
     // ── Undo ──────────────────────────────────────────────────────
     private async Task UndoActionAsync(int submissionId)
     {
-        if (!_pendingActions.TryGetValue(submissionId, out var cts)) return;
+        if (_disposed || !_pendingActions.TryGetValue(submissionId, out var cts)) return;
 
         cts.Cancel();               // abort the deferred API call
         RestoreCard(submissionId);  // re-insert card with entering animation
@@ -519,6 +532,7 @@
         try
         {
             await Task.Delay(350);
+            if (_disposed) return;
             await InvokeAsync(() =>
             {
                 var card = _cards.FirstOrDefault(c => c.Item.SubmissionId == submissionId);
@@ -640,9 +654,16 @@
                 if (result == ApprovalActionResult.Success)
                 {
                     var current = Interlocked.Increment(ref done);
-                    await InvokeAsync(() =>
-                        Toast.UpdateToast(progressId, ToastVariant.Loading,
-                            $"Approving {current}/{total} submission{(total == 1 ? "" : "s")}…"));
+                    if (!_disposed)
+                    {
+                        try
+                        {
+                            await InvokeAsync(() =>
+                                Toast.UpdateToast(progressId, ToastVariant.Loading,
+                                    $"Approving {current}/{total} submission{(total == 1 ? "" : "s")}…"));
+                        }
+                        catch { /* component disposed during batch */ }
+                    }
                     return (c.Item.SubmissionId, Success: true);
                 }
                 return (c.Item.SubmissionId, Success: false);
@@ -696,6 +717,7 @@
     // ── IAsyncDisposable ──────────────────────────────────────────
     public ValueTask DisposeAsync()
     {
+        _disposed = true;
         foreach (var cts in _pendingActions.Values)
         {
             try { cts.Cancel(); cts.Dispose(); } catch { /* ignore */ }

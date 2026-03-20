@@ -139,4 +139,11 @@ public class TemplateRepository : ITemplateRepository
         draftVersion.SetFormulas(formulas);
         return draftVersion;
     }
+
+    public Task<bool> HasExistingDraft(int templateId, CancellationToken ct = default)
+    {
+        return _db.TemplateVersions.AnyAsync(
+            v => v.TemplateId == templateId && (v.Status == TemplateStatus.Draft || v.Status == TemplateStatus.Review),
+            ct);
+    }
 }

@@ -86,6 +86,8 @@ public class CreateTemplateRequest
     public ReturnFrequency Frequency { get; set; }
     public StructuralCategory StructuralCategory { get; set; }
     public string CreatedBy { get; set; } = string.Empty;
+    public Guid? TenantId { get; set; }
+    public int? ModuleId { get; set; }
 }
 
 public class AddFieldRequest

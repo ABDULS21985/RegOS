@@ -2188,9 +2188,17 @@
             _saveLabel = $"Saved {DateTime.Now:HH:mm}";
             saveStatus = _saveLabel;
 
+            // Extend the edit lock — non-critical; failures must not mark the save as failed
             if (userId.HasValue)
             {
-                await ReturnLockService.Heartbeat(tenantId.Value, draftSubmissionId, userId.Value);
+                try
+                {
+                    await ReturnLockService.Heartbeat(tenantId.Value, draftSubmissionId, userId.Value);
+                }
+                catch
+                {
+                    // Lock heartbeat is best-effort; draft data was already persisted above
+                }
             }
         }
         catch (Exception ex)
