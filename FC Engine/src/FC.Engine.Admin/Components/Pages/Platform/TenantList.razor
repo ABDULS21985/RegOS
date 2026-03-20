@@ -482,11 +482,11 @@
         AddQuery(query, "status", _query.Status);
         AddQuery(query, "plan", _query.PlanCode);
         AddQuery(query, "licence", _query.LicenceType);
-        AddQuery(query, "sortBy", _query.SortBy);
-        AddQuery(query, "sortDesc", _query.SortDescending ? "true" : "false");
-        AddQuery(query, "minModules", _query.MinModuleCount?.ToString());
-        AddQuery(query, "needsReconciliation", _query.OnlyNeedsReconciliation ? "true" : null);
-        AddQuery(query, "staleReconciliation", _query.OnlyStaleReconciliation ? "true" : null);
+        if (_query.SortBy != "name") AddQuery(query, "sort", _query.SortBy);
+        if (_query.SortDescending) AddQuery(query, "sortDesc", "true");
+        AddQuery(query, "minMods", _query.MinModuleCount?.ToString());
+        if (_query.OnlyNeedsReconciliation) AddQuery(query, "needsRecon", "true");
+        if (_query.OnlyStaleReconciliation) AddQuery(query, "staleRecon", "true");
 
         var qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
         Navigation.NavigateTo($"/platform/tenants/export{qs}", forceLoad: true);

@@ -52,9 +52,25 @@ public class CssFallbackTests
         var path = GetProjectPath(relativePath.Split('/'));
         var lines = File.ReadAllLines(path);
 
+        var inBlockComment = false;
         for (var i = 0; i < lines.Length; i++)
         {
             var line = lines[i];
+
+            // Track multi-line CSS block comments
+            if (inBlockComment)
+            {
+                if (line.Contains("*/"))
+                    inBlockComment = false;
+                continue; // skip lines inside block comments entirely
+            }
+            if (line.TrimStart().StartsWith("/*"))
+            {
+                if (!line.Contains("*/"))
+                    inBlockComment = true;
+                continue; // skip single-line comments and block comment openers
+            }
+
             var hasTargetColor = TargetHexColors.Any(color => line.Contains(color, StringComparison.OrdinalIgnoreCase));
             var hasTargetFont = TargetFonts.Any(font => line.Contains(font, StringComparison.Ordinal));
             if (!hasTargetColor && !hasTargetFont)
@@ -68,7 +84,7 @@ public class CssFallbackTests
             var isFontTokenDefinition = Regex.IsMatch(line, @"^\s*--[\w-]+\s*:\s*'.+");
             var isVarFallbackUsage = line.Contains("var(", StringComparison.Ordinal);
             var isGradientUsage = Regex.IsMatch(line, @"(linear|radial|conic)-gradient\(", RegexOptions.IgnoreCase);
-            var isComment = line.TrimStart().StartsWith("/*") || line.TrimStart().StartsWith("*") || line.TrimStart().StartsWith("//");
+            var isComment = line.TrimStart().StartsWith("//") || line.TrimStart().StartsWith("*");
             var isCssPropertyValue = Regex.IsMatch(line, @"^\s+[\w-]+\s*:");
             var isKeyframeBlock = Regex.IsMatch(line, @"^\s+\d+%\s*\{");
             var isFontStack = Regex.IsMatch(line, @"font-family\s*:", RegexOptions.IgnoreCase);

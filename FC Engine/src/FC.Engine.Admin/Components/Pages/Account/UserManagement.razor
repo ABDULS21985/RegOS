@@ -416,14 +416,20 @@
                     _saving = false;
                     return;
                 }
-                if (!string.IsNullOrWhiteSpace(_formEmail) && !_formEmail.Contains('@'))
+                if (string.IsNullOrWhiteSpace(_formEmail) || !_formEmail.Contains('@'))
                 {
-                    _formError = "Please enter a valid email address.";
+                    _formError = "A valid email address is required.";
+                    _saving = false;
+                    return;
+                }
+                if (await UserRepo.EmailExists(_formEmail.Trim()))
+                {
+                    _formError = "A user with this email address already exists.";
                     _saving = false;
                     return;
                 }
 
-                Guid? tenantId = string.IsNullOrEmpty(_formTenantId) ? null : Guid.Parse(_formTenantId);
+                Guid? tenantId = string.IsNullOrEmpty(_formTenantId) ? null : Guid.TryParse(_formTenantId, out var tid) ? tid : null;
                 await AuthService.CreateUser(_formUsername.Trim(), _formDisplayName.Trim(), _formEmail.Trim(), _formPassword, _formRole, tenantId);
                 Toast.Success($"User '{_formDisplayName.Trim()}' created successfully.");
             }
@@ -436,9 +442,15 @@
                     _saving = false;
                     return;
                 }
-                if (!string.IsNullOrWhiteSpace(_formEmail) && !_formEmail.Contains('@'))
+                if (string.IsNullOrWhiteSpace(_formEmail) || !_formEmail.Contains('@'))
                 {
-                    _formError = "Please enter a valid email address.";
+                    _formError = "A valid email address is required.";
+                    _saving = false;
+                    return;
+                }
+                if (await UserRepo.EmailExists(_formEmail.Trim(), _editingUser.Id))
+                {
+                    _formError = "A user with this email address already exists.";
                     _saving = false;
                     return;
                 }
@@ -453,7 +465,7 @@
                     _editingUser.DisplayName = _formDisplayName.Trim();
                     _editingUser.Email = _formEmail.Trim();
                     _editingUser.Role = _formRole;
-                    _editingUser.TenantId = string.IsNullOrEmpty(_formTenantId) ? null : Guid.Parse(_formTenantId);
+                    _editingUser.TenantId = string.IsNullOrEmpty(_formTenantId) ? null : Guid.TryParse(_formTenantId, out var etid) ? etid : null;
                     await UserRepo.Update(_editingUser);
                     Toast.Success($"User '{_editingUser.DisplayName}' updated successfully.");
                 }
@@ -534,10 +546,19 @@
 
         if (!confirmed) return;
 
-        user.IsActive = !user.IsActive;
-        await UserRepo.Update(user);
-        _users = await UserRepo.GetAll();
-        Toast.Success($"User '{user.DisplayName}' has been {(user.IsActive ? "enabled" : "disabled")}.");
+        var previousActive = user.IsActive;
+        try
+        {
+            user.IsActive = !user.IsActive;
+            await UserRepo.Update(user);
+            _users = await UserRepo.GetAll();
+            Toast.Success($"User '{user.DisplayName}' has been {(user.IsActive ? "enabled" : "disabled")}.");
+        }
+        catch (Exception ex)
+        {
+            user.IsActive = previousActive;
+            Toast.Error($"Failed to {action.ToLower()} user: {ex.Message}");
+        }
     }
 
     private sealed class TenantOption

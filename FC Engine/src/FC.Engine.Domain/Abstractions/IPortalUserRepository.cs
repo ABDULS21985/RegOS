@@ -11,6 +11,7 @@ public interface IPortalUserRepository
     Task<PortalUser> Create(PortalUser user, CancellationToken ct = default);
     Task Update(PortalUser user, CancellationToken ct = default);
     Task<bool> UsernameExists(string username, CancellationToken ct = default);
+    Task<bool> EmailExists(string email, int? excludeUserId = null, CancellationToken ct = default);
 }
 
 public interface ILoginAttemptRepository

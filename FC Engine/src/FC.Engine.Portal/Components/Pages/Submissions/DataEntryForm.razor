@@ -1590,7 +1590,17 @@
             return;
         }
 
-        var existing = await DataRepo.GetBySubmission(ReturnCode, draftSubmissionId);
+        ReturnDataRecord? existing;
+        try
+        {
+            existing = await DataRepo.GetBySubmission(ReturnCode, draftSubmissionId);
+        }
+        catch
+        {
+            // Draft data table may not exist yet — continue with empty form
+            return;
+        }
+
         if (existing is null || existing.Rows.Count == 0)
         {
             return;

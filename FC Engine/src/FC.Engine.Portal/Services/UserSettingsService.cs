@@ -80,8 +80,8 @@ public class UserSettingsService
     public async Task<(bool Success, string? Error)> ChangePassword(
         int userId, string currentPassword, string newPassword, CancellationToken ct = default)
     {
-        if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 8)
-            return (false, "Password must be at least 8 characters.");
+        if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 12)
+            return (false, "Password must be at least 12 characters.");
 
         if (!newPassword.Any(char.IsUpper))
             return (false, "Password must include at least one uppercase letter.");

@@ -61,6 +61,7 @@ public class TemplateField
             ValidationNote = ValidationNote,
             RegulatoryReference = RegulatoryReference,
             IsYtdField = IsYtdField,
+            YtdSourceFieldId = YtdSourceFieldId,
             DataClassification = DataClassification,
             CreatedAt = DateTime.UtcNow
         };

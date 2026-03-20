@@ -33,6 +33,7 @@ public class PortalUserRepository : IPortalUserRepository
     public async Task<IReadOnlyList<PortalUser>> GetAll(CancellationToken ct = default)
     {
         return await _db.PortalUsers
+            .Where(u => u.DeletedAt == null)
             .OrderBy(u => u.Username)
             .ToListAsync(ct);
     }
@@ -53,5 +54,13 @@ public class PortalUserRepository : IPortalUserRepository
     public async Task<bool> UsernameExists(string username, CancellationToken ct = default)
     {
         return await _db.PortalUsers.AnyAsync(u => u.Username == username, ct);
+    }
+
+    public async Task<bool> EmailExists(string email, int? excludeUserId = null, CancellationToken ct = default)
+    {
+        return await _db.PortalUsers
+            .Where(u => u.Email == email && u.DeletedAt == null)
+            .Where(u => excludeUserId == null || u.Id != excludeUserId)
+            .AnyAsync(ct);
     }
 }

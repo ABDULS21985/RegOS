@@ -19,7 +19,7 @@
 @inject DialogService Dialog
 
 <PageHeader Title="@(_detail?.Name ?? ReturnCode)"
-            Subtitle="@(_detail != null ? $"{_detail.ReturnCode} — {_detail.Frequency} template · {_detail.StructuralCategory} structure" : null)"
+            Subtitle="@(_detail != null ? $"{_detail.ReturnCode} — {FormatFrequency(_detail.Frequency)} template · {_detail.StructuralCategory} structure" : null)"
             StatusBadge="@_activeVersion?.Status"
             StatusVariant="@(_activeVersion?.Status switch { "Published" => "success", "Review" => "warning", "Draft" => "neutral", _ => "neutral" })"
             BackUrl="/templates">
@@ -174,7 +174,7 @@
                         </div>
                         <div class="fc-detail-info-item">
                             <span class="fc-detail-info-label">Frequency</span>
-                            <span class="fc-detail-info-value">@_detail.Frequency</span>
+                            <span class="fc-detail-info-value">@FormatFrequency(_detail.Frequency)</span>
                         </div>
                         <div class="fc-detail-info-item">
                             <span class="fc-detail-info-label">Structural Category</span>
@@ -315,11 +315,29 @@
                                 <label class="fc-detail-float-label">Section (optional)</label>
                             </div>
                             <div class="fc-detail-float-field">
+                                <input type="number" class="fc-detail-float-input" placeholder=" " @bind="_newField.SectionOrder" />
+                                <label class="fc-detail-float-label">Section Order</label>
+                            </div>
+                            <div class="fc-detail-float-field">
                                 <select class="fc-detail-float-input" @bind="_newFieldRequired">
                                     <option value="false">No</option>
                                     <option value="true">Yes</option>
                                 </select>
                                 <label class="fc-detail-float-label">Required</label>
+                            </div>
+                            <div class="fc-detail-float-field">
+                                <select class="fc-detail-float-input" @bind="_newFieldIsKeyField">
+                                    <option value="false">No</option>
+                                    <option value="true">Yes</option>
+                                </select>
+                                <label class="fc-detail-float-label">Key Field</label>
+                            </div>
+                            <div class="fc-detail-float-field">
+                                <select class="fc-detail-float-input" @bind="_newFieldIsComputed">
+                                    <option value="false">No</option>
+                                    <option value="true">Yes</option>
+                                </select>
+                                <label class="fc-detail-float-label">Computed</label>
                             </div>
                         </div>
                         <div class="fc-detail-add-actions">
@@ -710,6 +728,8 @@
     private AddFieldRequest _newField = new();
     private FieldDataType _newFieldDataType = FieldDataType.Money;
     private string _newFieldRequired = "false";
+    private string _newFieldIsKeyField = "false";
+    private string _newFieldIsComputed = "false";
     private string _currentUser = string.Empty;
 
     private string CurrentUser => _currentUser;
@@ -814,6 +834,8 @@
         };
         _newFieldDataType = FieldDataType.Money;
         _newFieldRequired = "false";
+        _newFieldIsKeyField = "false";
+        _newFieldIsComputed = "false";
     }
 
     private async Task AddField()
@@ -822,6 +844,8 @@
         {
             _newField.DataType = _newFieldDataType;
             _newField.IsRequired = _newFieldRequired == "true";
+            _newField.IsKeyField = _newFieldIsKeyField == "true";
+            _newField.IsComputed = _newFieldIsComputed == "true";
             if (string.IsNullOrWhiteSpace(_newField.XmlElementName))
                 _newField.XmlElementName = _newField.FieldName;
 
@@ -853,6 +877,12 @@
         var state = AuthState is null ? null : await AuthState;
         return UserIdentityResolver.ResolveActor(state?.User);
     }
+
+    private static string FormatFrequency(string freq) => freq switch
+    {
+        "SemiAnnual" => "Semi-Annual",
+        _ => freq
+    };
 
     private static string CategoryBadge(string cat) => cat.ToLowerInvariant() switch
     {

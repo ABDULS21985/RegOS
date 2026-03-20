@@ -606,6 +606,7 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
     [Inject] private InstitutionManagementService MgmtSvc { get; set; } = default!;
     [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private ToastService Toast { get; set; } = default!;
 
     protected override async Task OnInitializedAsync()
     {
@@ -753,13 +754,13 @@
             _editingContactId = null;
             ComputeCompleteness();
         }
-        catch
+        catch (Exception ex)
         {
             // Revert local entity on failure so UI stays consistent
             cp.Name = prevName;
             cp.Email = prevEmail;
             cp.Phone = prevPhone;
-            throw;
+            Toast.Error($"Failed to save contact: {ex.Message}");
         }
         finally { _savingContact = false; }
     }

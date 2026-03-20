@@ -167,7 +167,7 @@
                 <article class="fc-card fc-revenue-card">
                     <div class="fc-card__header fc-revenue-card-header">
                         <div>
-                            <h2 class="fc-card__title">Collections Trend (Last 6 Months)</h2>
+                            <h2 class="fc-card__title">Collections Trend (Last 12 Months)</h2>
                             <p class="fc-revenue-card-note">Month-on-month movement: @MonthOverMonthSummary.</p>
                         </div>
                         <span class="fc-revenue-pill">Peak: @FormatCompactCurrency(_trendMaxAmount)</span>
@@ -594,13 +594,15 @@
             .Join(db.SubscriptionPlans,
                 s => s.PlanId,
                 p => p.Id,
-                (_, p) => new { p.PlanCode, p.BasePriceMonthly })
+                (s, p) => new { p.PlanCode, s.BillingFrequency, p.BasePriceMonthly, p.BasePriceAnnual })
             .GroupBy(x => x.PlanCode)
             .Select(g => new PlanMixPoint
             {
                 PlanCode = g.Key,
                 Count = g.Count(),
-                MonthlyRevenue = g.Sum(x => x.BasePriceMonthly)
+                MonthlyRevenue = g.Sum(x => x.BillingFrequency == BillingFrequency.Annual
+                    ? x.BasePriceAnnual / 12m
+                    : x.BasePriceMonthly)
             })
             .OrderByDescending(x => x.Count)
             .ToListAsync();
