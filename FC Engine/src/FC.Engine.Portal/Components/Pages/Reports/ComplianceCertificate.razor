@@ -1,0 +1,287 @@
+@page "/reports/compliance-certificate/{SubmissionId:int}"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@inject ExportService ExportSvc
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+<PageTitle>Compliance Certificate — RegOS™ Portal</PageTitle>
+
+<div class="portal-page">
+    @if (_loading)
+    {
+        <div class="portal-card" style="padding: 2rem;">
+            <div class="portal-skeleton portal-skeleton-block" style="height: 500px;"></div>
+        </div>
+    }
+    else if (_cert is null)
+    {
+        <div class="portal-alert portal-alert-error">
+            Certificate is only available for accepted submissions, or access was denied.
+        </div>
+        <a href="/submissions/@SubmissionId" class="portal-btn portal-btn-ghost portal-btn-sm" style="margin-top: 1rem;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+            Back to Submission
+        </a>
+    }
+    else
+    {
+        @* ── Action Controls ── *@
+        <div class="portal-cert-v2-controls no-print">
+            <a href="/submissions/@SubmissionId" class="portal-btn portal-btn-ghost portal-btn-sm">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg>
+                Back
+            </a>
+
+            <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="PrintCert">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Download PDF
+            </button>
+
+            <button class="portal-btn portal-btn-secondary portal-btn-sm" @onclick="ShareLink">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                Share
+            </button>
+
+            @if (_emailSent)
+            {
+                <span class="portal-cert-v2-email-feedback">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    Email sent
+                </span>
+            }
+            else
+            {
+                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="SendEmail" disabled="@_sending">
+                    @if (_sending)
+                    {
+                        <span class="portal-spinner portal-spinner-xs" aria-hidden="true"></span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                    }
+                    Send via Email
+                </button>
+            }
+        </div>
+
+        @* ── Certificate Document ── *@
+        <div id="printable-certificate" class="portal-cert-v2">
+
+            @* Diagonal watermark *@
+            <div class="portal-cert-v2-watermark" aria-hidden="true"></div>
+
+            @* ── Header: logos ── *@
+            <div class="portal-cert-v2-header">
+                @* Institution logo — left *@
+                @if (!string.IsNullOrEmpty(_cert.Branding.LogoUrl))
+                {
+                    <img src="@_cert.Branding.LogoUrl" alt="@_cert.InstitutionName logo" class="portal-cert-v2-logo" />
+                }
+                else
+                {
+                    <div class="portal-cert-v2-logo-placeholder">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v2"/></svg>
+                        <span class="portal-cert-v2-logo-placeholder-name">@_cert.InstitutionName</span>
+                    </div>
+                }
+
+                @* Document title — centre *@
+                <div class="portal-cert-v2-title-center">
+                    <h2>Federal Republic of Nigeria</h2>
+                    <h1>Certificate of Compliance</h1>
+                </div>
+
+                @* Regulator seal — right *@
+                <div class="portal-cert-v2-regulator">
+                    <div class="portal-cert-v2-regulator-seal" aria-label="Central Bank of Nigeria seal">
+                        CBN<br/>SEAL
+                    </div>
+                    <span class="portal-cert-v2-regulator-name">Central Bank<br/>of Nigeria</span>
+                </div>
+            </div>
+
+            @* ── Validity badge ── *@
+            <div class="portal-cert-v2-validity-row">
+                @if (_cert.IsSuperseded)
+                {
+                    <span class="portal-cert-v2-validity portal-cert-v2-validity--superseded">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                        Expired &middot; Superseded by Amendment
+                    </span>
+                }
+                else
+                {
+                    <span class="portal-cert-v2-validity portal-cert-v2-validity--valid">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                        Valid &middot; Approved by CBN on @_cert.AcceptedAt.ToString("MMMM d, yyyy")
+                    </span>
+                }
+            </div>
+
+            @* ── Body ── *@
+            <div class="portal-cert-v2-body">
+                <p class="portal-cert-v2-certifies-text">This certifies that</p>
+                <h2 class="portal-cert-v2-institution">@_cert.InstitutionName</h2>
+                <p class="portal-cert-v2-inst-sub">@_cert.InstitutionType &middot; Institution Code: <strong>@_cert.InstitutionCode</strong></p>
+
+                <p class="portal-cert-v2-return-text">has successfully submitted the</p>
+                <p class="portal-cert-v2-return-name">@_cert.ReturnCode &mdash; @_cert.Period</p>
+                <p class="portal-cert-v2-compliance-text">
+                    in compliance with the Central Bank of Nigeria's Financial Condition<br/>
+                    reporting requirements under the Banks and Other Financial Institutions Act.
+                </p>
+            </div>
+
+            @* ── Details grid ── *@
+            <div class="portal-cert-v2-details">
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Certificate No.</div>
+                    <div class="portal-cert-v2-detail-value portal-cert-v2-detail-value--mono">@_cert.CertificateNumber</div>
+                </div>
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Submission ID</div>
+                    <div class="portal-cert-v2-detail-value">#@_cert.SubmissionId</div>
+                </div>
+                <div class="portal-cert-v2-detail @(_cert.Status == SubmissionStatus.Accepted ? "portal-cert-v2-detail--status-accepted" : "")">
+                    <div class="portal-cert-v2-detail-label">Status</div>
+                    <div class="portal-cert-v2-detail-value">
+                        @(_cert.Status == SubmissionStatus.Accepted ? "Accepted — No Issues" : "Accepted — With Warnings")
+                    </div>
+                </div>
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Return Period</div>
+                    <div class="portal-cert-v2-detail-value">@_cert.Period</div>
+                </div>
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Submitted On</div>
+                    <div class="portal-cert-v2-detail-value">@_cert.SubmittedAt.ToString("dd MMMM yyyy")</div>
+                </div>
+                <div class="portal-cert-v2-detail">
+                    <div class="portal-cert-v2-detail-label">Approved On</div>
+                    <div class="portal-cert-v2-detail-value">@_cert.AcceptedAt.ToString("dd MMMM yyyy")</div>
+                </div>
+            </div>
+
+            @* ── Approval chain ── *@
+            <div class="portal-cert-v2-chain-section">
+                <p class="portal-cert-v2-chain-heading">Approval Chain</p>
+                <div class="portal-cert-v2-chain">
+                    <div class="portal-cert-v2-chain-step">
+                        <div class="portal-cert-v2-chain-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                        </div>
+                        <span class="portal-cert-v2-chain-role">Submitted by</span>
+                        <span class="portal-cert-v2-chain-name">@(string.IsNullOrEmpty(_cert.SubmittedByName) ? "—" : _cert.SubmittedByName)</span>
+                    </div>
+
+                    <div class="portal-cert-v2-chain-arrow" aria-hidden="true">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+                    </div>
+
+                    <div class="portal-cert-v2-chain-step">
+                        <div class="portal-cert-v2-chain-icon">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                        </div>
+                        <span class="portal-cert-v2-chain-role">Approved by</span>
+                        <span class="portal-cert-v2-chain-name">@(string.IsNullOrEmpty(_cert.ApprovedByName) ? "Central Bank of Nigeria" : _cert.ApprovedByName)</span>
+                    </div>
+                </div>
+            </div>
+
+            @* ── Bottom: QR + verification URL ── *@
+            <div class="portal-cert-v2-bottom">
+                <div class="portal-cert-v2-qr-wrap" title="Verification QR code">
+                    <div class="portal-cert-v2-qr-frame">
+                        <canvas id="cert-qr-canvas" width="80" height="80"></canvas>
+                    </div>
+                    <span class="portal-cert-v2-qr-label">Scan to verify</span>
+                </div>
+
+                <div class="portal-cert-v2-verify-info">
+                    <div class="portal-cert-v2-certnum-label">Certificate Number</div>
+                    <div class="portal-cert-v2-certnum">@_cert.CertificateNumber</div>
+                    <div class="portal-cert-v2-verify-url-row">
+                        <span class="portal-cert-v2-verify-url">@_verifyUrl</span>
+                        <button id="cert-copy-btn"
+                                class="portal-cert-v2-copy-btn no-print"
+                                @onclick="CopyLink"
+                                aria-label="Copy verification URL">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+                            Copy link
+                        </button>
+                    </div>
+                    <div class="portal-cert-v2-generated">
+                        Generated by RegOS™ on @_cert.GeneratedAt.ToString("dd MMM yyyy 'at' HH:mm") UTC
+                    </div>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public int SubmissionId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _sending;
+    private bool _emailSent;
+    private int _institutionId;
+    private int _userId;
+    private ComplianceCertificateModel? _cert;
+    private string _verifyUrl = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            int.TryParse(state.User.FindFirst("InstitutionId")?.Value, out _institutionId);
+            int.TryParse(state.User.FindFirst("UserId")?.Value ?? state.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+            _cert = await ExportSvc.BuildComplianceCertificateAsync(SubmissionId, _institutionId);
+            if (_cert is not null)
+            {
+                var baseUri = new Uri(Nav.BaseUri);
+                _verifyUrl = $"{baseUri.Scheme}://{baseUri.Host}{(baseUri.IsDefaultPort ? "" : ":" + baseUri.Port)}/verify/{Uri.EscapeDataString(_cert.VerificationToken)}";
+            }
+        }
+        catch { }
+        finally { _loading = false; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && _cert is not null)
+        {
+            await JS.InvokeVoidAsync("portalCertQr", "cert-qr-canvas", _verifyUrl);
+        }
+    }
+
+    private async Task PrintCert() =>
+        await JS.InvokeVoidAsync("portalPrintElement", "printable-certificate");
+
+    private async Task ShareLink() =>
+        await JS.InvokeVoidAsync("portalCertCopyLink", _verifyUrl, "cert-copy-btn");
+
+    private async Task CopyLink() =>
+        await JS.InvokeVoidAsync("portalCertCopyLink", _verifyUrl, "cert-copy-btn");
+
+    private async Task SendEmail()
+    {
+        if (_cert is null || _sending) return;
+        _sending = true;
+        try
+        {
+            var baseUri = new Uri(Nav.BaseUri);
+            var portalBase = $"{baseUri.Scheme}://{baseUri.Host}{(baseUri.IsDefaultPort ? "" : ":" + baseUri.Port)}";
+            await ExportSvc.SendCertificateEmailAsync(SubmissionId, _institutionId, _userId, portalBase);
+            _emailSent = true;
+        }
+        catch { }
+        finally
+        {
+            _sending = false;
+        }
+    }
+}

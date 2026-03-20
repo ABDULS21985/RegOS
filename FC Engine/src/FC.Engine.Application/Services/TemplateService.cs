@@ -11,17 +11,23 @@ public class TemplateService
     private readonly IAuditLogger _audit;
     private readonly ITemplateMetadataCache _cache;
     private readonly ISqlTypeMapper _sqlTypeMapper;
+    private readonly IEntitlementService _entitlementService;
+    private readonly ITenantContext _tenantContext;
 
     public TemplateService(
         ITemplateRepository templateRepo,
         IAuditLogger audit,
         ITemplateMetadataCache cache,
-        ISqlTypeMapper sqlTypeMapper)
+        ISqlTypeMapper sqlTypeMapper,
+        IEntitlementService entitlementService,
+        ITenantContext tenantContext)
     {
         _templateRepo = templateRepo;
         _audit = audit;
         _cache = cache;
         _sqlTypeMapper = sqlTypeMapper;
+        _entitlementService = entitlementService;
+        _tenantContext = tenantContext;
     }
 
     public async Task<TemplateDto> CreateTemplate(CreateTemplateRequest request, CancellationToken ct = default)
@@ -60,13 +66,36 @@ public class TemplateService
     {
         var template = await _templateRepo.GetByReturnCode(returnCode, ct);
         if (template == null) return null;
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (template.TenantId.HasValue && template.TenantId != tenantId) return null;
         return MapToDetailDto(template);
     }
 
     public async Task<IReadOnlyList<TemplateDto>> GetAllTemplates(CancellationToken ct = default)
     {
         var templates = await _templateRepo.GetAll(ct);
-        return templates.Select(MapToDto).ToList();
+        var tenantId = _tenantContext.CurrentTenantId;
+        var filtered = templates.Where(t => t.TenantId == null || t.TenantId == tenantId);
+        return filtered.Select(MapToDto).ToList();
+    }
+
+    public async Task<List<ReturnTemplate>> GetEntitledTemplates(Guid tenantId, CancellationToken ct = default)
+    {
+        var entitlement = await _entitlementService.ResolveEntitlements(tenantId, ct);
+        var activeModuleIds = entitlement.ActiveModules
+            .Select(m => m.ModuleId)
+            .Distinct()
+            .ToList();
+
+        if (activeModuleIds.Count == 0)
+        {
+            return new List<ReturnTemplate>();
+        }
+
+        var templates = await _templateRepo.GetByModuleIds(activeModuleIds, ct);
+        return templates
+            .Where(t => t.TenantId == tenantId || t.TenantId == null)
+            .ToList();
     }
 
     public async Task AddFieldToVersion(int templateId, int versionId, AddFieldRequest request, string performedBy, CancellationToken ct = default)
@@ -85,15 +114,22 @@ public class TemplateService
             XmlElementName = request.XmlElementName,
             LineCode = request.LineCode,
             SectionName = request.SectionName,
+            SectionOrder = request.SectionOrder,
             FieldOrder = request.FieldOrder,
             DataType = request.DataType,
             SqlType = _sqlTypeMapper.MapToSqlType(request.DataType),
             IsRequired = request.IsRequired,
+            IsComputed = request.IsComputed,
             IsKeyField = request.IsKeyField,
+            DefaultValue = request.DefaultValue,
             MinValue = request.MinValue,
             MaxValue = request.MaxValue,
             MaxLength = request.MaxLength,
             AllowedValues = request.AllowedValues,
+            HelpText = request.HelpText,
+            ValidationNote = request.ValidationNote,
+            RegulatoryReference = request.RegulatoryReference,
+            DataClassification = request.DataClassification,
             CreatedAt = DateTime.UtcNow
         };
 
@@ -147,12 +183,17 @@ public class TemplateService
             Id = v.Id,
             VersionNumber = v.VersionNumber,
             Status = v.Status.ToString(),
+            EffectiveFrom = v.EffectiveFrom,
+            EffectiveTo = v.EffectiveTo,
             PublishedAt = v.PublishedAt,
+            ApprovedAt = v.ApprovedAt,
             ApprovedBy = v.ApprovedBy,
             ChangeSummary = v.ChangeSummary,
+            CreatedAt = v.CreatedAt,
+            CreatedBy = v.CreatedBy,
             FieldCount = v.Fields.Count,
             FormulaCount = v.IntraSheetFormulas.Count,
-            Fields = v.Fields.OrderBy(f => f.FieldOrder).Select(f => new TemplateFieldDto
+            Fields = v.Fields.OrderBy(f => f.SectionOrder).ThenBy(f => f.FieldOrder).Select(f => new TemplateFieldDto
             {
                 Id = f.Id,
                 FieldName = f.FieldName,
@@ -160,23 +201,30 @@ public class TemplateService
                 XmlElementName = f.XmlElementName,
                 LineCode = f.LineCode,
                 SectionName = f.SectionName,
+                SectionOrder = f.SectionOrder,
                 FieldOrder = f.FieldOrder,
                 DataType = f.DataType.ToString(),
                 SqlType = f.SqlType,
                 IsRequired = f.IsRequired,
                 IsComputed = f.IsComputed,
                 IsKeyField = f.IsKeyField,
+                DefaultValue = f.DefaultValue,
                 MinValue = f.MinValue,
                 MaxValue = f.MaxValue,
                 MaxLength = f.MaxLength,
-                AllowedValues = f.AllowedValues
+                AllowedValues = f.AllowedValues,
+                HelpText = f.HelpText,
+                ValidationNote = f.ValidationNote,
+                RegulatoryReference = f.RegulatoryReference,
+                DataClassification = f.DataClassification.ToString()
             }).ToList(),
             ItemCodes = v.ItemCodes.Select(ic => new TemplateItemCodeDto
             {
                 Id = ic.Id,
                 ItemCode = ic.ItemCode,
                 ItemName = ic.ItemDescription,
-                SortOrder = ic.SortOrder
+                SortOrder = ic.SortOrder,
+                IsTotalRow = ic.IsTotalRow
             }).ToList()
         }).ToList();
 

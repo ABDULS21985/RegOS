@@ -1,30 +1,73 @@
 @inherits LayoutComponentBase
 @using System.Security.Claims
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.ValueObjects
+@using FC.Engine.Infrastructure.Metadata
+@using FC.Engine.Admin.Components.Layout
+@using FC.Engine.Admin.Components.Shared
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.EntityFrameworkCore
 @inject NavigationManager Navigation
-@implements IDisposable
+@inject ITenantBrandingService BrandingService
+@inject ITenantContext TenantContext
+@inject IDbContextFactory<MetadataDbContext> DbFactory
+@inject CommandPaletteService PaletteService
+@inject SidebarStateService SidebarState
+@inject HelpService HelpSvc
+@inject KeyboardShortcutService ShortcutService
+@inject SessionService SessionSvc
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
-<!-- Skip to content link for accessibility -->
-<a href="#main-content" class="skip-link">Skip to main content</a>
+<TenantThemeProvider />
+
+<!-- Route change announcer for screen readers -->
+<div id="fc-route-announcer"
+     role="status"
+     aria-live="polite"
+     aria-atomic="true"
+     class="fc-sr-only">
+</div>
 
 <!-- Global progress bar -->
 <div class="global-progress @(_navigating ? "is-loading" : (_progressComplete ? "is-complete" : ""))" aria-hidden="true">
     <div class="global-progress-bar"></div>
 </div>
 
-<div class="app-shell @(_sidebarOpen ? "sidebar-open" : "")">
+<div class="fc-shell fc-has-mobile-nav @(_sidebarOpen ? "fc-sidebar-open" : "") @(SidebarState.IsCollapsed ? "fc-sidebar-collapsed" : "")">
     <!-- Sidebar -->
-    <aside class="shell-sidebar" aria-label="Main navigation" @onkeydown="HandleSidebarKeyDown">
-        <div class="sidebar-brand">
-            <img src="images/cbn-logo.svg" alt="Central Bank of Nigeria" class="sidebar-brand-logo" width="40" height="33" />
-            <div class="sidebar-brand-text">
-                <span class="sidebar-brand-name">FC Engine</span>
-                <span class="sidebar-brand-sub">Admin Portal</span>
+    <aside id="fc-sidebar-nav" class="fc-shell__sidebar" aria-label="Main navigation" @onkeydown="HandleSidebarKeyDown">
+        <div class="fc-sidebar__brand">
+            <div class="fc-sidebar__logo-mark">
+                <img src="@_branding.LogoSmallUrl" alt="@_branding.CompanyName" class="fc-sidebar__logo fc-img-lazyload" loading="lazy" width="40" height="33" />
             </div>
+            <div class="fc-sidebar__brand-text">
+                <span class="fc-sidebar-brand-name">@_branding.CompanyName</span>
+                <span class="fc-sidebar-brand-sub">Admin Portal</span>
+                <span class="fc-sidebar__brand-chip">Control Plane</span>
+            </div>
+            <button class="fc-sidebar__collapse-btn"
+                    @onclick="ToggleSidebarCollapse"
+                    aria-label="@(SidebarState.IsCollapsed ? "Expand sidebar" : "Collapse sidebar")"
+                    title="@(SidebarState.IsCollapsed ? "Expand sidebar" : "Collapse sidebar")">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                    @if (SidebarState.IsCollapsed)
+                    {
+                        <polyline points="13 17 18 12 13 7"/>
+                        <polyline points="6 17 11 12 6 7"/>
+                    }
+                    else
+                    {
+                        <polyline points="11 17 6 12 11 7"/>
+                        <polyline points="18 17 13 12 18 7"/>
+                    }
+                </svg>
+            </button>
         </div>
 
         <NavMenu />
 
-        <div class="sidebar-user">
+        <div class="fc-sidebar__user">
             <AuthorizeView>
                 <Authorized Context="authState">
                     @{
@@ -34,16 +77,16 @@
                         var userRole = authState.User.FindFirst(ClaimTypes.Role)?.Value ?? "Viewer";
                         var initials = GetInitials(displayName);
                     }
-                    <div class="sidebar-user-info">
-                        <div class="sidebar-user-avatar" aria-hidden="true">
+                    <div class="fc-sidebar-user-info">
+                        <div class="fc-sidebar__avatar" aria-hidden="true">
                             <span>@initials</span>
                         </div>
-                        <div class="sidebar-user-details">
-                            <span class="sidebar-user-name">@displayName</span>
-                            <span class="sidebar-user-role">@userRole</span>
+                        <div class="fc-sidebar-user-details">
+                            <span class="fc-sidebar__user-name">@displayName</span>
+                            <span class="fc-sidebar__user-role">@userRole</span>
                         </div>
                     </div>
-                    <a href="/account/logout" class="sidebar-signout" aria-label="Sign out">
+                    <a href="/account/logout" class="fc-sidebar__signout" aria-label="Sign out">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
                             <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/>
                             <polyline points="16 17 21 12 16 7"/>
@@ -57,13 +100,19 @@
     </aside>
 
     <!-- Sidebar overlay for mobile -->
-    <div class="sidebar-overlay" @onclick="CloseSidebar" role="presentation" aria-hidden="true"></div>
+    <div class="fc-sidebar__overlay" @onclick="CloseSidebar" role="presentation" aria-hidden="true"></div>
+
+    <!-- Mobile bottom navigation bar (≤640 px) -->
+    <MobileBottomNav OnMoreClicked="ToggleSidebar" />
+
+    <!-- Offline indicator banner -->
+    <OfflineIndicator />
 
     <!-- Main Area -->
-    <div class="shell-main">
-        <header class="shell-topbar" role="banner">
-            <div class="topbar-left">
-                <button class="topbar-toggle" @onclick="ToggleSidebar" aria-label="@(_sidebarOpen ? "Close navigation" : "Open navigation")" aria-expanded="@_sidebarOpen">
+    <div class="fc-shell__main">
+        <header class="fc-topbar" role="banner">
+            <div class="fc-topbar__left">
+                <button class="fc-topbar__toggle" @onclick="ToggleSidebar" aria-label="@(_sidebarOpen ? "Close navigation" : "Open navigation")" aria-expanded="@_sidebarOpen">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20" aria-hidden="true">
                         @if (_sidebarOpen)
                         {
@@ -78,84 +127,192 @@
                         }
                     </svg>
                 </button>
-                <nav class="topbar-breadcrumb" aria-label="Breadcrumb">
-                    <ol>
-                        <li><a href="/">Home</a></li>
-                        @if (_currentPageName != "Dashboard")
-                        {
-                            <li aria-current="page">@_currentPageName</li>
-                        }
-                    </ol>
-                </nav>
+                <div class="fc-topbar__context">
+                    <span class="fc-topbar__kicker">Platform command center</span>
+                    <nav class="fc-topbar__breadcrumb" aria-label="Breadcrumb">
+                        <ol>
+                            <li><a href="/">Home</a></li>
+                            @if (_currentPageName != "Dashboard")
+                            {
+                                <li aria-current="page">@_currentPageName</li>
+                            }
+                        </ol>
+                    </nav>
+                </div>
             </div>
 
-            <div class="topbar-right">
-                <div class="topbar-search">
-                    <svg class="topbar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
-                        <circle cx="11" cy="11" r="8"/>
-                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                    </svg>
-                    <input type="text" class="topbar-search-input" placeholder="Search templates, rules..." aria-label="Search" />
+            <div class="fc-topbar__right">
+                <div class="fc-topbar__status" aria-hidden="true">
+                    <span class="fc-topbar__status-dot"></span>
+                    <span>Operationally live</span>
                 </div>
-                <button class="topbar-notification" aria-label="Notifications">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                        <path d="M13.73 21a2 2 0 01-3.46 0"/>
-                    </svg>
-                </button>
+                <div class="fc-topbar__actions">
+                    <div class="fc-palette-hint-wrap">
+                        <button id="fc-topbar-search" class="fc-topbar__search-trigger" @onclick="OpenCommandPalette" aria-label="Open command palette (Cmd+K)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
+                                <circle cx="11" cy="11" r="8"/>
+                                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            </svg>
+                            <span>Search...</span>
+                            <kbd class="cmd-palette-kbd">&#8984;K</kbd>
+                        </button>
+                        @if (_showPaletteHint)
+                        {
+                            <div class="fc-palette-hint" role="tooltip" aria-live="polite">
+                                Pro tip: Press <kbd>⌘K</kbd>
+                            </div>
+                        }
+                    </div>
+                    <!-- Session timer indicator — PlatformAdmin only -->
+                    <AuthorizeView Roles="PlatformAdmin">
+                        @if (SessionSvc.RemainingSec >= 0)
+                        {
+                            <div class="fc-session-indicator @(SessionSvc.IsWarningActive ? "fc-session-indicator--warning" : "")"
+                                 title="Session time remaining"
+                                 aria-label="Session time remaining: @SessionSvc.RemainingDisplay">
+                                <span class="fc-session-indicator__dot" aria-hidden="true"></span>
+                                Session: @SessionSvc.RemainingDisplay
+                            </div>
+                        }
+                    </AuthorizeView>
+
+                    <button class="fc-topbar__notification" aria-label="Notifications">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                            <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                            <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                        </svg>
+                    </button>
+                    <button class="fc-topbar__help"
+                            @onclick="() => HelpSvc.TogglePanel(new Uri(Navigation.Uri).AbsolutePath)"
+                            aria-label="Open help panel"
+                            title="Help (Shift+/)">
+                        ?
+                    </button>
+                </div>
             </div>
         </header>
 
-        <main id="main-content" class="shell-content" role="main">
+        @if (_showImpersonationBanner)
+        {
+            <div class="fc-impersonation-banner">
+                <div>
+                    <strong>You are impersonating @(_impersonatedTenantName ?? "tenant").</strong>
+                    <span class="fc-ml-1">All actions are logged.</span>
+                </div>
+                <a href="/platform/stop-impersonation" class="fc-impersonation-banner__link">Stop impersonation</a>
+            </div>
+        }
+
+        <main id="main-content" class="fc-shell__content @(_navigating ? "fc-navigating" : "")" role="main" @ref="_mainContentRef">
             <!-- Print letterhead (visible only in print) -->
             <div class="print-letterhead" aria-hidden="true">
-                <div class="print-letterhead-title">Central Bank of Nigeria</div>
-                <div class="print-letterhead-sub">FC Engine &mdash; @_currentPageName</div>
+                <div class="print-letterhead-title">@_branding.CompanyName</div>
+                <div class="print-letterhead-sub">RegOS &mdash; @_currentPageName</div>
                 <span class="print-letterhead-accent"></span>
             </div>
 
-            @Body
+            <div class="fc-shell__content-frame">
+                @Body
+            </div>
 
             <!-- Print footer (visible only in print) -->
             <div class="print-footer" aria-hidden="true">
-                FC Engine Admin Portal &bull; Central Bank of Nigeria &bull; Printed @DateTime.UtcNow.ToString("dd MMM yyyy HH:mm") UTC
+                @_branding.CopyrightText &bull; Printed @DateTime.UtcNow.ToString("dd MMM yyyy HH:mm") UTC
             </div>
         </main>
     </div>
 </div>
 
-<!-- Global notification overlays -->
+<!-- Global overlays -->
+<CommandPalette />
 <ToastContainer />
 <ConfirmDialog />
+<HelpPanel />
+<FeatureTour />
+<WhatsNew />
+<KeyboardShortcutsOverlay />
+<OfflineBanner />
+<SessionExpiredModal />
 
 @code {
     private bool _sidebarOpen;
     private bool _navigating;
     private bool _progressComplete;
     private string _currentPageName = "Dashboard";
+    private BrandingConfig _branding = BrandingConfig.WithDefaults();
+    private bool _showImpersonationBanner;
+    private string? _impersonatedTenantName;
+
+    private bool _jsInitialized;
+    private bool _showPaletteHint;
+    private ElementReference _mainContentRef;
+    private DotNetObjectReference<MainLayout>? _mobileRef;
 
     protected override void OnInitialized()
     {
         Navigation.LocationChanged += OnLocationChanged;
+        SidebarState.OnStateChanged += OnSidebarStateChanged;
+        SessionSvc.OnChange += OnSessionChanged;
+        ShortcutService.OnPaletteHintReached += HandlePaletteHintReached;
         UpdatePageName(Navigation.Uri);
     }
 
-    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _navigating = true;
-        _progressComplete = false;
-        UpdatePageName(e.Location);
-        _sidebarOpen = false;
-        StateHasChanged();
+        if (firstRender && !_jsInitialized)
+        {
+            _jsInitialized = true;
+            try { await JS.InvokeVoidAsync("FCAccessibility.initRouteAnnouncer"); }
+            catch { }
 
-        await Task.Delay(300);
-        _navigating = false;
-        _progressComplete = true;
-        StateHasChanged();
+            try { await JS.InvokeVoidAsync("FCPerf.initConnectionQuality"); }
+            catch { }
+            try { await JS.InvokeVoidAsync("FCPerf.initLazyImages"); }
+            catch { }
 
-        await Task.Delay(500);
-        _progressComplete = false;
-        StateHasChanged();
+            // Pull-to-refresh (mobile only — JS guards against desktop)
+            try
+            {
+                _mobileRef = DotNetObjectReference.Create(this);
+                await JS.InvokeVoidAsync("fcMobile.initPullToRefresh", _mainContentRef, _mobileRef);
+            }
+            catch { }
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (TenantContext.CurrentTenantId.HasValue)
+        {
+            _branding = await BrandingService.GetBrandingConfig(TenantContext.CurrentTenantId.Value);
+        }
+
+        await LoadImpersonationBanner();
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            _navigating = true;
+            _progressComplete = false;
+            UpdatePageName(e.Location);
+            _sidebarOpen = false;
+            await LoadImpersonationBanner();
+            StateHasChanged();
+
+            await Task.Delay(300);
+            _navigating = false;
+            _progressComplete = true;
+            StateHasChanged();
+
+            try { await JS.InvokeVoidAsync("FCAccessibility.announceRoute", _currentPageName); }
+            catch { }
+
+            await Task.Delay(500);
+            _progressComplete = false;
+            StateHasChanged();
+        });
     }
 
     private void UpdatePageName(string uri)
@@ -164,10 +321,20 @@
         _currentPageName = path switch
         {
             "" or "/" => "Dashboard",
+            "dashboard/platform" => "Platform Dashboard",
+            "platform/tenants" => "Tenant List",
+            var p when p.StartsWith("platform/tenants/") => "Tenant Detail",
+            "platform/templates" => "Template Console",
+            "platform/billing-ops" => "Billing Operations",
+            "platform/health" => "Platform Health",
+            "platform/module-analytics" => "Module Analytics",
+            "platform/feature-flags" => "Feature Flags",
+            "platform/regulatory-calendar" => "Regulatory Calendar Import",
             "templates" => "Templates",
             var p when p.StartsWith("templates/") => "Template Detail",
             "formulas" => "Formulas",
             "cross-sheet-rules" => "Cross-Sheet Rules",
+            var p when p.StartsWith("cross-sheet-rules/") => "Cross-Sheet Rule Detail",
             "business-rules" => "Business Rules",
             "submissions" => "Submissions",
             var p when p.StartsWith("submissions/") => "Submission Detail",
@@ -178,8 +345,60 @@
         };
     }
 
+    private async Task LoadImpersonationBanner()
+    {
+        _showImpersonationBanner = TenantContext.IsPlatformAdmin && TenantContext.ImpersonatingTenantId.HasValue;
+        _impersonatedTenantName = null;
+
+        if (!_showImpersonationBanner)
+        {
+            return;
+        }
+
+        var tenantId = TenantContext.ImpersonatingTenantId!.Value;
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _impersonatedTenantName = await db.Tenants
+            .AsNoTracking()
+            .Where(t => t.TenantId == tenantId)
+            .Select(t => t.TenantName)
+            .FirstOrDefaultAsync();
+
+        if (string.IsNullOrWhiteSpace(_impersonatedTenantName))
+        {
+            _impersonatedTenantName = tenantId.ToString();
+        }
+    }
+
+    [JSInvokable]
+    public void OnPullToRefresh()
+    {
+        // Re-navigate to current URL to trigger data refresh
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: false);
+    }
+
     private void ToggleSidebar() => _sidebarOpen = !_sidebarOpen;
     private void CloseSidebar() => _sidebarOpen = false;
+    private void OpenCommandPalette()
+    {
+        PaletteService.Open();
+        ShortcutService.TrackPaletteOpen();
+    }
+
+    private void HandlePaletteHintReached()
+    {
+        _showPaletteHint = true;
+        _ = InvokeAsync(async () =>
+        {
+            StateHasChanged();
+            await Task.Delay(6000);
+            _showPaletteHint = false;
+            StateHasChanged();
+        });
+    }
+    private Task ToggleSidebarCollapse() => SidebarState.ToggleCollapsedAsync();
+
+    private void OnSidebarStateChanged() => InvokeAsync(StateHasChanged);
+    private void OnSessionChanged() => InvokeAsync(StateHasChanged);
 
     private void HandleSidebarKeyDown(KeyboardEventArgs e)
     {
@@ -196,8 +415,13 @@
         return name[..Math.Min(2, name.Length)].ToUpperInvariant();
     }
 
-    public void Dispose()
+    public ValueTask DisposeAsync()
     {
-        Navigation.LocationChanged -= OnLocationChanged;
+        Navigation.LocationChanged      -= OnLocationChanged;
+        SidebarState.OnStateChanged     -= OnSidebarStateChanged;
+        SessionSvc.OnChange             -= OnSessionChanged;
+        ShortcutService.OnPaletteHintReached -= HandlePaletteHintReached;
+        _mobileRef?.Dispose();
+        return ValueTask.CompletedTask;
     }
 }

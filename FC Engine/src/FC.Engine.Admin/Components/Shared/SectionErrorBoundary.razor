@@ -1,0 +1,268 @@
+@* SectionErrorBoundary.razor
+   Wraps a page section and shows a styled error card with exponential-backoff retry.
+
+   Dual-mode:
+   1. Inherits ErrorBoundaryBase — automatically catches unhandled exceptions from child components.
+   2. Accepts ExternalError — for pages that catch their own exceptions and want the card UI.
+
+   Usage (pages with try/catch):
+       <SectionErrorBoundary Title="Couldn't load tenants"
+                             ExternalError="@_loadException"
+                             OnRetry="LoadAsync">
+           <DataTable Items="@_items" ... />
+       </SectionErrorBoundary>
+
+   Usage (wrap a component that may throw):
+       <SectionErrorBoundary Title="Couldn't load chart">
+           <RevenueChart />
+       </SectionErrorBoundary>
+*@
+@inherits ErrorBoundaryBase
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+
+@{
+    var activeEx = CurrentException ?? ExternalError;
+}
+
+@if (activeEx is null)
+{
+    @ChildContent
+}
+else
+{
+    <div class="fc-error-card @(_visible ? "fc-error-card--visible" : "")"
+         role="alert"
+         aria-live="assertive"
+         aria-label="@Title">
+
+        <div class="fc-error-card__icon" aria-hidden="true">
+            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" width="20" height="20">
+                <circle cx="10" cy="10" r="9" stroke="currentColor" stroke-width="1.5"/>
+                <line x1="10" y1="6" x2="10" y2="11" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <circle cx="10" cy="14" r="0.75" fill="currentColor" stroke="none"/>
+            </svg>
+        </div>
+
+        <div class="fc-error-card__body">
+            <p class="fc-error-card__title">@Title</p>
+
+            @if (_autoAttempt < MaxAutoRetries && _countdown > 0)
+            {
+                <p class="fc-error-card__countdown" aria-live="polite" aria-atomic="true">
+                    Retrying in @_countdown&thinsp;s&hellip;
+                </p>
+            }
+            else if (_autoAttempt >= MaxAutoRetries)
+            {
+                <p class="fc-error-card__countdown">Automatic retries exhausted.</p>
+            }
+
+            <details class="fc-error-card__details">
+                <summary>Technical details</summary>
+                <code>@(activeEx.GetType().Name): @activeEx.Message</code>
+            </details>
+
+            <div class="fc-error-card__actions">
+                <button class="fc-btn fc-btn--sm fc-btn--ghost"
+                        @onclick="RetryAsync"
+                        disabled="@_retrying"
+                        aria-label="Retry loading data">
+                    @if (_retrying)
+                    {
+                        <span class="fc-btn__spinner" aria-hidden="true"></span>
+                        <span>Retrying&hellip;</span>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                            <polyline points="1,4 1,10 7,10"/>
+                            <path d="M3.51 15A9 9 0 1 0 2.05 6.05L1 10"/>
+                        </svg>
+                        <span>Retry</span>
+                    }
+                </button>
+
+                <button class="fc-btn fc-btn--sm fc-btn--ghost"
+                        @onclick="() => ReportIssueAsync(activeEx)"
+                        aria-label="Copy error details to clipboard">
+                    @if (_reportCopied)
+                    {
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                            <polyline points="1 8 6 13 15 3"/>
+                        </svg>
+                        <span>Copied!</span>
+                    }
+                    else
+                    {
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                            <rect x="4" y="4" width="10" height="12" rx="1"/>
+                            <path d="M2 12V2h10"/>
+                        </svg>
+                        <span>Report Issue</span>
+                    }
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    // ── Parameters ──────────────────────────────────────────────────────────────
+
+    /// <summary>Human-readable section label shown in the error card title.</summary>
+    [Parameter] public string Title { get; set; } = "Something went wrong";
+
+    /// <summary>
+    /// Exception captured by a parent page's own try/catch.
+    /// Set to the caught exception to show the error card; clear to null on success.
+    /// </summary>
+    [Parameter] public Exception? ExternalError { get; set; }
+
+    /// <summary>
+    /// Callback invoked on each retry (auto or manual). Re-run your data-load method here.
+    /// </summary>
+    [Parameter] public EventCallback OnRetry { get; set; }
+
+    // ── Constants ────────────────────────────────────────────────────────────────
+
+    private const int MaxAutoRetries = 3;
+    private static readonly int[] BackoffSeconds = [1, 2, 4];
+
+    // ── State ────────────────────────────────────────────────────────────────────
+
+    private bool _visible;
+    private bool _retrying;
+    private bool _reportCopied;
+    private int _autoAttempt;
+    private int _countdown;
+    private Exception? _lastSeenExternal;
+    private CancellationTokenSource? _cts;
+
+    // ── ErrorBoundaryBase ────────────────────────────────────────────────────────
+
+    protected override Task OnErrorAsync(Exception exception)
+    {
+        // Unhandled exception bubbled from a child component — start auto-retry sequence
+        _visible = true;
+        _autoAttempt = 0;
+        StartCountdown();
+        return Task.CompletedTask;
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────────
+
+    protected override void OnParametersSet()
+    {
+        if (ExternalError == _lastSeenExternal) return;
+
+        _lastSeenExternal = ExternalError;
+
+        if (ExternalError is not null)
+        {
+            _visible = true;
+            _autoAttempt = 0;
+            StartCountdown();
+        }
+        else
+        {
+            // Parent cleared the error (retry succeeded) — reset all state
+            StopCountdown();
+            _visible = false;
+            _autoAttempt = 0;
+            _countdown = 0;
+        }
+    }
+
+    // ── Countdown ────────────────────────────────────────────────────────────────
+
+    private void StartCountdown()
+    {
+        StopCountdown();
+        if (_autoAttempt >= MaxAutoRetries) return;
+
+        _cts = new CancellationTokenSource();
+        _countdown = BackoffSeconds[Math.Min(_autoAttempt, BackoffSeconds.Length - 1)];
+        _ = RunCountdownAsync(_cts.Token);
+    }
+
+    private void StopCountdown()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+        _cts = null;
+    }
+
+    private async Task RunCountdownAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                _countdown--;
+                await InvokeAsync(StateHasChanged);
+
+                if (_countdown <= 0)
+                {
+                    _autoAttempt++;
+                    await InvokeAsync(RetryAsync);
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    // ── Actions ──────────────────────────────────────────────────────────────────
+
+    private async Task RetryAsync()
+    {
+        StopCountdown();
+        _retrying = true;
+        StateHasChanged();
+
+        try
+        {
+            if (OnRetry.HasDelegate)
+                await OnRetry.InvokeAsync();
+        }
+        finally
+        {
+            _retrying = false;
+        }
+
+        // In boundary-mode: recover so ChildContent can re-render
+        if (CurrentException is not null)
+            Recover();
+
+        StateHasChanged();
+    }
+
+    private async Task ReportIssueAsync(Exception ex)
+    {
+        var info = $"Error: {ex.GetType().Name}: {ex.Message}\nPage: {Nav.Uri}\nTime: {DateTime.UtcNow:O}\n\nStack trace:\n{ex.StackTrace}";
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", info);
+            _reportCopied = true;
+            StateHasChanged();
+            await Task.Delay(2000);
+            _reportCopied = false;
+            StateHasChanged();
+        }
+        catch { /* clipboard not available */ }
+    }
+
+    // ── Dispose ──────────────────────────────────────────────────────────────────
+
+    public ValueTask DisposeAsync()
+    {
+        StopCountdown();
+        return ValueTask.CompletedTask;
+    }
+}

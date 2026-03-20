@@ -1,0 +1,226 @@
+@page "/platform/templates"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Admin.Services
+@using FC.Engine.Admin.Utilities
+@inject PlatformAdminService PlatformService
+
+<PageTitle>Template Console</PageTitle>
+
+<PageHeader Title="Template Management Console"
+            Subtitle="Publish drafts, deprecate versions, and compare template versions." />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="fc-alert fc-alert--inline fc-alert--success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="fc-alert fc-alert--inline fc-alert--error">@_error</div>
+}
+
+@if (_loading)
+{
+    <div class="fc-card" aria-busy="true" aria-label="Loading template console">
+        <div class="fc-card__body fc-card-body--flush">
+            @for (var i = 0; i < 8; i++)
+            {
+                <div class="fc-skel fc-skel-text" style="--skel-w:100%;--skel-h:44px;--skel-mb:4px;"></div>
+            }
+        </div>
+    </div>
+}
+else
+{
+    <div class="fc-card fc-mb-4">
+        <div class="fc-card__body fc-card-body--flush">
+            <div class="fc-table-wrap">
+                <table class="fc-table" style="table-layout: fixed;">
+                    <colgroup>
+                        <col />
+                        <col style="width: 110px;" />
+                        <col />
+                        <col style="width: 80px;" />
+                        <col style="width: 120px;" />
+                        <col style="width: 80px;" />
+                        <col style="width: 90px;" />
+                        <col style="width: 260px;" />
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Return Code</th>
+                            <th>Template</th>
+                            <th>Current</th>
+                            <th>Draft</th>
+                            <th>Fields</th>
+                            <th>Formulas</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _data.Items)
+                        {
+                            <tr>
+                                <td>@row.ModuleName (@row.ModuleCode)</td>
+                                <td><code>@row.ReturnCode</code></td>
+                                <td>@row.TemplateName</td>
+                                <td>@(row.CurrentVersionNumber?.ToString() ?? "-")</td>
+                                <td>@(row.DraftVersionNumber?.ToString() ?? "-") <small>@(row.DraftStatus ?? "")</small></td>
+                                <td>@row.FieldCount</td>
+                                <td>@row.FormulaCount</td>
+                                <td>
+                                    <div class="fc-tag-group">
+                                        <a class="fc-btn fc-btn--outline fc-btn--xs" href="/templates/@row.ReturnCode">View</a>
+                                        @if (row.DraftVersionId.HasValue)
+                                        {
+                                            <button class="fc-btn fc-btn--primary fc-btn--xs" @onclick="() => PublishDraft(row.TemplateId)">Publish Draft</button>
+                                        }
+                                        @if (row.CurrentVersionId.HasValue)
+                                        {
+                                            <button class="fc-btn fc-btn--xs fc-btn--danger-dark" @onclick="() => Deprecate(row.TemplateId, row.CurrentVersionId.Value)">Deprecate</button>
+                                        }
+                                        <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => LoadDiff(row.TemplateId, row.CurrentVersionId, row.DraftVersionId)">Diff</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    @if (_diff is not null)
+    {
+        <div class="fc-card">
+            <div class="fc-card__header">
+                <h2 class="fc-card__title">Diff: @_diff.ReturnCode (v@_diff.FromVersionNumber → v@_diff.ToVersionNumber)</h2>
+            </div>
+            <div class="fc-card__body">
+                <div class="fc-grid fc-grid-3">
+                    <div>
+                        <h4 class="fc-mt-0">Added Fields (@_diff.AddedFields.Count)</h4>
+                        <ul>
+                            @foreach (var field in _diff.AddedFields)
+                            {
+                                <li>@field</li>
+                            }
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="fc-mt-0">Removed Fields (@_diff.RemovedFields.Count)</h4>
+                        <ul>
+                            @foreach (var field in _diff.RemovedFields)
+                            {
+                                <li>@field</li>
+                            }
+                        </ul>
+                    </div>
+                    <div>
+                        <h4 class="fc-mt-0">Changed Fields (@_diff.ChangedFields.Count)</h4>
+                        <ul>
+                            @foreach (var field in _diff.ChangedFields)
+                            {
+                                <li>@field</li>
+                            }
+                        </ul>
+                    </div>
+                </div>
+                <div class="fc-kv fc-mt-3"><span>Formula Count</span><strong>@_diff.FormulaCountFrom → @_diff.FormulaCountTo</strong></div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private TemplateConsoleData _data = new();
+    private TemplateVersionDiffData? _diff;
+    private bool _loading = true;
+    private string? _error;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        _message = null;
+        try
+        {
+            _data = await PlatformService.GetTemplateConsole();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task PublishDraft(int templateId)
+    {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.PublishDraftVersion(templateId, actor);
+            _message = "Draft version published.";
+        });
+    }
+
+    private async Task Deprecate(int templateId, int versionId)
+    {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.DeprecateVersion(templateId, versionId, actor);
+            _message = "Version deprecated.";
+        });
+    }
+
+    private async Task LoadDiff(int templateId, int? fromVersionId, int? toVersionId)
+    {
+        _error = null;
+        try
+        {
+            _diff = await PlatformService.GetTemplateDiff(templateId, fromVersionId, toVersionId);
+            if (_diff is null)
+            {
+                _message = "No diff available for selected template versions.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task ExecuteAction(Func<string, Task> action)
+    {
+        _error = null;
+        _message = null;
+        try
+        {
+            var actor = await GetActor();
+            await action(actor);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+}

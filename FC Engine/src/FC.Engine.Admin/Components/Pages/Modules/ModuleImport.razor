@@ -1,0 +1,294 @@
+@page "/modules/import"
+@attribute [Authorize(Roles = "PlatformAdmin")]
+@using System.Text
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using FC.Engine.Admin.Utilities
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Admin.Services
+@using Microsoft.AspNetCore.Components.Forms
+@inject IModuleImportService ModuleImportService
+@inject ToastService Toast
+@inject NavigationManager Navigation
+
+<PageTitle>Module Import</PageTitle>
+
+<PageHeader Title="Module Import"
+            Subtitle="Upload a module definition JSON, validate it, import metadata, and publish draft templates."
+            BackUrl="/modules" />
+
+<div class="fc-page">
+
+    <!-- Upload & Editor -->
+    <div class="fc-card fc-card--mb">
+        <div class="fc-card__body">
+            <div class="fc-form-grid">
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Definition File (JSON)</label>
+                    <InputFile OnChange="OnFileSelected" accept=".json,application/json" class="fc-form-input" />
+                </div>
+            </div>
+
+            <div class="fc-form-group fc-mt-4">
+                <label class="fc-form-label">Definition Content</label>
+                <textarea class="fc-form-input fc-textarea--code" rows="14" @bind="_jsonDefinition" placeholder="Paste module definition JSON here"></textarea>
+            </div>
+
+            <div class="fc-filter-bar">
+                <button class="fc-btn fc-btn--outline" disabled="@_busy" @onclick="Validate" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                    Validate
+                </button>
+                <button class="fc-btn fc-btn--primary" disabled="@(_busy || !_canImport)" @onclick="Import" type="button">
+                    @if (_busy && _canImport)
+                    {
+                        <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
+                    }
+                    Import
+                </button>
+                <button class="fc-btn fc-btn--gold" disabled="@(_busy || string.IsNullOrWhiteSpace(_moduleCode))" @onclick="Publish" type="button">
+                    Publish
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Validation Result -->
+    @if (_validationResult != null)
+    {
+        <div class="fc-card fc-card--mb">
+            <div class="fc-card__header"><h2 class="fc-card__title">Validation Summary</h2></div>
+            <div class="fc-card__body">
+                <div class="fc-chip-group fc-import-success-p">
+                    <span class="fc-chip"><span class="fc-chip__count">@_validationResult.TemplateCount</span> Templates</span>
+                    <span class="fc-chip"><span class="fc-chip__count">@_validationResult.FieldCount</span> Fields</span>
+                    <span class="fc-chip"><span class="fc-chip__count">@_validationResult.FormulaCount</span> Formulas</span>
+                    <span class="fc-chip"><span class="fc-chip__count">@_validationResult.CrossSheetRuleCount</span> Cross-Sheet Rules</span>
+                </div>
+
+                @if (_validationResult.Errors.Count > 0)
+                {
+                    <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@($"{_validationResult.Errors.Count} error(s) found")" />
+                    <ul class="fc-error-list">
+                        @foreach (var error in _validationResult.Errors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                }
+
+                @if (_validationResult.Warnings.Count > 0)
+                {
+                    <div class="fc-mt-3">
+                        <AppAlert Variant="AppAlert.AlertVariant.Warning" Message="@($"{_validationResult.Warnings.Count} warning(s)")" />
+                        <ul class="fc-warn-list">
+                            @foreach (var warning in _validationResult.Warnings)
+                            {
+                                <li>@warning</li>
+                            }
+                        </ul>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Import Result -->
+    @if (_importResult != null)
+    {
+        <div class="fc-card fc-card--mb">
+            <div class="fc-card__header"><h2 class="fc-card__title">Import Result</h2></div>
+            <div class="fc-card__body">
+                @if (_importResult.Success)
+                {
+                    <p class="fc-import-success-p">Imported module <code>@_importResult.ModuleCode</code> successfully.</p>
+                    <div class="fc-chip-group">
+                        <span class="fc-chip"><span class="fc-chip__count">@_importResult.TemplatesCreated</span> Templates</span>
+                        <span class="fc-chip"><span class="fc-chip__count">@_importResult.FieldsCreated</span> Fields</span>
+                        <span class="fc-chip"><span class="fc-chip__count">@_importResult.FormulasCreated</span> Formulas</span>
+                        <span class="fc-chip"><span class="fc-chip__count">@_importResult.CrossSheetRulesCreated</span> Cross-Sheet Rules</span>
+                    </div>
+                }
+                else
+                {
+                    <AppAlert Variant="AppAlert.AlertVariant.Error" Message="Import failed" />
+                    <ul class="fc-error-list">
+                        @foreach (var error in _importResult.Errors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    }
+
+    <!-- Publish Result -->
+    @if (_publishResult != null)
+    {
+        <div class="fc-card">
+            <div class="fc-card__header"><h2 class="fc-card__title">Publish Result</h2></div>
+            <div class="fc-card__body">
+                @if (_publishResult.Success)
+                {
+                    <p>Published module <code>@_publishResult.ModuleCode</code>. Tables created: <strong>@_publishResult.TablesCreated</strong>.</p>
+                    @if (_publishResult.DdlStatements.Count > 0)
+                    {
+                        <details class="fc-mt-3">
+                            <summary class="fc-summary-toggle">DDL Statements (@_publishResult.DdlStatements.Count)</summary>
+                            @foreach (var ddl in _publishResult.DdlStatements)
+                            {
+                                <pre class="fc-code-pre">@ddl</pre>
+                            }
+                        </details>
+                    }
+                }
+                else
+                {
+                    <AppAlert Variant="AppAlert.AlertVariant.Error" Message="Publish failed" />
+                    <ul class="fc-error-list">
+                        @foreach (var error in _publishResult.Errors)
+                        {
+                            <li>@error</li>
+                        }
+                    </ul>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private string _jsonDefinition = string.Empty;
+    private string? _moduleCode;
+    private bool _busy;
+    private bool _canImport;
+    private ModuleValidationResult? _validationResult;
+    private ModuleImportResult? _importResult;
+    private ModulePublishResult? _publishResult;
+
+    private async Task OnFileSelected(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            var file = args.File;
+            await using var stream = file.OpenReadStream(5 * 1024 * 1024);
+            using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: false);
+            _jsonDefinition = await reader.ReadToEndAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "File read failed");
+        }
+    }
+
+    private async Task Validate()
+    {
+        _busy = true;
+        _importResult = null;
+        _publishResult = null;
+        try
+        {
+            _validationResult = await ModuleImportService.ValidateDefinition(_jsonDefinition);
+            _canImport = _validationResult.IsValid;
+            if (_validationResult.IsValid)
+            {
+                _moduleCode = TryReadModuleCode(_jsonDefinition);
+                Toast.Success("Definition is valid and ready to import.", "Validation Passed");
+            }
+            else
+            {
+                Toast.Warning("Validation returned errors. Resolve errors before importing.", "Validation Failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Validation failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Import()
+    {
+        _busy = true;
+        try
+        {
+            _importResult = await ModuleImportService.ImportModule(_jsonDefinition, await ResolveCurrentActorAsync());
+            if (_importResult.Success)
+            {
+                _moduleCode = _importResult.ModuleCode;
+                _canImport = false; // Prevent duplicate import — ReturnCodes now exist in DB
+                Toast.Success($"Module {_importResult.ModuleCode} imported successfully.", "Import Complete");
+            }
+            else
+            {
+                Toast.Error(string.Join("; ", _importResult.Errors), "Import failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Import failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Publish()
+    {
+        if (string.IsNullOrWhiteSpace(_moduleCode)) return;
+
+        _busy = true;
+        try
+        {
+            _publishResult = await ModuleImportService.PublishModule(_moduleCode, await ResolveCurrentActorAsync());
+            if (_publishResult.Success)
+            {
+                Toast.Success($"Module {_moduleCode} published successfully.", "Publish Complete");
+            }
+            else
+            {
+                Toast.Error(string.Join("; ", _publishResult.Errors), "Publish failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Publish failed");
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private void BackToList() => Navigation.NavigateTo("/modules");
+
+    private async Task<string> ResolveCurrentActorAsync()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+
+    private static string? TryReadModuleCode(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            // TryGetProperty is case-sensitive; the schema allows both camelCase and PascalCase
+            // because the import service uses PropertyNameCaseInsensitive = true. Try both.
+            if (doc.RootElement.TryGetProperty("moduleCode", out var mc) ||
+                doc.RootElement.TryGetProperty("ModuleCode", out mc))
+            {
+                return mc.GetString();
+            }
+        }
+        catch { }
+        return null;
+    }
+}

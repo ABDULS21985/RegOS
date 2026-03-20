@@ -14,33 +14,50 @@ public class TemplateBrowserService
     private readonly ITemplateMetadataCache _templateCache;
     private readonly ISubmissionRepository _submissionRepo;
     private readonly IXsdGenerator _xsdGenerator;
+    private readonly IEntitlementService _entitlementService;
+    private readonly ITenantContext _tenantContext;
+    private readonly IFieldLocalisationService _fieldLocalisationService;
+    private readonly IUserLanguagePreferenceService _languagePreferenceService;
 
     public TemplateBrowserService(
         ITemplateMetadataCache templateCache,
         ISubmissionRepository submissionRepo,
-        IXsdGenerator xsdGenerator)
+        IXsdGenerator xsdGenerator,
+        IEntitlementService entitlementService,
+        ITenantContext tenantContext,
+        IFieldLocalisationService fieldLocalisationService,
+        IUserLanguagePreferenceService languagePreferenceService)
     {
         _templateCache = templateCache;
         _submissionRepo = submissionRepo;
         _xsdGenerator = xsdGenerator;
+        _entitlementService = entitlementService;
+        _tenantContext = tenantContext;
+        _fieldLocalisationService = fieldLocalisationService;
+        _languagePreferenceService = languagePreferenceService;
     }
 
     /// <summary>
-    /// Get all published templates for card display.
+    /// Get all published templates for card display, filtered by the tenant's entitled modules.
     /// </summary>
     public async Task<List<TemplateBrowseItem>> GetAllTemplates(CancellationToken ct = default)
     {
-        var templates = await _templateCache.GetAllPublishedTemplates(ct);
-
-        return templates.Select(t => new TemplateBrowseItem
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (!tenantId.HasValue)
         {
-            ReturnCode = t.ReturnCode,
-            TemplateName = t.Name,
-            Frequency = t.Frequency.ToString(),
-            StructuralCategory = t.StructuralCategory,
-            FieldCount = t.CurrentVersion.Fields.Count,
-            FormulaCount = t.CurrentVersion.IntraSheetFormulas.Count
-        }).OrderBy(t => t.ReturnCode).ToList();
+            return [];
+        }
+
+        return await GetAllTemplates(tenantId.Value, ct);
+    }
+
+    public async Task<List<TemplateBrowseItem>> GetAllTemplates(Guid tenantId, CancellationToken ct = default)
+    {
+        var templates = await GetScopedTemplatesAsync(tenantId, ct);
+        return templates
+            .Select(MapToBrowseItem)
+            .OrderBy(t => t.ReturnCode)
+            .ToList();
     }
 
     /// <summary>
@@ -48,35 +65,52 @@ public class TemplateBrowserService
     /// </summary>
     public async Task<TemplateDetailModel?> GetTemplateDetail(string returnCode, CancellationToken ct = default)
     {
-        CachedTemplate template;
-        try
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (!tenantId.HasValue)
         {
-            template = await _templateCache.GetPublishedTemplate(returnCode, ct);
+            return null;
         }
-        catch (InvalidOperationException)
+
+        return await GetTemplateDetail(returnCode, tenantId.Value, ct);
+    }
+
+    public async Task<TemplateDetailModel?> GetTemplateDetail(string returnCode, Guid tenantId, CancellationToken ct = default)
+    {
+        var template = await GetAccessibleTemplateAsync(returnCode, tenantId, ct);
+        if (template is null)
         {
             return null;
         }
 
         var version = template.CurrentVersion;
+        var language = await _languagePreferenceService.GetCurrentLanguage(ct);
+        var localisations = await _fieldLocalisationService.GetLocalisations(
+            version.Fields.Select(f => f.Id),
+            language,
+            ct);
 
         var fields = version.Fields
-            .Select(f => new FieldDisplayItem
+            .Select(f =>
             {
-                FieldName = f.FieldName,
-                DisplayName = f.DisplayName,
-                XmlElementName = f.XmlElementName,
-                DataType = f.DataType.ToString(),
-                IsRequired = f.IsRequired,
-                IsComputed = f.IsComputed,
-                IsKeyField = f.IsKeyField,
-                MinValue = f.MinValue,
-                MaxValue = f.MaxValue,
-                MaxLength = f.MaxLength,
-                AllowedValues = f.AllowedValues,
-                SectionName = f.SectionName ?? "General",
-                HelpText = f.HelpText,
-                FieldOrder = f.FieldOrder
+                localisations.TryGetValue(f.Id, out var localized);
+                return new FieldDisplayItem
+                {
+                    FieldName = f.FieldName,
+                    DisplayName = localized?.Label ?? f.DisplayName,
+                    XmlElementName = f.XmlElementName,
+                    DataType = f.DataType.ToString(),
+                    IsRequired = f.IsRequired,
+                    IsComputed = f.IsComputed,
+                    IsKeyField = f.IsKeyField,
+                    MinValue = f.MinValue,
+                    MaxValue = f.MaxValue,
+                    MaxLength = f.MaxLength,
+                    AllowedValues = f.AllowedValues,
+                    SectionName = f.SectionName ?? "General",
+                    HelpText = localized?.HelpText ?? f.HelpText,
+                    RegulatoryReference = f.RegulatoryReference,
+                    FieldOrder = f.FieldOrder
+                };
             })
             .OrderBy(f => f.SectionName)
             .ThenBy(f => f.FieldOrder)
@@ -111,6 +145,7 @@ public class TemplateBrowserService
         {
             ReturnCode = template.ReturnCode,
             TemplateName = template.Name,
+            ModuleCode = template.ModuleCode,
             Frequency = template.Frequency.ToString(),
             StructuralCategory = template.StructuralCategory,
             XmlNamespace = template.XmlNamespace,
@@ -129,6 +164,22 @@ public class TemplateBrowserService
     /// </summary>
     public async Task<string?> GetSchemaXml(string returnCode, CancellationToken ct = default)
     {
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (!tenantId.HasValue)
+        {
+            return null;
+        }
+
+        return await GetSchemaXml(returnCode, tenantId.Value, ct);
+    }
+
+    public async Task<string?> GetSchemaXml(string returnCode, Guid tenantId, CancellationToken ct = default)
+    {
+        if (await GetAccessibleTemplateAsync(returnCode, tenantId, ct) is null)
+        {
+            return null;
+        }
+
         try
         {
             return await _xsdGenerator.GenerateSchemaXml(returnCode, ct);
@@ -144,12 +195,19 @@ public class TemplateBrowserService
     /// </summary>
     public async Task<string?> GenerateSampleXml(string returnCode, CancellationToken ct = default)
     {
-        CachedTemplate template;
-        try
+        var tenantId = _tenantContext.CurrentTenantId;
+        if (!tenantId.HasValue)
         {
-            template = await _templateCache.GetPublishedTemplate(returnCode, ct);
+            return null;
         }
-        catch
+
+        return await GenerateSampleXml(returnCode, tenantId.Value, ct);
+    }
+
+    public async Task<string?> GenerateSampleXml(string returnCode, Guid tenantId, CancellationToken ct = default)
+    {
+        var template = await GetAccessibleTemplateAsync(returnCode, tenantId, ct);
+        if (template is null)
         {
             return null;
         }
@@ -167,7 +225,7 @@ public class TemplateBrowserService
         // Header section
         sb.AppendLine("  <Header>");
         sb.AppendLine("    <InstitutionCode>INST001</InstitutionCode>");
-        sb.AppendLine("    <ReportingDate>2026-01-31</ReportingDate>");
+        sb.AppendLine($"    <ReportingDate>{DateTime.UtcNow.AddMonths(-1):yyyy-MM-dd}</ReportingDate>");
         sb.AppendLine($"    <ReturnCode>{template.ReturnCode}</ReturnCode>");
         sb.AppendLine("  </Header>");
 
@@ -247,7 +305,7 @@ public class TemplateBrowserService
             {
                 SubmissionId = s.Id,
                 PeriodLabel = FormatPeriodLabel(s),
-                SubmittedAt = s.SubmittedAt,
+                SubmittedAt = s.SubmittedAt ?? default,
                 Status = s.Status.ToString(),
                 ErrorCount = s.ValidationReport?.ErrorCount ?? 0,
                 WarningCount = s.ValidationReport?.WarningCount ?? 0
@@ -255,7 +313,154 @@ public class TemplateBrowserService
             .ToList();
     }
 
+    /// <summary>
+    /// Get compliance status for each return code for a given institution.
+    /// Returns a dictionary of returnCode -> "Submitted" | "Overdue" | "Pending"
+    /// </summary>
+    public async Task<Dictionary<string, string>> GetComplianceStatuses(int institutionId, CancellationToken ct = default)
+    {
+        if (institutionId <= 0)
+            return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        var submissions = await _submissionRepo.GetByInstitution(institutionId, ct);
+
+        return submissions
+            .GroupBy(s => s.ReturnCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                g => g.Key,
+                g =>
+                {
+                    var latest = g.OrderByDescending(s => s.SubmittedAt).First();
+                    return latest.Status.ToString() switch
+                    {
+                        "Accepted" or "AcceptedWithWarnings"
+                            or "SubmittedToRegulator" or "RegulatorAcknowledged"
+                            or "RegulatorAccepted" or "Historical" => "Submitted",
+                        "Rejected" or "ApprovalRejected" or "RegulatorQueriesRaised" => "Overdue",
+                        "PendingApproval" or "Validating" or "Parsing" => "Pending",
+                        "Draft" => "Pending",
+                        _ => "Pending"
+                    };
+                },
+                StringComparer.OrdinalIgnoreCase);
+    }
+
     // ── Private Helpers ──────────────────────────────────────────
+
+    private async Task<List<CachedTemplate>> GetScopedTemplatesAsync(Guid tenantId, CancellationToken ct)
+    {
+        var accessScope = await GetTemplateAccessScopeAsync(tenantId, ct);
+        if (accessScope.ActiveModuleCodes.Count == 0 && accessScope.LicenceTypeCodes.Count == 0)
+        {
+            return [];
+        }
+
+        var templates = await _templateCache.GetAllPublishedTemplates(tenantId, ct);
+        return templates
+            .Where(t => IsTemplateAccessible(t, accessScope))
+            .ToList();
+    }
+
+    private async Task<CachedTemplate?> GetAccessibleTemplateAsync(string returnCode, Guid tenantId, CancellationToken ct)
+    {
+        CachedTemplate template;
+        try
+        {
+            template = await _templateCache.GetPublishedTemplate(tenantId, returnCode, ct);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+
+        var accessScope = await GetTemplateAccessScopeAsync(tenantId, ct);
+        return IsTemplateAccessible(template, accessScope)
+            ? template
+            : null;
+    }
+
+    private async Task<TemplateAccessScope> GetTemplateAccessScopeAsync(Guid tenantId, CancellationToken ct)
+    {
+        var entitlement = await _entitlementService.ResolveEntitlements(tenantId, ct);
+        return new TemplateAccessScope(
+            entitlement.ActiveModules
+                .Select(m => m.ModuleCode)
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase),
+            entitlement.LicenceTypeCodes
+                .Where(code => !string.IsNullOrWhiteSpace(code))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static bool IsTemplateAccessible(CachedTemplate template, TemplateAccessScope accessScope)
+    {
+        if (!string.IsNullOrWhiteSpace(template.ModuleCode))
+        {
+            return accessScope.ActiveModuleCodes.Contains(template.ModuleCode);
+        }
+
+        if (!string.IsNullOrWhiteSpace(template.InstitutionType))
+        {
+            return accessScope.LicenceTypeCodes.Contains(template.InstitutionType);
+        }
+
+        return false;
+    }
+
+    private static TemplateBrowseItem MapToBrowseItem(CachedTemplate t)
+    {
+        return new TemplateBrowseItem
+        {
+            ReturnCode = t.ReturnCode,
+            TemplateName = t.Name,
+            Frequency = t.Frequency.ToString(),
+            StructuralCategory = t.StructuralCategory,
+            FieldCount = t.CurrentVersion.Fields.Count,
+            FormulaCount = t.CurrentVersion.IntraSheetFormulas.Count,
+            SectionCount = t.CurrentVersion.Fields
+                .Select(f => f.SectionName ?? "General")
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count(),
+            ModuleCode = t.ModuleCode,
+            RegulatoryBody = DeriveRegulatoryBody(t.ModuleCode, t.ReturnCode, t.InstitutionType)
+        };
+    }
+
+    private static string DeriveRegulatoryBody(string? moduleCode, string returnCode, string? institutionType)
+    {
+        switch (institutionType?.Trim().ToUpperInvariant())
+        {
+            case "FC":
+            case "BDC":
+            case "DMB":
+            case "MFB":
+            case "PMB":
+            case "PSP":
+            case "DFI":
+            case "IMTO":
+                return "CBN";
+            case "INSURANCE":
+                return "NAICOM";
+            case "PFA":
+                return "PENCOM";
+            case "CMO":
+                return "SEC";
+        }
+
+        foreach (var s in new[] { moduleCode ?? "", returnCode })
+        {
+            if (s.StartsWith("CBN", StringComparison.OrdinalIgnoreCase)) return "CBN";
+            if (s.StartsWith("SEC", StringComparison.OrdinalIgnoreCase)) return "SEC";
+            if (s.StartsWith("NAICOM", StringComparison.OrdinalIgnoreCase)) return "NAICOM";
+            if (s.StartsWith("PENCOM", StringComparison.OrdinalIgnoreCase)) return "PENCOM";
+            if (s.StartsWith("FIRS", StringComparison.OrdinalIgnoreCase)) return "FIRS";
+        }
+        return "Other";
+    }
+
+    private sealed record TemplateAccessScope(
+        HashSet<string> ActiveModuleCodes,
+        HashSet<string> LicenceTypeCodes);
 
     private static string GetPlaceholderValue(TemplateField field)
     {
@@ -268,7 +473,7 @@ public class TemplateBrowserService
         if (field.DataType == FieldDataType.Text)
             return "SAMPLE_TEXT";
         if (field.DataType == FieldDataType.Date)
-            return "2026-01-31";
+            return DateTime.UtcNow.ToString("yyyy-MM-dd");
         if (field.DataType == FieldDataType.Boolean)
             return "true";
         return "VALUE";
@@ -281,7 +486,7 @@ public class TemplateBrowserService
             var rp = s.ReturnPeriod;
             return new DateTime(rp.Year, rp.Month, 1).ToString("MMMM yyyy");
         }
-        return s.SubmittedAt.ToString("MMMM yyyy");
+        return (s.SubmittedAt ?? DateTime.UtcNow).ToString("MMMM yyyy");
     }
 }
 
@@ -295,12 +500,16 @@ public class TemplateBrowseItem
     public string StructuralCategory { get; set; } = "";
     public int FieldCount { get; set; }
     public int FormulaCount { get; set; }
+    public int SectionCount { get; set; }
+    public string? ModuleCode { get; set; }
+    public string RegulatoryBody { get; set; } = "Other";
 }
 
 public class TemplateDetailModel
 {
     public string ReturnCode { get; set; } = "";
     public string TemplateName { get; set; } = "";
+    public string? ModuleCode { get; set; }
     public string Frequency { get; set; } = "";
     public string StructuralCategory { get; set; } = "";
     public string XmlNamespace { get; set; } = "";
@@ -328,6 +537,7 @@ public class FieldDisplayItem
     public string? AllowedValues { get; set; }
     public string SectionName { get; set; } = "General";
     public string? HelpText { get; set; }
+    public string? RegulatoryReference { get; set; }
     public int FieldOrder { get; set; }
 
     public string ConstraintsSummary

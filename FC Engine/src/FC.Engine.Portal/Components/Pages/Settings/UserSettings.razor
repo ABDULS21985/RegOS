@@ -4,22 +4,19 @@
 @using Microsoft.AspNetCore.Authorization
 @attribute [Authorize(Policy = "InstitutionUser")]
 
-<PageTitle>Settings — FC Engine Portal</PageTitle>
+<PageTitle>Settings — RegOS™ Portal</PageTitle>
 
 <div class="portal-page">
 
-    <div class="portal-page-header">
-        <div class="portal-page-header-main">
-            <h1 class="portal-page-title">Settings</h1>
-            <p class="portal-page-subtitle">Manage your profile, security, and institution details</p>
-        </div>
-    </div>
+    <PortalPageHeader Title="Settings"
+                      Subtitle="Manage your profile, security, and institution details"
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Settings", IsCurrent: true) })" />
 
     @if (isLoading)
     {
-        <div class="portal-settings-layout">
-            <div class="portal-skeleton portal-skeleton-block" style="height: 60px;"></div>
-            <div class="portal-skeleton portal-skeleton-block" style="height: 400px;"></div>
+        <div class="portal-settings-layout" aria-busy="true" aria-label="Loading settings">
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="60px" Index="0" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="400px" Index="1" />
         </div>
     }
     else
@@ -47,7 +44,7 @@
                     </svg>
                     Institution
                 </button>
-                @if (isAdmin)
+                @if (isAdmin && userProfile is not null)
                 {
                     <button class="portal-settings-nav-item @ActiveNavClass("team")"
                             @onclick="LoadTeamSection" type="button">
@@ -575,9 +572,21 @@
             return;
         }
 
-        if (passwordStrength < 50)
+        if (!newPassword.Any(char.IsUpper))
         {
-            newPasswordError = "Password is too weak. Add uppercase, numbers, or special characters.";
+            newPasswordError = "Password must include at least one uppercase letter.";
+            return;
+        }
+
+        if (!newPassword.Any(char.IsLower))
+        {
+            newPasswordError = "Password must include at least one lowercase letter.";
+            return;
+        }
+
+        if (!newPassword.Any(char.IsDigit))
+        {
+            newPasswordError = "Password must include at least one number.";
             return;
         }
 
@@ -598,7 +607,7 @@
 
         try
         {
-            var success = await SettingsSvc.ChangePassword(userId, currentPassword, newPassword);
+            var (success, error) = await SettingsSvc.ChangePassword(userId, currentPassword, newPassword);
 
             if (success)
             {
@@ -609,7 +618,7 @@
             }
             else
             {
-                passwordErrorMsg = "The current password is incorrect.";
+                passwordErrorMsg = error ?? "Password change failed. Please try again.";
             }
         }
         catch (Exception ex)
@@ -629,13 +638,14 @@
     {
         activeSection = "team";
         if (teamLoaded) return;
+        if (userProfile is null) return;
 
         isLoadingTeam = true;
         StateHasChanged();
 
         try
         {
-            teamMembers = await SettingsSvc.GetTeamRoster(userProfile!.InstitutionId);
+            teamMembers = await SettingsSvc.GetTeamRoster(userProfile.InstitutionId);
             teamLoaded = true;
         }
         catch
@@ -691,11 +701,15 @@
 
     private static string GetRoleBadgeClass(string role)
     {
-        var lower = role.ToLowerInvariant();
-        if (lower == "admin") return "portal-badge-info";
-        if (lower == "maker") return "portal-badge-success";
-        if (lower == "checker") return "portal-badge-warning";
-        return "portal-badge-neutral";
+        return role.ToLowerInvariant() switch
+        {
+            "admin" => "portal-badge-info",
+            "maker" => "portal-badge-success",
+            "checker" => "portal-badge-warning",
+            "viewer" => "portal-badge-neutral",
+            "approver" => "portal-badge-accent",
+            _ => "portal-badge-neutral"
+        };
     }
 
     private static string FormatLastLogin(DateTime? dt)

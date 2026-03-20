@@ -1,0 +1,232 @@
+@* RegOS™ Portal — Keyboard Shortcuts Reference Overlay *@
+@* Trigger: ? key → [JSInvokable] OpenOverlay() *@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@if (_isOpen)
+{
+    <div class="portal-shortcuts-backdrop" @onclick="Close" aria-hidden="true"></div>
+
+    <div class="portal-shortcuts-dialog"
+         id="portal-shortcuts-dialog"
+         role="dialog"
+         aria-label="Keyboard shortcuts"
+         aria-modal="true">
+
+        <div class="portal-shortcuts-header">
+            <div class="portal-shortcuts-title">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <rect x="2" y="7" width="20" height="14" rx="2"/>
+                    <path d="M16 3H8M12 3v4"/>
+                    <path d="M6 11h.01M10 11h.01M14 11h.01M18 11h.01M6 15h.01M18 15h.01M10 15h4"/>
+                </svg>
+                <h2>Keyboard Shortcuts</h2>
+            </div>
+            <button class="portal-shortcuts-close" @onclick="Close" type="button" aria-label="Close shortcuts overlay">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="portal-shortcuts-body">
+
+            <!-- ── Global Navigation ──────────────────────────────────────────── -->
+            <div class="portal-shortcuts-section">
+                <h3 class="portal-shortcuts-section-title">Navigation</h3>
+                <dl class="portal-shortcuts-list">
+                    <div class="portal-shortcuts-row">
+                        <dt>
+                            <span class="portal-shortcuts-keys">
+                                <kbd>Ctrl</kbd><span>+</span><kbd>K</kbd>
+                            </span>
+                            <span class="portal-shortcuts-keys portal-shortcuts-keys--mac">
+                                <kbd>⌘</kbd><span>+</span><kbd>K</kbd>
+                            </span>
+                        </dt>
+                        <dd>Open Command Palette</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><kbd>?</kbd></dt>
+                        <dd>Show this shortcuts overlay</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><kbd>Esc</kbd></dt>
+                        <dd>Close dialog or overlay</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- ── Command Palette ─────────────────────────────────────────────── -->
+            <div class="portal-shortcuts-section">
+                <h3 class="portal-shortcuts-section-title">Command Palette</h3>
+                <dl class="portal-shortcuts-list">
+                    <div class="portal-shortcuts-row">
+                        <dt>
+                            <span class="portal-shortcuts-keys">
+                                <kbd>↑</kbd><kbd>↓</kbd>
+                            </span>
+                        </dt>
+                        <dd>Navigate results</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><kbd>↵</kbd></dt>
+                        <dd>Open selected result</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><kbd>Tab</kbd></dt>
+                        <dd>Jump to next result group</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt>
+                            <span class="portal-shortcuts-keys">
+                                <kbd>Shift</kbd><span>+</span><kbd>Tab</kbd>
+                            </span>
+                        </dt>
+                        <dd>Jump to previous result group</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- ── Quick Navigation (chords) ──────────────────────────────────── -->
+            <div class="portal-shortcuts-section">
+                <h3 class="portal-shortcuts-section-title">Quick Navigation <span class="portal-shortcuts-chord-badge">Hold G then key</span></h3>
+                <dl class="portal-shortcuts-list">
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>G</kbd><span>then</span><kbd>S</kbd></span></dt>
+                        <dd>Go to Submissions</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>G</kbd><span>then</span><kbd>C</kbd></span></dt>
+                        <dd>Go to Calendar</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>G</kbd><span>then</span><kbd>T</kbd></span></dt>
+                        <dd>Go to Templates</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>G</kbd><span>then</span><kbd>N</kbd></span></dt>
+                        <dd>Go to Notifications</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>G</kbd><span>then</span><kbd>H</kbd></span></dt>
+                        <dd>Go to Help</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- ── Actions (chords) ───────────────────────────────────────────── -->
+            <div class="portal-shortcuts-section">
+                <h3 class="portal-shortcuts-section-title">Actions <span class="portal-shortcuts-chord-badge">Hold N then key</span></h3>
+                <dl class="portal-shortcuts-list">
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>N</kbd><span>then</span><kbd>R</kbd></span></dt>
+                        <dd>New Return submission</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>N</kbd><span>then</span><kbd>B</kbd></span></dt>
+                        <dd>Bulk upload returns</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- ── Form Shortcuts ──────────────────────────────────────────────── -->
+            <div class="portal-shortcuts-section">
+                <h3 class="portal-shortcuts-section-title">Form Shortcuts</h3>
+                <dl class="portal-shortcuts-list">
+                    <div class="portal-shortcuts-row">
+                        <dt>
+                            <span class="portal-shortcuts-keys">
+                                <kbd>Ctrl</kbd><span>+</span><kbd>S</kbd>
+                            </span>
+                            <span class="portal-shortcuts-keys portal-shortcuts-keys--mac">
+                                <kbd>⌘</kbd><span>+</span><kbd>S</kbd>
+                            </span>
+                        </dt>
+                        <dd>Save draft</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt>
+                            <span class="portal-shortcuts-keys">
+                                <kbd>Ctrl</kbd><span>+</span><kbd>↵</kbd>
+                            </span>
+                            <span class="portal-shortcuts-keys portal-shortcuts-keys--mac">
+                                <kbd>⌘</kbd><span>+</span><kbd>↵</kbd>
+                            </span>
+                        </dt>
+                        <dd>Submit form</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><kbd>F1</kbd></dt>
+                        <dd>Help for focused field</dd>
+                    </div>
+                </dl>
+            </div>
+
+            <!-- ── Table Navigation ────────────────────────────────────────────── -->
+            <div class="portal-shortcuts-section">
+                <h3 class="portal-shortcuts-section-title">Table Navigation</h3>
+                <dl class="portal-shortcuts-list">
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>↑</kbd><kbd>↓</kbd></span></dt>
+                        <dd>Navigate rows</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><span class="portal-shortcuts-keys"><kbd>Home</kbd><kbd>End</kbd></span></dt>
+                        <dd>Jump to first / last row</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><kbd>↵</kbd></dt>
+                        <dd>Open selected row</dd>
+                    </div>
+                    <div class="portal-shortcuts-row">
+                        <dt><kbd>Space</kbd></dt>
+                        <dd>Toggle row selection</dd>
+                    </div>
+                </dl>
+            </div>
+
+        </div>
+
+        <div class="portal-shortcuts-footer" aria-hidden="true">
+            Press <kbd>Esc</kbd> or click outside to close
+        </div>
+    </div>
+}
+
+@code {
+    private bool _isOpen;
+    private DotNetObjectReference<ShortcutsOverlay>? _dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _dotNetRef = DotNetObjectReference.Create(this);
+        await JS.InvokeVoidAsync("portalShortcutsOverlay.init", _dotNetRef);
+    }
+
+    [JSInvokable]
+    public async Task OpenOverlay()
+    {
+        _isOpen = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void Close()
+    {
+        _isOpen = false;
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_dotNetRef is not null)
+        {
+            try { await JS.InvokeVoidAsync("portalShortcutsOverlay.dispose"); } catch { }
+            _dotNetRef.Dispose();
+        }
+    }
+}

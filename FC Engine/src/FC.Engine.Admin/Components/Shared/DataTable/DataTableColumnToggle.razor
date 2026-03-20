@@ -1,0 +1,99 @@
+@* Column visibility toggle with drag-to-reorder and active customisation indicator. *@
+
+<div class="fc-dt-col-toggle" @onfocusout="OnFocusOut">
+    <button class="fc-btn fc-btn--outline fc-btn--sm fc-dt-col-toggle-btn"
+            type="button"
+            @onclick="Toggle"
+            aria-haspopup="listbox"
+            aria-expanded="@_open"
+            aria-label="Toggle column visibility"
+            title="Show / hide columns">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+            <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>
+        </svg>
+        Columns
+        @if (HasCustomization)
+        {
+            <span class="fc-dt-active-dot" aria-label="Columns customised"></span>
+        }
+    </button>
+
+    @if (_open)
+    {
+        <div class="fc-dt-col-toggle-dropdown" role="listbox" aria-label="Columns">
+            <div class="fc-dt-col-toggle-hint">Drag to reorder</div>
+            @foreach (var col in Columns.Where(c => c.Hideable))
+            {
+                var colId = col.Id;
+                var isVisible = !HiddenColumns.Contains(colId);
+                var isDragOver = _dragOverColumnId == colId;
+                <label class="fc-dt-col-toggle-item @(isDragOver ? "fc-dt-col-toggle-item--drag-over" : "")"
+                       role="option"
+                       aria-selected="@isVisible"
+                       draggable="true"
+                       @ondragstart="() => _dragColumnId = colId"
+                       @ondragend="() => { _dragColumnId = null; _dragOverColumnId = null; }"
+                       @ondragover:preventDefault="true"
+                       @ondragover="() => _dragOverColumnId = colId"
+                       @ondragleave="() => { if (_dragOverColumnId == colId) _dragOverColumnId = null; }"
+                       @ondrop:preventDefault="true"
+                       @ondrop="() => HandleDrop(colId)">
+                    <span class="fc-dt-col-drag-handle" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                             stroke-linecap="round" stroke-linejoin="round" width="12" height="12">
+                            <circle cx="9" cy="5" r="1" fill="currentColor"/>
+                            <circle cx="9" cy="12" r="1" fill="currentColor"/>
+                            <circle cx="9" cy="19" r="1" fill="currentColor"/>
+                            <circle cx="15" cy="5" r="1" fill="currentColor"/>
+                            <circle cx="15" cy="12" r="1" fill="currentColor"/>
+                            <circle cx="15" cy="19" r="1" fill="currentColor"/>
+                        </svg>
+                    </span>
+                    <input type="checkbox"
+                           checked="@isVisible"
+                           @onchange="() => OnToggle.InvokeAsync(colId)"
+                           @onclick:stopPropagation="true" />
+                    @col.Title
+                </label>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<DataColumnInfo> Columns { get; set; } = Array.Empty<DataColumnInfo>();
+    [Parameter] public IReadOnlySet<string> HiddenColumns { get; set; } = new HashSet<string>();
+    [Parameter] public bool HasCustomization { get; set; }
+    [Parameter] public EventCallback<string> OnToggle { get; set; }
+    [Parameter] public EventCallback<ColumnReorderArgs> OnReorder { get; set; }
+
+    private bool _open;
+    private string? _dragColumnId;
+    private string? _dragOverColumnId;
+
+    private void Toggle() => _open = !_open;
+
+    private async Task OnFocusOut(FocusEventArgs _)
+    {
+        await Task.Delay(150);
+        _open = false;
+    }
+
+    private async Task HandleDrop(string targetColumnId)
+    {
+        _dragOverColumnId = null;
+        var fromId = _dragColumnId;
+        _dragColumnId = null;
+
+        if (fromId is null || fromId == targetColumnId) return;
+
+        var ordered = Columns.Where(c => c.Hideable).ToList();
+        var toIndex = ordered.FindIndex(c => c.Id == targetColumnId);
+        if (toIndex >= 0)
+            await OnReorder.InvokeAsync(new ColumnReorderArgs(fromId, toIndex));
+    }
+
+    public record DataColumnInfo(string Id, string Title, bool Hideable);
+    public record ColumnReorderArgs(string ColumnId, int NewIndex);
+}

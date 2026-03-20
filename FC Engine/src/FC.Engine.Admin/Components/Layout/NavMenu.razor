@@ -1,130 +1,995 @@
 @using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Infrastructure.Services
+@using FC.Engine.Admin.Services
+@inject IEntitlementService EntitlementSvc
+@inject ITenantContext TenantContext
+@inject ITenantAccessContextResolver TenantAccessContextResolver
+@inject IPlatformRegulatorTenantResolver PlatformRegulatorTenantResolver
+@inject SidebarStateService SidebarState
+@inject NavigationManager Navigation
+@inject ToastService Toast
+@inject IJSRuntime JS
+@inject DataCacheService DataCache
+@implements IAsyncDisposable
 
 <AuthorizeView>
     <Authorized Context="navAuth">
-        <nav class="shell-nav" aria-label="Primary navigation">
 
-            <!-- DATA MANAGEMENT -->
-            <div class="nav-group">
-                <h3 class="nav-group-label">Data Management</h3>
-                <ul class="nav-group-items">
-                    <li>
-                        <NavLink href="/" Match="NavLinkMatch.All" class="nav-item">
-                            <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                <rect x="3" y="3" width="7" height="7"/>
-                                <rect x="14" y="3" width="7" height="7"/>
-                                <rect x="14" y="14" width="7" height="7"/>
-                                <rect x="3" y="14" width="7" height="7"/>
+        @* ── Search ─────────────────────────────────────────────────── *@
+        <div class="fc-nav__search-wrap @(SidebarState.IsCollapsed ? "fc-nav__search-wrap--collapsed" : "")">
+            @if (!SidebarState.IsCollapsed)
+            {
+                <div class="fc-nav__search">
+                    <svg class="fc-nav__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input class="fc-nav__search-input"
+                           type="search"
+                           placeholder="Search navigation…"
+                           aria-label="Search navigation"
+                           autocomplete="off"
+                           @bind="_searchQuery"
+                           @bind:event="oninput"
+                           @ref="_searchInputRef" />
+                    @if (!string.IsNullOrEmpty(_searchQuery))
+                    {
+                        <button class="fc-nav__search-clear" @onclick="ClearSearch" aria-label="Clear search" tabindex="-1">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="11" height="11" aria-hidden="true">
+                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                             </svg>
-                            <span class="nav-item-label">Dashboard</span>
-                        </NavLink>
-                    </li>
-                    <li>
-                        <NavLink href="/templates" class="nav-item">
-                            <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                                <polyline points="14 2 14 8 20 8"/>
-                                <line x1="16" y1="13" x2="8" y2="13"/>
-                                <line x1="16" y1="17" x2="8" y2="17"/>
-                                <polyline points="10 9 9 9 8 9"/>
-                            </svg>
-                            <span class="nav-item-label">Templates</span>
-                        </NavLink>
-                    </li>
-                    <li>
-                        <NavLink href="/formulas" class="nav-item">
-                            <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                <line x1="4" y1="9" x2="20" y2="9"/>
-                                <line x1="4" y1="15" x2="20" y2="15"/>
-                                <line x1="10" y1="3" x2="8" y2="21"/>
-                                <line x1="16" y1="3" x2="14" y2="21"/>
-                            </svg>
-                            <span class="nav-item-label">Formulas</span>
-                        </NavLink>
-                    </li>
-                </ul>
-            </div>
+                        </button>
+                    }
+                </div>
+            }
+            else
+            {
+                <button class="fc-nav__search-icon-btn" @onclick="ExpandAndFocusSearch" aria-label="Search navigation (expand sidebar)">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
+                        <circle cx="11" cy="11" r="8"/>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                </button>
+            }
+        </div>
 
-            <!-- ANALYTICS -->
-            <div class="nav-group">
-                <h3 class="nav-group-label">Analytics</h3>
-                <ul class="nav-group-items">
-                    <li>
-                        <NavLink href="/cross-sheet-rules" class="nav-item">
-                            <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
-                            </svg>
-                            <span class="nav-item-label">Cross-Sheet Rules</span>
-                        </NavLink>
-                    </li>
-                    <li>
-                        <NavLink href="/business-rules" class="nav-item">
-                            <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                            </svg>
-                            <span class="nav-item-label">Business Rules</span>
-                        </NavLink>
-                    </li>
-                    <li>
-                        <NavLink href="/submissions" class="nav-item">
-                            <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                                <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-                            </svg>
-                            <span class="nav-item-label">Submissions</span>
-                        </NavLink>
-                    </li>
-                </ul>
-            </div>
 
-            <!-- ADMINISTRATION -->
-            <AuthorizeView Roles="Admin,Approver">
-                <Authorized Context="adminGroupAuth">
-                    <div class="nav-group">
-                        <h3 class="nav-group-label">Administration</h3>
-                        <ul class="nav-group-items">
-                            <li>
-                                <NavLink href="/impact-analysis" class="nav-item">
-                                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                        <line x1="18" y1="20" x2="18" y2="10"/>
-                                        <line x1="12" y1="20" x2="12" y2="4"/>
-                                        <line x1="6" y1="20" x2="6" y2="14"/>
-                                    </svg>
-                                    <span class="nav-item-label">Impact Analysis</span>
-                                </NavLink>
-                            </li>
-                            <li>
-                                <NavLink href="/audit" class="nav-item">
-                                    <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                        <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
-                                        <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-                                        <line x1="8" y1="10" x2="16" y2="10"/>
-                                        <line x1="8" y1="14" x2="16" y2="14"/>
-                                        <line x1="8" y1="18" x2="12" y2="18"/>
-                                    </svg>
-                                    <span class="nav-item-label">Audit Log</span>
-                                </NavLink>
-                            </li>
-                            <AuthorizeView Roles="Admin">
-                                <Authorized Context="usersAuth">
-                                    <li>
-                                        <NavLink href="/users" class="nav-item">
-                                            <svg class="nav-item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-                                                <circle cx="9" cy="7" r="4"/>
-                                                <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-                                                <path d="M16 3.13a4 4 0 010 7.75"/>
-                                            </svg>
-                                            <span class="nav-item-label">Users</span>
-                                        </NavLink>
-                                    </li>
-                                </Authorized>
-                            </AuthorizeView>
+        <nav class="fc-nav" aria-label="Primary navigation">
+
+            @* ── Search results (flat, ungrouped) ────────────────────── *@
+            @if (!string.IsNullOrWhiteSpace(_searchQuery))
+            {
+                var results = GetSearchResults();
+                if (results.Count > 0)
+                {
+                    <div class="fc-nav__group">
+                        <h3 class="fc-nav__group-label">Results</h3>
+                        <ul class="fc-nav__group-items-inner">
+                            @foreach (var item in results)
+                            {
+                                @RenderNavItem(item, false)
+                            }
                         </ul>
                     </div>
-                </Authorized>
-            </AuthorizeView>
+                }
+                else
+                {
+                    <div class="fc-nav__empty-search">
+                        <span>No matches for "@_searchQuery"</span>
+                    </div>
+                }
+            }
+            else
+            {
+                @* ── Favorites ─────────────────────────────────────────── *@
+                @if (SidebarState.Favorites.Count > 0)
+                {
+                    <div class="fc-nav__group @(SidebarState.IsGroupCollapsed("favorites") ? "is-collapsed" : "")">
+                        <button class="fc-nav__group-header"
+                                @onclick='() => ToggleGroup("favorites")'
+                                aria-expanded="@(!SidebarState.IsGroupCollapsed("favorites"))"
+                                aria-label="Favorites section">
+                            <span class="fc-nav__group-header-inner">
+                                <svg class="fc-nav__group-header-icon" viewBox="0 0 24 24" fill="currentColor" stroke="none" width="11" height="11" aria-hidden="true">
+                                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+                                </svg>
+                                @if (!SidebarState.IsCollapsed)
+                                {
+                                    <span class="fc-nav__group-label-text">Favorites</span>
+                                }
+                            </span>
+                            @if (!SidebarState.IsCollapsed)
+                            {
+                                <svg class="fc-nav__group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                            }
+                        </button>
+                        <div class="fc-nav__group-items">
+                            <ul class="fc-nav__group-items-inner">
+                                @foreach (var fav in SidebarState.Favorites)
+                                {
+                                    @RenderNavItem(new NavItemModel(fav.Label, fav.Href, fav.IconPath, 0, false, [], "favorites"), true)
+                                }
+                            </ul>
+                        </div>
+                    </div>
+                }
+
+                @* ── Recent ────────────────────────────────────────────── *@
+                @if (SidebarState.RecentPages.Count > 0)
+                {
+                    <div class="fc-nav__group @(SidebarState.IsGroupCollapsed("recent") ? "is-collapsed" : "")">
+                        <button class="fc-nav__group-header"
+                                @onclick='() => ToggleGroup("recent")'
+                                aria-expanded="@(!SidebarState.IsGroupCollapsed("recent"))"
+                                aria-label="Recent pages section">
+                            <span class="fc-nav__group-header-inner">
+                                <svg class="fc-nav__group-header-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                                @if (!SidebarState.IsCollapsed)
+                                {
+                                    <span class="fc-nav__group-label-text">Recent</span>
+                                }
+                            </span>
+                            @if (!SidebarState.IsCollapsed)
+                            {
+                                <svg class="fc-nav__group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                            }
+                        </button>
+                        <div class="fc-nav__group-items">
+                            <ul class="fc-nav__group-items-inner">
+                                @foreach (var recent in SidebarState.RecentPages)
+                                {
+                                    @RenderNavItem(new NavItemModel(recent.Label, recent.Href, recent.IconPath, 0, false, [], "recent"), false)
+                                }
+                            </ul>
+                        </div>
+                    </div>
+                }
+
+                @* ── Regular groups ────────────────────────────────────── *@
+                @foreach (var group in GetVisibleGroups())
+                {
+                    <div class="fc-nav__group @(SidebarState.IsGroupCollapsed(group.Id) ? "is-collapsed" : "")">
+                        <button class="fc-nav__group-header"
+                                @onclick="() => ToggleGroup(group.Id)"
+                                aria-expanded="@(!SidebarState.IsGroupCollapsed(group.Id))"
+                                aria-label="@group.Label section">
+                            <span class="fc-nav__group-header-inner">
+                                @if (!SidebarState.IsCollapsed)
+                                {
+                                    <span class="fc-nav__group-label-text">@group.Label</span>
+                                }
+                            </span>
+                            @if (!SidebarState.IsCollapsed)
+                            {
+                                <svg class="fc-nav__group-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                            }
+                        </button>
+                        <div class="fc-nav__group-items">
+                            <ul class="fc-nav__group-items-inner">
+                                @foreach (var item in group.Items)
+                                {
+                                    @RenderNavItem(item, false)
+                                }
+                            </ul>
+                        </div>
+                    </div>
+                }
+            }
 
         </nav>
+
+        @* ── Context menu (single shared instance) ───────────────────── *@
+        <NavContextMenu @ref="_contextMenu" OnFavoriteToggled="HandleContextAction" />
+
     </Authorized>
 </AuthorizeView>
+
+@* ── Nav item render helper ─────────────────────────────────────────── *@
+@code {
+
+    private RenderFragment RenderNavItem(NavItemModel item, bool alwaysActive) =>
+        @<li @key="item.Href">
+            @if (item.IsLocked)
+            {
+                <div class="fc-nav__item fc-nav__item--locked"
+                     @onmouseenter="() => ShowTooltip(item)"
+                     @onmouseleave="HideTooltip"
+                     title="@(SidebarState.IsCollapsed ? item.Label : null)"
+                     aria-label="@item.Label — module not active">
+                    <svg class="fc-nav__item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                        @((MarkupString)item.IconPath)
+                    </svg>
+                    @if (!SidebarState.IsCollapsed)
+                    {
+                        <span class="fc-nav__item-label">@item.Label</span>
+                        <svg class="fc-nav__lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-label="Module not active">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                            <path d="M7 11V7a5 5 0 0110 0v4"/>
+                        </svg>
+                    }
+                </div>
+            }
+            else
+            {
+                <NavLink href="@item.Href"
+                         Match="@(item.Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)"
+                         class="fc-nav__item"
+                         @oncontextmenu="(e) => OnRightClick(e, item)"
+                         @onmouseenter="() => OnNavItemHover(item)"
+                         @onmouseleave="HideTooltip"
+                         aria-label="@item.Label">
+                    <svg class="fc-nav__item-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                        @((MarkupString)item.IconPath)
+                    </svg>
+                    @if (!SidebarState.IsCollapsed)
+                    {
+                        <span class="fc-nav__item-label">@item.Label</span>
+                        @if (item.BadgeCount > 0)
+                        {
+                            <span class="fc-nav__badge" aria-label="@item.BadgeCount pending">
+                                @(item.BadgeCount > 99 ? "99+" : item.BadgeCount.ToString())
+                            </span>
+                        }
+                    }
+                    else if (item.BadgeCount > 0)
+                    {
+                        <span class="fc-nav__badge fc-nav__badge--dot" aria-label="@item.BadgeCount pending"></span>
+                    }
+                </NavLink>
+            }
+        </li>;
+
+}
+
+@code {
+    // ── Injected refs ────────────────────────────────────────────────
+    private NavContextMenu? _contextMenu;
+    private ElementReference _searchInputRef;
+    private DotNetObjectReference<NavMenu>? _dotNetRef;
+
+    // ── State ────────────────────────────────────────────────────────
+    private bool _isPlatformAdmin;
+    private bool _hasRegulatorPortalAccess;
+    private HashSet<string> _activeModules = new(StringComparer.OrdinalIgnoreCase);
+    private string _searchQuery = string.Empty;
+
+    // ── Lifecycle ────────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        _isPlatformAdmin = TenantContext.IsPlatformAdmin;
+        await ResolveRegulatorPortalAccessAsync();
+
+        if (!_isPlatformAdmin && TenantContext.CurrentTenantId is { } tenantId)
+        {
+            try
+            {
+                var entitlement = await EntitlementSvc.ResolveEntitlements(tenantId);
+                _activeModules = entitlement.ActiveModules
+                    .Select(m => m.ModuleCode)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                _activeModules = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        SidebarState.OnStateChanged += OnSidebarStateChanged;
+        Navigation.LocationChanged  += OnLocationChanged;
+    }
+
+    private async Task ResolveRegulatorPortalAccessAsync()
+    {
+        _hasRegulatorPortalAccess = false;
+
+        if (TenantContext.CurrentTenantId.HasValue)
+        {
+            try
+            {
+                var accessContext = await TenantAccessContextResolver.TryResolveAsync(TenantContext.CurrentTenantId.Value);
+                _hasRegulatorPortalAccess = accessContext?.TenantType == TenantType.Regulator;
+            }
+            catch
+            {
+                _hasRegulatorPortalAccess = false;
+            }
+        }
+
+        if (_hasRegulatorPortalAccess || !_isPlatformAdmin)
+        {
+            return;
+        }
+
+        try
+        {
+            _hasRegulatorPortalAccess = await PlatformRegulatorTenantResolver.TryResolveAsync() is not null;
+        }
+        catch
+        {
+            _hasRegulatorPortalAccess = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await SidebarState.InitializeAsync();
+            _dotNetRef = DotNetObjectReference.Create(this);
+            StateHasChanged();
+        }
+    }
+
+    private void OnSidebarStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _ = InvokeAsync(async () =>
+        {
+            // Track the visited page in the Recent section
+            var item = FindNavItemByHref(e.Location);
+            if (item != null)
+            {
+                await SidebarState.AddRecentPageAsync(
+                    new SidebarNavItem(item.Label, item.Href, item.IconPath));
+            }
+        });
+    }
+
+    // ── Navigation model ─────────────────────────────────────────────
+
+    private NavItemModel? FindNavItemByHref(string uri)
+    {
+        var path = "/" + new Uri(uri).AbsolutePath.TrimStart('/');
+        foreach (var group in GetVisibleGroups())
+        {
+            var match = group.Items.FirstOrDefault(i =>
+                string.Equals(i.Href, path, StringComparison.OrdinalIgnoreCase));
+            if (match != null) return match;
+        }
+        return null;
+    }
+
+    private bool HasModules() => _isPlatformAdmin || _activeModules.Count > 0;
+
+    private bool IsModuleActive(string moduleCode) =>
+        _isPlatformAdmin || _activeModules.Contains(moduleCode);
+
+    private List<NavGroup> GetVisibleGroups()
+    {
+        var groups = new List<NavGroup>();
+
+        // ── Data Management ──────────────────────────────────────────
+        groups.Add(new NavGroup("data", "Data Management", new List<NavItemModel>
+        {
+            new("Dashboard", "/",
+                """<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>""",
+                0, false,
+                [], "data"),
+
+            new("Templates", "/templates",
+                """<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>""",
+                0, !HasModules(),
+                [
+                    new("Create New Template",
+                        """<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>""",
+                        "/templates/create"),
+                    new("Import Template",
+                        """<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>""",
+                        "/templates/import")
+                ],
+                "data"),
+
+            new("Formulas", "/formulas",
+                """<line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/>""",
+                0, !HasModules(), [], "data"),
+        }));
+
+        // ── Analytics ────────────────────────────────────────────────
+        groups.Add(new NavGroup("analytics", "Analytics", new List<NavItemModel>
+        {
+            new("Cross-Sheet Rules", "/cross-sheet-rules",
+                """<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>""",
+                0, !HasModules(), [], "analytics"),
+
+            new("Business Rules", "/business-rules",
+                """<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>""",
+                0, !HasModules(), [], "analytics"),
+
+            new("Submissions", "/submissions",
+                """<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>""",
+                0, !HasModules(), [], "analytics"),
+
+            new("Submission Kanban", "/submissions/kanban",
+                """<rect x="2" y="3" width="6" height="18" rx="1"/><rect x="9" y="3" width="6" height="12" rx="1"/><rect x="16" y="3" width="6" height="15" rx="1"/>""",
+                0, !HasModules(), [], "analytics"),
+
+            new("Direct Submissions", "/submissions/direct",
+                """<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>""",
+                0, !HasModules(), [], "analytics"),
+
+            new("In-Progress Drafts", "/submissions/drafts",
+                """<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>""",
+                0, !HasModules(), [], "analytics"),
+        }));
+
+        // ── Administration (role-gated rendered separately via AuthorizeView in the group) ──
+        // We include all items and rely on role-based rendering in the view;
+        // for simplicity the razor below uses AuthorizeView per section.
+        // Here we only push the always-visible admin items:
+        groups.Add(new NavGroup("admin", "Administration", new List<NavItemModel>
+        {
+            new("Impact Analysis", "/impact-analysis",
+                """<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>""",
+                0, false, [], "admin"),
+
+            new("Audit Log", "/audit",
+                """<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><line x1="8" y1="10" x2="16" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="12" y2="18"/>""",
+                0, false, [], "admin"),
+
+            new("Theme & Branding", "/settings/theme",
+                """<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>""",
+                0, false, [], "admin"),
+
+            new("DPO Dashboard", "/privacy/dpo",
+                """<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/>""",
+                0, false, [], "admin"),
+
+            new("Users", "/users",
+                """<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>""",
+                0, false,
+                [
+                    new("Invite User",
+                        """<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 11h-6"/><path d="M20 8v6"/>""",
+                        "/users/invite")
+                ],
+                "admin"),
+        }));
+
+        // ── Regulatory Sandbox ────────────────────────────────────────
+        groups.Add(new NavGroup("scenarios", "Regulatory Sandbox", new List<NavItemModel>
+        {
+            new("Scenario Hub", "/scenarios",
+                """<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>""",
+                0, false, [], "scenarios"),
+
+            new("Build Scenario", "/scenarios/build",
+                """<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>""",
+                0, false, [], "scenarios"),
+
+            new("Compare Scenarios", "/scenarios/compare",
+                """<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>""",
+                0, false, [], "scenarios"),
+
+            new("Macro-Prudential", "/scenarios/macro",
+                """<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>""",
+                0, false, [], "scenarios"),
+        }));
+
+        // ── Regulator front door ─────────────────────────────────────
+        if (_hasRegulatorPortalAccess)
+        {
+            groups.Add(new NavGroup("regulator", "Regulator", new List<NavItemModel>
+            {
+                new("Regulator Dashboard", "/regulator",
+                    """<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>""",
+                    0, false, [], "regulator"),
+
+                new("Submissions Inbox", "/regulator/inbox",
+                    """<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>""",
+                    0, false, [], "regulator"),
+
+                new("Examination Workspace", "/regulator/workspace",
+                    """<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>""",
+                    0, false, [], "regulator"),
+
+                new("Governor Dashboard", "/regulator/dashboards/governor",
+                    """<rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/>""",
+                    0, false, [], "regulator"),
+
+                new("Executive Dashboard", "/regulator/dashboards/executive",
+                    """<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>""",
+                    0, false, [], "regulator"),
+
+                new("Examiner Dashboard", "/regulator/dashboards/examiner",
+                    """<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>""",
+                    0, false, [], "regulator"),
+
+                new("Deputy Governor", "/regulator/dashboards/deputy",
+                    """<path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>""",
+                    0, false, [], "regulator"),
+            }));
+
+            groups.Add(new NavGroup("risk-intelligence", "Risk Intelligence", new List<NavItemModel>
+            {
+                new("Early Warnings", "/regulator/warnings",
+                    """<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Sector Analytics", "/regulator/analytics",
+                    """<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Anomaly Intelligence", "/regulator/anomalies",
+                    """<path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V7l8-4z"/><path d="M12 8v5"/><circle cx="12" cy="16" r="1"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("ComplianceIQ", "/regulator/complianceiq",
+                    """<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8"/><path d="M8 13h5"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("RegulatorIQ", "/regulator/regulatoriq",
+                    """<path d="M4 5a2 2 0 0 1 2-2h8l6 6v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3v6h6"/><path d="M8 13h8"/><path d="M8 17h5"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Systemic Risk", "/regulator/systemic-risk",
+                    """<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Compliance Health", "/regulator/sector-health",
+                    """<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Risk Heatmap", "/regulator/heatmap",
+                    """<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Contagion Network", "/regulator/contagion",
+                    """<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Stress Testing", "/regulator/stress-test",
+                    """<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Intelligence Workspace", "/platform/intelligence",
+                    """<circle cx="7" cy="7" r="3"/><circle cx="17" cy="7" r="3"/><circle cx="12" cy="17" r="3"/><path d="M9.5 9.5l1.8 4"/><path d="M14.5 9.5l-1.8 4"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("ForeSight", "/platform/foresight",
+                    """<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>""",
+                    0, false,
+                    [
+                        new("Regulatory Ranking",
+                            """<line x1="18" y1="20" x2="18" y2="8"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="12"/>""",
+                            "/platform/foresight/regulatory-ranking"),
+                        new("Churn Risk",
+                            """<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/>""",
+                            "/platform/foresight/churn-risk")
+                    ],
+                    "risk-intelligence"),
+
+                new("Platform Systemic Risk", "/platform/systemic-risk",
+                    """<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Platform Compliance Health", "/platform/compliance-health",
+                    """<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>""",
+                    0, false, [], "risk-intelligence"),
+
+                new("Module Analytics", "/platform/module-analytics",
+                    """<rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/>""",
+                    0, false, [], "risk-intelligence"),
+            }));
+
+            groups.Add(new NavGroup("policy-standards", "Policy & Standards", new List<NavItemModel>
+            {
+                new("Policy Simulation", "/regulator/policies",
+                    """<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>""",
+                    0, false,
+                    [
+                        new("New Scenario",
+                            """<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>""",
+                            "/regulator/policies/new")
+                    ],
+                    "policy-standards"),
+
+                new("Policy Comparison", "/regulator/policies/compare",
+                    """<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Policy Presets", "/regulator/policies/presets",
+                    """<path d="M4 14a1 1 0 01-.78-1.63l9.9-10.2a.5.5 0 01.86.46l-1.92 6.02A1 1 0 0013 10h7a1 1 0 01.78 1.63l-9.9 10.2a.5.5 0 01-.86-.46l1.92-6.02A1 1 0 0011 14H4z"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Compliance Navigator", "/regulator/compliance/navigator",
+                    """<circle cx="12" cy="12" r="10"/><path d="M16.24 7.76l-2.12 6.36-6.36 2.12 2.12-6.36 6.36-2.12z"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Obligation Register", "/regulator/compliance/obligations",
+                    """<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Impact Propagation", "/regulator/compliance/impact",
+                    """<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Model Governance", "/regulator/models",
+                    """<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Model Inventory", "/regulator/models/inventory",
+                    """<rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Validation Framework", "/regulator/models/validation",
+                    """<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Performance Monitoring", "/regulator/models/performance",
+                    """<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Model Reporting", "/regulator/models/reporting",
+                    """<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>""",
+                    0, false, [], "policy-standards"),
+
+                new("Change Management", "/regulator/models/changes",
+                    """<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/>""",
+                    0, false, [], "policy-standards"),
+            }));
+
+            groups.Add(new NavGroup("cross-border", "Cross-Border", new List<NavItemModel>
+            {
+                new("Cross-Border Dashboard", "/regulator/cross-border",
+                    """<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>""",
+                    0, false,
+                    [
+                        new("New Mapping",
+                            """<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>""",
+                            "/regulator/cross-border/mappings/new"),
+                        new("New Data Flow",
+                            """<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>""",
+                            "/regulator/cross-border/dataflows/new")
+                    ],
+                    "cross-border"),
+
+                new("Equivalence Mappings", "/regulator/cross-border/mappings",
+                    """<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>""",
+                    0, false, [], "cross-border"),
+
+                new("Consolidation", "/regulator/cross-border/consolidation",
+                    """<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3H8l-2 4h12l-2-4z"/>""",
+                    0, false, [], "cross-border"),
+
+                new("Data Flows", "/regulator/cross-border/dataflows",
+                    """<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>""",
+                    0, false, [], "cross-border"),
+
+                new("Divergence Alerts", "/regulator/cross-border/divergences",
+                    """<path d="M18 6L6 18"/><path d="M6 6l12 12"/>""",
+                    0, false, [], "cross-border"),
+
+                new("FX Rates", "/regulator/cross-border/fx-rates",
+                    """<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>""",
+                    0, false, [], "cross-border"),
+
+                new("Deadline Calendar", "/regulator/cross-border/deadlines",
+                    """<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>""",
+                    0, false, [], "cross-border"),
+
+                new("AfCFTA Tracker", "/regulator/cross-border/afcfta",
+                    """<circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/><line x1="2" y1="12" x2="22" y2="12"/>""",
+                    0, false, [], "cross-border"),
+            }));
+
+            groups.Add(new NavGroup("integrity-resilience", "Integrity & Resilience", new List<NavItemModel>
+            {
+                new("Conduct Surveillance", "/regulator/surveillance",
+                    """<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Sanctions & AML", "/regulator/sanctions",
+                    """<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Sanctions Screening", "/regulator/sanctions/screening",
+                    """<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Alert Management", "/regulator/sanctions/alerts",
+                    """<path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Watchlist Management", "/regulator/sanctions/watchlists",
+                    """<path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("False Positive Library", "/regulator/sanctions/false-positives",
+                    """<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Whistleblower Cases", "/regulator/whistleblower/cases",
+                    """<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Operational Resilience", "/regulator/resilience",
+                    """<path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Business Services", "/regulator/resilience/services",
+                    """<rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Incident Management", "/regulator/resilience/incidents",
+                    """<path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Impact Tolerances", "/regulator/resilience/tolerances",
+                    """<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Board Oversight", "/regulator/resilience/board",
+                    """<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Testing Schedule", "/regulator/resilience/testing",
+                    """<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>""",
+                    0, false, [], "integrity-resilience"),
+
+                new("Third-Party Risk", "/regulator/resilience/third-party",
+                    """<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 012 2v7"/><path d="M11 18H8a2 2 0 01-2-2V9"/>""",
+                    0, false, [], "integrity-resilience"),
+            }));
+        }
+        else if (_isPlatformAdmin)
+        {
+            groups.Add(new NavGroup("regulator", "Regulator", new List<NavItemModel>
+            {
+                new("Impersonate Regulator Tenant", "/platform/tenants",
+                    """<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>""",
+                    0, false, [], "regulator")
+            }));
+        }
+
+        // ── Platform control plane ───────────────────────────────────
+        if (_isPlatformAdmin)
+        {
+            groups.Add(new NavGroup("platform", "Platform", new List<NavItemModel>
+            {
+                new("Platform Dashboard", "/dashboard/platform",
+                    """<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>""",
+                    0, false, [], "platform"),
+
+                new("Tenant List", "/platform/tenants",
+                    """<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>""",
+                    0, false,
+                    [
+                        new("Setup New Tenant",
+                            """<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>""",
+                            "/platform/tenant-setup")
+                    ],
+                    "platform"),
+
+                new("Partner Onboarding", "/platform/partners/onboard",
+                    """<path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 11h-6"/><path d="M20 8v6"/>""",
+                    0, false, [], "platform"),
+
+                new("Template Console", "/platform/templates",
+                    """<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>""",
+                    0, false, [], "platform"),
+
+                new("ComplianceIQ Templates", "/platform/complianceiq/templates",
+                    """<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 9h8"/><path d="M8 13h5"/>""",
+                    0, false, [], "platform"),
+
+                new("Platform Health", "/platform/health",
+                    """<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>""",
+                    0, false, [], "platform"),
+
+                new("Feature Flags", "/platform/feature-flags",
+                    """<path d="M6 3v18"/><path d="M6 4h10l-2 4 2 4H6"/>""",
+                    0, false, [], "platform"),
+
+                new("Regulatory Calendar", "/platform/regulatory-calendar",
+                    """<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>""",
+                    0, false, [], "platform"),
+
+                new("Module Registry", "/modules",
+                    """<rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/>""",
+                    0, false,
+                    [
+                        new("Import Module",
+                            """<path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>""",
+                            "/modules/import")
+                    ],
+                    "platform"),
+
+                new("Jurisdictions", "/jurisdictions",
+                    """<circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>""",
+                    0, false, [], "platform"),
+
+                new("Licence Types", "/licence-types",
+                    """<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>""",
+                    0, false, [], "platform"),
+            }));
+
+            groups.Add(new NavGroup("commercial-capital", "Commercial & Capital", new List<NavItemModel>
+            {
+                new("Billing Ops", "/platform/billing-ops",
+                    """<rect x="2" y="6" width="20" height="12" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("Billing Plans", "/billing/plans",
+                    """<rect x="2" y="6" width="20" height="12" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("Subscriptions", "/billing/subscriptions",
+                    """<path d="M16 3h5v5"/><path d="M4 20L21 3"/><path d="M21 16v5h-5"/><path d="M15 21L3 9"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("Invoices", "/billing/invoices",
+                    """<path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("Revenue", "/billing/revenue",
+                    """<line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("Capital Management", "/platform/capital",
+                    """<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("Capital Planning", "/platform/capital/planning",
+                    """<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("RWA Optimisation", "/platform/capital/rwa",
+                    """<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("Buffer Management", "/platform/capital/buffers",
+                    """<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("Capital Stack Optimiser", "/platform/capital/stack",
+                    """<rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3H8l-2 4h12l-2-4z"/>""",
+                    0, false, [], "commercial-capital"),
+
+                new("What-If Actions", "/platform/capital/actions",
+                    """<path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>""",
+                    0, false, [], "commercial-capital"),
+            }));
+        }
+
+        return groups;
+    }
+
+    // ── Search ───────────────────────────────────────────────────────
+
+    private List<NavItemModel> GetSearchResults()
+    {
+        if (string.IsNullOrWhiteSpace(_searchQuery)) return [];
+        var q = _searchQuery.Trim();
+        return GetVisibleGroups()
+            .SelectMany(g => g.Items)
+            .Where(i => i.Label.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                        i.Href.Contains(q, StringComparison.OrdinalIgnoreCase))
+            .Take(10)
+            .ToList();
+    }
+
+    private void ClearSearch() => _searchQuery = string.Empty;
+
+    private async Task ExpandAndFocusSearch()
+    {
+        await SidebarState.SetCollapsedAsync(false);
+        await Task.Yield();
+        await JS.InvokeVoidAsync("FCSidebar.focusNavSearch");
+    }
+
+    // ── Group accordion ──────────────────────────────────────────────
+
+    private Task ToggleGroup(string groupId) => SidebarState.ToggleGroupAsync(groupId);
+
+    // ── Context menu ─────────────────────────────────────────────────
+
+    private async Task OnRightClick(MouseEventArgs e, NavItemModel item)
+    {
+        if (_contextMenu == null) return;
+        var ctxItem = new NavContextMenu.NavContextItem(item.Label, item.Href, item.IconPath, item.QuickActions);
+        await _contextMenu.ShowAsync(e.ClientX, e.ClientY, ctxItem,
+            SidebarState.IsFavorite(item.Href));
+    }
+
+    private async Task HandleContextAction(string href)
+    {
+        if (href.StartsWith("__action__"))
+        {
+            var target = href["__action__".Length..];
+            Navigation.NavigateTo(target);
+            return;
+        }
+
+        // Toggle favorite
+        var item = FindNavItemByHref(href) ??
+                   GetVisibleGroups().SelectMany(g => g.Items)
+                       .FirstOrDefault(i => i.Href == href);
+
+        if (item != null)
+        {
+            await SidebarState.ToggleFavoriteAsync(
+                new SidebarNavItem(item.Label, item.Href, item.IconPath));
+            var pinned = SidebarState.IsFavorite(item.Href);
+            if (pinned)
+                Toast.Success($"\u201c{item.Label}\u201d pinned to Favorites");
+            else
+                Toast.Info($"\u201c{item.Label}\u201d unpinned");
+        }
+    }
+
+    // ── Tooltip (collapsed mode) ──────────────────────────────────────
+
+    private void OnNavItemHover(NavItemModel item)
+    {
+        ShowTooltip(item);
+        PrefetchRoute(item.Href);
+    }
+
+    private void ShowTooltip(NavItemModel item)
+    {
+        // tooltip is positioned by CSS :after in collapsed mode; JS as fallback
+    }
+
+    private Task HideTooltip() => Task.CompletedTask;
+
+    // ── Hover prefetch ────────────────────────────────────────────────
+
+    private CancellationTokenSource? _prefetchCts;
+
+    private async void PrefetchRoute(string route)
+    {
+        _prefetchCts?.Cancel();
+        _prefetchCts = new CancellationTokenSource();
+        try
+        {
+            await Task.Delay(250, _prefetchCts.Token);
+            await DataCache.PrefetchAsync(route);
+        }
+        catch (TaskCanceledException) { }
+    }
+
+    // ── Dispose ──────────────────────────────────────────────────────
+
+    public ValueTask DisposeAsync()
+    {
+        SidebarState.OnStateChanged -= OnSidebarStateChanged;
+        Navigation.LocationChanged  -= OnLocationChanged;
+        _dotNetRef?.Dispose();
+        _prefetchCts?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}
+
+@* ── Nav data models ───────────────────────────────────────────────── *@
+@code {
+    private sealed record NavGroup(
+        string Id,
+        string Label,
+        List<NavItemModel> Items);
+
+    private sealed record NavItemModel(
+        string Label,
+        string Href,
+        string IconPath,
+        int BadgeCount,
+        bool IsLocked,
+        List<NavContextMenu.NavQuickAction> QuickActions,
+        string GroupId);
+}

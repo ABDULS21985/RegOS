@@ -25,8 +25,14 @@ public class ReturnTemplateConfiguration : IEntityTypeConfiguration<ReturnTempla
         builder.Property(t => t.CreatedBy).HasMaxLength(100).IsRequired();
         builder.Property(t => t.UpdatedBy).HasMaxLength(100).IsRequired();
 
-        builder.HasIndex(t => t.ReturnCode).IsUnique();
+        builder.HasIndex(t => new { t.ReturnCode, t.TenantId }).IsUnique();
         builder.HasIndex(t => t.PhysicalTableName).IsUnique();
+        builder.HasIndex(t => t.TenantId);
+
+        builder.HasOne(t => t.Module)
+            .WithMany(m => m.Templates)
+            .HasForeignKey(t => t.ModuleId)
+            .OnDelete(DeleteBehavior.Restrict);
 
         builder.HasMany(t => t.Versions)
             .WithOne()
@@ -40,6 +46,7 @@ public class TemplateVersionConfiguration : IEntityTypeConfiguration<TemplateVer
     {
         builder.ToTable("template_versions", "meta");
         builder.HasKey(v => v.Id);
+        builder.Property(v => v.TenantId);
         builder.Property(v => v.Status).HasMaxLength(20).IsRequired()
             .HasConversion<string>();
         builder.Property(v => v.ChangeSummary).HasMaxLength(1000);
@@ -47,6 +54,7 @@ public class TemplateVersionConfiguration : IEntityTypeConfiguration<TemplateVer
         builder.Property(v => v.CreatedBy).HasMaxLength(100).IsRequired();
 
         builder.HasIndex(v => new { v.TemplateId, v.VersionNumber }).IsUnique();
+        builder.HasIndex(v => v.TenantId);
 
         builder.HasMany(v => v.Fields)
             .WithOne()
@@ -59,6 +67,10 @@ public class TemplateVersionConfiguration : IEntityTypeConfiguration<TemplateVer
         builder.HasMany(v => v.IntraSheetFormulas)
             .WithOne()
             .HasForeignKey(f => f.TemplateVersionId);
+
+        builder.HasMany(v => v.Sections)
+            .WithOne()
+            .HasForeignKey(s => s.TemplateVersionId);
     }
 }
 
@@ -82,6 +94,13 @@ public class TemplateFieldConfiguration : IEntityTypeConfiguration<TemplateField
         builder.Property(f => f.ReferenceTable).HasMaxLength(128);
         builder.Property(f => f.ReferenceColumn).HasMaxLength(128);
         builder.Property(f => f.HelpText).HasMaxLength(500);
+        builder.Property(f => f.ValidationNote).HasMaxLength(500);
+        builder.Property(f => f.RegulatoryReference).HasMaxLength(300);
+        builder.Property(f => f.DataClassification)
+            .HasMaxLength(30)
+            .HasConversion<string>()
+            .HasDefaultValue(FC.Engine.Domain.Enums.DataClassification.Internal)
+            .HasSentinel((FC.Engine.Domain.Enums.DataClassification)(-1));
 
         builder.HasIndex(f => new { f.TemplateVersionId, f.FieldName }).IsUnique();
     }
@@ -106,9 +125,11 @@ public class TemplateSectionConfiguration : IEntityTypeConfiguration<TemplateSec
     {
         builder.ToTable("template_sections", "meta");
         builder.HasKey(s => s.Id);
+        builder.Property(s => s.SectionCode).HasMaxLength(100).IsRequired();
         builder.Property(s => s.SectionName).HasMaxLength(100).IsRequired();
         builder.Property(s => s.Description).HasMaxLength(500);
 
-        builder.HasIndex(s => new { s.TemplateVersionId, s.SectionName }).IsUnique();
+        // SectionCode is the semantic key referenced by TemplateField.SectionName for grouping.
+        builder.HasIndex(s => new { s.TemplateVersionId, s.SectionCode }).IsUnique();
     }
 }

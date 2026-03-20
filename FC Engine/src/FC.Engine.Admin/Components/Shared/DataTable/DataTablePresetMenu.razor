@@ -1,0 +1,189 @@
+@* DataTablePresetMenu — Preset views dropdown with density picker, save-as, and reset. *@
+
+<div class="fc-dt-preset-menu" @onfocusout="OnFocusOut">
+    <button class="fc-btn fc-btn--outline fc-btn--sm fc-dt-preset-btn"
+            type="button"
+            @onclick="Toggle"
+            aria-haspopup="true"
+            aria-expanded="@_open"
+            aria-label="Table view presets"
+            title="Views &amp; Presets">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
+        </svg>
+        @(_activePresetLabel ?? "Views")
+        @if (HasCustomization && ActivePresetId is null)
+        {
+            <span class="fc-dt-active-dot" aria-label="Custom view active"></span>
+        }
+    </button>
+
+    @if (_open)
+    {
+        <div class="fc-dt-preset-dropdown" role="dialog" aria-label="View presets">
+
+            @* ── Density ── *@
+            <div class="fc-dt-preset-section">
+                <div class="fc-dt-preset-section-label">Row density</div>
+                <div class="fc-dt-density-group" role="group" aria-label="Row density">
+                    @foreach (var (val, label) in _densityOptions)
+                    {
+                        var v = val;
+                        <button class="fc-dt-density-btn @(Density == v ? "fc-dt-density-btn--active" : "")"
+                                type="button"
+                                aria-pressed="@(Density == v)"
+                                @onclick="() => ChangeDensity(v)">
+                            @label
+                        </button>
+                    }
+                </div>
+            </div>
+
+            <div class="fc-dt-preset-divider"></div>
+
+            @* ── Presets list ── *@
+            <div class="fc-dt-preset-section">
+                <div class="fc-dt-preset-section-label">Saved views</div>
+                @foreach (var preset in AllPresets)
+                {
+                    var p = preset;
+                    <div class="fc-dt-preset-item @(ActivePresetId == p.Id ? "fc-dt-preset-item--active" : "")">
+                        <label class="fc-dt-preset-item-label">
+                            <input type="radio"
+                                   name="@_radioGroup"
+                                   checked="@(ActivePresetId == p.Id)"
+                                   @onchange="() => ApplyPreset(p)" />
+                            <span>@p.Name</span>
+                        </label>
+                        @if (p.IsShared)
+                        {
+                            <span class="fc-dt-preset-badge fc-dt-preset-badge--shared">Shared</span>
+                        }
+                        @if (!p.IsDefault && !p.IsShared)
+                        {
+                            <button class="fc-dt-preset-delete-btn"
+                                    type="button"
+                                    aria-label="Delete preset @p.Name"
+                                    @onclick:stopPropagation="true"
+                                    @onclick="() => DeletePreset(p.Id)">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
+                                     stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                                    <line x1="18" y1="6" x2="6" y2="18"/>
+                                    <line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="fc-dt-preset-divider"></div>
+
+            @* ── Save current ── *@
+            <div class="fc-dt-preset-section">
+                <div class="fc-dt-preset-section-label">Save current as preset</div>
+                <div class="fc-dt-preset-save-row">
+                    <input class="fc-dt-preset-name-input"
+                           type="text"
+                           placeholder="Preset name…"
+                           maxlength="40"
+                           @bind="_newPresetName"
+                           @bind:event="oninput"
+                           @onkeydown="OnSaveKeyDown" />
+                    <button class="fc-btn fc-btn--primary fc-btn--sm"
+                            type="button"
+                            disabled="@string.IsNullOrWhiteSpace(_newPresetName)"
+                            @onclick="SaveCurrentPreset">
+                        Save
+                    </button>
+                </div>
+            </div>
+
+            @* ── Reset ── *@
+            <button class="fc-dt-preset-reset-btn" type="button" @onclick="Reset">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round" width="13" height="13" aria-hidden="true">
+                    <polyline points="1 4 1 10 7 10"/>
+                    <path d="M3.51 15a9 9 0 1 0 .49-4.49"/>
+                </svg>
+                Reset to default
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<TablePreset> AllPresets { get; set; } = Array.Empty<TablePreset>();
+    [Parameter] public string? ActivePresetId { get; set; }
+    [Parameter] public bool HasCustomization { get; set; }
+    [Parameter] public string Density { get; set; } = "default";
+    [Parameter] public EventCallback<TablePreset> OnApplyPreset { get; set; }
+    [Parameter] public EventCallback<string> OnSavePreset { get; set; }
+    [Parameter] public EventCallback<string> OnDeletePreset { get; set; }
+    [Parameter] public EventCallback OnReset { get; set; }
+    [Parameter] public EventCallback<string> OnDensityChange { get; set; }
+
+    private bool _open;
+    private string _newPresetName = "";
+    private readonly string _radioGroup = $"dt-preset-{Guid.NewGuid():N}"[..16];
+
+    private static readonly (string val, string label)[] _densityOptions =
+    [
+        ("comfortable", "Comfortable"),
+        ("default", "Default"),
+        ("compact", "Compact")
+    ];
+
+    private string? _activePresetLabel =>
+        AllPresets.FirstOrDefault(p => p.Id == ActivePresetId)?.Name;
+
+    private void Toggle() => _open = !_open;
+
+    private async Task OnFocusOut(FocusEventArgs _)
+    {
+        await Task.Delay(150);
+        _open = false;
+    }
+
+    private async Task ApplyPreset(TablePreset preset)
+    {
+        await OnApplyPreset.InvokeAsync(preset);
+        _open = false;
+    }
+
+    private async Task ChangeDensity(string density)
+    {
+        await OnDensityChange.InvokeAsync(density);
+    }
+
+    private async Task SaveCurrentPreset()
+    {
+        var name = _newPresetName.Trim();
+        if (string.IsNullOrEmpty(name)) return;
+        await OnSavePreset.InvokeAsync(name);
+        _newPresetName = "";
+        _open = false;
+    }
+
+    private async Task OnSaveKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await SaveCurrentPreset();
+    }
+
+    private async Task DeletePreset(string presetId)
+    {
+        await OnDeletePreset.InvokeAsync(presetId);
+    }
+
+    private async Task Reset()
+    {
+        await OnReset.InvokeAsync();
+        _open = false;
+    }
+}

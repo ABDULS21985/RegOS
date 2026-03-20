@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:ndic="urn:ndic:reporting:v1"
+           targetNamespace="urn:ndic:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+  <xs:element name="NDICReturn" type="ndic:NDICReturnType"/>
+  <xs:complexType name="NDICReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="ndic:HeaderType"/>
+      <xs:element name="DepositLiabilities" type="ndic:DepositLiabilitiesType" minOccurs="0"/>
+      <xs:element name="PremiumAssessment" type="ndic:PremiumAssessmentType" minOccurs="0"/>
+      <xs:element name="FinancialCondition" type="ndic:FinancialConditionType" minOccurs="0"/>
+      <xs:element name="Signature" type="ndic:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="InstitutionName" type="xs:string"/>
+      <xs:element name="InstitutionType" type="ndic:InstitutionTypeEnum"/>
+      <xs:element name="CBNLicenceNo" type="xs:string"/>
+      <xs:element name="ReturnType" type="ndic:ReturnTypeEnum"/>
+      <xs:element name="ReportingDate" type="xs:date"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="DepositLiabilitiesType">
+    <xs:sequence>
+      <xs:element name="TotalDeposits" type="ndic:AmountType"/>
+      <xs:element name="InsuredDeposits" type="ndic:AmountType"/>
+      <xs:element name="UninsuredDeposits" type="ndic:AmountType"/>
+      <xs:element name="TotalDepositors" type="xs:nonNegativeInteger"/>
+      <xs:element name="FullyCoveredDepositors" type="xs:nonNegativeInteger"/>
+      <xs:element name="CoveragePct" type="ndic:RatioType"/>
+      <xs:element name="ApplicableMDIC" type="ndic:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="PremiumAssessmentType">
+    <xs:sequence>
+      <xs:element name="AssessableDeposits" type="ndic:AmountType"/>
+      <xs:element name="BasePremiumRate" type="xs:decimal"/>
+      <xs:element name="QuantitativeAddOn" type="xs:decimal"/>
+      <xs:element name="QualitativeAddOn" type="xs:decimal"/>
+      <xs:element name="TotalPremiumRate" type="xs:decimal"/>
+      <xs:element name="GrossPremium" type="ndic:AmountType"/>
+      <xs:element name="NetPremium" type="ndic:AmountType"/>
+      <xs:element name="DPASBucket" type="xs:positiveInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="FinancialConditionType">
+    <xs:sequence>
+      <xs:element name="CAR" type="ndic:RatioType"/>
+      <xs:element name="NPLRatio" type="ndic:RatioType"/>
+      <xs:element name="ROA" type="xs:decimal"/>
+      <xs:element name="ROE" type="xs:decimal"/>
+      <xs:element name="LiquidityRatio" type="ndic:RatioType"/>
+      <xs:element name="CostToIncome" type="ndic:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+    </xs:sequence>
+  </xs:complexType>
+  <xs:simpleType name="InstitutionTypeEnum"><xs:restriction base="xs:string"><xs:enumeration value="DMB"/><xs:enumeration value="MFB"/><xs:enumeration value="PMB"/><xs:enumeration value="PSB"/><xs:enumeration value="MMO"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="ReturnTypeEnum"><xs:restriction base="xs:string"><xs:enumeration value="DEP"/><xs:enumeration value="PRM"/><xs:enumeration value="FIN"/><xs:enumeration value="GOV"/><xs:enumeration value="LIQ"/><xs:enumeration value="SPC"/><xs:enumeration value="EXM"/><xs:enumeration value="CLM"/><xs:enumeration value="RPT"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

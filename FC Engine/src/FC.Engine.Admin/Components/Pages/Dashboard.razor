@@ -8,350 +8,291 @@
 @inject ISubmissionRepository SubmissionRepo
 @inject ITemplateRepository TemplateRepo
 @inject IFormulaRepository FormulaRepo
-@inject NavigationManager Nav
 
-<!-- Executive Page Header -->
-<header class="dash-header" role="banner">
-    <div class="dash-header-text">
-        <h1>Executive Dashboard</h1>
-        <p>Financial Returns Collection &amp; Analysis System — Operational Overview</p>
-    </div>
-    <div class="dash-header-meta">
-        <time class="dash-header-date" datetime="@DateTime.UtcNow.ToString("yyyy-MM-dd")">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="15" height="15" aria-hidden="true">
+<PageHeader Title="Executive Dashboard"
+            Subtitle="Financial Returns Collection & Analysis System operational overview across templates, rules, and submissions."
+            StatusBadge="@StatusBadge"
+            StatusVariant="@StatusVariant">
+    <SecondaryActions>
+        <a class="fc-btn fc-btn--outline fc-btn--sm" href="/dashboard/platform">Platform dashboard</a>
+    </SecondaryActions>
+    <PrimaryAction>
+        <time class="fc-ph-date fc-ph-date-meta" datetime="@DateTime.UtcNow.ToString("yyyy-MM-dd")">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
                 <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
                 <line x1="16" y1="2" x2="16" y2="6"/>
                 <line x1="8" y1="2" x2="8" y2="6"/>
                 <line x1="3" y1="10" x2="21" y2="10"/>
             </svg>
-            @DateTime.UtcNow.ToString("dddd, d MMMM yyyy")
+            @DateTime.UtcNow.ToString("d MMM yyyy")
         </time>
-        <div class="dash-header-status" aria-label="System status: operational">
-            <span class="dash-status-dot" aria-hidden="true"></span>
-            System Operational
-        </div>
-    </div>
-</header>
+    </PrimaryAction>
+</PageHeader>
 
 @if (_loading)
 {
-    <div class="skel-dashboard" role="status" aria-label="Loading dashboard">
-        <div class="skel-stats-row">
+    <div class="rg-premium-flow" role="status" aria-label="Loading dashboard">
+        <div class="fc-skel fc-skel-block" style="--skel-w:100%;--skel-h:156px;"></div>
+        <div class="fc-skel-stats-row">
             @for (var i = 0; i < 4; i++)
             {
-                <div class="skel-stat-card">
-                    <div class="skel skel-icon" style="width:44px;height:44px;border-radius:var(--radius-md);"></div>
-                    <div class="skel skel-number" style="width:60px;height:28px;"></div>
-                    <div class="skel skel-label" style="width:100px;height:12px;"></div>
+                <div class="fc-skel-card-body">
+                    <div class="fc-skel fc-skel-text" style="--skel-w:44%;--skel-h:12px;--skeleton-index:@(i * 3);"></div>
+                    <div class="fc-skel fc-skel-text-lg" style="--skel-w:58%;--skel-h:34px;--skeleton-index:@(i * 3 + 1);margin-top:var(--space-3);"></div>
+                    <div class="fc-skel fc-skel-text" style="--skel-w:82%;--skel-h:12px;--skeleton-index:@(i * 3 + 2);margin-top:var(--space-3);"></div>
                 </div>
             }
         </div>
-        <div class="skel-content-grid">
-            <div class="skel-card">
-                <div class="skel-card-header">
-                    <div class="skel skel-card-title" style="width:140px;height:18px;"></div>
-                    <div class="skel" style="width:60px;height:14px;"></div>
-                </div>
-                @for (var i = 0; i < 5; i++)
-                {
-                    <div class="skel-table-row">
-                        <div class="skel" style="width:70px;height:12px;"></div>
-                        <div class="skel" style="flex:1;height:12px;"></div>
-                        <div class="skel" style="width:60px;height:12px;"></div>
-                        <div class="skel" style="width:50px;height:12px;"></div>
-                    </div>
-                }
+        <div class="fc-skel-content-grid">
+            <div class="fc-skel-card-body">
+                <div class="fc-skel fc-skel-block" style="--skel-w:100%;--skel-h:420px;"></div>
             </div>
-            <div class="skel-card">
-                <div class="skel-card-header">
-                    <div class="skel skel-card-title" style="width:130px;height:18px;"></div>
-                    <div class="skel" style="width:60px;height:14px;"></div>
-                </div>
-                @for (var i = 0; i < 3; i++)
-                {
-                    <div style="margin-bottom:var(--space-4);">
-                        <div class="skel" style="width:80px;height:10px;margin-bottom:var(--space-2);"></div>
-                        <div class="skel skel-block" style="width:100%;height:8px;"></div>
-                    </div>
-                }
+            <div class="fc-skel-card-body">
+                <div class="fc-skel fc-skel-block" style="--skel-w:100%;--skel-h:420px;"></div>
             </div>
         </div>
     </div>
 }
 else
 {
-    <!-- Stat Cards Row -->
-    <div class="dash-stats-row" role="region" aria-label="Key metrics">
-        <!-- Card 1: Active Templates -->
-        <div class="dash-stat-card dash-stat-green" style="animation-delay: 0ms;">
-            <div class="dash-stat-accent"></div>
-            <div class="dash-stat-body">
-                <div class="dash-stat-icon-wrap dash-icon-green">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
-                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                        <polyline points="14 2 14 8 20 8"/>
-                        <line x1="16" y1="13" x2="8" y2="13"/>
-                        <line x1="16" y1="17" x2="8" y2="17"/>
-                        <polyline points="10 9 9 9 8 9"/>
-                    </svg>
-                </div>
-                <div class="dash-stat-data">
-                    <span class="dash-stat-number">@_templateCount</span>
-                    <span class="dash-stat-label">Active Templates</span>
-                </div>
-                <div class="dash-stat-change dash-change-neutral">
-                    <span>@_totalFields fields configured</span>
-                </div>
-            </div>
-        </div>
+    var workflowPressure = _pendingReviewCount + _draftCount;
+    var totalVersions = _publishedVersionCount + _pendingReviewCount + _draftCount;
+    var topCategory = _categoryBreakdown.FirstOrDefault();
+    var topFrequency = _frequencyBreakdown.FirstOrDefault();
 
-        <!-- Card 2: Pending Review -->
-        <div class="dash-stat-card dash-stat-gold" style="animation-delay: 80ms;">
-            <div class="dash-stat-accent"></div>
-            <div class="dash-stat-body">
-                <div class="dash-stat-icon-wrap dash-icon-gold">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
-                        <circle cx="12" cy="12" r="10"/>
-                        <polyline points="12 6 12 12 16 14"/>
-                    </svg>
-                </div>
-                <div class="dash-stat-data">
-                    <span class="dash-stat-number">@(_pendingReviewCount + _draftCount)</span>
-                    <span class="dash-stat-label">Awaiting Action</span>
-                </div>
-                <div class="dash-stat-change dash-change-neutral">
-                    @if (_pendingReviewCount > 0 || _draftCount > 0)
-                    {
-                        <span>@_pendingReviewCount in review, @_draftCount drafts</span>
-                    }
-                    else
-                    {
-                        <span>all versions published</span>
-                    }
-                </div>
-            </div>
-        </div>
-
-        <!-- Card 3: Validation Rules -->
-        <div class="dash-stat-card dash-stat-blue" style="animation-delay: 160ms;">
-            <div class="dash-stat-accent"></div>
-            <div class="dash-stat-body">
-                <div class="dash-stat-icon-wrap dash-icon-blue">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
-                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                    </svg>
-                </div>
-                <div class="dash-stat-data">
-                    <span class="dash-stat-number">@_totalRules</span>
-                    <span class="dash-stat-label">Validation Rules</span>
-                </div>
-                <div class="dash-stat-change dash-change-neutral">
-                    <span>@_totalFormulas intra-sheet, @_crossSheetRuleCount cross-sheet, @_businessRuleCount business</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- Card 4: Total Submissions -->
-        <div class="dash-stat-card dash-stat-green" style="animation-delay: 240ms;">
-            <div class="dash-stat-accent"></div>
-            <div class="dash-stat-body">
-                <div class="dash-stat-icon-wrap dash-icon-green">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
-                        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                        <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-                    </svg>
-                </div>
-                <div class="dash-stat-data">
-                    <span class="dash-stat-number">@_totalSubmissions</span>
-                    <span class="dash-stat-label">Total Submissions</span>
-                </div>
-                <div class="dash-stat-change @(_acceptanceRate > 0 ? "dash-change-up" : "dash-change-neutral")">
-                    @if (_totalSubmissions > 0)
-                    {
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
-                            <polyline points="22 4 12 14.01 9 11.01"/>
-                        </svg>
-                        <span>@_acceptanceRate% acceptance rate</span>
-                    }
-                    else
-                    {
-                        <span>no submissions yet</span>
-                    }
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Two-Column Content Grid -->
-    <div class="dash-content-grid">
-        <!-- Left: Recent Submissions -->
-        <div class="dash-card" style="animation-delay: 320ms;">
-            <div class="dash-card-header">
-                <h2>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                        <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                        <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-                    </svg>
-                    Recent Submissions
-                </h2>
-                <a href="/submissions" class="dash-card-link">View all</a>
-            </div>
-            <div class="dash-card-body">
-                @if (_recentSubmissions.Count == 0)
-                {
-                    <div class="dash-empty-state">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="40" height="40" style="color: var(--cbn-gray-300);" aria-hidden="true">
-                            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                            <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-                        </svg>
-                        <p>No submissions recorded yet</p>
+    <div class="fc-page">
+        <div class="rg-premium-flow">
+            <section class="rg-premium-banner rg-premium-banner--@BuildBannerTone(workflowPressure, _rejectedCount)">
+                <div class="rg-premium-banner__grid">
+                    <div>
+                        <div class="rg-premium-banner__eyebrow">Control posture</div>
+                        <h2 class="rg-premium-banner__headline">@BuildBannerHeadline(workflowPressure, _rejectedCount)</h2>
+                        <p class="rg-premium-banner__detail">@BuildBannerDetail(workflowPressure, topCategory.Cat, topFrequency.Freq)</p>
                     </div>
-                }
-                else
-                {
-                    <table class="dash-mini-table" aria-label="Recent submissions">
-                        <thead>
-                            <tr>
-                                <th scope="col">Return Code</th>
-                                <th scope="col">Institution</th>
-                                <th scope="col">Status</th>
-                                <th scope="col">Submitted</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach (var sub in _recentSubmissions)
+                    <div class="rg-premium-banner__meta">
+                        <div class="rg-premium-banner__meta-label">Current operating scope</div>
+                        <div class="rg-premium-banner__meta-value">@_templateCount template(s), @_totalSubmissions submission(s)</div>
+                        <div class="rg-premium-banner__meta-copy">
+                            @_totalRules validation rule(s) are currently protecting the live reporting estate, with @_acceptanceRate% submission acceptance across the visible history.
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rg-premium-hero">
+                <div class="rg-premium-hero__grid">
+                    <div>
+                        <div class="rg-premium-hero__eyebrow">Governance workspace</div>
+                        <h2 class="rg-premium-hero__title">Keep the template estate clean, the validation stack current, and the submission queue moving.</h2>
+                        <p class="rg-premium-hero__subtitle">
+                            This command surface is built for the core operating layer of the platform: published templates, review bottlenecks,
+                            validation coverage, and live submission throughput. It should tell you where the workflow is slowing before users feel it.
+                        </p>
+                        <div class="d-flex flex-wrap gap-2 mt-3">
+                            <span class="rg-premium-chip rg-premium-chip--info">@_totalFields configured field(s)</span>
+                            <span class="rg-premium-chip rg-premium-chip--warning">@workflowPressure awaiting action</span>
+                            <span class="rg-premium-chip rg-premium-chip--success">@_publishedVersionCount published version(s)</span>
+                        </div>
+                    </div>
+                    <div class="rg-premium-hero__aside">
+                        <div class="rg-premium-note">
+                            <div class="rg-premium-note__label">Top structure</div>
+                            <div class="rg-premium-note__value">@(topCategory == default ? "No data" : topCategory.Cat)</div>
+                            <div class="rg-premium-note__copy">@(topCategory == default ? "Template categorisation appears once published templates are available." : $"{topCategory.Count} template(s) currently dominate the structural mix.")</div>
+                        </div>
+                        <div class="rg-premium-note">
+                            <div class="rg-premium-note__label">Top frequency</div>
+                            <div class="rg-premium-note__value">@(topFrequency == default ? "No data" : topFrequency.Freq)</div>
+                            <div class="rg-premium-note__copy">@(topFrequency == default ? "Filing cadence posture will appear once the template estate is populated." : $"{topFrequency.Count} template(s) currently sit in this cadence bucket.")</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rg-premium-stat-grid" aria-label="Executive dashboard metrics">
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Active templates</div>
+                    <div class="rg-premium-stat__value">@_templateCount</div>
+                    <div class="rg-premium-stat__note">@_totalFields total field(s) configured across the live published estate.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Awaiting action</div>
+                    <div class="rg-premium-stat__value @BuildStatValueClass(workflowPressure > 0 ? "MEDIUM" : "LOW")">@workflowPressure</div>
+                    <div class="rg-premium-stat__note">@_pendingReviewCount in review, @_draftCount remaining as drafts.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Validation rules</div>
+                    <div class="rg-premium-stat__value">@_totalRules</div>
+                    <div class="rg-premium-stat__note">@_totalFormulas intra-sheet, @_crossSheetRuleCount cross-sheet, @_businessRuleCount business rules.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Submission acceptance</div>
+                    <div class="rg-premium-stat__value @BuildStatValueClass(_acceptanceRate >= 80 ? "LOW" : "HIGH")">@_acceptanceRate%</div>
+                    <div class="rg-premium-stat__note">@_acceptedCount accepted, @_rejectedCount rejected from @_totalSubmissions total submission(s).</div>
+                </article>
+            </section>
+
+            <section class="rg-premium-content-grid">
+                <div class="rg-premium-main">
+                    <article class="rg-premium-panel">
+                        <div class="rg-premium-panel__header">
+                            <div>
+                                <div class="rg-premium-panel__eyebrow">Live submission lane</div>
+                                <h3 class="rg-premium-panel__title">Recent submissions</h3>
+                                <p class="rg-premium-panel__subtitle">The newest returns stay visible here so operators can spot acceptance friction, review backlog, and unusual status drift immediately.</p>
+                            </div>
+                            <div class="rg-premium-panel__metric">
+                                <span class="rg-premium-panel__metric-label">Acceptance</span>
+                                @_acceptanceRate%
+                            </div>
+                        </div>
+                        <div class="rg-premium-panel__body">
+                            @if (_recentSubmissions.Count == 0)
                             {
-                                <tr @onclick="() => NavigateToSubmission(sub.Id)" class="dash-row-clickable" tabindex="0" role="link" @onkeydown="(e) => HandleRowKey(e, sub.Id)">
-                                    <td class="dash-cell-code">@sub.ReturnCode</td>
-                                    <td>@(sub.Institution?.InstitutionName ?? "\u2014")</td>
-                                    <td>
-                                        <span class="dash-status-badge dash-status-@sub.Status.ToString().ToLowerInvariant()">
-                                            @FormatStatus(sub.Status)
-                                        </span>
-                                    </td>
-                                    <td class="dash-cell-time">@FormatTimeAgo(sub.SubmittedAt)</td>
-                                </tr>
+                                <div class="rg-premium-empty">No submissions are available yet. Once live traffic arrives, the newest returns and their status shifts will appear here.</div>
                             }
-                        </tbody>
-                    </table>
-                }
-            </div>
-        </div>
+                            else
+                            {
+                                <div class="rg-premium-list">
+                                    @foreach (var sub in _recentSubmissions)
+                                    {
+                                        <a class="rg-premium-list__item text-decoration-none" href="@($"/submissions/{sub.Id}")">
+                                            <div class="rg-premium-list__top">
+                                                <div>
+                                                    <div class="rg-premium-list__heading">@sub.ReturnCode</div>
+                                                    <div class="rg-premium-list__meta">@(sub.Institution?.InstitutionName ?? "Institution unavailable")</div>
+                                                </div>
+                                                <div class="text-end">
+                                                    <div class="rg-premium-list__value">@FormatTimeAgo(sub.SubmittedAt)</div>
+                                                    <span class="@BuildSubmissionChipClass(sub.Status)">@FormatStatus(sub.Status)</span>
+                                                </div>
+                                            </div>
+                                            <div class="rg-premium-list__meta">Submitted @(sub.SubmittedAt?.ToString("dd MMM yyyy HH:mm") ?? "—") UTC</div>
+                                        </a>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </article>
 
-        <!-- Right: Template Health -->
-        <div class="dash-card" style="animation-delay: 400ms;">
-            <div class="dash-card-header">
-                <h2>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-                        <polyline points="22 4 12 14.01 9 11.01"/>
-                    </svg>
-                    Template Health
-                </h2>
-                <a href="/templates" class="dash-card-link">Manage</a>
-            </div>
-            <div class="dash-card-body">
-                <!-- Structural Category Breakdown -->
-                <div class="dash-health-section" role="group" aria-label="Templates by structure">
-                    <div class="dash-health-label">By Structure</div>
-                    @foreach (var (cat, count) in _categoryBreakdown)
-                    {
-                        var pct = _templateCount > 0 ? (double)count / _templateCount * 100 : 0;
-                        <div class="dash-progress-row">
-                            <div class="dash-progress-info">
-                                <span class="dash-progress-name">@cat</span>
-                                <span class="dash-progress-count">@count</span>
+                    <article class="rg-premium-panel">
+                        <div class="rg-premium-panel__header">
+                            <div>
+                                <div class="rg-premium-panel__eyebrow">Template topology</div>
+                                <h3 class="rg-premium-panel__title">Structure and cadence mix</h3>
+                                <p class="rg-premium-panel__subtitle">Understand how the reporting estate is distributed across structural categories and return frequencies.</p>
                             </div>
-                            <div class="dash-progress-track" role="progressbar" aria-valuenow="@pct.ToString("F0")" aria-valuemin="0" aria-valuemax="100" aria-label="@cat: @count templates">
-                                <div class="dash-progress-fill dash-fill-@cat.ToLowerInvariant()" style="width: @pct.ToString("F0")%"></div>
+                            <div class="rg-premium-panel__metric">
+                                <span class="rg-premium-panel__metric-label">Published versions</span>
+                                @_publishedVersionCount
                             </div>
                         </div>
-                    }
+                        <div class="rg-premium-panel__body">
+                            <div class="rg-premium-dual-grid">
+                                <div class="rg-premium-stack">
+                                    <h4 class="rg-premium-section-title">By structure</h4>
+                                    <p class="rg-premium-section-copy">The mix below shows which template structures currently dominate the live estate.</p>
+                                    @foreach (var item in _categoryBreakdown)
+                                    {
+                                        var percent = _templateCount == 0 ? 0 : (int)Math.Round((double)item.Count / _templateCount * 100);
+                                        <div class="rg-premium-list__item">
+                                            <div class="rg-premium-list__top">
+                                                <div class="rg-premium-list__heading">@item.Cat</div>
+                                                <div class="rg-premium-list__value">@percent%</div>
+                                            </div>
+                                            <div class="rg-premium-list__meta">@item.Count template(s) in this structural category.</div>
+                                        </div>
+                                    }
+                                </div>
+                                <div class="rg-premium-stack">
+                                    <h4 class="rg-premium-section-title">By frequency</h4>
+                                    <p class="rg-premium-section-copy">Cadence distribution helps reveal where operations will feel the most recurring filing pressure.</p>
+                                    @foreach (var item in _frequencyBreakdown)
+                                    {
+                                        var percent = _templateCount == 0 ? 0 : (int)Math.Round((double)item.Count / _templateCount * 100);
+                                        <div class="rg-premium-list__item">
+                                            <div class="rg-premium-list__top">
+                                                <div class="rg-premium-list__heading">@item.Freq</div>
+                                                <div class="rg-premium-list__value">@percent%</div>
+                                            </div>
+                                            <div class="rg-premium-list__meta">@item.Count template(s) currently sit in this filing cadence.</div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </article>
                 </div>
 
-                <!-- Frequency Breakdown -->
-                <div class="dash-health-section" role="group" aria-label="Templates by frequency">
-                    <div class="dash-health-label">By Frequency</div>
-                    @foreach (var (freq, count) in _frequencyBreakdown)
-                    {
-                        var pct = _templateCount > 0 ? (double)count / _templateCount * 100 : 0;
-                        <div class="dash-progress-row">
-                            <div class="dash-progress-info">
-                                <span class="dash-progress-name">@freq</span>
-                                <span class="dash-progress-count">@count</span>
-                            </div>
-                            <div class="dash-progress-track" role="progressbar" aria-valuenow="@pct.ToString("F0")" aria-valuemin="0" aria-valuemax="100" aria-label="@freq: @count templates">
-                                <div class="dash-progress-fill dash-fill-freq" style="width: @pct.ToString("F0")%"></div>
+                <div class="rg-premium-side">
+                    <article class="rg-premium-panel">
+                        <div class="rg-premium-panel__header">
+                            <div>
+                                <div class="rg-premium-panel__eyebrow">Workflow pressure</div>
+                                <h3 class="rg-premium-panel__title">Version and review posture</h3>
+                                <p class="rg-premium-panel__subtitle">A compact operating snapshot of where the template and review pipeline currently stands.</p>
                             </div>
                         </div>
-                    }
-                </div>
+                        <div class="rg-premium-panel__body">
+                            <div class="rg-premium-stack">
+                                <div class="rg-premium-list__item">
+                                    <div class="rg-premium-list__top">
+                                        <div class="rg-premium-list__heading">Published</div>
+                                        <div class="rg-premium-list__value">@_publishedVersionCount</div>
+                                    </div>
+                                    <div class="rg-premium-list__meta">@totalVersions total version(s) tracked in the template estate.</div>
+                                </div>
+                                <div class="rg-premium-list__item">
+                                    <div class="rg-premium-list__top">
+                                        <div class="rg-premium-list__heading">In review</div>
+                                        <div class="rg-premium-list__value">@_pendingReviewCount</div>
+                                    </div>
+                                    <div class="rg-premium-list__meta">Versions awaiting governance review before they can move into production.</div>
+                                </div>
+                                <div class="rg-premium-list__item">
+                                    <div class="rg-premium-list__top">
+                                        <div class="rg-premium-list__heading">Drafts</div>
+                                        <div class="rg-premium-list__value">@_draftCount</div>
+                                    </div>
+                                    <div class="rg-premium-list__meta">Draft-only versions still requiring authoring or structural cleanup.</div>
+                                </div>
+                                <div class="rg-premium-list__item">
+                                    <div class="rg-premium-list__top">
+                                        <div class="rg-premium-list__heading">Rejected submissions</div>
+                                        <div class="rg-premium-list__value">@_rejectedCount</div>
+                                    </div>
+                                    <div class="rg-premium-list__meta">Recent rejected returns are a fast proxy for downstream quality friction.</div>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
 
-                <!-- Version Status Summary -->
-                <div class="dash-health-section" role="group" aria-label="Template version status">
-                    <div class="dash-health-label">Version Status</div>
-                    <div class="dash-version-chips">
-                        <div class="dash-chip dash-chip-published">
-                            <span class="dash-chip-dot" aria-hidden="true"></span>
-                            <span>@_publishedVersionCount Published</span>
+                    <article class="rg-premium-panel">
+                        <div class="rg-premium-panel__header">
+                            <div>
+                                <div class="rg-premium-panel__eyebrow">Quick actions</div>
+                                <h3 class="rg-premium-panel__title">Move directly to the operational tools</h3>
+                                <p class="rg-premium-panel__subtitle">Fast paths for the areas most likely to need intervention from this dashboard.</p>
+                            </div>
                         </div>
-                        <div class="dash-chip dash-chip-review">
-                            <span class="dash-chip-dot" aria-hidden="true"></span>
-                            <span>@_pendingReviewCount In Review</span>
+                        <div class="rg-premium-panel__body">
+                            <div class="rg-premium-action-grid">
+                                @foreach (var action in QuickActions)
+                                {
+                                    <a class="rg-premium-link-card" href="@action.Href">
+                                        <span class="rg-premium-link-card__icon">@action.Code</span>
+                                        <div>
+                                            <div class="rg-premium-link-card__title">@action.Title</div>
+                                            <div class="rg-premium-link-card__desc">@action.Description</div>
+                                        </div>
+                                        <span class="rg-premium-link-card__arrow">Go</span>
+                                    </a>
+                                }
+                            </div>
                         </div>
-                        <div class="dash-chip dash-chip-draft">
-                            <span class="dash-chip-dot" aria-hidden="true"></span>
-                            <span>@_draftCount Drafts</span>
-                        </div>
-                    </div>
+                    </article>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Quick Actions -->
-    <div class="dash-actions-card" style="animation-delay: 480ms;" role="region" aria-label="Quick actions">
-        <div class="dash-card-header">
-            <h2>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-                </svg>
-                Quick Actions
-            </h2>
-        </div>
-        <div class="dash-actions-grid">
-            <a href="/templates" class="dash-action-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
-                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-                    <polyline points="14 2 14 8 20 8"/>
-                    <line x1="12" y1="18" x2="12" y2="12"/>
-                    <line x1="9" y1="15" x2="15" y2="15"/>
-                </svg>
-                <span>New Template</span>
-            </a>
-            <a href="/submissions" class="dash-action-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
-                    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                    <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
-                </svg>
-                <span>Review Submissions</span>
-            </a>
-            <a href="/formulas" class="dash-action-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
-                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-                </svg>
-                <span>Manage Rules</span>
-            </a>
-            <a href="/audit" class="dash-action-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22" aria-hidden="true">
-                    <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
-                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-                    <line x1="8" y1="10" x2="16" y2="10"/>
-                    <line x1="8" y1="14" x2="16" y2="14"/>
-                    <line x1="8" y1="18" x2="12" y2="18"/>
-                </svg>
-                <span>View Audit Log</span>
-            </a>
+            </section>
         </div>
     </div>
 }
@@ -366,33 +307,49 @@ else
     private List<(string Freq, int Count)> _frequencyBreakdown = new();
     private List<(string Cat, int Count)> _categoryBreakdown = new();
     private List<Submission> _recentSubmissions = new();
+    private List<int> _submissionSparkline = new();
+
+    private string StatusBadge => (_pendingReviewCount + _draftCount, _rejectedCount) switch
+    {
+        (> 0, _) => $"{_pendingReviewCount + _draftCount} awaiting action",
+        (_, > 0) => $"{_rejectedCount} rejected return(s)",
+        _ => "System operational"
+    };
+
+    private string StatusVariant => _rejectedCount > 0
+        ? "danger"
+        : _pendingReviewCount + _draftCount > 0
+            ? "warning"
+            : "success";
+
+    private static readonly IReadOnlyList<ActionCard> QuickActions = new List<ActionCard>
+    {
+        new("TPL", "Template Console", "Create and refine live reporting templates.", "/templates"),
+        new("SUB", "Submissions", "Review incoming returns and their workflow state.", "/submissions"),
+        new("VAL", "Validation Rules", "Inspect formula, business, and cross-sheet rules.", "/formulas"),
+        new("AUD", "Audit Log", "Track changes, governance events, and user actions.", "/audit")
+    };
 
     protected override async Task OnInitializedAsync()
     {
-        // Load templates from cache
         var templates = await Cache.GetAllPublishedTemplates();
 
         _templateCount = templates.Count;
         _totalFields = templates.Sum(t => t.CurrentVersion.Fields.Count);
         _totalFormulas = templates.Sum(t => t.CurrentVersion.IntraSheetFormulas.Count);
 
-        // Frequency breakdown
         _frequencyBreakdown = templates
-            .GroupBy(t => t.ReturnCode.StartsWith("MFCR") ? "Monthly" :
-                          t.ReturnCode.StartsWith("QFCR") ? "Quarterly" :
-                          t.ReturnCode.StartsWith("SFCR") ? "Semi-Annual" : "Computed")
+            .GroupBy(t => FrequencyLabel(t.Frequency))
             .Select(g => (g.Key, g.Count()))
             .OrderByDescending(x => x.Item2)
             .ToList();
 
-        // Category breakdown
         _categoryBreakdown = templates
             .GroupBy(t => t.StructuralCategory)
             .Select(g => (g.Key, g.Count()))
             .OrderByDescending(x => x.Item2)
             .ToList();
 
-        // Template version status counts
         try
         {
             var allTemplates = await TemplateRepo.GetAll();
@@ -406,7 +363,6 @@ else
             _publishedVersionCount = _templateCount;
         }
 
-        // Validation rule counts
         try
         {
             var crossSheetRules = await FormulaRepo.GetAllActiveCrossSheetRules();
@@ -417,12 +373,10 @@ else
         }
         catch
         {
-            // Formula tables may not be populated yet
         }
 
         _totalRules = _totalFormulas + _crossSheetRuleCount + _businessRuleCount;
 
-        // Submission stats
         try
         {
             _totalSubmissions = await SubmissionRepo.GetTotalCount();
@@ -433,21 +387,88 @@ else
             _acceptanceRate = _totalSubmissions > 0
                 ? (int)Math.Round((double)_acceptedCount / _totalSubmissions * 100)
                 : 0;
+
+            var today = DateTime.UtcNow.Date;
+            _submissionSparkline = Enumerable.Range(0, 7)
+                .Select(i => _recentSubmissions.Count(s => s.SubmittedAt?.Date == today.AddDays(i - 6)))
+                .ToList();
         }
         catch
         {
-            // Submissions table may not have data yet
         }
 
         _loading = false;
     }
 
-    private void NavigateToSubmission(int id) => Nav.NavigateTo($"/submissions/{id}");
-
-    private void HandleRowKey(KeyboardEventArgs e, int id)
+    private static string BuildBannerTone(int workflowPressure, int rejectedCount)
     {
-        if (e.Key is "Enter" or " ")
-            NavigateToSubmission(id);
+        if (rejectedCount > 0)
+        {
+            return "danger";
+        }
+
+        if (workflowPressure > 0)
+        {
+            return "warning";
+        }
+
+        return "success";
+    }
+
+    private string BuildBannerHeadline(int workflowPressure, int rejectedCount)
+    {
+        if (rejectedCount > 0)
+        {
+            return "Submission quality needs immediate attention.";
+        }
+
+        if (workflowPressure > 0)
+        {
+            return "Template workflow pressure is building.";
+        }
+
+        return "Template governance and submission flow are currently stable.";
+    }
+
+    private string BuildBannerDetail(int workflowPressure, string categoryLabel, string frequencyLabel)
+    {
+        if (_rejectedCount > 0)
+        {
+            return $"{_rejectedCount} rejected submission(s) are currently the strongest operational warning. Review the newest returns and validation coverage before that rejection pattern spreads.";
+        }
+
+        if (workflowPressure > 0)
+        {
+            return $"{workflowPressure} version(s) still need authoring or review. The template estate is currently led by {categoryLabel ?? "the active structural mix"} and {frequencyLabel ?? "the current reporting cadence"} filings.";
+        }
+
+        return $"Published templates, rule coverage, and live submissions are moving without obvious pressure. The current estate is led by {categoryLabel ?? "the active structural mix"} and {frequencyLabel ?? "the current reporting cadence"} filings.";
+    }
+
+    private static string BuildStatValueClass(string riskBand)
+    {
+        if (riskBand is "CRITICAL" or "HIGH")
+        {
+            return "rg-premium-stat__value--danger";
+        }
+
+        if (riskBand == "MEDIUM")
+        {
+            return "rg-premium-stat__value--warning";
+        }
+
+        return "rg-premium-stat__value--success";
+    }
+
+    private static string BuildSubmissionChipClass(SubmissionStatus status)
+    {
+        return status switch
+        {
+            SubmissionStatus.Accepted => "rg-premium-chip rg-premium-chip--success",
+            SubmissionStatus.AcceptedWithWarnings => "rg-premium-chip rg-premium-chip--warning",
+            SubmissionStatus.Rejected => "rg-premium-chip rg-premium-chip--danger",
+            _ => "rg-premium-chip rg-premium-chip--info"
+        };
     }
 
     private static string FormatStatus(SubmissionStatus status) => status switch
@@ -460,13 +481,22 @@ else
         _ => "Draft"
     };
 
-    private static string FormatTimeAgo(DateTime utcTime)
+    private static string FrequencyLabel(ReturnFrequency frequency) => frequency switch
     {
-        var span = DateTime.UtcNow - utcTime;
+        ReturnFrequency.SemiAnnual => "Semi-Annual",
+        _ => frequency.ToString()
+    };
+
+    private static string FormatTimeAgo(DateTime? utcTime)
+    {
+        if (utcTime is null) return "—";
+        var span = DateTime.UtcNow - utcTime.Value;
         if (span.TotalMinutes < 1) return "just now";
         if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
         if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
         if (span.TotalDays < 7) return $"{(int)span.TotalDays}d ago";
-        return utcTime.ToString("dd MMM yyyy");
+        return utcTime.Value.ToString("dd MMM yyyy");
     }
+
+    private sealed record ActionCard(string Code, string Title, string Description, string Href);
 }

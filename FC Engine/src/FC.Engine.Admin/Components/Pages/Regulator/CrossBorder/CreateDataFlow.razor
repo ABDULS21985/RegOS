@@ -1,0 +1,216 @@
+@page "/regulator/cross-border/dataflows/new"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject ICrossBorderDataFlowEngine FlowEngine
+@inject NavigationManager Nav
+@inject ToastService Toast
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Infrastructure.Metadata
+@inject IServiceScopeFactory ScopeFactory
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Define Data Flow — RegOS</PageTitle>
+
+<PageHeader Title="Define Cross-Border Data Flow"
+            Subtitle="Create an automated data transformation between source and target jurisdictions."
+            BackUrl="/regulator/cross-border/dataflows">
+    <SecondaryActions>
+        <button class="fc-btn fc-btn--outline" @onclick='() => Nav.NavigateTo("/regulator/cross-border/dataflows")'>Cancel</button>
+    </SecondaryActions>
+</PageHeader>
+
+<SectionErrorBoundary Title="Couldn't load form data" ExternalError="@_loadException" OnRetry="ReloadAsync">
+    @if (_loading)
+    {
+        <div class="rg-card rg-cb-card-padded" role="status" aria-busy="true" aria-label="Loading form data">
+            <div class="rg-cb-form-row">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="rg-cb-field">
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Index="i" />
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="36px" Index="i" />
+                    </div>
+                }
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Heading" />
+            <div class="rg-cb-form-row">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="rg-cb-field">
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Text" Index="i" />
+                        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="36px" Index="i" />
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="rg-card rg-cb-card-padded">
+            <div class="rg-cb-form-row">
+                <div class="rg-cb-field">
+                    <label for="df-group">Financial Group</label>
+                    <select id="df-group" aria-label="Financial Group" @bind="_selectedGroupId">
+                        <option value="0">-- Select group --</option>
+                        @foreach (var g in _groups)
+                        {
+                            <option value="@g.Id">@g.GroupName (@g.GroupCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-code">Flow Code</label>
+                    <input id="df-code" aria-label="Flow Code" @bind="_def.FlowCode" placeholder="e.g. NG_GH_CAR" />
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-name">Flow Name</label>
+                    <input id="df-name" aria-label="Flow Name" @bind="_def.FlowName" placeholder="Nigeria -> Ghana CAR Transfer" />
+                </div>
+            </div>
+
+            <h4 class="rg-section-title rg-cb-section-gap">Source</h4>
+            <div class="rg-cb-form-row">
+                <div class="rg-cb-field">
+                    <label for="df-src-jurisdiction">Source Jurisdiction</label>
+                    <select id="df-src-jurisdiction" aria-label="Source Jurisdiction" @bind="_def.SourceJurisdiction">
+                        <option value="">-- Select --</option>
+                        @foreach (var j in _jurisdictions)
+                        {
+                            <option value="@j.JurisdictionCode">@j.CountryName (@j.JurisdictionCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-src-return">Source Return Code</label>
+                    <input id="df-src-return" aria-label="Source Return Code" @bind="_def.SourceReturnCode" placeholder="CBN_1000" />
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-src-line">Source Line Code</label>
+                    <input id="df-src-line" aria-label="Source Line Code" @bind="_def.SourceLineCode" placeholder="L001" />
+                </div>
+            </div>
+
+            <h4 class="rg-section-title rg-cb-section-gap">Target</h4>
+            <div class="rg-cb-form-row">
+                <div class="rg-cb-field">
+                    <label for="df-tgt-jurisdiction">Target Jurisdiction</label>
+                    <select id="df-tgt-jurisdiction" aria-label="Target Jurisdiction" @bind="_def.TargetJurisdiction">
+                        <option value="">-- Select --</option>
+                        @foreach (var j in _jurisdictions)
+                        {
+                            <option value="@j.JurisdictionCode">@j.CountryName (@j.JurisdictionCode)</option>
+                        }
+                    </select>
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-tgt-return">Target Return Code</label>
+                    <input id="df-tgt-return" aria-label="Target Return Code" @bind="_def.TargetReturnCode" placeholder="BOG_2000" />
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-tgt-line">Target Line Code</label>
+                    <input id="df-tgt-line" aria-label="Target Line Code" @bind="_def.TargetLineCode" placeholder="L001" />
+                </div>
+            </div>
+
+            <h4 class="rg-section-title rg-cb-section-gap">Transformation</h4>
+            <div class="rg-cb-form-row">
+                <div class="rg-cb-field">
+                    <label for="df-transform">Transformation Type</label>
+                    <select id="df-transform" aria-label="Transformation Type" @bind="_def.Transformation">
+                        <option value="@DataFlowTransformation.Direct">Direct</option>
+                        <option value="@DataFlowTransformation.CurrencyConvert">Currency Convert</option>
+                        <option value="@DataFlowTransformation.Formula">Formula</option>
+                        <option value="@DataFlowTransformation.Proportional">Proportional</option>
+                    </select>
+                </div>
+                <div class="rg-cb-field">
+                    <label for="df-fx">Requires Currency Conversion</label>
+                    <select id="df-fx" aria-label="Requires Currency Conversion" @bind="_def.RequiresCurrencyConversion">
+                        <option value="true">Yes</option>
+                        <option value="false">No</option>
+                    </select>
+                </div>
+                @if (_def.Transformation == DataFlowTransformation.Formula)
+                {
+                    <div class="rg-cb-field">
+                        <label for="df-formula">Formula</label>
+                        <input id="df-formula" aria-label="Transformation Formula" @bind="_def.TransformationFormula" placeholder="e.g. SOURCE * 0.85" />
+                    </div>
+                }
+            </div>
+
+            @* -- Preview -- *@
+            <div class="rg-cb-flow-preview" aria-label="Flow preview">
+                <div class="rg-cb-flow-row rg-cb-flow-row--inline">
+                    <FlagBadge Code="@_def.SourceJurisdiction" Label="@_def.SourceReturnCode" />
+                    <span class="rg-cb-flow-arrow">-></span>
+                    <span class="rg-cb-flow-transform">@_def.Transformation</span>
+                    @if (_def.RequiresCurrencyConversion)
+                    {
+                        <span class="rg-cb-flow-fx">FX</span>
+                    }
+                    <span class="rg-cb-flow-arrow">-></span>
+                    <FlagBadge Code="@_def.TargetJurisdiction" Label="@_def.TargetReturnCode" />
+                </div>
+            </div>
+
+            <div class="rg-controls rg-cb-controls-top">
+                <button class="fc-btn fc-btn--primary" @onclick="CreateFlow" disabled="@(_saving || _selectedGroupId == 0)"
+                        aria-busy="@(_saving ? "true" : null)">
+                    @(_saving ? "Creating..." : "Create Flow")
+                </button>
+            </div>
+        </div>
+    }
+</SectionErrorBoundary>
+
+@code {
+    private int _selectedGroupId;
+    private bool _saving;
+    private bool _loading = true;
+    private Exception? _loadException;
+    private DataFlowDefinition _def = new() { Transformation = DataFlowTransformation.Direct };
+    private List<FinancialGroup> _groups = [];
+    private List<RegulatoryJurisdiction> _jurisdictions = [];
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            using var scope = ScopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
+            _groups = await db.FinancialGroups.AsNoTracking().Where(g => g.IsActive).OrderBy(g => g.GroupName).ToListAsync();
+            _jurisdictions = await db.RegulatoryJurisdictions.AsNoTracking().Where(j => j.IsActive).OrderBy(j => j.CountryName).ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task CreateFlow()
+    {
+        _saving = true;
+        StateHasChanged();
+
+        try
+        {
+            await FlowEngine.DefineFlowAsync(_selectedGroupId, _def, 1);
+            Toast.Success("Data flow created successfully.");
+            Nav.NavigateTo("/regulator/cross-border/dataflows");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error("Failed to create flow: " + ex.Message);
+            _saving = false;
+            StateHasChanged();
+        }
+    }
+}

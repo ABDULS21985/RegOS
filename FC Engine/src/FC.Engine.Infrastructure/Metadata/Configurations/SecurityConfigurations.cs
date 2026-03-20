@@ -10,10 +10,14 @@ public class LoginAttemptConfiguration : IEntityTypeConfiguration<LoginAttempt>
     {
         builder.ToTable("login_attempts", "meta");
         builder.HasKey(e => e.Id);
+        builder.Property(e => e.UserType).HasMaxLength(20);
         builder.Property(e => e.Username).HasMaxLength(100).IsRequired();
         builder.Property(e => e.IpAddress).HasMaxLength(50);
+        builder.Property(e => e.UserAgent).HasMaxLength(500);
         builder.Property(e => e.FailureReason).HasMaxLength(200);
         builder.HasIndex(e => new { e.Username, e.AttemptedAt });
+        builder.HasIndex(e => e.UserId);
+        builder.HasIndex(e => e.TenantId);
     }
 }
 

@@ -1,0 +1,299 @@
+@using FC.Engine.Domain.Enums
+@inject IJSRuntime JS
+
+@* Smart Period Picker: visual year×month grid replacing native <select> *@
+
+<div class="portal-pp @(_isOpen ? "portal-pp--open" : "")">
+
+    @* ── Trigger button ───────────────────────────────────────────────── *@
+    <button type="button"
+            class="portal-pp__trigger"
+            @onclick="ToggleOpen"
+            aria-haspopup="grid"
+            aria-expanded="@_isOpen.ToString().ToLower()"
+            aria-label="Period selector@(SelectedPeriod != null ? $", {SelectedPeriod.Label} selected" : "")">
+        @if (SelectedPeriod != null)
+        {
+            <span class="portal-pp__trigger-label">@SelectedPeriod.Label</span>
+            var trigStatus = ComputeStatus(SelectedPeriod);
+            <span class="portal-pp__chip portal-pp__chip--@GetStatusClass(trigStatus)">@GetStatusIcon(trigStatus) @GetStatusLabel(SelectedPeriod, trigStatus)</span>
+        }
+        else
+        {
+            <span class="portal-pp__trigger-placeholder">Choose a period…</span>
+        }
+        <svg class="portal-pp__trigger-chevron" width="16" height="16" viewBox="0 0 16 16"
+             fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M4 6l4 4 4-4"/>
+        </svg>
+    </button>
+
+    @if (_isOpen)
+    {
+        @* ── Click-outside backdrop ───────────────────────────────────── *@
+        <div class="portal-pp__backdrop" @onclick="Close" aria-hidden="true"></div>
+
+        @* ── Dropdown panel ───────────────────────────────────────────── *@
+        <div class="portal-pp__panel" role="dialog" aria-label="Period selection grid">
+
+            @* Overdue banner for currently selected period *@
+            @if (SelectedPeriod != null && ComputeStatus(SelectedPeriod) == PeriodStatus.Overdue)
+            {
+                <div class="portal-pp__overdue-banner" role="alert">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    This period is past due — please submit urgently
+                </div>
+            }
+
+            @* ── Year navigation bar ──────────────────────────────────── *@
+            <div class="portal-pp__nav">
+                <button type="button" class="portal-pp__nav-arrow"
+                        @onclick="PrevYears"
+                        aria-label="Show previous years"
+                        disabled="@(_viewYearStart <= _minYear)">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+                         stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                        <path d="M10 4l-4 4 4 4"/>
+                    </svg>
+                </button>
+
+                <div class="portal-pp__nav-years">
+                    @foreach (var yr in VisibleYears)
+                    {
+                        <span class="portal-pp__nav-year @(yr == DateTime.Today.Year ? "portal-pp__nav-year--current" : "")">@yr</span>
+                    }
+                </div>
+
+                <button type="button" class="portal-pp__nav-arrow"
+                        @onclick="NextYears"
+                        aria-label="Show next years">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none"
+                         stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                        <path d="M6 4l4 4-4 4"/>
+                    </svg>
+                </button>
+
+                <button type="button" class="portal-pp__today-btn" @onclick="JumpToCurrentPeriod">
+                    Today's period
+                </button>
+            </div>
+
+            @* ── Year×Month grid ──────────────────────────────────────── *@
+            <div class="portal-pp__grid-body" role="grid" data-pp-grid="true"
+                 @onkeydown="HandleGridKeyDown">
+
+                @* Column headers row *@
+                <div class="portal-pp__grid-corner" role="presentation"></div>
+                @foreach (var yr in VisibleYears)
+                {
+                    <div class="portal-pp__year-header @(yr == DateTime.Today.Year ? "portal-pp__year-header--current" : "")"
+                         role="columnheader" aria-label="Year @yr">
+                        @yr
+                    </div>
+                }
+
+                @* Month rows *@
+                @for (int mo = 1; mo <= 12; mo++)
+                {
+                    var month = mo;
+                    <div class="portal-pp__month-label" role="rowheader">@MonthAbbr(month)</div>
+
+                    @foreach (var yr in VisibleYears)
+                    {
+                        var year = yr;
+                        var yearIdx = VisibleYears.IndexOf(year);
+                        var period = GetPeriod(year, month);
+
+                        @if (period == null)
+                        {
+                            <div class="portal-pp__cell portal-pp__cell--empty"
+                                 role="gridcell"
+                                 aria-label="@MonthAbbr(month) @year — no data">
+                                <span class="portal-pp__cell-dash">—</span>
+                            </div>
+                        }
+                        else
+                        {
+                            var status = ComputeStatus(period);
+                            var isSelected = period.ReturnPeriodId == Value;
+                            var isLastSub = period.ReturnPeriodId == _lastSubmittedId;
+
+                            <button type="button"
+                                    class="portal-pp__cell @(isSelected ? "portal-pp__cell--selected" : "") @(isLastSub ? "portal-pp__cell--last-submitted" : "")"
+                                    role="gridcell"
+                                    aria-selected="@isSelected.ToString().ToLower()"
+                                    aria-label="@period.Label — @GetStatusLabel(period, status)"
+                                    disabled="@period.IsLocked"
+                                    data-pp-row="@month"
+                                    data-pp-col="@yearIdx"
+                                    @onclick="() => SelectPeriod(period)"
+                                    @onclick:stopPropagation="true">
+                                <span class="portal-pp__chip portal-pp__chip--@GetStatusClass(status)">
+                                    @GetStatusIcon(status) @GetStatusLabel(period, status)
+                                </span>
+                                @if (period.IsLocked)
+                                {
+                                    <span class="portal-pp__tooltip" role="tooltip">
+                                        Filing closed. Contact CBN to request an extension
+                                    </span>
+                                }
+                            </button>
+                        }
+                    }
+                }
+            </div>
+
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public List<PeriodSelectItem> Periods { get; set; } = new();
+    [Parameter] public int Value { get; set; }
+    [Parameter] public EventCallback<int> ValueChanged { get; set; }
+    [Parameter] public EventCallback<PeriodSelectItem> OnPeriodSelected { get; set; }
+
+    private bool _isOpen;
+    private int _viewYearStart;
+    private int _minYear;
+    private int? _lastSubmittedId;
+
+    private enum PeriodStatus { Submitted, Draft, Overdue, DueSoon, Open, Locked }
+
+    private PeriodSelectItem? SelectedPeriod =>
+        Periods.FirstOrDefault(p => p.ReturnPeriodId == Value);
+
+    private List<int> VisibleYears =>
+        Enumerable.Range(_viewYearStart, 3).ToList();
+
+    protected override void OnParametersSet()
+    {
+        _minYear = Periods.Count > 0
+            ? Periods.Min(p => p.Year)
+            : DateTime.Today.Year;
+
+        if (_viewYearStart == 0)
+        {
+            var anchor = SelectedPeriod?.Year ?? DateTime.Today.Year;
+            _viewYearStart = Math.Max(anchor - 1, _minYear - 1);
+        }
+
+        // Most recently submitted (Accepted / PendingApproval) period for striped highlight
+        _lastSubmittedId = Periods
+            .Where(p => p.ExistingSubmissionStatus is
+                SubmissionStatus.Accepted or
+                SubmissionStatus.AcceptedWithWarnings or
+                SubmissionStatus.PendingApproval)
+            .OrderByDescending(p => p.Year)
+            .ThenByDescending(p => p.Month)
+            .FirstOrDefault()?.ReturnPeriodId;
+    }
+
+    // ── Lookups ──────────────────────────────────────────────────────────
+
+    private PeriodSelectItem? GetPeriod(int year, int month) =>
+        Periods.FirstOrDefault(p => p.Year == year && p.Month == month);
+
+    private PeriodStatus ComputeStatus(PeriodSelectItem p)
+    {
+        if (p.IsLocked) return PeriodStatus.Locked;
+
+        if (p.ExistingSubmissionStatus.HasValue)
+        {
+            return p.ExistingSubmissionStatus.Value is
+                SubmissionStatus.Draft or
+                SubmissionStatus.ApprovalRejected or
+                SubmissionStatus.Parsing or
+                SubmissionStatus.Validating
+                    ? PeriodStatus.Draft
+                    : PeriodStatus.Submitted;
+        }
+
+        if (p.DeadlineDate.Date < DateTime.Today) return PeriodStatus.Overdue;
+        if ((p.DeadlineDate.Date - DateTime.Today).TotalDays <= 7) return PeriodStatus.DueSoon;
+        return PeriodStatus.Open;
+    }
+
+    private string GetStatusClass(PeriodStatus s) => s switch
+    {
+        PeriodStatus.Submitted => "submitted",
+        PeriodStatus.Draft     => "draft",
+        PeriodStatus.Overdue   => "overdue",
+        PeriodStatus.DueSoon   => "due-soon",
+        PeriodStatus.Open      => "open",
+        PeriodStatus.Locked    => "locked",
+        _                      => "open"
+    };
+
+    private string GetStatusIcon(PeriodStatus s) => s switch
+    {
+        PeriodStatus.Submitted => "✓",
+        PeriodStatus.Draft     => "📝",
+        PeriodStatus.Overdue   => "⚠",
+        PeriodStatus.DueSoon   => "⚡",
+        PeriodStatus.Locked    => "🔒",
+        _                      => ""
+    };
+
+    private string GetStatusLabel(PeriodSelectItem p, PeriodStatus s)
+    {
+        if (s == PeriodStatus.DueSoon)
+        {
+            var days = (int)(p.DeadlineDate.Date - DateTime.Today).TotalDays;
+            return days == 0 ? "Due today" : $"Due in {days}d";
+        }
+        return s switch
+        {
+            PeriodStatus.Submitted => "Submitted",
+            PeriodStatus.Draft     => "Draft",
+            PeriodStatus.Overdue   => "Overdue",
+            PeriodStatus.Open      => "Open",
+            PeriodStatus.Locked    => "Locked",
+            _                      => "Open"
+        };
+    }
+
+    private static string MonthAbbr(int month) =>
+        new DateTime(2000, month, 1).ToString("MMM");
+
+    // ── Actions ──────────────────────────────────────────────────────────
+
+    private void ToggleOpen() => _isOpen = !_isOpen;
+    private void Close() => _isOpen = false;
+
+    private void PrevYears()
+    {
+        if (_viewYearStart > _minYear - 1)
+            _viewYearStart--;
+    }
+
+    private void NextYears() => _viewYearStart++;
+
+    private void JumpToCurrentPeriod()
+    {
+        _viewYearStart = Math.Max(DateTime.Today.Year - 1, _minYear - 1);
+    }
+
+    private async Task SelectPeriod(PeriodSelectItem period)
+    {
+        await ValueChanged.InvokeAsync(period.ReturnPeriodId);
+        await OnPeriodSelected.InvokeAsync(period);
+        _isOpen = false;
+    }
+
+    // ── Keyboard ─────────────────────────────────────────────────────────
+
+    private async Task HandleGridKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape")
+        {
+            _isOpen = false;
+            return;
+        }
+
+        if (e.Key is "ArrowUp" or "ArrowDown" or "ArrowLeft" or "ArrowRight")
+        {
+            await JS.InvokeVoidAsync("portalPeriodPicker.moveFocus", e.Key);
+        }
+    }
+}

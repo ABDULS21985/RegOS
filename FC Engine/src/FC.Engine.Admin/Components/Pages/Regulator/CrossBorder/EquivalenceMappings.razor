@@ -1,0 +1,113 @@
+@page "/regulator/cross-border/mappings"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject IEquivalenceMappingService MappingService
+@inject NavigationManager Nav
+@inject ToastService Toast
+
+<PageTitle>Equivalence Mappings — RegOS</PageTitle>
+
+<PageHeader Title="Equivalence Mappings"
+            Subtitle="Map regulatory parameters across jurisdictions to identify threshold divergences and ensure consistent compliance treatment."
+            CountBadge="@(!_loading ? _mappings.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick='() => Nav.NavigateTo("/regulator/cross-border/mappings/new")'>Create Mapping</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="rg-cb-filters">
+    <select class="rg-cb-filter-select" @bind="_domainFilter">
+        <option value="">All Domains</option>
+        <option value="CAPITAL_ADEQUACY">Capital Adequacy</option>
+        <option value="LIQUIDITY">Liquidity</option>
+        <option value="LEVERAGE">Leverage</option>
+        <option value="FX">FX</option>
+        <option value="RISK_MANAGEMENT">Risk Management</option>
+    </select>
+    <input class="rg-cb-filter-input" placeholder="Search mappings..." @bind="_searchQuery" @bind:event="oninput" />
+    <button class="fc-btn fc-btn--outline" @onclick="LoadMappings">Apply</button>
+</div>
+
+<SectionErrorBoundary Title="Couldn't load equivalence mappings" ExternalError="@_loadException" OnRetry="LoadMappings">
+    @if (_loading)
+    {
+        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="6" />
+}
+    else if (_mappings.Count == 0)
+    {
+        <EmptyState Context="data"
+                    Heading="No Equivalence Mappings"
+                    Description="Create your first cross-border equivalence mapping to compare regulatory parameters across jurisdictions."
+                    PrimaryActionLabel="Create Mapping"
+                    PrimaryActionHref="/regulator/cross-border/mappings/new" />
+    }
+    else
+    {
+        <div class="rg-table-wrap">
+            <table class="rg-table">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Name</th>
+                        <th>Domain</th>
+                        <th>Jurisdictions</th>
+                        <th>Version</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var m in FilteredMappings)
+                    {
+                        <tr>
+                            <td><code style="font-size:0.78rem;">@m.MappingCode</code></td>
+                            <td><strong>@m.MappingName</strong></td>
+                            <td><StatusPill Label="@m.ConceptDomain.Replace("_", " ")" Variant="info" /></td>
+                            <td>@m.JurisdictionCount</td>
+                            <td>v@m.Version</td>
+                            <td>
+                                <button class="fc-btn fc-btn--outline" @onclick='() => Nav.NavigateTo($"/regulator/cross-border/mappings/{m.Id}")'>View</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</SectionErrorBoundary>
+
+@code {
+    private bool _loading = true;
+    private string _domainFilter = "";
+    private string _searchQuery = "";
+    private Exception? _loadException;
+    private List<EquivalenceMappingSummary> _mappings = [];
+
+    private IEnumerable<EquivalenceMappingSummary> FilteredMappings =>
+        string.IsNullOrWhiteSpace(_searchQuery)
+            ? _mappings
+            : _mappings.Where(m =>
+                m.MappingName.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                m.MappingCode.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase));
+
+    protected override async Task OnInitializedAsync() => await LoadMappings();
+
+    private async Task LoadMappings()
+    {
+        _loading = true;
+        _loadException = null;
+        StateHasChanged();
+
+        try
+        {
+            var domain = string.IsNullOrWhiteSpace(_domainFilter) ? null : _domainFilter;
+            var result = await MappingService.ListMappingsAsync(domain);
+            _mappings = result.ToList();
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+            _mappings = [];
+            Toast.Error("Failed to load mappings: " + ex.Message);
+        }
+        finally { _loading = false; StateHasChanged(); }
+    }
+}

@@ -37,6 +37,7 @@ services:
       - ../scripts:/app/scripts:ro
 
   api:
+    restart: unless-stopped
     build:
       context: ..
       dockerfile: docker/Dockerfile.api
@@ -60,48 +61,57 @@ services:
       retries: 5
       start_period: 15s
 
-  admin:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.admin
-    depends_on:
-      migrator:
-        condition: service_completed_successfully
-    ports:
-      - "5200:8080"
-    environment:
-      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-      - Seeding__SchemaFilePath=/app/schema.sql
-    volumes:
-      - ../schema.sql:/app/schema.sql:ro
-    healthcheck:
-      test: curl -f http://localhost:8080/ || exit 1
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 15s
+  # admin: (commented out — run locally with: dotnet watch run --urls "http://localhost:5001")
+  #   restart: unless-stopped
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile.admin
+  #   depends_on:
+  #     migrator:
+  #       condition: service_completed_successfully
+  #   ports:
+  #     - "5200:8080"
+  #   environment:
+  #     - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
+  #     - ASPNETCORE_ENVIRONMENT=Production
+  #     - ASPNETCORE_URLS=http://+:8080
+  #     - Seeding__SchemaFilePath=/app/schema.sql
+  #   volumes:
+  #     - ../schema.sql:/app/schema.sql:ro
+  #   healthcheck:
+  #     test: curl -f http://localhost:8080/ || exit 1
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 5
+  #     start_period: 15s
 
-  portal:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.portal
-    depends_on:
-      migrator:
-        condition: service_completed_successfully
-    ports:
-      - "5300:8080"
-    environment:
-      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
-      - ASPNETCORE_ENVIRONMENT=Production
-      - ASPNETCORE_URLS=http://+:8080
-    healthcheck:
-      test: curl -f http://localhost:8080/login || exit 1
-      interval: 10s
-      timeout: 3s
-      retries: 5
-      start_period: 15s
+  # portal: (commented out — run locally with: dotnet watch run --urls "http://localhost:5003")
+  #   restart: unless-stopped
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         memory: 512M
+  #         cpus: '1.0'
+  #       reservations:
+  #         memory: 256M
+  #   build:
+  #     context: ..
+  #     dockerfile: docker/Dockerfile.portal
+  #   depends_on:
+  #     migrator:
+  #       condition: service_completed_successfully
+  #   ports:
+  #     - "5300:8080"
+  #   environment:
+  #     - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
+  #     - ASPNETCORE_ENVIRONMENT=Production
+  #     - ASPNETCORE_URLS=http://+:8080
+  #   healthcheck:
+  #     test: curl -f http://localhost:8080/login || exit 1
+  #     interval: 10s
+  #     timeout: 3s
+  #     retries: 5
+  #     start_period: 15s
 
 volumes:
   sqlserver-data:

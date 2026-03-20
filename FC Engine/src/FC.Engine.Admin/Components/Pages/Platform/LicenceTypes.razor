@@ -1,0 +1,553 @@
+@page "/licence-types"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Infrastructure.Metadata
+@using FC.Engine.Admin.Services
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<MetadataDbContext> DbFactory
+@inject ToastService Toast
+@inject DialogService Dialog
+
+<PageTitle>Licence Types</PageTitle>
+
+<PageHeader Title="Licence Types"
+            Subtitle="Manage licence categories, module assignments, and track tenant adoption across the platform.">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="OpenCreateModal" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            New Licence Type
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+
+    <!-- Toolbar -->
+    <div class="fc-toolbar">
+        <div class="fc-toolbar-search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" placeholder="Search by code, name, or regulator..." @bind="_searchQuery" @bind:event="oninput" aria-label="Search licence types" />
+        </div>
+        <div class="fc-toolbar-filter">
+            <select @bind="_statusFilter" aria-label="Filter by status">
+                <option value="">All Status</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+            </select>
+            <select @bind="_regulatorFilter" aria-label="Filter by regulator">
+                <option value="">All Regulators</option>
+                @foreach (var reg in _regulators)
+                {
+                    <option value="@reg">@reg</option>
+                }
+            </select>
+        </div>
+    </div>
+
+    <!-- Content -->
+    @if (_loading)
+    {
+        <div class="fc-card">
+            <div class="fc-card__body fc-card-body--flush">
+                <table class="fc-table">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Name</th>
+                            <th>Regulator</th>
+                            <th>Modules</th>
+                            <th>Tenants</th>
+                            <th>Order</th>
+                            <th>Status</th>
+                            <th class="fc-text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (var i = 0; i < 5; i++)
+                        {
+                            <tr>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:50px;"></div></td>
+                                <td>
+                                    <div class="fc-skel fc-skel-text" style="--skel-w:140px;margin-bottom:4px;"></div>
+                                    <div class="fc-skel fc-skel-text" style="--skel-w:200px;--skel-h:8px;"></div>
+                                </td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:40px;"></div></td>
+                                <td><div class="fc-skel" style="--skel-w:100px;--skel-h:20px;border-radius:var(--radius-pill);"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:24px;"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:20px;"></div></td>
+                                <td><div class="fc-skel" style="--skel-w:52px;--skel-h:20px;border-radius:var(--radius-pill);"></div></td>
+                                <td class="fc-text-right"><div class="fc-skel" style="--skel-w:80px;--skel-h:28px;border-radius:6px;margin-left:auto;"></div></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (!FilteredLicenceTypes.Any())
+    {
+        <div class="fc-empty">
+            <div class="fc-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            </div>
+            @if (string.IsNullOrEmpty(_searchQuery) && string.IsNullOrEmpty(_statusFilter) && string.IsNullOrEmpty(_regulatorFilter))
+            {
+                <h3 class="fc-empty-title">No licence types found</h3>
+                <p class="fc-empty-text">Create the first licence type to begin categorising regulated entities.</p>
+            }
+            else
+            {
+                <h3 class="fc-empty-title">No matching licence types</h3>
+                <p class="fc-empty-text">Try adjusting your search or filters.</p>
+            }
+        </div>
+    }
+    else
+    {
+        <div class="fc-card">
+            <div class="fc-card__body fc-card-body--flush">
+                <table class="fc-table">
+                    <thead>
+                        <tr>
+                            <th>Code</th>
+                            <th>Name</th>
+                            <th>Regulator</th>
+                            <th>Modules</th>
+                            <th>Tenants</th>
+                            <th>Order</th>
+                            <th>Status</th>
+                            <th class="fc-text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var lt in FilteredLicenceTypes)
+                        {
+                            <tr>
+                                <td><code>@lt.Code</code></td>
+                                <td>
+                                    <div class="fc-fw-600">@lt.Name</div>
+                                    @if (!string.IsNullOrWhiteSpace(lt.Description))
+                                    {
+                                        <small class="fc-cell-sub">@lt.Description</small>
+                                    }
+                                </td>
+                                <td>@lt.Regulator</td>
+                                <td>
+                                    <div class="fc-flex-row--wrap">
+                                        <span class="fc-badge fc-badge--success">@lt.RequiredModules req</span>
+                                        <span class="fc-badge fc-badge--neutral">@lt.OptionalModules opt</span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <span class="fc-badge fc-badge--neutral">@lt.TenantCount</span>
+                                </td>
+                                <td>@lt.DisplayOrder</td>
+                                <td>
+                                    @if (lt.IsActive)
+                                    {
+                                        <span class="fc-badge fc-badge--success">Active</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="fc-badge fc-badge--danger">Inactive</span>
+                                    }
+                                </td>
+                                <td class="fc-text-right">
+                                    <div class="fc-actions">
+                                        <button class="fc-btn fc-btn--ghost" @onclick="() => OpenEditModal(lt)" type="button" title="Edit licence type">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                            Edit
+                                        </button>
+                                        @if (lt.IsActive)
+                                        {
+                                            <button class="fc-btn fc-btn--ghost fc-btn--danger" @onclick="() => ToggleActive(lt)" type="button" title="Deactivate licence type">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                                                Deactivate
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="fc-btn fc-btn--ghost" @onclick="() => ToggleActive(lt)" type="button" title="Activate licence type">
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                                Activate
+                                            </button>
+                                        }
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Create/Edit Modal -->
+<AppModal @bind-Visible="_showModal"
+          Title="@(_isNew ? "New Licence Type" : $"Edit: {_form.Code}")"
+          Subtitle="@(_isNew ? "Define a new licence category with module assignments" : "Update licence type details and module matrix")"
+          Size="lg">
+    <ChildContent>
+        @if (!string.IsNullOrEmpty(_formError))
+        {
+            <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@_formError" Dismissible="true" OnDismiss="() => _formError = null" />
+        }
+
+        <div class="fc-form-grid">
+            <div class="fc-form-group">
+                <label class="fc-form-label fc-form-label-required">Code</label>
+                <input class="fc-form-input" @bind="_form.Code" placeholder="e.g. MFB" maxlength="20" />
+            </div>
+            <div class="fc-form-group">
+                <label class="fc-form-label fc-form-label-required">Name</label>
+                <input class="fc-form-input" @bind="_form.Name" placeholder="e.g. Microfinance Bank" maxlength="200" />
+            </div>
+            <div class="fc-form-group">
+                <label class="fc-form-label fc-form-label-required">Regulator</label>
+                <input class="fc-form-input" @bind="_form.Regulator" placeholder="e.g. CBN" maxlength="50" />
+            </div>
+            <div class="fc-form-group">
+                <label class="fc-form-label">Display Order</label>
+                <input type="number" class="fc-form-input" @bind="_form.DisplayOrder" />
+            </div>
+        </div>
+        <div class="fc-form-group fc-mt-4">
+            <label class="fc-form-label">Description</label>
+            <textarea class="fc-form-input fc-textarea--resize-v" @bind="_form.Description" placeholder="Optional description of this licence type" rows="2"></textarea>
+        </div>
+
+        @if (_allModules.Any())
+        {
+            <div class="fc-mt-6">
+                <div class="fc-form-section-label">Module Matrix</div>
+                <p class="fc-text-muted-sm fc-mb-3">Select which modules are required or optional for this licence type.</p>
+                <div class="fc-code-preview">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Module</th>
+                                <th>Code</th>
+                                <th class="fc-text-center fc-th-w90">Required</th>
+                                <th class="fc-text-center fc-th-w90">Optional</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var m in _allModules)
+                            {
+                                var entry = _matrixEntries.FirstOrDefault(e => e.ModuleId == m.Id);
+                                <tr>
+                                    <td class="fc-fw-500">@m.ModuleName</td>
+                                    <td><code>@m.ModuleCode</code></td>
+                                    <td class="fc-text-center">
+                                        <input type="checkbox" checked="@(entry?.IsRequired ?? false)"
+                                               @onchange="e => SetMatrix(m.Id, true, (bool)(e.Value ?? false))" />
+                                    </td>
+                                    <td class="fc-text-center">
+                                        <input type="checkbox" checked="@(entry?.IsOptional ?? false)"
+                                               @onchange="e => SetMatrix(m.Id, false, (bool)(e.Value ?? false))" />
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    </ChildContent>
+    <FooterContent>
+        <button class="fc-btn fc-btn--outline" @onclick="CloseModal" type="button">Cancel</button>
+        <button class="fc-btn fc-btn--primary @(_saving ? "fc-btn--loading" : "")" @onclick="Save" disabled="@_saving" aria-busy="@(_saving ? "true" : null)" type="button">
+            @if (_saving)
+            {
+                <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
+            }
+            @(_isNew ? "Create Licence Type" : "Save Changes")
+        </button>
+    </FooterContent>
+</AppModal>
+
+@code {
+    private bool _loading = true;
+    private List<LicenceTypeRow> _licenceTypes = new();
+    private List<Module> _allModules = new();
+    private List<string> _regulators = new();
+
+    // Filters
+    private string _searchQuery = "";
+    private string _statusFilter = "";
+    private string _regulatorFilter = "";
+
+    // Modal state
+    private bool _showModal;
+    private bool _isNew;
+    private int? _editId;
+    private LicenceTypeForm _form = new();
+    private List<MatrixEntry> _matrixEntries = new();
+    private string? _formError;
+    private bool _saving;
+
+    private IEnumerable<LicenceTypeRow> FilteredLicenceTypes => _licenceTypes
+        .Where(lt => string.IsNullOrEmpty(_searchQuery) ||
+                     lt.Code.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                     lt.Name.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                     lt.Regulator.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(lt => string.IsNullOrEmpty(_statusFilter) ||
+                     (_statusFilter == "active" && lt.IsActive) ||
+                     (_statusFilter == "inactive" && !lt.IsActive))
+        .Where(lt => string.IsNullOrEmpty(_regulatorFilter) ||
+                     lt.Regulator == _regulatorFilter);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        _loading = false;
+    }
+
+    private async Task LoadData()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var types = await db.LicenceTypes
+            .AsNoTracking()
+            .OrderBy(lt => lt.DisplayOrder)
+            .ThenBy(lt => lt.Code)
+            .ToListAsync();
+
+        var moduleCounts = await db.LicenceModuleMatrix
+            .AsNoTracking()
+            .GroupBy(m => m.LicenceTypeId)
+            .Select(g => new
+            {
+                LicenceTypeId = g.Key,
+                Required = g.Count(x => x.IsRequired),
+                Optional = g.Count(x => x.IsOptional)
+            })
+            .ToListAsync();
+
+        var tenantCounts = await db.TenantLicenceTypes
+            .AsNoTracking()
+            .Where(t => t.IsActive)
+            .GroupBy(t => t.LicenceTypeId)
+            .Select(g => new { LicenceTypeId = g.Key, Count = g.Count() })
+            .ToListAsync();
+
+        _licenceTypes = types.Select(lt =>
+        {
+            var mc = moduleCounts.FirstOrDefault(m => m.LicenceTypeId == lt.Id);
+            var tc = tenantCounts.FirstOrDefault(t => t.LicenceTypeId == lt.Id);
+            return new LicenceTypeRow
+            {
+                Id = lt.Id,
+                Code = lt.Code,
+                Name = lt.Name,
+                Regulator = lt.Regulator,
+                Description = lt.Description,
+                IsActive = lt.IsActive,
+                DisplayOrder = lt.DisplayOrder,
+                RequiredModules = mc?.Required ?? 0,
+                OptionalModules = mc?.Optional ?? 0,
+                TenantCount = tc?.Count ?? 0
+            };
+        }).ToList();
+
+        _regulators = _licenceTypes
+            .Select(lt => lt.Regulator)
+            .Where(r => !string.IsNullOrWhiteSpace(r))
+            .Distinct()
+            .OrderBy(r => r)
+            .ToList();
+
+        _allModules = await db.Modules
+            .AsNoTracking()
+            .Where(m => m.IsActive)
+            .OrderBy(m => m.DisplayOrder)
+            .ToListAsync();
+    }
+
+    // --- Create / Edit Modal ---
+
+    private void OpenCreateModal()
+    {
+        _isNew = true;
+        _editId = null;
+        _form = new LicenceTypeForm();
+        _matrixEntries = new();
+        _formError = null;
+        _showModal = true;
+    }
+
+    private async Task OpenEditModal(LicenceTypeRow row)
+    {
+        _isNew = false;
+        _editId = row.Id;
+        _form = new LicenceTypeForm
+        {
+            Code = row.Code,
+            Name = row.Name,
+            Regulator = row.Regulator,
+            Description = row.Description,
+            DisplayOrder = row.DisplayOrder
+        };
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _matrixEntries = await db.LicenceModuleMatrix
+            .AsNoTracking()
+            .Where(m => m.LicenceTypeId == row.Id)
+            .Select(m => new MatrixEntry { ModuleId = m.ModuleId, IsRequired = m.IsRequired, IsOptional = m.IsOptional })
+            .ToListAsync();
+        _formError = null;
+        _showModal = true;
+    }
+
+    private void CloseModal()
+    {
+        _showModal = false;
+    }
+
+    private void SetMatrix(int moduleId, bool isRequiredField, bool value)
+    {
+        var entry = _matrixEntries.FirstOrDefault(e => e.ModuleId == moduleId);
+        if (entry is null)
+        {
+            entry = new MatrixEntry { ModuleId = moduleId };
+            _matrixEntries.Add(entry);
+        }
+
+        if (isRequiredField)
+            entry.IsRequired = value;
+        else
+            entry.IsOptional = value;
+    }
+
+    private async Task Save()
+    {
+        _formError = null;
+
+        if (string.IsNullOrWhiteSpace(_form.Code) || string.IsNullOrWhiteSpace(_form.Name))
+        {
+            _formError = "Code and Name are required.";
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            LicenceType entity;
+            if (_isNew)
+            {
+                entity = new LicenceType
+                {
+                    Code = _form.Code.Trim(),
+                    Name = _form.Name.Trim(),
+                    Regulator = _form.Regulator?.Trim() ?? string.Empty,
+                    Description = _form.Description?.Trim(),
+                    DisplayOrder = _form.DisplayOrder,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                db.LicenceTypes.Add(entity);
+                await db.SaveChangesAsync();
+            }
+            else
+            {
+                entity = await db.LicenceTypes.FindAsync(_editId)
+                    ?? throw new InvalidOperationException("Licence type not found.");
+                entity.Code = _form.Code.Trim();
+                entity.Name = _form.Name.Trim();
+                entity.Regulator = _form.Regulator?.Trim() ?? string.Empty;
+                entity.Description = _form.Description?.Trim();
+                entity.DisplayOrder = _form.DisplayOrder;
+                await db.SaveChangesAsync();
+            }
+
+            // Sync module matrix
+            var existing = await db.LicenceModuleMatrix
+                .Where(m => m.LicenceTypeId == entity.Id)
+                .ToListAsync();
+            db.LicenceModuleMatrix.RemoveRange(existing);
+
+            foreach (var entry in _matrixEntries.Where(e => e.IsRequired || e.IsOptional))
+            {
+                db.LicenceModuleMatrix.Add(new LicenceModuleMatrix
+                {
+                    LicenceTypeId = entity.Id,
+                    ModuleId = entry.ModuleId,
+                    IsRequired = entry.IsRequired,
+                    IsOptional = entry.IsOptional
+                });
+            }
+            await db.SaveChangesAsync();
+
+            Toast.Success(_isNew ? $"Licence type '{entity.Code}' created successfully." : $"Licence type '{entity.Code}' updated successfully.");
+            _showModal = false;
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _formError = $"Save failed: {ex.Message}";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    // --- Toggle Active ---
+
+    private async Task ToggleActive(LicenceTypeRow row)
+    {
+        var action = row.IsActive ? "Deactivate" : "Activate";
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = $"{action} Licence Type",
+            Message = $"{action} the licence type '{row.Name}'? {(row.IsActive ? "Tenants with this licence type will not be affected." : "This will make the licence type available again.")}",
+            ConfirmText = action,
+            IsDestructive = row.IsActive,
+            Icon = row.IsActive ? "archive" : "publish"
+        });
+
+        if (!confirmed) return;
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var entity = await db.LicenceTypes.FindAsync(row.Id);
+        if (entity is null) return;
+
+        entity.IsActive = !row.IsActive;
+        await db.SaveChangesAsync();
+        Toast.Success($"Licence type '{entity.Code}' {(entity.IsActive ? "activated" : "deactivated")}.");
+        await LoadData();
+    }
+
+    // --- View Models ---
+
+    private sealed class LicenceTypeRow
+    {
+        public int Id { get; set; }
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Regulator { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public bool IsActive { get; set; }
+        public int DisplayOrder { get; set; }
+        public int RequiredModules { get; set; }
+        public int OptionalModules { get; set; }
+        public int TenantCount { get; set; }
+    }
+
+    private sealed class LicenceTypeForm
+    {
+        public string Code { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string? Regulator { get; set; }
+        public string? Description { get; set; }
+        public int DisplayOrder { get; set; }
+    }
+
+    private sealed class MatrixEntry
+    {
+        public int ModuleId { get; set; }
+        public bool IsRequired { get; set; }
+        public bool IsOptional { get; set; }
+    }
+}

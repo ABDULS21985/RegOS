@@ -1,0 +1,169 @@
+@page "/platform/partners/onboard"
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Admin.Services
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject IPartnerManagementService PartnerService
+@inject ToastService Toast
+@inject NavigationManager Navigation
+
+<PageTitle>Partner Onboarding</PageTitle>
+
+<PageHeader Title="White-Label Partner Onboarding"
+            Subtitle="Registration, agreement capture, tier assignment, and activation." />
+
+<div class="fc-page">
+
+    <!-- Partner Details -->
+    <div class="fc-card">
+        <div class="fc-card__header"><h2 class="fc-card__title">Partner Details</h2></div>
+        <div class="fc-card__body">
+            <div class="fc-form-grid">
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Partner Name</label>
+                    <input class="fc-form-input" @bind="_request.TenantName" placeholder="e.g. Acme Financial Services" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Tenant Slug</label>
+                    <input class="fc-form-input" @bind="_request.TenantSlug" placeholder="e.g. acme-financial" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Contact Email</label>
+                    <input class="fc-form-input" type="email" @bind="_request.ContactEmail" placeholder="e.g. contact@acme.com" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Contact Phone</label>
+                    <input class="fc-form-input" type="tel" @bind="_request.ContactPhone" placeholder="e.g. +234 800 000 0000" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label">RC Number</label>
+                    <input class="fc-form-input" @bind="_request.RcNumber" placeholder="e.g. RC123456" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Tax ID</label>
+                    <input class="fc-form-input" @bind="_request.TaxId" placeholder="e.g. TIN-00000000-0001" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Subscription & Tier -->
+    <div class="fc-card">
+        <div class="fc-card__header"><h2 class="fc-card__title">Subscription &amp; Tier</h2></div>
+        <div class="fc-card__body">
+            <div class="fc-form-grid">
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Subscription Plan</label>
+                    <input class="fc-form-input" @bind="_request.SubscriptionPlanCode" placeholder="e.g. ENTERPRISE" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Partner Tier</label>
+                    <select class="fc-form-input" @bind="_request.PartnerTier">
+                        @foreach (var tier in Enum.GetValues<FC.Engine.Domain.Enums.PartnerTier>())
+                        {
+                            <option value="@tier">@tier</option>
+                        }
+                    </select>
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Billing Model</label>
+                    <select class="fc-form-input" @bind="_request.BillingModel">
+                        @foreach (var model in Enum.GetValues<PartnerBillingModel>())
+                        {
+                            <option value="@model">@model</option>
+                        }
+                    </select>
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Commission Rate</label>
+                    <input class="fc-form-input" type="number" step="0.0001" @bind="_request.CommissionRate" placeholder="e.g. 0.05" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Wholesale Discount</label>
+                    <input class="fc-form-input" type="number" step="0.0001" @bind="_request.WholesaleDiscount" placeholder="e.g. 0.10" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Max Sub-Tenants</label>
+                    <input class="fc-form-input" type="number" min="1" @bind="_request.MaxSubTenants" />
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Agreement & Admin -->
+    <div class="fc-card">
+        <div class="fc-card__header"><h2 class="fc-card__title">Agreement &amp; Admin</h2></div>
+        <div class="fc-card__body">
+            <div class="fc-form-grid">
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Agreement Version</label>
+                    <input class="fc-form-input" @bind="_request.AgreementVersion" placeholder="e.g. v1" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Admin Email</label>
+                    <input class="fc-form-input" type="email" @bind="_request.AdminEmail" placeholder="e.g. admin@acme.com" />
+                </div>
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Admin Full Name</label>
+                    <input class="fc-form-input" @bind="_request.AdminFullName" placeholder="e.g. John Doe" />
+                </div>
+            </div>
+
+            <div class="fc-mt-6 fc-flex-row--gap3">
+                <button class="fc-btn fc-btn--primary @(_busy ? "fc-btn--loading" : "")" @onclick="OnboardAsync" disabled="@_busy" aria-busy="@(_busy ? "true" : null)" type="button">
+                    @if (_busy)
+                    {
+                        <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
+                    }
+                    Onboard Partner
+                </button>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@code {
+    private bool _busy;
+
+    private PartnerOnboardingRequest _request = new()
+    {
+        SubscriptionPlanCode = "ENTERPRISE",
+        PartnerTier = FC.Engine.Domain.Enums.PartnerTier.Silver,
+        BillingModel = PartnerBillingModel.Direct,
+        MaxSubTenants = 10,
+        AgreementVersion = "v1",
+        AgreementSignedAt = DateTime.UtcNow
+    };
+
+    private async Task OnboardAsync()
+    {
+        _busy = true;
+
+        try
+        {
+            _request.AgreementSignedAt ??= DateTime.UtcNow;
+            var result = await PartnerService.OnboardPartner(_request);
+            if (!result.Success)
+            {
+                var errorMsg = result.Errors.Count > 0
+                    ? string.Join(" ", result.Errors)
+                    : "Partner onboarding failed.";
+                Toast.Error(errorMsg);
+                return;
+            }
+
+            Toast.Success($"Partner onboarded. Temporary admin password: {result.AdminTemporaryPassword}");
+            Navigation.NavigateTo($"/platform/tenants/{result.TenantId}");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

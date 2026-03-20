@@ -1,0 +1,659 @@
+@page "/dashboard/compliance"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject DashboardService DashboardSvc
+@inject ExportService ExportSvc
+@inject ChartJsInterop Charts
+@inject IJSRuntime JS
+@inject PortalSubmissionLaunchService SubmissionLaunchService
+
+<PageTitle>Compliance Dashboard — RegOS™ Portal</PageTitle>
+
+@if (_loading)
+{
+    <div class="portal-page">
+        <div class="portal-cdr-heroes">
+            @for (int i = 0; i < 4; i++)
+            {
+                <div class="portal-cdr-hero-card">
+                    <div class="portal-skeleton" style="width:72px;height:72px;border-radius:50%;"></div>
+                    <div style="flex:1">
+                        <div class="portal-skeleton portal-skeleton-text portal-skeleton-lg" style="margin-bottom:.5rem;"></div>
+                        <div class="portal-skeleton portal-skeleton-text portal-skeleton-sm"></div>
+                    </div>
+                </div>
+            }
+        </div>
+        <div class="portal-skeleton portal-skeleton-block" style="height:320px;border-radius:var(--radius-xl);"></div>
+    </div>
+}
+else if (_data is not null)
+{
+    <div class="portal-page portal-fsd-shell" id="printable-compliance-dashboard">
+
+        @{
+            var attentionModules = _data.ModuleBreakdowns.Count(x => x.ComplianceRate < 80m);
+            var bestModule = _data.ModuleBreakdowns.OrderByDescending(x => x.ComplianceRate).FirstOrDefault();
+            var worstModule = _data.ModuleBreakdowns.OrderBy(x => x.ComplianceRate).FirstOrDefault();
+            var onTimeTotal = _data.MonthlyBars.Sum(x => x.OnTime);
+            var missedTotal = _data.MonthlyBars.Sum(x => x.Missed);
+            var activeFilterCount = (string.IsNullOrWhiteSpace(_filterReturnCode) ? 0 : 1) + (string.IsNullOrWhiteSpace(_filterFrequency) ? 0 : 1);
+            var bannerTone = ResolveComplianceBannerTone(_data.Overdue, _data.QuarterChange, attentionModules);
+        }
+
+        <!-- ════════════════════════════════════════════════════
+             PAGE HEADER
+             ════════════════════════════════════════════════════ -->
+        <PortalPageHeader Breadcrumb="_breadcrumb"
+                          Title="Compliance Dashboard"
+                          Subtitle="@($"{_data.InstitutionName} · {_data.InstitutionCode} · Updated {_data.GeneratedAt:d MMM HH:mm}")">
+            <PrimaryAction>
+                <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="ExportPdf">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                        <polyline points="7 10 12 15 17 10"/>
+                        <line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>
+                    Download PDF
+                </button>
+            </PrimaryAction>
+            <SecondaryActions>
+                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="SendEmailAsync"
+                        disabled="@(_sendingEmail || _emailSent)">
+                    @if (_sendingEmail)
+                    {
+                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                        <span>Sending…</span>
+                    }
+                    else if (_emailSent)
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                        <span>Sent</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                            <polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                        <span>Send via Email</span>
+                    }
+                </button>
+            </SecondaryActions>
+        </PortalPageHeader>
+
+        <section class="portal-fsd-banner portal-fsd-banner--@bannerTone">
+            <div>
+                <span class="portal-fsd-eyebrow">Compliance pulse</span>
+                <h2 class="portal-fsd-banner-title">@BuildComplianceBannerHeadline(_data.Overdue, _data.QuarterChange, attentionModules)</h2>
+                <p class="portal-fsd-banner-copy">@BuildComplianceBannerCopy(_data.Overdue, _data.QuarterChange, attentionModules, bestModule)</p>
+            </div>
+            <div class="portal-fsd-banner-meta">
+                <span class="portal-fsd-meta-label">Current scope</span>
+                <strong class="portal-fsd-meta-value">@BuildFilterScopeLabel()</strong>
+                <span class="portal-fsd-meta-copy">@_data.ModuleBreakdowns.Count module@(_data.ModuleBreakdowns.Count == 1 ? "" : "s") included · Generated @_data.GeneratedAt.ToString("dd MMM HH:mm")</span>
+            </div>
+        </section>
+
+        <section class="portal-fsd-hero">
+            <div>
+                <span class="portal-fsd-eyebrow">Control narrative</span>
+                <h2 class="portal-fsd-hero-title">The institution’s compliance posture is visible, explainable, and ready for action.</h2>
+                <p class="portal-fsd-hero-copy">
+                    This dashboard blends live filing posture with a 12-month view of timeliness so operators can see whether the current
+                    period is a short-term wobble or part of a broader pattern.
+                </p>
+                <div class="portal-fsd-chip-row">
+                    <span class="portal-fsd-chip portal-fsd-chip--@(attentionModules > 0 ? "warning" : "success")">@attentionModules module@(attentionModules == 1 ? "" : "s") need attention</span>
+                    <span class="portal-fsd-chip portal-fsd-chip--@(_data.Overdue > 0 ? "danger" : "success")">@_data.Overdue overdue return@(_data.Overdue == 1 ? "" : "s")</span>
+                    <span class="portal-fsd-chip portal-fsd-chip--@(_data.IsTrendImproving ? "success" : _data.QuarterChange < 0 ? "warning" : "info")">@_data.QuarterChange.ToString("+0.#;-0.#;0") pt quarter change</span>
+                </div>
+            </div>
+            <div class="portal-fsd-hero-aside">
+                <div class="portal-fsd-note">
+                    <span class="portal-fsd-note-label">Best performer</span>
+                    <strong class="portal-fsd-note-value">@(bestModule?.ReturnCode ?? "N/A")</strong>
+                    <span class="portal-fsd-note-copy">@(bestModule is null ? "No module data available in the current scope." : $"{bestModule.ReturnName} at {bestModule.ComplianceRate:0.#}% compliance.")</span>
+                </div>
+                <div class="portal-fsd-note">
+                    <span class="portal-fsd-note-label">Watch item</span>
+                    <strong class="portal-fsd-note-value">@(worstModule?.ReturnCode ?? "Stable")</strong>
+                    <span class="portal-fsd-note-copy">@(worstModule is null ? "No weak module surfaced." : $"{worstModule.ReturnName} is the lowest performer at {worstModule.ComplianceRate:0.#}% compliance.")</span>
+                </div>
+            </div>
+        </section>
+
+        <section class="portal-fsd-stat-grid" aria-label="Compliance control metrics">
+            <article class="portal-fsd-stat">
+                <span class="portal-fsd-stat-label">Modules in scope</span>
+                <strong class="portal-fsd-stat-value">@_data.ModuleBreakdowns.Count</strong>
+                <p class="portal-fsd-stat-copy">Distinct return modules currently included by your filter scope.</p>
+            </article>
+            <article class="portal-fsd-stat">
+                <span class="portal-fsd-stat-label">On-time filings (12m)</span>
+                <strong class="portal-fsd-stat-value">@onTimeTotal</strong>
+                <p class="portal-fsd-stat-copy">Accepted on or before deadline across the trailing twelve-month view.</p>
+            </article>
+            <article class="portal-fsd-stat">
+                <span class="portal-fsd-stat-label">Missed periods (12m)</span>
+                <strong class="portal-fsd-stat-value">@missedTotal</strong>
+                <p class="portal-fsd-stat-copy">Missed filing windows still visible in the historical timeliness panel.</p>
+            </article>
+            <article class="portal-fsd-stat">
+                <span class="portal-fsd-stat-label">Active filters</span>
+                <strong class="portal-fsd-stat-value">@activeFilterCount</strong>
+                <p class="portal-fsd-stat-copy">Use module and frequency filters together to tighten the monitoring lens.</p>
+            </article>
+        </section>
+
+        <!-- ════════════════════════════════════════════════════
+             FILTER BAR
+             ════════════════════════════════════════════════════ -->
+        <div class="portal-cdr-filters no-print" role="group" aria-label="Compliance filters">
+            <span class="portal-cdr-filter-label">Filter:</span>
+
+            @* Module *@
+            <div class="portal-cdr-filter-field">
+                <label class="portal-sr-only" for="cdr-module-filter">Module</label>
+                <select id="cdr-module-filter" class="portal-form-select portal-form-select-sm"
+                        @bind="_filterReturnCode" @bind:after="RefreshAsync">
+                    <option value="">All Modules</option>
+                    @foreach (var rc in _data.AvailableReturnCodes)
+                    {
+                        <option value="@rc">@rc</option>
+                    }
+                </select>
+            </div>
+
+            @* Frequency *@
+            <div class="portal-cdr-filter-field">
+                <label class="portal-sr-only" for="cdr-freq-filter">Frequency</label>
+                <select id="cdr-freq-filter" class="portal-form-select portal-form-select-sm"
+                        @bind="_filterFrequency" @bind:after="RefreshAsync">
+                    <option value="">All Frequencies</option>
+                    @foreach (var freq in _data.AvailableFrequencies)
+                    {
+                        <option value="@freq">@freq</option>
+                    }
+                </select>
+            </div>
+
+            @if (!string.IsNullOrEmpty(_filterReturnCode) || !string.IsNullOrEmpty(_filterFrequency))
+            {
+                <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="ClearFiltersAsync">
+                    Clear filters
+                </button>
+            }
+
+            <span class="portal-cdr-filter-updated no-print">
+                Generated @_data.GeneratedAt.ToString("HH:mm")
+            </span>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════
+             HERO CARDS
+             ════════════════════════════════════════════════════ -->
+        <section class="portal-cdr-heroes" aria-label="Compliance metrics">
+
+            <!-- Compliance Rate — ring chart -->
+            <div class="portal-cdr-hero-card portal-cdr-hero-card--primary">
+                <div class="portal-cdr-ring" style="--pct: @_data.ComplianceRate; --ring-color: @GetRingColor(_data.ComplianceRate);"
+                     role="img" aria-label="Compliance rate: @_data.ComplianceRate%">
+                    <div class="portal-cdr-ring-inner">@_data.ComplianceRate%</div>
+                </div>
+                <div class="portal-cdr-hero-body">
+                    <span class="portal-cdr-hero-label">Compliance Rate</span>
+                    <span class="portal-badge portal-badge-sm @GetBadgeClass(_data.ComplianceRate)" style="margin-top:var(--space-1);">
+                        @GetBadgeLabel(_data.ComplianceRate)
+                    </span>
+                    <span class="portal-cdr-hero-sub">This period</span>
+                </div>
+            </div>
+
+            <!-- Returns Filed -->
+            <div class="portal-cdr-hero-card">
+                <div class="portal-cdr-hero-icon portal-cdr-hero-icon--filed" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <polyline points="9 15 11 17 15 13"/>
+                    </svg>
+                </div>
+                <div class="portal-cdr-hero-body">
+                    <span class="portal-cdr-hero-value">@_data.ReturnsFiled</span>
+                    <span class="portal-cdr-hero-label">Returns Filed</span>
+                    <span class="portal-cdr-hero-sub">This period</span>
+                </div>
+            </div>
+
+            <!-- Outstanding -->
+            <div class="portal-cdr-hero-card">
+                <div class="portal-cdr-hero-icon portal-cdr-hero-icon--outstanding" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                </div>
+                <div class="portal-cdr-hero-body">
+                    <span class="portal-cdr-hero-value">@_data.Outstanding</span>
+                    <span class="portal-cdr-hero-label">Outstanding</span>
+                    <span class="portal-cdr-hero-sub">Pending submission</span>
+                </div>
+            </div>
+
+            <!-- Overdue -->
+            <div class="portal-cdr-hero-card @(_data.Overdue > 0 ? "portal-cdr-hero-card--alert" : "")">
+                <div class="portal-cdr-hero-icon portal-cdr-hero-icon--overdue" aria-hidden="true">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                </div>
+                <div class="portal-cdr-hero-body">
+                    <span class="portal-cdr-hero-value @(_data.Overdue > 0 ? "portal-cdr-value--danger" : "")">@_data.Overdue</span>
+                    <span class="portal-cdr-hero-label">Overdue</span>
+                    <span class="portal-cdr-hero-sub">Past deadline</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ════════════════════════════════════════════════════
+             TREND CARD
+             ════════════════════════════════════════════════════ -->
+        <div class="portal-cdr-trend-card @(_data.IsTrendImproving ? "portal-cdr-trend-card--up" : "portal-cdr-trend-card--down")">
+            <div class="portal-cdr-trend-icon" aria-hidden="true">
+                @if (_data.IsTrendImproving)
+                {
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="18 15 12 9 6 15"/>
+                    </svg>
+                }
+                else
+                {
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                }
+            </div>
+            <div class="portal-cdr-trend-body">
+                @if (_data.IsTrendImproving)
+                {
+                    <strong>Your compliance rate is improving — +@Math.Abs(_data.QuarterChange)% vs last quarter</strong>
+                    <p>You're on track. Keep submitting returns on time to maintain your record.</p>
+                }
+                else if (_data.QuarterChange == 0)
+                {
+                    <strong>Compliance rate is holding steady this quarter</strong>
+                    <p>No change vs last quarter. Review outstanding returns to push above targets.</p>
+                }
+                else
+                {
+                    <strong>Compliance is declining — @Math.Abs(_data.QuarterChange)% below last quarter</strong>
+                    <p>Contact your compliance officer for assistance or <a href="@_primarySubmissionsHref" class="portal-cdr-trend-link">view outstanding returns</a>.</p>
+                }
+            </div>
+            @if (_data.ModuleBreakdowns.Any())
+            {
+                <div class="portal-cdr-trend-best">
+                    @{
+                        var best = _data.ModuleBreakdowns.OrderByDescending(m => m.ComplianceRate).First();
+                        var worst = _data.ModuleBreakdowns.OrderBy(m => m.ComplianceRate).First();
+                    }
+                    <div class="portal-cdr-trend-stat">
+                        <span class="portal-cdr-trend-stat-label">Best performing</span>
+                        <span class="portal-cdr-trend-stat-val portal-cdr-trend-stat-val--good">@best.ReturnCode (@best.ComplianceRate%)</span>
+                    </div>
+                    @if (_data.ModuleBreakdowns.Count > 1)
+                    {
+                        <div class="portal-cdr-trend-stat">
+                            <span class="portal-cdr-trend-stat-label">Needs attention</span>
+                            <span class="portal-cdr-trend-stat-val portal-cdr-trend-stat-val--warn">@worst.ReturnCode (@worst.ComplianceRate%)</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- ════════════════════════════════════════════════════
+             GROUPED BAR CHART — LAST 12 MONTHS
+             ════════════════════════════════════════════════════ -->
+        <div class="portal-card portal-cdr-chart-card">
+            <div class="portal-card-header">
+                <div>
+                    <h2 class="portal-card-title">Monthly Compliance — Last 12 Months</h2>
+                    <p class="portal-card-subtitle">Grouped by submission timeliness</p>
+                </div>
+                <div class="portal-cdr-chart-legend" aria-label="Chart legend">
+                    <span><span class="portal-cdr-legend-dot portal-cdr-legend-dot--on-time" aria-hidden="true"></span>On Time</span>
+                    <span><span class="portal-cdr-legend-dot portal-cdr-legend-dot--late" aria-hidden="true"></span>Late</span>
+                    <span><span class="portal-cdr-legend-dot portal-cdr-legend-dot--missed" aria-hidden="true"></span>Missed</span>
+                </div>
+            </div>
+            <div class="portal-cdr-chart-wrap">
+                <canvas id="complianceBarChart" aria-label="Monthly compliance grouped bar chart" role="img"></canvas>
+            </div>
+        </div>
+
+        <!-- ════════════════════════════════════════════════════
+             BY-MODULE BREAKDOWN TABLE
+             ════════════════════════════════════════════════════ -->
+        <div class="portal-card portal-card-flush portal-cdr-table-card">
+            <div class="portal-card-header">
+                <h2 class="portal-card-title">By-Module Breakdown</h2>
+                <span class="portal-cdr-table-badge">@_data.ModuleBreakdowns.Count module@(_data.ModuleBreakdowns.Count == 1 ? "" : "s")</span>
+            </div>
+
+            @if (_data.ModuleBreakdowns.Any())
+            {
+                <div class="portal-cdr-table-scroll">
+                    <table class="portal-report-table portal-cdr-table" aria-label="Compliance by module">
+                        <thead>
+                            <tr>
+                                <th scope="col">Module Code</th>
+                                <th scope="col">Return Name</th>
+                                <th scope="col">Frequency</th>
+                                <th scope="col" class="portal-th-num">Due</th>
+                                <th scope="col" class="portal-th-num">Submitted</th>
+                                <th scope="col">Compliance Rate</th>
+                                <th scope="col">6-Month Trend</th>
+                                <th scope="col">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _data.ModuleBreakdowns)
+                            {
+                                <tr class="portal-cdr-table-row">
+                                    <td class="portal-td-mono portal-cdr-td-code">@row.ReturnCode</td>
+                                    <td class="portal-cdr-td-name">@row.ReturnName</td>
+                                    <td>
+                                        <span class="portal-badge portal-badge-sm portal-badge-neutral">@row.Frequency</span>
+                                    </td>
+                                    <td class="portal-td-mono portal-th-num">@row.ReturnsDue</td>
+                                    <td class="portal-td-mono portal-th-num">@row.Submitted</td>
+                                    <td>
+                                        <div class="portal-cdr-rate-cell">
+                                            <div class="portal-cdr-rate-bar" aria-hidden="true">
+                                                <div class="portal-cdr-rate-fill @GetRateBarClass(row.ComplianceRate)"
+                                                     style="width: @(Math.Min(row.ComplianceRate, 100))%"></div>
+                                            </div>
+                                            <span class="portal-cdr-rate-value">@row.ComplianceRate%</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (row.TrendSparkline.Count >= 2)
+                                        {
+                                            <svg width="64" height="22" aria-label="6-month trend for @row.ReturnCode" role="img">
+                                                <polyline points="@BuildSparklinePoints(row.TrendSparkline)"
+                                                          fill="none"
+                                                          stroke="@GetSparklineColor(row.ComplianceRate)"
+                                                          stroke-width="1.5"
+                                                          stroke-linecap="round"
+                                                          stroke-linejoin="round" />
+                                            </svg>
+                                        }
+                                        else
+                                        {
+                                            <span class="portal-text-muted" style="font-size:.75rem;">No data</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <span class="portal-badge portal-badge-sm @GetBadgeClass(row.ComplianceRate)">
+                                            @GetBadgeLabel(row.ComplianceRate)
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+            else
+            {
+                <div class="portal-empty-state" style="padding: var(--space-8);">
+                    <p class="portal-empty-state-desc">No modules match the current filter.</p>
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ClearFiltersAsync">Clear filters</button>
+                </div>
+            }
+        </div>
+
+        <!-- print footer -->
+        <div class="portal-report-print-footer print-only">
+            Compliance Dashboard · @_data.InstitutionName (@_data.InstitutionCode)
+            · Generated @_data.GeneratedAt.ToString("dd MMM yyyy HH:mm") UTC · RegOS™ Portal
+        </div>
+
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    [SupplyParameterFromQuery(Name = "module")] private string? InitModule { get; set; }
+    [SupplyParameterFromQuery(Name = "freq")]   private string? InitFreq   { get; set; }
+
+    private ComplianceDashboardData? _data;
+    private bool  _loading       = true;
+    private bool  _chartRendered = false;
+    private bool  _sendingEmail  = false;
+    private bool  _emailSent     = false;
+
+    private string _filterReturnCode = "";
+    private string _filterFrequency  = "";
+
+    private int _institutionId;
+    private int _currentUserId;
+    private string _institutionName = "";
+    private string _institutionCode = "";
+    private string _primarySubmissionsHref = "/submissions";
+
+    private IReadOnlyList<BreadcrumbItem> _breadcrumb = Array.Empty<BreadcrumbItem>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState!;
+        int.TryParse(state.User.FindFirst("InstitutionId")?.Value, out _institutionId);
+        int.TryParse(state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value, out _currentUserId);
+        _institutionName = state.User.FindFirst("InstitutionName")?.Value ?? "";
+        _institutionCode = state.User.FindFirst("InstitutionCode")?.Value ?? "";
+        _primarySubmissionsHref = (await SubmissionLaunchService.ResolvePrimarySubmissionsAsync()).Href;
+
+        _filterReturnCode = InitModule ?? "";
+        _filterFrequency  = InitFreq  ?? "";
+
+        _breadcrumb = new BreadcrumbItem[]
+        {
+            new("Dashboard", "/",          IsCurrent: false),
+            new("Compliance", null,        IsCurrent: true)
+        };
+
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is null || _chartRendered) return;
+
+        var chartData = BuildBarChartData(_data.MonthlyBars);
+        await Charts.RenderBarChart("complianceBarChart", chartData);
+        _chartRendered = true;
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading       = true;
+        _chartRendered = false;
+        try
+        {
+            _data = await DashboardSvc.GetComplianceDashboardAsync(
+                _institutionId, _institutionName, _institutionCode,
+                string.IsNullOrEmpty(_filterReturnCode) ? null : _filterReturnCode,
+                string.IsNullOrEmpty(_filterFrequency)  ? null : _filterFrequency);
+        }
+        catch { /* swallow — show empty state */ }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        await LoadAsync();
+        StateHasChanged();
+    }
+
+    private async Task ClearFiltersAsync()
+    {
+        _filterReturnCode = "";
+        _filterFrequency  = "";
+        await RefreshAsync();
+    }
+
+    private async Task ExportPdf()
+        => await JS.InvokeVoidAsync("portalPrintElement", "printable-compliance-dashboard");
+
+    private async Task SendEmailAsync()
+    {
+        if (_sendingEmail || _emailSent || _institutionId == 0 || _currentUserId == 0) return;
+        _sendingEmail = true;
+        try
+        {
+            await ExportSvc.NotifyExportReady(
+                _institutionId, _currentUserId,
+                "Compliance Dashboard", "/dashboard/compliance");
+            _emailSent = true;
+            _ = Task.Delay(4000).ContinueWith(_ =>
+            {
+                _emailSent = false;
+                InvokeAsync(StateHasChanged);
+            });
+        }
+        catch { /* ignore */ }
+        finally { _sendingEmail = false; }
+    }
+
+    // ── Chart builders ───────────────────────────────────────────
+
+    private static TrendData BuildBarChartData(List<ComplianceBarMonth> bars)
+    {
+        return new TrendData
+        {
+            Labels = bars.Select(b => b.MonthLabel).ToList(),
+            Datasets =
+            {
+                new TrendDataset
+                {
+                    Label           = "On Time",
+                    Data            = bars.Select(b => (decimal)b.OnTime).ToList(),
+                    BackgroundColor = "#006B3F",
+                    BorderColor     = "#006B3F"
+                },
+                new TrendDataset
+                {
+                    Label           = "Late",
+                    Data            = bars.Select(b => (decimal)b.Late).ToList(),
+                    BackgroundColor = "#C8A415",
+                    BorderColor     = "#C8A415"
+                },
+                new TrendDataset
+                {
+                    Label           = "Missed",
+                    Data            = bars.Select(b => (decimal)b.Missed).ToList(),
+                    BackgroundColor = "#DC2626",
+                    BorderColor     = "#DC2626"
+                }
+            }
+        };
+    }
+
+    private static string BuildSparklinePoints(List<decimal> data)
+    {
+        if (data.Count < 2) return "";
+        const double W = 60.0;
+        const double H = 18.0;
+        double step = W / (data.Count - 1);
+        return string.Join(" ", data.Select((v, i) =>
+            $"{(i * step):F1},{(H - (double)v / 100 * H):F1}"));
+    }
+
+    // ── Style helpers ─────────────────────────────────────────────
+
+    private static string GetRingColor(decimal rate) => rate switch
+    {
+        >= 95 => "#006B3F",
+        >= 80 => "#C8A415",
+        _     => "#DC2626"
+    };
+
+    private static string GetBadgeClass(decimal rate) => rate switch
+    {
+        >= 95 => "portal-badge-success",
+        >= 80 => "portal-badge-warning",
+        _     => "portal-badge-danger"
+    };
+
+    private static string GetBadgeLabel(decimal rate) => rate switch
+    {
+        >= 95 => "Excellent",
+        >= 80 => "Good",
+        _     => "Needs Attention"
+    };
+
+    private static string GetRateBarClass(decimal rate) => rate switch
+    {
+        >= 95 => "portal-cdr-rate-fill--excellent",
+        >= 80 => "portal-cdr-rate-fill--good",
+        _     => "portal-cdr-rate-fill--attention"
+    };
+
+    private static string GetSparklineColor(decimal rate) => rate switch
+    {
+        >= 95 => "#006B3F",
+        >= 80 => "#C8A415",
+        _     => "#DC2626"
+    };
+
+    private static string ResolveComplianceBannerTone(int overdue, decimal quarterChange, int attentionModules)
+    {
+        if (overdue > 0 || quarterChange <= -5m) return "danger";
+        if (attentionModules > 0 || quarterChange < 0) return "warning";
+        return "success";
+    }
+
+    private static string BuildComplianceBannerHeadline(int overdue, decimal quarterChange, int attentionModules)
+    {
+        if (overdue > 0)
+            return $"{overdue} overdue filing{(overdue == 1 ? "" : "s")} require immediate operator attention.";
+
+        if (quarterChange <= -5m)
+            return "Compliance performance is falling sharply against the last quarter.";
+
+        if (attentionModules > 0)
+            return $"{attentionModules} module{(attentionModules == 1 ? "" : "s")} are slipping below the preferred compliance band.";
+
+        return "The current compliance posture is stable and within the preferred operating band.";
+    }
+
+    private static string BuildComplianceBannerCopy(int overdue, decimal quarterChange, int attentionModules, ComplianceModuleBreakdown? bestModule)
+    {
+        if (overdue > 0)
+            return "Use the module breakdown and monthly history together to identify whether the overdue count is concentrated in one return family or spread across operational teams.";
+
+        if (quarterChange < 0)
+            return $"Quarter-on-quarter performance moved {quarterChange:+0.#;-0.#;0} points. The strongest current module is {(bestModule?.ReturnCode ?? "not available")}, which provides the clearest benchmark for recovery.";
+
+        return $"No overdue exposure is visible right now, and {(bestModule?.ReturnCode ?? "the current lead module")} is setting the pace for the rest of the institution.";
+    }
+
+    private string BuildFilterScopeLabel()
+    {
+        var moduleLabel = string.IsNullOrWhiteSpace(_filterReturnCode) ? "All modules" : _filterReturnCode;
+        var frequencyLabel = string.IsNullOrWhiteSpace(_filterFrequency) ? "All frequencies" : _filterFrequency;
+        return $"{moduleLabel} · {frequencyLabel}";
+    }
+}

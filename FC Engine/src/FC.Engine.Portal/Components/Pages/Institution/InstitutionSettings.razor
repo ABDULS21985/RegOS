@@ -1,0 +1,237 @@
+@page "/institution/settings"
+@attribute [Authorize(Policy = "InstitutionAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+
+<PageTitle>Institution Settings — RegOS™ Portal</PageTitle>
+
+<div class="portal-page">
+    <PortalPageHeader Title="Settings"
+                      Subtitle="Configure your institution's portal preferences"
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Institution", "/institution"), new("Settings", IsCurrent: true) })"
+                      BackUrl="/institution" />
+
+    <!-- Sub-nav -->
+    <nav class="portal-inst-subnav" aria-label="Institution sections">
+        <a href="/institution" class="portal-inst-subnav-item">Profile</a>
+        <a href="/institution/team" class="portal-inst-subnav-item">Team Members</a>
+        <a href="/institution/settings" class="portal-inst-subnav-item portal-inst-subnav-item-active">Settings</a>
+    </nav>
+
+    @if (isLoading)
+    {
+        <div aria-busy="true" aria-label="Loading settings">
+            <div class="portal-card" style="padding: 2rem;">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.FormField" Index="0" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.FormField" Index="3" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.FormField" Index="6" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.FormField" Index="9" />
+            </div>
+        </div>
+    }
+    else
+    {
+        @if (!string.IsNullOrEmpty(saveMessage))
+        {
+            <div class="portal-alert @(saveSuccess ? "portal-alert-success" : "portal-alert-error")" role="alert" style="margin-bottom: 1rem;">
+                @saveMessage
+            </div>
+        }
+
+        <!-- Approval Workflow -->
+        <div class="portal-card portal-form-section">
+            <h3 class="portal-form-section-title">Approval Workflow</h3>
+            <p class="portal-settings-section-desc">
+                Control whether submissions require dual authorization (maker-checker) before being officially accepted.
+            </p>
+
+            <div class="portal-inst-toggle-row">
+                <div class="portal-inst-toggle-info">
+                    <span class="portal-inst-toggle-label">Maker-Checker Approval</span>
+                    <span class="portal-inst-toggle-desc">
+                        When enabled, a Maker submits the return and a Checker must review and approve it before it is officially submitted to CBN.
+                    </span>
+                </div>
+                <label class="portal-toggle" aria-label="Toggle maker-checker approval">
+                    <input type="checkbox" @bind="makerCheckerEnabled" @bind:after="OnMakerCheckerChanged" />
+                    <span class="portal-toggle-slider"></span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Notification Preferences -->
+        <div class="portal-card portal-form-section">
+            <h3 class="portal-form-section-title">Notification Preferences</h3>
+            <p class="portal-settings-section-desc">
+                Configure email notifications for your institution's users.
+            </p>
+
+            <div class="portal-inst-toggle-row">
+                <div class="portal-inst-toggle-info">
+                    <span class="portal-inst-toggle-label">Submission Results</span>
+                    <span class="portal-inst-toggle-desc">Receive email when a submission is accepted, rejected, or has warnings.</span>
+                </div>
+                <label class="portal-toggle" aria-label="Toggle submission result emails">
+                    <input type="checkbox" @bind="settings.EmailOnSubmissionResult" />
+                    <span class="portal-toggle-slider"></span>
+                </label>
+            </div>
+
+            <div class="portal-inst-toggle-row">
+                <div class="portal-inst-toggle-info">
+                    <span class="portal-inst-toggle-label">Deadline Reminders</span>
+                    <span class="portal-inst-toggle-desc">Receive email when a reporting deadline is approaching.</span>
+                </div>
+                <label class="portal-toggle" aria-label="Toggle deadline reminder emails">
+                    <input type="checkbox" @bind="settings.EmailOnDeadlineApproaching" />
+                    <span class="portal-toggle-slider"></span>
+                </label>
+            </div>
+
+            @if (settings.EmailOnDeadlineApproaching)
+            {
+                <div class="portal-form-group" style="max-width: 300px; margin-top: 0.75rem;">
+                    <label for="reminderDays" class="portal-form-label">Remind before deadline (days)</label>
+                    <select id="reminderDays" class="portal-form-select" @bind="settings.DeadlineReminderDays">
+                        <option value="1">1 day</option>
+                        <option value="3">3 days</option>
+                        <option value="5">5 days</option>
+                        <option value="7">7 days</option>
+                    </select>
+                </div>
+            }
+        </div>
+
+        <!-- Submission Preferences -->
+        <div class="portal-card portal-form-section">
+            <h3 class="portal-form-section-title">Submission Preferences</h3>
+            <p class="portal-settings-section-desc">
+                Set default options for return submissions.
+            </p>
+
+            <div class="portal-form-group" style="max-width: 400px;">
+                <label for="defaultFormat" class="portal-form-label">Default Submission Format</label>
+                <select id="defaultFormat" class="portal-form-select" @bind="settings.DefaultSubmissionFormat">
+                    <option value="XmlUpload">XML File Upload</option>
+                    <option value="ManualEntry">Manual Data Entry</option>
+                </select>
+                <span class="portal-form-hint">This sets the default tab when submitting a return. Users can always switch.</span>
+            </div>
+        </div>
+
+        <!-- Session & Display -->
+        <div class="portal-card portal-form-section">
+            <h3 class="portal-form-section-title">Session & Display</h3>
+            <p class="portal-settings-section-desc">
+                Configure session timeout and display preferences.
+            </p>
+
+            <div class="portal-form-grid" style="max-width: 600px;">
+                <div class="portal-form-group">
+                    <label for="sessionTimeout" class="portal-form-label">Session Timeout</label>
+                    <select id="sessionTimeout" class="portal-form-select" @bind="settings.SessionTimeoutHours">
+                        <option value="2">2 hours</option>
+                        <option value="4">4 hours</option>
+                        <option value="8">8 hours</option>
+                    </select>
+                    <span class="portal-form-hint">How long users stay logged in without activity.</span>
+                </div>
+                <div class="portal-form-group">
+                    <label for="timezone" class="portal-form-label">Timezone</label>
+                    <select id="timezone" class="portal-form-select" @bind="settings.TimezoneId">
+                        <option value="Africa/Lagos">Africa/Lagos (WAT, UTC+1)</option>
+                        <option value="UTC">UTC</option>
+                        <option value="Europe/London">Europe/London (GMT/BST)</option>
+                    </select>
+                    <span class="portal-form-hint">Used for displaying deadlines and timestamps.</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Save Button -->
+        <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+            <button class="portal-btn portal-btn-primary" @onclick="SaveSettings" disabled="@isSaving">
+                @if (isSaving)
+                {
+                    <span class="portal-btn-spinner" aria-hidden="true"></span>
+                    <span>Saving...</span>
+                }
+                else { <span>Save Settings</span> }
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+    private bool isSaving;
+    private int institutionId;
+    private bool makerCheckerEnabled;
+    private InstitutionPortalSettings settings = new();
+    private string? saveMessage;
+    private bool saveSuccess;
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Inject] private InstitutionManagementService MgmtSvc { get; set; } = default!;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            int.TryParse(instIdStr, out institutionId);
+
+            settings = await MgmtSvc.GetSettings(institutionId);
+
+            var profile = await MgmtSvc.GetProfile(institutionId);
+            makerCheckerEnabled = profile?.MakerCheckerEnabled ?? false;
+        }
+        catch (Exception ex)
+        {
+            saveMessage = $"Failed to load settings: {ex.Message}";
+            saveSuccess = false;
+        }
+        finally { isLoading = false; }
+    }
+
+    private async Task OnMakerCheckerChanged()
+    {
+        try
+        {
+            var ok = await MgmtSvc.SetMakerChecker(institutionId, makerCheckerEnabled);
+            if (!ok)
+            {
+                makerCheckerEnabled = !makerCheckerEnabled;
+                saveMessage = "Failed to update maker-checker setting.";
+                saveSuccess = false;
+            }
+        }
+        catch
+        {
+            makerCheckerEnabled = !makerCheckerEnabled;
+            saveMessage = "An error occurred updating maker-checker setting.";
+            saveSuccess = false;
+        }
+    }
+
+    private async Task SaveSettings()
+    {
+        isSaving = true;
+        saveMessage = null;
+        StateHasChanged();
+
+        try
+        {
+            var ok = await MgmtSvc.SaveSettings(institutionId, settings);
+            saveMessage = ok ? "Settings saved successfully." : "Failed to save settings.";
+            saveSuccess = ok;
+        }
+        catch
+        {
+            saveMessage = "An error occurred while saving settings.";
+            saveSuccess = false;
+        }
+        finally { isSaving = false; StateHasChanged(); }
+    }
+}

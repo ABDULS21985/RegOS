@@ -1,0 +1,304 @@
+@page "/modules/{ModuleCode}"
+@attribute [Authorize(Roles = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using FC.Engine.Admin.Utilities
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Metadata
+@using FC.Engine.Admin.Services
+@using FC.Engine.Infrastructure.Metadata
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<MetadataDbContext> DbFactory
+@inject IModuleImportService ModuleImportService
+@inject NavigationManager Navigation
+@inject ToastService Toast
+@inject DialogService Dialog
+
+<PageTitle>Module: @ModuleCode</PageTitle>
+
+<PageHeader Title="@(_module?.ModuleName ?? ModuleCode)"
+            Subtitle="@(_module != null ? $"{_module.RegulatorCode} regulatory module with {_module.SheetCount} template sheet(s)." : null)"
+            StatusBadge="@(_module != null ? (_module.IsActive ? "Active" : "Inactive") : null)"
+            StatusVariant="@(_module?.IsActive == true ? "success" : "neutral")"
+            BackUrl="/modules">
+    <PrimaryAction>
+        @if (!_loading && _templateRows.Count == 0)
+        {
+            <button class="fc-btn fc-btn--outline" @onclick="OpenImport" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Import Definition
+            </button>
+        }
+        else if (!_loading)
+        {
+            <button class="fc-btn fc-btn--outline" disabled title="Module updates via re-import are not yet supported. Use the versioned update workflow." type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                Import Update
+            </button>
+        }
+        <button class="fc-btn fc-btn--gold" disabled="@_publishing" @onclick="PublishDrafts" type="button">
+            @if (_publishing)
+            {
+                <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
+            }
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0018 9h-1.26A8 8 0 103 16.3"/></svg>
+            Publish Drafts
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <!-- Content -->
+    @if (_loading)
+    {
+        <div class="fc-card fc-card--mb">
+            <div class="fc-card__body fc-card-body--flush">
+                <table class="fc-table">
+                    <thead><tr><th>Version</th><th>Status</th><th>Published</th><th>Deprecated</th></tr></thead>
+                    <tbody>
+                        @for (var i = 0; i < 3; i++)
+                        {
+                            <tr>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:60px"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:60px"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:120px"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:120px"></div></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+    else if (_module is null)
+    {
+        <div class="fc-empty">
+            <div class="fc-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <h3 class="fc-empty-title">Module not found</h3>
+            <p class="fc-empty-text">The module code "@ModuleCode" does not exist in the registry.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Module Versions -->
+        <div class="fc-card fc-card--mb">
+            <div class="fc-card__header"><h2 class="fc-card__title">Module Versions</h2></div>
+            <div class="fc-card__body fc-card-body--flush">
+                @if (_moduleVersions.Count == 0)
+                {
+                    <div class="fc-table-empty-cell">No module version records yet.</div>
+                }
+                else
+                {
+                    <table class="fc-table">
+                        <thead><tr><th>Version</th><th>Status</th><th>Published</th><th>Deprecated</th></tr></thead>
+                        <tbody>
+                            @foreach (var version in _moduleVersions)
+                            {
+                                <tr>
+                                    <td><code>@version.VersionCode</code></td>
+                                    <td>
+                                        <span class="fc-badge @GetVersionBadge(version.Status)">@version.Status</span>
+                                    </td>
+                                    <td>@(version.PublishedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</td>
+                                    <td>@(version.DeprecatedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+
+        <!-- Templates -->
+        <div class="fc-card">
+            <div class="fc-card__header"><h2 class="fc-card__title">Templates</h2></div>
+            <div class="fc-card__body fc-card-body--flush">
+                @if (_templateRows.Count == 0)
+                {
+                    <div class="fc-table-empty-cell">No templates are linked to this module.</div>
+                }
+                else
+                {
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Return Code</th>
+                                <th>Name</th>
+                                <th>Latest Version</th>
+                                <th>Status</th>
+                                <th>Fields</th>
+                                <th>Formulas</th>
+                                <th>Table</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _templateRows)
+                            {
+                                <tr>
+                                    <td><code>@row.ReturnCode</code></td>
+                                    <td class="fc-fw-500">@row.Name</td>
+                                    <td><span class="fc-badge fc-badge--neutral">v@row.VersionNumber</span></td>
+                                    <td><span class="fc-badge @GetTemplateBadge(row.Status)">@row.Status</span></td>
+                                    <td><span class="fc-badge fc-badge--neutral">@row.FieldCount</span></td>
+                                    <td><span class="fc-badge fc-badge--neutral">@row.FormulaCount</span></td>
+                                    <td><code class="fc-code-sm">@row.PhysicalTableName</code></td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string ModuleCode { get; set; } = string.Empty;
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _publishing;
+    private FC.Engine.Domain.Entities.Module? _module;
+    private List<FC.Engine.Domain.Entities.ModuleVersion> _moduleVersions = new();
+    private List<TemplateRow> _templateRows = new();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        await using var db = await DbFactory.CreateDbContextAsync();
+
+        _module = await db.Modules
+            .AsNoTracking()
+            .FirstOrDefaultAsync(m => m.ModuleCode == ModuleCode);
+
+        if (_module != null)
+        {
+            _moduleVersions = await db.ModuleVersions
+                .AsNoTracking()
+                .Where(v => v.ModuleId == _module.Id)
+                .OrderByDescending(v => v.Id)
+                .ToListAsync();
+
+            var templates = await db.ReturnTemplates
+                .AsNoTracking()
+                .Where(t => t.ModuleId == _module.Id)
+                .OrderBy(t => t.ReturnCode)
+                .ToListAsync();
+
+            var templateIds = templates.Select(t => t.Id).ToList();
+            var versions = await db.TemplateVersions
+                .AsNoTracking()
+                .Where(v => templateIds.Contains(v.TemplateId))
+                .OrderByDescending(v => v.VersionNumber)
+                .ToListAsync();
+            var versionIds = versions.Select(v => v.Id).ToList();
+
+            var fieldCounts = await db.TemplateFields
+                .AsNoTracking()
+                .Where(f => versionIds.Contains(f.TemplateVersionId))
+                .GroupBy(f => f.TemplateVersionId)
+                .Select(g => new { VersionId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.VersionId, x => x.Count);
+
+            var formulaCounts = await db.IntraSheetFormulas
+                .AsNoTracking()
+                .Where(f => versionIds.Contains(f.TemplateVersionId) && f.IsActive)
+                .GroupBy(f => f.TemplateVersionId)
+                .Select(g => new { VersionId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.VersionId, x => x.Count);
+
+            _templateRows = templates.Select(t =>
+            {
+                var latest = versions.FirstOrDefault(v => v.TemplateId == t.Id);
+                return new TemplateRow
+                {
+                    ReturnCode = t.ReturnCode,
+                    Name = t.Name,
+                    PhysicalTableName = t.PhysicalTableName,
+                    VersionNumber = latest?.VersionNumber ?? 0,
+                    Status = latest?.Status.ToString() ?? "N/A",
+                    FieldCount = latest != null && fieldCounts.TryGetValue(latest.Id, out var f) ? f : 0,
+                    FormulaCount = latest != null && formulaCounts.TryGetValue(latest.Id, out var fm) ? fm : 0
+                };
+            }).ToList();
+        }
+
+        _loading = false;
+    }
+
+    private void OpenImport() => Navigation.NavigateTo("/modules/import");
+
+    private async Task PublishDrafts()
+    {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Publish Module Drafts",
+            Message = $"Publish all draft templates for module '{ModuleCode}'? This will create physical database tables.",
+            ConfirmText = "Publish",
+            IsDestructive = false,
+            Icon = "publish"
+        });
+
+        if (!confirmed) return;
+
+        _publishing = true;
+        try
+        {
+            var result = await ModuleImportService.PublishModule(ModuleCode, await ResolveCurrentActorAsync());
+            if (result.Success)
+            {
+                Toast.Success($"Module {ModuleCode} published. Tables created: {result.TablesCreated}.", "Publish Complete");
+                await OnParametersSetAsync();
+            }
+            else
+            {
+                Toast.Error(string.Join("; ", result.Errors), "Publish failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Publish failed");
+        }
+        finally
+        {
+            _publishing = false;
+        }
+    }
+
+    private async Task<string> ResolveCurrentActorAsync()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+
+    private static string GetVersionBadge(string status) => status switch
+    {
+        "Published" => "fc-badge--success",
+        "Draft" => "fc-badge--warning",
+        "Deprecated" => "fc-badge--danger",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string GetTemplateBadge(string status) => status switch
+    {
+        "Published" => "fc-badge--success",
+        "Draft" => "fc-badge--warning",
+        "Deprecated" => "fc-badge--danger",
+        _ => "fc-badge--neutral"
+    };
+
+    private sealed class TemplateRow
+    {
+        public string ReturnCode { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string PhysicalTableName { get; set; } = string.Empty;
+        public int VersionNumber { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public int FieldCount { get; set; }
+        public int FormulaCount { get; set; }
+    }
+}

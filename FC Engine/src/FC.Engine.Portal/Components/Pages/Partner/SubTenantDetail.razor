@@ -1,0 +1,316 @@
+@page "/partner/sub-tenants/{SubTenantId:guid}"
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.ValueObjects
+@attribute [Authorize(Roles = "Admin")]
+@inject FC.Engine.Portal.Services.PartnerPortalService PartnerService
+@inject ITenantContext TenantContext
+
+<PageTitle>Sub-Tenant Detail</PageTitle>
+
+<PortalPageHeader Title="Sub-Tenant Detail"
+                  Subtitle="Manage users, submissions, and branding for this client tenant."
+                  BackUrl="/partner/sub-tenants"
+                  Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Partner", "/partner"), new("Sub-Tenants", "/partner/sub-tenants"), new("Detail", IsCurrent: true) })" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="portal-alert portal-alert-success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
+
+@if (_loading)
+{
+    <div aria-busy="true" aria-label="Loading sub-tenant detail">
+        <div class="portal-grid portal-grid-2" style="margin-bottom:1rem;">
+            <div class="portal-card"><div class="portal-card-body">
+                <div class="fc-skel fc-skel--text" style="width:30%;margin-bottom:0.75rem;"></div>
+                @for (int i = 0; i < 5; i++)
+                {
+                    <div style="display:flex;gap:0.75rem;margin-bottom:0.5rem;">
+                        <div class="fc-skel fc-skel--text" style="width:25%;"></div>
+                        <div class="fc-skel fc-skel--text" style="width:55%;"></div>
+                    </div>
+                }
+            </div></div>
+            <div class="portal-card"><div class="portal-card-body">
+                <div class="fc-skel fc-skel--text" style="width:30%;margin-bottom:0.75rem;"></div>
+                @for (int i = 0; i < 4; i++)
+                {
+                    <div style="display:flex;gap:0.75rem;margin-bottom:0.5rem;">
+                        <div class="fc-skel fc-skel--text" style="width:25%;"></div>
+                        <div class="fc-skel fc-skel--text" style="width:55%;"></div>
+                    </div>
+                }
+            </div></div>
+        </div>
+        <div class="portal-card"><div class="portal-card-body">
+            <div class="fc-skel fc-skel--text" style="width:25%;margin-bottom:0.75rem;"></div>
+            <div class="fc-skel fc-skel--block" style="height:100px;"></div>
+        </div></div>
+    </div>
+}
+else if (!_isPartner)
+{
+    <div class="portal-card"><div class="portal-card-body">This tenant is not configured as a white-label partner.</div></div>
+}
+else
+{
+    <div class="portal-grid portal-grid-2">
+        <section class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Users</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-grid portal-grid-2" style="margin-bottom: 1rem;">
+                    <div class="portal-form-row"><label>Display Name</label><input class="portal-input" @bind="_newUser.DisplayName" /></div>
+                    <div class="portal-form-row"><label>Username</label><input class="portal-input" @bind="_newUser.Username" /></div>
+                    <div class="portal-form-row"><label>Email</label><input class="portal-input" type="email" @bind="_newUser.Email" /></div>
+                    <div class="portal-form-row">
+                        <label>Role</label>
+                        <select class="portal-input" @bind="_newUser.Role">
+                            @foreach (var role in Enum.GetNames<InstitutionRole>())
+                            {
+                                <option value="@role">@role</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="portal-form-row"><label>Temporary Password</label><input class="portal-input" type="password" @bind="_newUser.TemporaryPassword" /></div>
+                    <div class="portal-form-row" style="display:flex; align-items:end;">
+                        <button class="portal-btn portal-btn-primary" @onclick="CreateUser" disabled="@_busy">Create User</button>
+                    </div>
+                </div>
+
+                @if (_users.Count == 0)
+                {
+                    <p>No users found for this sub-tenant.</p>
+                }
+                else
+                {
+                    <table class="portal-table">
+                        <thead>
+                            <tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in _users)
+                            {
+                                <tr>
+                                    <td>@user.DisplayName</td>
+                                    <td>@user.Email</td>
+                                    <td>@user.Role</td>
+                                    <td>@(user.IsActive ? "Active" : "Disabled")</td>
+                                    <td>@(user.LastLoginAt?.ToString("dd MMM yyyy HH:mm") ?? "-")</td>
+                                    <td>
+                                        @if (user.IsActive)
+                                        {
+                                            <button class="portal-btn portal-btn-sm" style="background:#b91c1c;color:#fff;" @onclick="() => ToggleUserStatus(user.UserId, false)" disabled="@_busy">Deactivate</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="portal-btn portal-btn-sm" style="background:#166534;color:#fff;" @onclick="() => ToggleUserStatus(user.UserId, true)" disabled="@_busy">Activate</button>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </div>
+        </section>
+
+        <section class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Branding</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-form-row"><label>Company Name</label><input class="portal-input" @bind="_branding.CompanyName" /></div>
+                <div class="portal-form-row"><label>Primary Color</label><input class="portal-input" @bind="_branding.PrimaryColor" /></div>
+                <div class="portal-form-row"><label>Secondary Color</label><input class="portal-input" @bind="_branding.SecondaryColor" /></div>
+                <div class="portal-form-row"><label>Support Email</label><input class="portal-input" @bind="_branding.SupportEmail" /></div>
+                <div class="portal-form-row"><label>Support Phone</label><input class="portal-input" @bind="_branding.SupportPhone" /></div>
+                <button class="portal-btn portal-btn-primary" @onclick="SaveBranding" disabled="@_busy">Save Branding</button>
+            </div>
+        </section>
+    </div>
+
+    <section class="portal-card">
+        <div class="portal-card-header"><h2 class="portal-card-title">Recent Submissions</h2></div>
+        <div class="portal-card-body">
+            @if (_submissions.Count == 0)
+            {
+                <p>No submissions found.</p>
+            }
+            else
+            {
+                <table class="portal-table">
+                    <thead>
+                        <tr><th>Reference</th><th>Return</th><th>Status</th><th>Created</th><th>Submitted</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in _submissions)
+                        {
+                            <tr>
+                                <td>@(row.ReturnReference ?? $"SUB-{row.SubmissionId}")</td>
+                                <td>@row.ReturnCode</td>
+                                <td>@row.Status</td>
+                                <td>@row.CreatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>@(row.SubmittedAt?.ToString("dd MMM yyyy HH:mm") ?? "-")</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    [Parameter] public Guid SubTenantId { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _isPartner;
+    private string? _message;
+    private string? _error;
+
+    private BrandingConfig _branding = BrandingConfig.WithDefaults();
+    private List<PartnerSubTenantUserSummary> _users = new();
+    private List<PartnerSubTenantSubmissionSummary> _submissions = new();
+    private PartnerSubTenantUserCreateRequest _newUser = new()
+    {
+        Role = InstitutionRole.Maker.ToString()
+    };
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            if (!TenantContext.CurrentTenantId.HasValue)
+            {
+                _error = "Tenant context is not available.";
+                return;
+            }
+
+            var partnerTenantId = TenantContext.CurrentTenantId.Value;
+            _isPartner = await PartnerService.IsPartnerTenant(partnerTenantId);
+            if (!_isPartner)
+            {
+                return;
+            }
+
+            _users = await PartnerService.GetSubTenantUsers(partnerTenantId, SubTenantId);
+            _submissions = await PartnerService.GetSubTenantSubmissions(partnerTenantId, SubTenantId, 25);
+            _branding = await PartnerService.GetSubTenantBranding(partnerTenantId, SubTenantId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveBranding()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            await PartnerService.UpdateSubTenantBranding(TenantContext.CurrentTenantId.Value, SubTenantId, _branding);
+            _message = "Sub-tenant branding updated.";
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreateUser()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            await PartnerService.CreateSubTenantUser(
+                TenantContext.CurrentTenantId.Value,
+                SubTenantId,
+                _newUser);
+
+            _message = "Sub-tenant user created.";
+            _newUser = new PartnerSubTenantUserCreateRequest
+            {
+                Role = InstitutionRole.Maker.ToString()
+            };
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ToggleUserStatus(int userId, bool isActive)
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            await PartnerService.SetSubTenantUserStatus(
+                TenantContext.CurrentTenantId.Value,
+                SubTenantId,
+                userId,
+                isActive);
+
+            _message = isActive ? "User activated." : "User deactivated.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

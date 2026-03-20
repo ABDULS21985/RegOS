@@ -1,0 +1,1293 @@
+@page "/institution/team"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Portal.Utilities
+@implements IAsyncDisposable
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<PageTitle>Team Members — RegOS™ Portal</PageTitle>
+
+<div class="portal-page">
+    <PortalPageHeader Breadcrumb="_bc" BackUrl="/institution">
+        <PrimaryAction>
+            @if (isAdmin && userCount.current < userCount.max)
+            {
+                <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="OpenInviteDrawer">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
+                    </svg>
+                    Invite Member
+                </button>
+            }
+        </PrimaryAction>
+        <SecondaryActions>
+            @if (isAdmin)
+            {
+                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ToggleCsvSection">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Bulk Import
+                </button>
+                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="() => _showMatrix = !_showMatrix">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                    </svg>
+                    Role Matrix
+                </button>
+            }
+        </SecondaryActions>
+    </PortalPageHeader>
+
+    <!-- Sub-nav -->
+    <nav class="portal-inst-subnav" aria-label="Institution sections">
+        <a href="/institution" class="portal-inst-subnav-item">Profile</a>
+        <a href="/institution/team" class="portal-inst-subnav-item portal-inst-subnav-item-active">
+            Team Members
+            <span class="portal-badge portal-badge-sm portal-badge-neutral">@teamMembers.Count</span>
+        </a>
+        @if (isAdmin)
+        {
+            <a href="/institution/settings" class="portal-inst-subnav-item">Settings</a>
+        }
+    </nav>
+
+    @if (isLoading)
+    {
+        <div aria-busy="true" aria-label="Loading team members">
+            <div class="portal-card" style="padding: 2rem;">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="5" Index="0" />
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- ── Overview header with avatar cluster ──────────────────────── -->
+        <div class="portal-tmh-overview">
+            <div class="portal-tmh-avatar-cluster">
+                @{ var clusterMembers = teamMembers.Where(m => m.IsActive).Take(5).ToList(); }
+                @foreach (var m in clusterMembers)
+                {
+                    <div class="portal-tmh-avatar-cluster-item"
+                         style="background:@GetAvatarColor(m.DisplayName)"
+                         title="@m.DisplayName">
+                        @m.Initials
+                    </div>
+                }
+                @if (teamMembers.Count(m => m.IsActive) > 5)
+                {
+                    <div class="portal-tmh-avatar-cluster-item portal-tmh-avatar-overflow">
+                        +@(teamMembers.Count(m => m.IsActive) - 5)
+                    </div>
+                }
+            </div>
+
+            <div class="portal-tmh-overview-stats">
+                <span class="portal-tmh-overview-count">@teamMembers.Count</span>
+                <span class="portal-tmh-overview-sub">
+                    @userCount.current of @userCount.max seats used
+                </span>
+            </div>
+
+            <div class="portal-inst-user-meter-bar" style="flex:1; max-width:180px;">
+                <div class="portal-inst-user-meter-fill @GetMeterClass()"
+                     style="width:@GetMeterPercent()%;"></div>
+            </div>
+
+            <span class="portal-tmh-active-badge">
+                <span class="portal-tmh-active-dot"></span>
+                @teamMembers.Count(m => m.IsActive) active today
+            </span>
+        </div>
+
+        <!-- ── Role permission matrix (toggle) ──────────────────────────── -->
+        @if (_showMatrix)
+        {
+            <div class="portal-card portal-tmh-matrix-wrap" style="margin-bottom:var(--space-5);">
+                <div style="padding:var(--space-4) var(--space-5) var(--space-2);">
+                    <h3 style="font-size:.9rem;font-weight:800;color:var(--cbn-text-primary);margin-bottom:var(--space-1);">Role Permission Matrix</h3>
+                    <p style="font-size:.75rem;color:var(--cbn-text-muted);">What each role can do in your institution.</p>
+                </div>
+                <div style="padding:0 var(--space-5) var(--space-4); overflow-x:auto;">
+                    <table class="portal-tmh-matrix">
+                        <thead>
+                            <tr>
+                                <th>Role</th>
+                                <th>Submit Returns</th>
+                                <th>Approve Returns</th>
+                                <th>View Reports</th>
+                                <th>Manage Team</th>
+                                <th>Edit Settings</th>
+                                <th>View Only</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _permMatrix)
+                            {
+                                <tr>
+                                    <td>
+                                        <span class="portal-badge @GetRoleBadgeClass(row.Role) portal-badge-sm">@row.Role</span>
+                                    </td>
+                                    @foreach (var cell in row.Cells)
+                                    {
+                                        <td>
+                                            @if (cell == 1)
+                                            {
+                                                <svg class="portal-tmh-matrix-yes" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                                    <path d="M20 6L9 17l-5-5"/>
+                                                </svg>
+                                            }
+                                            else if (cell == 2)
+                                            {
+                                                <svg class="portal-tmh-matrix-partial" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                                    <circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/>
+                                                </svg>
+                                            }
+                                            else
+                                            {
+                                                <svg class="portal-tmh-matrix-no" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                                                </svg>
+                                            }
+                                        </td>
+                                    }
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div style="padding:var(--space-2) var(--space-5) var(--space-3); display:flex; gap:var(--space-4); font-size:.7rem; color:var(--cbn-text-muted);">
+                    <span style="display:flex;align-items:center;gap:4px;">
+                        <svg class="portal-tmh-matrix-yes" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
+                        Allowed
+                    </span>
+                    <span style="display:flex;align-items:center;gap:4px;">
+                        <svg class="portal-tmh-matrix-partial" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                        Own records only
+                    </span>
+                    <span style="display:flex;align-items:center;gap:4px;">
+                        <svg class="portal-tmh-matrix-no" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        Not allowed
+                    </span>
+                </div>
+            </div>
+        }
+
+        <!-- ── Pending invitations ───────────────────────────────────────── -->
+        @if (isAdmin && _pendingInvites.Any())
+        {
+            <div class="portal-tmh-pending-section">
+                <div class="portal-tmh-section-header">
+                    <span class="portal-tmh-section-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                            <polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                        Pending Invitations
+                        <span class="portal-badge portal-badge-sm portal-badge-warning">@_pendingInvites.Count</span>
+                    </span>
+                </div>
+                <div class="portal-tmh-pending-list">
+                    @foreach (var inv in _pendingInvites)
+                    {
+                        var daysLeft = (int)(inv.ExpiresAt - DateTime.UtcNow).TotalDays;
+                        <div class="portal-tmh-pending-item">
+                            <div class="portal-tmh-pending-email">
+                                @inv.Email
+                                <small>Sent @inv.SentAt.ToString("d MMM yyyy")</small>
+                            </div>
+                            <span class="portal-badge @GetRoleBadgeClass(inv.Role) portal-badge-sm">@inv.Role</span>
+                            <span class="portal-tmh-expiry @(daysLeft <= 2 ? "portal-tmh-expiry--soon" : "")">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                                @(daysLeft <= 0 ? "Expired" : daysLeft == 1 ? "Expires tomorrow" : $"Expires in {daysLeft}d")
+                            </span>
+                            <div class="portal-tmh-pending-actions">
+                                <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                        title="Copy invitation link"
+                                        @onclick="() => CopyInviteLink(inv)">Copy link</button>
+                                <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                        title="Resend invitation"
+                                        disabled="@(_resendingId == inv.Id)"
+                                        @onclick="() => ResendInvite(inv)">
+                                    @if (_resendingId == inv.Id)
+                                    {
+                                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                    }
+                                    else
+                                    {
+                                        <span>Resend</span>
+                                    }
+                                </button>
+                                <button class="portal-btn portal-btn-ghost portal-btn-xs portal-btn-danger-text"
+                                        title="Revoke invitation"
+                                        @onclick="() => RevokeInvite(inv)">Revoke</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- ── CSV bulk import ──────────────────────────────────────────── -->
+        @if (_showCsv && isAdmin)
+        {
+            <div class="portal-card portal-tmh-csv-section" style="padding:var(--space-5);">
+                <div class="portal-tmh-section-header" style="margin-bottom:var(--space-4);">
+                    <span class="portal-tmh-section-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                        Bulk Import via CSV
+                    </span>
+                    <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="DownloadCsvTemplate">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                        </svg>
+                        Download Template
+                    </button>
+                </div>
+
+                <div class="portal-tmh-csv-zone @(_csvDragging ? "portal-tmh-csv-zone--drag" : "")"
+                     @ondragover:preventDefault
+                     @ondragenter="() => _csvDragging = true"
+                     @ondragleave="() => _csvDragging = false"
+                     @ondrop="HandleCsvDrop"
+                     @onclick="TriggerCsvInput">
+                    <div class="portal-tmh-csv-zone-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                    </div>
+                    <h4>Drop CSV file here or click to browse</h4>
+                    <p>Columns: email, name, role (optional — defaults to Maker)</p>
+                    <input type="file" id="csv-file-input" accept=".csv,text/csv"
+                           style="display:none;" @ref="_csvInputRef"
+                           @onchange="HandleCsvFileChange" />
+                </div>
+
+                @if (_csvRows.Any())
+                {
+                    <div class="portal-tmh-csv-preview">
+                        <div class="portal-tmh-csv-preview-header">
+                            <span>Preview — @_csvRows.Count row(s)</span>
+                            @if (_csvRows.Any(r => !string.IsNullOrEmpty(r.Error)))
+                            {
+                                <span class="portal-badge portal-badge-danger portal-badge-sm">
+                                    @_csvRows.Count(r => !string.IsNullOrEmpty(r.Error)) error(s)
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="portal-badge portal-badge-success portal-badge-sm">All valid</span>
+                            }
+                        </div>
+                        <div class="portal-tmh-csv-row portal-tmh-csv-row-hdr">
+                            <span>Email</span><span>Name</span><span>Role</span><span>Status</span>
+                        </div>
+                        @foreach (var row in _csvRows)
+                        {
+                            <div class="portal-tmh-csv-row @(!string.IsNullOrEmpty(row.Error) ? "portal-tmh-csv-row--error" : "")">
+                                <span>@row.Email</span>
+                                <span>@row.Name</span>
+                                <span>@row.Role</span>
+                                <span>
+                                    @if (!string.IsNullOrEmpty(row.Error))
+                                    {
+                                        <span class="portal-badge portal-badge-danger portal-badge-sm">@row.Error</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-badge portal-badge-success portal-badge-sm">OK</span>
+                                    }
+                                </span>
+                            </div>
+                        }
+                    </div>
+                    <div style="display:flex; gap:var(--space-2); margin-top:var(--space-4); justify-content:flex-end;">
+                        <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                                @onclick="() => { _csvRows.Clear(); _showCsv = false; }">Cancel</button>
+                        <button class="portal-btn portal-btn-primary portal-btn-sm"
+                                disabled="@(_csvImporting || _csvRows.Any(r => !string.IsNullOrEmpty(r.Error)))"
+                                @onclick="ImportCsvRows">
+                            @if (_csvImporting)
+                            {
+                                <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                <span>Importing…</span>
+                            }
+                            else
+                            {
+                                <span>Send @_csvRows.Count(r => string.IsNullOrEmpty(r.Error)) Invitation(s)</span>
+                            }
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+
+        <!-- ── Search & filter toolbar ───────────────────────────────────── -->
+        <div class="portal-tm-toolbar" role="search" aria-label="Filter team members">
+            <div class="portal-tm-toolbar-row">
+                <div class="portal-tm-toolbar-search">
+                    <div class="portal-input-wrapper">
+                        <span class="portal-input-icon" aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            </svg>
+                        </span>
+                        <input type="text" class="portal-form-input portal-form-input-icon"
+                               placeholder="Search by name or email…"
+                               @bind="tmSearch" @bind:event="oninput"
+                               @bind:after="ApplyTmFilters"
+                               aria-label="Search team members" />
+                    </div>
+                </div>
+                <div class="portal-tm-toolbar-filter">
+                    <label for="tmFilterRole" class="portal-sr-only">Role</label>
+                    <select id="tmFilterRole" class="portal-form-select" @bind="tmFilterRole" @bind:after="ApplyTmFilters">
+                        <option value="">All Roles</option>
+                        @foreach (var r in Enum.GetNames<InstitutionRole>())
+                        {
+                            <option value="@r">@r</option>
+                        }
+                    </select>
+                </div>
+                <div class="portal-tm-toolbar-filter">
+                    <label for="tmFilterStatus" class="portal-sr-only">Status</label>
+                    <select id="tmFilterStatus" class="portal-form-select" @bind="tmFilterStatus" @bind:after="ApplyTmFilters">
+                        <option value="">All Statuses</option>
+                        <option value="active">Active</option>
+                        <option value="inactive">Inactive</option>
+                    </select>
+                </div>
+            </div>
+            @if (TmHasFilters)
+            {
+                <div class="portal-tm-toolbar-active-filters">
+                    <span class="portal-toolbar-active-label">
+                        Filters <span class="portal-filter-count-badge">@TmActiveFilterCount</span>:
+                    </span>
+                    @if (!string.IsNullOrEmpty(tmSearch))
+                    {
+                        <button class="portal-chip portal-chip-removable" @onclick="() => { tmSearch = string.Empty; ApplyTmFilters(); }">
+                            Search: @tmSearch
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    }
+                    @if (!string.IsNullOrEmpty(tmFilterRole))
+                    {
+                        <button class="portal-chip portal-chip-removable" @onclick="() => { tmFilterRole = string.Empty; ApplyTmFilters(); }">
+                            Role: @tmFilterRole
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    }
+                    @if (!string.IsNullOrEmpty(tmFilterStatus))
+                    {
+                        <button class="portal-chip portal-chip-removable" @onclick="() => { tmFilterStatus = string.Empty; ApplyTmFilters(); }">
+                            Status: @(tmFilterStatus == "active" ? "Active" : "Inactive")
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    }
+                    <button class="portal-btn portal-btn-ghost portal-btn-xs" @onclick="ClearTmFilters">Clear All</button>
+                </div>
+            }
+        </div>
+
+        <!-- ── Member cards ──────────────────────────────────────────────── -->
+        @if (!filteredTeamMembers.Any())
+        {
+            <PortalEmptyState Variant="search" AsCard="true"
+                              Title="@(TmHasFilters ? "No members match your filters" : "No team members yet")"
+                              Description="@(TmHasFilters ? "Try adjusting your search or filters." : "Invite your first team member to get started.")" />
+        }
+        else
+        {
+            <div class="portal-tmh-cards-grid">
+                @foreach (var member in filteredTeamMembers)
+                {
+                    var isExpanded = _expandedActivity.Contains(member.Id);
+                    <div class="portal-tmh-card @(!member.IsActive ? "portal-tmh-card--inactive" : "")">
+                        <!-- Card header -->
+                        <div class="portal-tmh-card-header">
+                            <div class="portal-tmh-avatar" style="background:@GetAvatarColor(member.DisplayName)">
+                                @member.Initials
+                            </div>
+                            <div class="portal-tmh-card-info">
+                                <div class="portal-tmh-card-name">
+                                    @member.DisplayName
+                                    @if (member.Id == currentUserId)
+                                    {
+                                        <span class="portal-badge portal-badge-sm portal-badge-info" style="margin-left:4px;">You</span>
+                                    }
+                                </div>
+                                <div class="portal-tmh-card-email" title="@member.Email">@member.Email</div>
+                                <div class="portal-tmh-card-badges">
+                                    @if (isAdmin && editingRoleUserId == member.Id)
+                                    {
+                                        <select class="portal-form-select portal-form-select-sm"
+                                                @bind="editRoleValue" style="width:110px;font-size:.75rem;">
+                                            @foreach (var r in Enum.GetNames<InstitutionRole>())
+                                            {
+                                                <option value="@r">@r</option>
+                                            }
+                                        </select>
+                                        <button class="portal-btn portal-btn-xs portal-btn-primary"
+                                                disabled="@(_savingMemberId == member.Id)"
+                                                @onclick="() => SaveRole(member.Id)">
+                                            @if (_savingMemberId == member.Id)
+                                            {
+                                                <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                            }
+                                            else
+                                            {
+                                                <span>Save</span>
+                                            }
+                                        </button>
+                                        <button class="portal-btn portal-btn-xs portal-btn-ghost"
+                                                @onclick="() => editingRoleUserId = null">Cancel</button>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-badge @GetRoleBadgeClass(member.Role) portal-badge-sm">@member.Role</span>
+                                    }
+                                </div>
+                            </div>
+                            <div class="portal-tmh-status-dot portal-tmh-status-dot--@(member.IsActive ? "active" : "inactive")"
+                                 title="@(member.IsActive ? "Active" : "Inactive")"></div>
+                        </div>
+
+                        <!-- Card body: meta + permissions -->
+                        <div class="portal-tmh-card-body">
+                            <div class="portal-tmh-card-meta">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                                </svg>
+                                Last login: @GetLastLoginRelative(member.LastLoginAt)
+                            </div>
+                            <div class="portal-tmh-card-meta">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+                                    <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+                                    <line x1="3" y1="10" x2="21" y2="10"/>
+                                </svg>
+                                Joined @member.CreatedAt.ToString("d MMM yyyy")
+                            </div>
+                            <div class="portal-tmh-perms-row">
+                                @foreach (var perm in GetRolePermissions(member.Role))
+                                {
+                                    <span class="portal-tmh-perm-chip @(perm.Granted ? "portal-tmh-perm-chip--yes" : "")">
+                                        @if (perm.Granted)
+                                        {
+                                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg>
+                                        }
+                                        @perm.Name
+                                    </span>
+                                }
+                            </div>
+                        </div>
+
+                        <!-- Card footer: actions -->
+                        <div class="portal-tmh-card-footer">
+                            <div class="portal-tmh-card-actions">
+                                @if (isAdmin && member.Id != currentUserId)
+                                {
+                                    @if (_savingMemberId == member.Id)
+                                    {
+                                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                    }
+                                    else
+                                    {
+                                        <button class="portal-btn portal-btn-ghost portal-btn-xs" title="Change role"
+                                                @onclick="() => StartEditRole(member)">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                            </svg>
+                                            Edit Role
+                                        </button>
+                                        @if (member.IsActive)
+                                        {
+                                            <button class="portal-btn portal-btn-ghost portal-btn-xs portal-btn-danger-text"
+                                                    title="Deactivate" @onclick="() => ToggleStatus(member, false)">Deactivate</button>
+                                        }
+                                        else
+                                        {
+                                            <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                                    style="color:var(--cbn-success);"
+                                                    @onclick="() => ToggleStatus(member, true)">Reactivate</button>
+                                        }
+                                    }
+                                }
+                            </div>
+
+                            <!-- Activity toggle -->
+                            <button class="portal-btn portal-btn-ghost portal-btn-xs"
+                                    @onclick="() => ToggleActivity(member.Id)"
+                                    aria-expanded="@isExpanded.ToString().ToLower()">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                     style="transition:transform var(--motion-fast);transform:@(isExpanded ? "rotate(180deg)" : "rotate(0deg)")">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                                Activity
+                            </button>
+                        </div>
+
+                        <!-- Activity log (expandable) -->
+                        @if (isExpanded)
+                        {
+                            <div class="portal-tmh-activity">
+                                <div class="portal-tmh-activity-list portal-tmh-activity-list--open">
+                                    @{ var acts = GetMemberActivity(member.Id); }
+                                    @if (_loadingActivityMembers.Contains(member.Id))
+                                    {
+                                        <div style="padding:var(--space-3) 0;text-align:center;font-size:.75rem;color:var(--cbn-text-muted);">Loading recent activity…</div>
+                                    }
+                                    else if (!acts.Any())
+                                    {
+                                        <div style="padding:var(--space-3) 0;text-align:center;font-size:.75rem;color:var(--cbn-text-muted);">No recent activity.</div>
+                                    }
+                                    @foreach (var act in acts)
+                                    {
+                                        <div class="portal-tmh-activity-item">
+                                            <div class="portal-tmh-activity-icon portal-tmh-activity-icon--@act.Type">
+                                                @if (act.Type == "submit")
+                                                {
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/></svg>
+                                                }
+                                                else if (act.Type == "approve")
+                                                {
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
+                                                }
+                                                else
+                                                {
+                                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                                                }
+                                            </div>
+                                            <span class="portal-tmh-activity-desc">@act.Description</span>
+                                            <span class="portal-tmh-activity-time">@act.TimeAgo</span>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    }
+</div>
+
+<!-- ── Invite drawer ─────────────────────────────────────────────────────── -->
+@if (_drawerOpen)
+{
+    <div class="portal-tmh-drawer-backdrop" @onclick="CloseInviteDrawer" aria-hidden="true"></div>
+    <div class="portal-tmh-drawer @(_drawerClosing ? "portal-tmh-drawer--closing" : "")"
+         role="dialog" aria-modal="true" aria-label="Invite team member">
+
+        <div class="portal-tmh-drawer-header">
+            <div>
+                <div class="portal-tmh-drawer-title">Invite Team Member</div>
+                <div class="portal-tmh-drawer-subtitle">They'll receive an email invitation link.</div>
+            </div>
+            <button class="portal-tmh-drawer-close" @onclick="CloseInviteDrawer" aria-label="Close">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+            </button>
+        </div>
+
+        @if (_inviteSent)
+        {
+            <div class="portal-tmh-invite-success">
+                <div class="portal-tmh-invite-success-icon">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                </div>
+                <h3>Invitation Sent!</h3>
+                <p>An email was sent to <strong>@inviteEmail</strong> with a link to join your team as <strong>@inviteRole</strong>.</p>
+                <div style="display:flex;gap:var(--space-2);margin-top:var(--space-3);">
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="ResetInviteForm">Invite Another</button>
+                    <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="CloseInviteDrawer">Done</button>
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="portal-tmh-drawer-body">
+                <!-- Email -->
+                <div>
+                    <label class="portal-form-label">Email Address <span class="portal-form-required">*</span></label>
+                    <input type="email" class="portal-form-input"
+                           placeholder="colleague@institution.com"
+                           @bind="inviteEmail" @bind:event="oninput"
+                           @bind:after="CheckInviteDomain" />
+                    @if (_domainWarning)
+                    {
+                        <div class="portal-tmh-domain-warn">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                            This email uses a different domain than your institution. Verify before sending.
+                        </div>
+                    }
+                </div>
+
+                <!-- Role selector -->
+                <div>
+                    <label class="portal-form-label">Role <span class="portal-form-required">*</span></label>
+                    <div class="portal-tmh-role-cards">
+                        @foreach (var rd in _roleDescriptions)
+                        {
+                            <div class="portal-tmh-role-card @(inviteRole == rd.Role ? "portal-tmh-role-card--selected" : "")"
+                                 @onclick="() => SelectInviteRole(rd.Role)">
+                                <div class="portal-tmh-role-card-radio"></div>
+                                <div class="portal-tmh-role-card-body">
+                                    <div class="portal-tmh-role-card-name">@rd.Role</div>
+                                    <div class="portal-tmh-role-card-desc">@rd.Description</div>
+                                </div>
+                                <span class="portal-badge @GetRoleBadgeClass(rd.Role) portal-badge-sm portal-tmh-role-card-badge">@rd.Role</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+
+                <!-- Permissions -->
+                <div>
+                    <label class="portal-form-label">Additional Permissions</label>
+                    <p style="font-size:.75rem;color:var(--cbn-text-muted);margin-bottom:var(--space-2);">
+                        Override defaults for this member only.
+                    </p>
+                    <div class="portal-tmh-perms-grid">
+                        @foreach (var p in _invitePerms)
+                        {
+                            <label class="portal-tmh-perm-check">
+                                <input type="checkbox" checked="@p.Granted"
+                                       @onchange="e => p.Granted = (bool)(e.Value ?? false)" />
+                                @p.Name
+                            </label>
+                        }
+                    </div>
+                </div>
+
+                @if (!string.IsNullOrEmpty(_inviteError))
+                {
+                    <div class="portal-alert portal-alert-error">@_inviteError</div>
+                }
+            </div>
+
+            <div class="portal-tmh-drawer-footer">
+                <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="CloseInviteDrawer">Cancel</button>
+                <button class="portal-btn portal-btn-primary portal-btn-sm"
+                        disabled="@(_sendingInvite)"
+                        @onclick="SendInvite">
+                    @if (_sendingInvite)
+                    {
+                        <span class="portal-btn-spinner" aria-hidden="true"></span>
+                        <span>Sending…</span>
+                    }
+                    else
+                    {
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z"/>
+                        </svg>
+                        <span>Send Invitation</span>
+                    }
+                </button>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    // ── URL params ─────────────────────────────────────────────────────────
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+    [SupplyParameterFromQuery(Name = "role")] public string? RoleParam { get; set; }
+    [SupplyParameterFromQuery(Name = "status")] public string? StatusParam { get; set; }
+
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+    [Inject] private InstitutionManagementService MgmtSvc { get; set; } = default!;
+    [Inject] private ToastService Toast { get; set; } = default!;
+    [Inject] private DialogService Dialog { get; set; } = default!;
+
+    // ── Page state ─────────────────────────────────────────────────────────
+    private bool isLoading = true;
+    private bool isAdmin;
+    private int currentUserId;
+    private int institutionId;
+    private List<TeamMemberDetailModel> teamMembers = new();
+    private (int current, int max) userCount;
+
+    // Filter state
+    private string tmSearch = "";
+    private string tmFilterRole = "";
+    private string tmFilterStatus = "";
+
+    // UI toggles
+    private bool _showMatrix;
+    private bool _showCsv;
+    private HashSet<int> _expandedActivity = new();
+    private readonly Dictionary<int, List<ActivityItem>> _activityByMember = new();
+    private readonly HashSet<int> _loadingActivityMembers = new();
+
+    // Role editing (inline on card)
+    private int? editingRoleUserId;
+    private string editRoleValue = "";
+    private int? _savingMemberId;
+
+    // ── Breadcrumb ─────────────────────────────────────────────────────────
+    private List<BreadcrumbItem> _bc = new()
+    {
+        new BreadcrumbItem("Institution", "/institution"),
+        new BreadcrumbItem("Team Members", null, IsCurrent: true)
+    };
+
+    // ── Pending invitations ────────────────────────────────────────────────
+    private List<PendingInviteModel> _pendingInvites = new();
+    private string? _resendingId;
+
+    // ── CSV import ─────────────────────────────────────────────────────────
+    private bool _csvDragging;
+    private bool _csvImporting;
+    private List<CsvImportRow> _csvRows = new();
+    private ElementReference _csvInputRef;
+    private DotNetObjectReference<TeamMembers>? _selfRef;
+
+    // ── Invite drawer ──────────────────────────────────────────────────────
+    private bool _drawerOpen;
+    private bool _drawerClosing;
+    private bool _inviteSent;
+    private bool _sendingInvite;
+    private string inviteEmail = "";
+    private string inviteRole = "Maker";
+    private bool _domainWarning;
+    private string? _inviteError;
+    private string? _institutionDomain;
+    private List<PermItem> _invitePerms = new()
+    {
+        new("Submit Returns", true),
+        new("View Reports", true),
+        new("Approve Returns", false),
+        new("Manage Team", false),
+        new("Edit Settings", false),
+        new("Bulk Upload", false)
+    };
+
+    // ── Role descriptions ──────────────────────────────────────────────────
+    private readonly List<(string Role, string Description)> _roleDescriptions = new()
+    {
+        ("Maker",    "Can create and submit regulatory returns. Cannot approve."),
+        ("Checker",  "Can review and approve returns submitted by Makers."),
+        ("Approver", "Can approve submissions and sign off on regulatory filings."),
+        ("Viewer",   "Read-only access. Can view reports but cannot submit or approve."),
+        ("Admin",    "Full access: manage team, settings, and all returns.")
+    };
+
+    // ── Permission matrix data ─────────────────────────────────────────────
+    // Columns: Submit, Approve, View Reports, Manage Team, Edit Settings, View Only
+    // 0=No, 1=Yes, 2=Partial
+    private readonly List<(string Role, int[] Cells)> _permMatrix = new()
+    {
+        ("Maker",    new[] { 1, 0, 2, 0, 0, 1 }),
+        ("Checker",  new[] { 2, 1, 1, 0, 0, 1 }),
+        ("Approver", new[] { 0, 1, 1, 0, 0, 1 }),
+        ("Viewer",   new[] { 0, 0, 1, 0, 0, 1 }),
+        ("Admin",    new[] { 1, 1, 1, 1, 1, 1 }),
+    };
+
+    // ── Computed ───────────────────────────────────────────────────────────
+    private bool TmHasFilters =>
+        !string.IsNullOrEmpty(tmSearch) ||
+        !string.IsNullOrEmpty(tmFilterRole) ||
+        !string.IsNullOrEmpty(tmFilterStatus);
+
+    private int TmActiveFilterCount =>
+        (string.IsNullOrEmpty(tmSearch) ? 0 : 1) +
+        (string.IsNullOrEmpty(tmFilterRole) ? 0 : 1) +
+        (string.IsNullOrEmpty(tmFilterStatus) ? 0 : 1);
+
+    private List<TeamMemberDetailModel> filteredTeamMembers
+    {
+        get
+        {
+            var query = teamMembers.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(tmSearch))
+            {
+                var s = tmSearch.Trim();
+                query = query.Where(m =>
+                    m.DisplayName.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                    m.Email.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                    m.Username.Contains(s, StringComparison.OrdinalIgnoreCase));
+            }
+            if (!string.IsNullOrEmpty(tmFilterRole))
+                query = query.Where(m => m.Role.Equals(tmFilterRole, StringComparison.OrdinalIgnoreCase));
+            if (tmFilterStatus == "active")
+                query = query.Where(m => m.IsActive);
+            else if (tmFilterStatus == "inactive")
+                query = query.Where(m => !m.IsActive);
+            return query.ToList();
+        }
+    }
+
+    // ── Lifecycle ──────────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            var role = state.User.FindFirst(ClaimTypes.Role)?.Value;
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            var userIdStr = state.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            var email = state.User.FindFirst(ClaimTypes.Email)?.Value;
+
+            int.TryParse(instIdStr, out institutionId);
+            int.TryParse(userIdStr, out currentUserId);
+            isAdmin = role == "Admin";
+
+            if (!string.IsNullOrEmpty(email) && email.Contains('@'))
+                _institutionDomain = email.Split('@')[1];
+
+            if (!string.IsNullOrEmpty(Q)) tmSearch = Q;
+            if (!string.IsNullOrEmpty(RoleParam)) tmFilterRole = RoleParam;
+            if (!string.IsNullOrEmpty(StatusParam)) tmFilterStatus = StatusParam;
+
+            await LoadData();
+        }
+        catch { }
+        finally { isLoading = false; }
+    }
+
+    protected override Task OnParametersSetAsync()
+    {
+        // Sync filter state from URL query params on browser back/forward navigation
+        if (!string.IsNullOrEmpty(Q) && Q != tmSearch) tmSearch = Q;
+        else if (string.IsNullOrEmpty(Q) && !string.IsNullOrEmpty(tmSearch)) tmSearch = "";
+
+        if (!string.IsNullOrEmpty(RoleParam) && RoleParam != tmFilterRole) tmFilterRole = RoleParam;
+        else if (string.IsNullOrEmpty(RoleParam) && !string.IsNullOrEmpty(tmFilterRole)) tmFilterRole = "";
+
+        if (!string.IsNullOrEmpty(StatusParam) && StatusParam != tmFilterStatus) tmFilterStatus = StatusParam;
+        else if (string.IsNullOrEmpty(StatusParam) && !string.IsNullOrEmpty(tmFilterStatus)) tmFilterStatus = "";
+
+        return Task.CompletedTask;
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+            _selfRef = DotNetObjectReference.Create(this);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _selfRef?.Dispose();
+        await Task.CompletedTask;
+    }
+
+    // ── Data loading ───────────────────────────────────────────────────────
+    private async Task LoadData()
+    {
+        teamMembers = await MgmtSvc.GetTeamMembers(institutionId);
+        userCount = await MgmtSvc.GetUserCount(institutionId);
+        // Pending invites: use stub if service method absent
+        try { _pendingInvites = await MgmtSvc.GetPendingInvitations(institutionId); }
+        catch { _pendingInvites = new(); }
+    }
+
+    // ── Filters ────────────────────────────────────────────────────────────
+    private void ApplyTmFilters()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrEmpty(tmSearch)) parts.Add($"q={Uri.EscapeDataString(tmSearch)}");
+        if (!string.IsNullOrEmpty(tmFilterRole)) parts.Add($"role={Uri.EscapeDataString(tmFilterRole)}");
+        if (!string.IsNullOrEmpty(tmFilterStatus)) parts.Add($"status={Uri.EscapeDataString(tmFilterStatus)}");
+        var url = parts.Count > 0 ? "/institution/team?" + string.Join("&", parts) : "/institution/team";
+        Navigation.NavigateTo(url, replace: true);
+    }
+
+    private void ClearTmFilters()
+    {
+        tmSearch = ""; tmFilterRole = ""; tmFilterStatus = "";
+        Navigation.NavigateTo("/institution/team", replace: true);
+    }
+
+    // ── Role editing ───────────────────────────────────────────────────────
+    private void StartEditRole(TeamMemberDetailModel member)
+    {
+        editingRoleUserId = member.Id;
+        editRoleValue = member.Role;
+    }
+
+    private async Task SaveRole(int userId)
+    {
+        var member = teamMembers.FirstOrDefault(m => m.Id == userId);
+        if (member is null) return;
+
+        var originalRole = member.Role;
+        member.Role = editRoleValue;
+        editingRoleUserId = null;
+        _savingMemberId = userId;
+
+        var ok = await MgmtSvc.UpdateMemberRole(userId, editRoleValue, institutionId);
+
+        _savingMemberId = null;
+        if (ok) Toast.Success("Role updated.");
+        else { member.Role = originalRole; Toast.Error("Failed to update role."); }
+        StateHasChanged();
+    }
+
+    private async Task ToggleStatus(TeamMemberDetailModel member, bool activate)
+    {
+        if (!activate)
+        {
+            var confirmed = await Dialog.Confirm(new ConfirmRequest
+            {
+                Title = "Deactivate User",
+                Message = $"Deactivate {member.DisplayName}? They will not be able to sign in until reactivated.",
+                ConfirmText = "Deactivate",
+                IsDestructive = true,
+                Icon = "archive"
+            });
+            if (!confirmed) return;
+        }
+
+        _savingMemberId = member.Id;
+        await OptimisticAction.Execute(
+            getter: () => member.IsActive,
+            setter: v => member.IsActive = v,
+            optimisticValue: activate,
+            action: async () =>
+            {
+                var ok = await MgmtSvc.ToggleMemberStatus(member.Id, activate, institutionId);
+                if (!ok) throw new InvalidOperationException();
+                userCount = await MgmtSvc.GetUserCount(institutionId);
+            },
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(activate ? member.DisplayName + " reactivated." : member.DisplayName + " deactivated."),
+            onFailure: _ => Toast.Error("Failed to update user status."));
+        _savingMemberId = null;
+        StateHasChanged();
+    }
+
+    // ── Activity log ───────────────────────────────────────────────────────
+    private async Task ToggleActivity(int memberId)
+    {
+        if (!_expandedActivity.Add(memberId))
+        {
+            _expandedActivity.Remove(memberId);
+            return;
+        }
+
+        if (_activityByMember.ContainsKey(memberId))
+        {
+            return;
+        }
+
+        _loadingActivityMembers.Add(memberId);
+        StateHasChanged();
+
+        try
+        {
+            var activity = await MgmtSvc.GetMemberActivity(institutionId, memberId);
+            _activityByMember[memberId] = activity
+                .Select(x => new ActivityItem(x.Type, x.Description, GetLastLoginRelative(x.OccurredAt)))
+                .ToList();
+        }
+        catch
+        {
+            _activityByMember[memberId] = new List<ActivityItem>();
+        }
+        finally
+        {
+            _loadingActivityMembers.Remove(memberId);
+            StateHasChanged();
+        }
+    }
+
+    private List<ActivityItem> GetMemberActivity(int memberId)
+        => _activityByMember.TryGetValue(memberId, out var activity)
+            ? activity
+            : new List<ActivityItem>();
+
+    // ── Invite drawer ──────────────────────────────────────────────────────
+    private void OpenInviteDrawer()
+    {
+        ResetInviteForm();
+        _drawerClosing = false;
+        _drawerOpen = true;
+    }
+
+    private async Task CloseInviteDrawer()
+    {
+        _drawerClosing = true;
+        StateHasChanged();
+        await Task.Delay(180);
+        _drawerOpen = false;
+        _drawerClosing = false;
+    }
+
+    private void ResetInviteForm()
+    {
+        inviteEmail = ""; inviteRole = "Maker";
+        _domainWarning = false; _inviteError = null; _inviteSent = false;
+        foreach (var p in _invitePerms) p.Granted = p.Name is "Submit Returns" or "View Reports";
+    }
+
+    private void SelectInviteRole(string role)
+    {
+        inviteRole = role;
+        // Preset permissions from matrix
+        var defaults = _roleDescriptions.FirstOrDefault(r => r.Role == role);
+        foreach (var p in _invitePerms)
+        {
+            p.Granted = role switch
+            {
+                "Admin"   => true,
+                "Checker" => p.Name is "Submit Returns" or "View Reports" or "Approve Returns",
+                "Viewer"  => p.Name is "View Reports",
+                _         => p.Name is "Submit Returns" or "View Reports"
+            };
+        }
+    }
+
+    private void CheckInviteDomain()
+    {
+        _domainWarning = false;
+        if (!string.IsNullOrEmpty(inviteEmail) && inviteEmail.Contains('@') && !string.IsNullOrEmpty(_institutionDomain))
+        {
+            var domain = inviteEmail.Split('@').LastOrDefault() ?? "";
+            _domainWarning = !domain.Equals(_institutionDomain, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    private async Task SendInvite()
+    {
+        _inviteError = null;
+        if (string.IsNullOrWhiteSpace(inviteEmail) || !inviteEmail.Contains('@'))
+        {
+            _inviteError = "Please enter a valid email address.";
+            return;
+        }
+        if (string.IsNullOrEmpty(inviteRole))
+        {
+            _inviteError = "Please select a role.";
+            return;
+        }
+
+        _sendingInvite = true;
+        try
+        {
+            var permissions = _invitePerms.Where(p => p.Granted).Select(p => p.Name).ToList();
+            var ok = await MgmtSvc.SendInvitation(institutionId, inviteEmail.Trim(), inviteRole, permissions);
+            if (ok)
+            {
+                _inviteSent = true;
+                await LoadData();
+            }
+            else
+            {
+                _inviteError = "Failed to send invitation. Please try again.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _inviteError = "Error: " + ex.Message;
+        }
+        finally { _sendingInvite = false; }
+    }
+
+    // ── Pending invites ────────────────────────────────────────────────────
+    private async Task ResendInvite(PendingInviteModel inv)
+    {
+        _resendingId = inv.Id;
+        try
+        {
+            var ok = await MgmtSvc.ResendInvitation(institutionId, inv.Id);
+            Toast.Success(ok ? "Invitation resent." : "Failed to resend.");
+        }
+        catch { Toast.Error("Failed to resend invitation."); }
+        finally { _resendingId = null; StateHasChanged(); }
+    }
+
+    private async Task RevokeInvite(PendingInviteModel inv)
+    {
+        try
+        {
+            var ok = await MgmtSvc.RevokeInvitation(institutionId, inv.Id);
+            if (ok) { _pendingInvites.Remove(inv); Toast.Success("Invitation revoked."); }
+            else Toast.Error("Failed to revoke.");
+        }
+        catch { Toast.Error("Failed to revoke invitation."); }
+        StateHasChanged();
+    }
+
+    private async Task CopyInviteLink(PendingInviteModel inv)
+    {
+        if (string.IsNullOrWhiteSpace(inv.InvitationUrl))
+        {
+            Toast.Error("Invitation link is not available.");
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("portalCopyToClipboard", inv.InvitationUrl);
+            Toast.Success("Invitation link copied.");
+        }
+        catch
+        {
+            Toast.Error("Failed to copy invitation link.");
+        }
+    }
+
+    // ── CSV import ─────────────────────────────────────────────────────────
+    private void ToggleCsvSection() { _showCsv = !_showCsv; _csvRows.Clear(); }
+
+    private async Task DownloadCsvTemplate()
+        => await JS.InvokeVoidAsync("portalTeam.downloadTemplate");
+
+    private async Task TriggerCsvInput()
+        => await JS.InvokeVoidAsync("eval", "document.getElementById('csv-file-input').click()");
+
+    private async Task HandleCsvFileChange()
+        => await JS.InvokeVoidAsync("portalTeam.readCsvFile", "csv-file-input", _selfRef);
+
+    private void HandleCsvDrop(DragEventArgs e)
+    {
+        _csvDragging = false;
+        // File reading happens via JS interop on drop — handled by readCsvFile
+    }
+
+    [JSInvokable]
+    public void OnCsvParsed(List<CsvImportRow> rows)
+    {
+        _csvRows = rows;
+        StateHasChanged();
+    }
+
+    private async Task ImportCsvRows()
+    {
+        _csvImporting = true;
+        var validRows = _csvRows.Where(r => string.IsNullOrEmpty(r.Error)).ToList();
+        int sent = 0;
+        int failed = 0;
+        foreach (var row in validRows)
+        {
+            try
+            {
+                var ok = await MgmtSvc.SendInvitation(institutionId, row.Email, row.Role ?? "Maker");
+                if (ok) sent++;
+                else { row.Error = "Failed to send"; failed++; }
+            }
+            catch (Exception ex)
+            {
+                row.Error = ex.Message;
+                failed++;
+            }
+        }
+        _csvImporting = false;
+
+        if (failed > 0)
+        {
+            // Keep rows visible so user can see which failed
+            Toast.Warning($"{sent} sent, {failed} failed. Check rows marked with errors.");
+            StateHasChanged();
+        }
+        else
+        {
+            _csvRows.Clear();
+            _showCsv = false;
+            Toast.Success($"{sent} invitation(s) sent.");
+        }
+        await LoadData();
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    private static readonly string[] AvatarColors = {
+        "#006B3F","#2563EB","#7C3AED","#DC2626","#D97706","#0891B2","#059669","#DB2777"
+    };
+
+    private static string GetAvatarColor(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return AvatarColors[0];
+        int hash = 0;
+        foreach (var c in name) hash = (hash * 31 + c) & 0x7FFFFFFF;
+        return AvatarColors[hash % AvatarColors.Length];
+    }
+
+    private static string GetLastLoginRelative(DateTime? dt)
+    {
+        if (dt is null) return "Never";
+        var diff = DateTime.UtcNow - dt.Value;
+        if (diff.TotalMinutes < 1) return "Just now";
+        if (diff.TotalHours < 1) return $"{(int)diff.TotalMinutes}m ago";
+        if (diff.TotalDays < 1) return $"{(int)diff.TotalHours}h ago";
+        if (diff.TotalDays < 30) return $"{(int)diff.TotalDays}d ago";
+        return dt.Value.ToString("d MMM yyyy");
+    }
+
+    private static List<PermItem> GetRolePermissions(string role) => role switch
+    {
+        "Admin"    => new() { new("Submit",true), new("Approve",true), new("Reports",true), new("Manage Team",true) },
+        "Checker"  => new() { new("Submit",true), new("Approve",true), new("Reports",true), new("Manage Team",false) },
+        "Approver" => new() { new("Submit",false), new("Approve",true), new("Reports",true), new("Manage Team",false) },
+        "Maker"    => new() { new("Submit",true), new("Approve",false), new("Reports",true), new("Manage Team",false) },
+        _          => new() { new("Submit",false), new("Approve",false), new("Reports",true), new("Manage Team",false) }
+    };
+
+    private string GetRoleBadgeClass(string role) => role switch
+    {
+        "Admin"    => "portal-badge-accent",
+        "Maker"    => "portal-badge-success",
+        "Checker"  => "portal-badge-warning",
+        "Approver" => "portal-badge-warning",
+        "Viewer"   => "portal-badge-info",
+        _ => "portal-badge-neutral"
+    };
+
+    private string GetMeterClass()
+    {
+        if (userCount.max == 0) return "";
+        var pct = (double)userCount.current / userCount.max * 100;
+        return pct >= 90 ? "portal-inst-user-meter-fill-danger"
+             : pct >= 70 ? "portal-inst-user-meter-fill-warning"
+             : "";
+    }
+
+    private int GetMeterPercent()
+    {
+        if (userCount.max == 0) return 0;
+        return (int)Math.Min(100, (double)userCount.current / userCount.max * 100);
+    }
+
+    // ── Inner models ───────────────────────────────────────────────────────
+    private sealed class PermItem
+    {
+        public string Name { get; }
+        public bool Granted { get; set; }
+        public PermItem(string name, bool granted) { Name = name; Granted = granted; }
+    }
+
+    private sealed record ActivityItem(string Type, string Description, string TimeAgo);
+
+    public sealed class CsvImportRow
+    {
+        public string Email { get; set; } = "";
+        public string Name { get; set; } = "";
+        public string Role { get; set; } = "Maker";
+        public string Error { get; set; } = "";
+    }
+}

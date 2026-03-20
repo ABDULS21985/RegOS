@@ -1,0 +1,2017 @@
+@page "/submit/bulk"
+@attribute [Authorize(Policy = "InstitutionMaker")]
+@using FC.Engine.Infrastructure.DragDrop
+@inject SubmissionService SubmissionService
+@inject ITemplateDownloadService TemplateDownloadService
+@inject IBulkUploadService BulkUploadService
+@inject ToastService Toast
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@inject DragDropInterop DragDrop
+
+<PageTitle>Bulk Upload — RegOS™ Portal</PageTitle>
+
+@{
+    var submitHref = PortalSubmissionLinkBuilder.BuildSubmitHref(_selectedTemplateCode, _moduleFilter);
+    var _breadcrumb = new BreadcrumbItem[]
+    {
+        new BreadcrumbItem("Home", "/"),
+        new BreadcrumbItem("Submissions", "/submissions"),
+        new BreadcrumbItem("Submit Return", submitHref),
+        new BreadcrumbItem("Bulk Upload", IsCurrent: true)
+    };
+}
+<div class="portal-bulk-page">
+    <PortalPageHeader Title="Bulk Upload"
+                      Subtitle="Upload XML, Excel, or CSV return files for batch validation and submission"
+                      Breadcrumb="_breadcrumb">
+        <PrimaryAction>
+            @if (_files.Count > 0 && !_isProcessing)
+            {
+                <button class="portal-btn portal-btn-ghost portal-btn-sm portal-btn-danger-text" @onclick="ClearAll" aria-label="Clear all files">
+                    Clear All
+                </button>
+            }
+        </PrimaryAction>
+    </PortalPageHeader>
+
+    @if (!string.IsNullOrWhiteSpace(_moduleFilter))
+    {
+        <div class="portal-alert portal-alert-info" style="margin-bottom: 1rem;">
+            <strong>Bulk lane:</strong> @(_moduleName ?? _moduleFilter)
+            @if (!string.IsNullOrWhiteSpace(_selectedTemplateCode))
+            {
+                <span> · return @_selectedTemplateCode selected</span>
+            }
+            <span> · templates and periods are filtered to this workflow.</span>
+            <a href="/submit/bulk" class="portal-inline-link" style="margin-left: .5rem;">Show all modules</a>
+        </div>
+    }
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         PERIOD SELECTOR
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="portal-bulk-section" aria-label="Select reporting period">
+        <h2 class="portal-bulk-section-title">
+            <span class="portal-bulk-section-num">1</span>
+            Reporting Period
+        </h2>
+        <p class="portal-bulk-section-desc">Select the reporting period that applies to all files in this batch.</p>
+
+        @if (_isLoadingPeriods)
+        {
+            <div class="portal-skeleton" style="height: 48px; max-width: 320px;"></div>
+        }
+        else
+        {
+            <div class="portal-form-group" style="max-width: 420px;">
+                <PeriodPicker Periods="_periods"
+                              @bind-Value="_selectedPeriodId" />
+            </div>
+        }
+    </section>
+
+    <section class="portal-bulk-section" aria-label="Select return template">
+        <h2 class="portal-bulk-section-title">
+            <span class="portal-bulk-section-num">2</span>
+            Return Template
+        </h2>
+        <p class="portal-bulk-section-desc">For Excel/CSV files, select the return template and optionally download pre-formatted templates.</p>
+
+        <div class="portal-form-row" style="display: flex; gap: 0.75rem; align-items: end; flex-wrap: wrap;">
+            <div class="portal-form-group" style="max-width: 360px;">
+                <label class="portal-form-label" for="templateSelect">Template</label>
+                <select id="templateSelect" class="portal-form-select"
+                        @bind="_selectedTemplateCode"
+                        @bind:after="LoadTemplatePreview">
+                    <option value="">Select a template...</option>
+                    @foreach (var template in _templates)
+                    {
+                        <option value="@template.ReturnCode">@template.ReturnCode — @template.TemplateName</option>
+                    }
+                </select>
+            </div>
+            <button class="portal-btn portal-btn-outline portal-btn-sm"
+                    disabled="@string.IsNullOrWhiteSpace(_selectedTemplateCode)"
+                    @onclick="DownloadExcelTemplate"
+                    type="button">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Excel Template
+            </button>
+            <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                    disabled="@string.IsNullOrWhiteSpace(_selectedTemplateCode)"
+                    @onclick="DownloadCsvTemplate"
+                    type="button">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                CSV Template
+            </button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(_selectedTemplateCode))
+        {
+            var tpl = _templates.FirstOrDefault(t => t.ReturnCode == _selectedTemplateCode);
+            <div class="portal-bulk-tpl-preview">
+                @if (_isLoadingTemplatePreview)
+                {
+                    <div class="portal-skeleton" style="height: 72px; border-radius: 8px;"></div>
+                }
+                else
+                {
+                    <div class="portal-bulk-tpl-preview-header">
+                        <div class="portal-bulk-tpl-preview-meta">
+                            <span class="portal-bulk-tpl-code">@_selectedTemplateCode</span>
+                            @if (tpl != null)
+                            {
+                                <span class="portal-bulk-tpl-name">@tpl.TemplateName</span>
+                            }
+                        </div>
+                        <div class="portal-bulk-tpl-preview-badges">
+                            @if (_templatePreviewHeaders.Count > 0)
+                            {
+                                <span class="portal-bulk-tpl-badge portal-bulk-tpl-badge-info">@_templatePreviewHeaders.Count fields</span>
+                            }
+                            <span class="portal-bulk-filetype-badge portal-bulk-filetype-xml">XML</span>
+                            <span class="portal-bulk-filetype-badge portal-bulk-filetype-xlsx">XLSX</span>
+                            <span class="portal-bulk-filetype-badge portal-bulk-filetype-csv">CSV</span>
+                        </div>
+                    </div>
+                    @if (_templatePreviewHeaders.Count > 0)
+                    {
+                        <div class="portal-bulk-tpl-sample">
+                            <span class="portal-bulk-tpl-sample-label">Sample columns:</span>
+                            <div class="portal-bulk-tpl-sample-cols">
+                                @foreach (var h in _templatePreviewHeaders.Take(6))
+                                {
+                                    <span class="portal-bulk-tpl-sample-col">@h</span>
+                                }
+                                @if (_templatePreviewHeaders.Count > 6)
+                                {
+                                    <span class="portal-bulk-tpl-sample-more">+@(_templatePreviewHeaders.Count - 6) more</span>
+                                }
+                            </div>
+                        </div>
+                    }
+                }
+            </div>
+        }
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         FILE UPLOAD ZONE
+         ═══════════════════════════════════════════════════════════════ -->
+    <section class="portal-bulk-section" aria-label="Upload files">
+        <h2 class="portal-bulk-section-title">
+            <span class="portal-bulk-section-num">3</span>
+            Upload Files
+        </h2>
+        <p class="portal-bulk-section-desc">Drag .xml, .xlsx, or .csv files here or click to browse.</p>
+
+        <div id="bulk-dropzone"
+             class="portal-bulk-dropzone @(_isDragOver ? "portal-bulk-dropzone-active" : "portal-bulk-dropzone-idle") @(_isProcessing ? "portal-bulk-dropzone-disabled" : "")"
+             @ondragover="HandleDragOver"
+             @ondragover:preventDefault
+             @ondragleave="HandleDragLeave"
+             @ondrop:preventDefault>
+
+            @if (_isDragOver)
+            {
+                <div class="portal-bulk-drop-overlay" aria-hidden="true">
+                    <svg class="portal-bulk-drop-icon" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <polyline points="8 17 12 21 16 17"/>
+                        <line x1="12" y1="12" x2="12" y2="21"/>
+                        <path d="M20.88 18.09A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.29"/>
+                    </svg>
+                    <span class="portal-bulk-drop-label">Drop files here</span>
+                </div>
+            }
+            else
+            {
+                <svg class="portal-bulk-dropzone-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                </svg>
+                <p class="portal-bulk-dropzone-text">
+                    <strong>Drag files here</strong> or click to browse
+                </p>
+                <p class="portal-bulk-dropzone-hint">Accepted: .xml, .xlsx, .csv · max 10 MB each</p>
+            }
+            <span class="portal-dropzone-count" hidden aria-hidden="true"></span>
+
+            <InputFile OnChange="HandleFilesSelected"
+                       accept=".xml,.xlsx,.csv"
+                       multiple
+                       class="portal-upload-input"
+                       disabled="@_isProcessing"
+                       aria-label="Choose upload files" />
+        </div>
+
+        @if (!string.IsNullOrEmpty(_uploadError))
+        {
+            <div class="portal-validation-banner portal-validation-banner-error" style="margin-top: 0.75rem;" role="alert">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
+                </svg>
+                <span>@_uploadError</span>
+            </div>
+        }
+    </section>
+
+    <!-- ═══════════════════════════════════════════════════════════════
+         FILE LIST
+         ═══════════════════════════════════════════════════════════════ -->
+    @if (_files.Count > 0)
+    {
+        <section class="portal-bulk-section" aria-label="File list">
+            <div class="portal-bulk-filelist-top">
+                <h2 class="portal-bulk-section-title" style="margin-bottom:0;">
+                    <span class="portal-bulk-section-num">4</span>
+                    Files (@_files.Count)
+                </h2>
+                <span class="portal-bulk-total-size">Total: @FormatFileSize(_files.Sum(f => f.FileSize))</span>
+            </div>
+
+            <div class="portal-bulk-cards" role="list">
+                @foreach (var file in _files)
+                {
+                    <div class="portal-bulk-card @GetFileCardClass(file)" role="listitem">
+                        @* ── Card header row ── *@
+                        <div class="portal-bulk-card-header">
+                            <div class="portal-bulk-card-file">
+                                <svg class="@GetFileTypeIconClass(file.FileExtension) portal-bulk-card-icon" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                    <polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                <div class="portal-bulk-card-info">
+                                    <span class="portal-bulk-card-name" title="@file.FileName">@file.FileName</span>
+                                    <div class="portal-bulk-card-meta">
+                                        <span class="portal-bulk-filetype-badge portal-bulk-filetype-@(file.FileExtension.TrimStart('.').ToLowerInvariant())">
+                                            @(file.FileExtension.TrimStart('.').ToUpperInvariant())
+                                        </span>
+                                        <span class="portal-bulk-card-size">@FormatFileSize(file.FileSize)</span>
+                                        @if (!file.IsUploading && !string.IsNullOrEmpty(file.DetectedReturnCode))
+                                        {
+                                            <span class="portal-badge @(file.TemplateFound ? "portal-badge-info" : "portal-badge-warning")" style="font-size:0.6875rem;" title="@(file.TemplateFound ? "Template matched" : "No matching template")">
+                                                @file.DetectedReturnCode
+                                            </span>
+                                        }
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="portal-bulk-card-right">
+                                @* Status chip *@
+                                <div class="portal-bulk-card-status">
+                                    @if (file.IsUploading)
+                                    {
+                                        <span class="portal-bulk-status-processing">
+                                            <span class="portal-bulk-spinner" aria-hidden="true"></span>
+                                            @file.UploadProgress%
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        @switch (file.Status)
+                                        {
+                                            case BulkFileStatus.Pending:
+                                                <span class="portal-bulk-upload-done">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                                    Ready
+                                                </span>
+                                                break;
+                                            case BulkFileStatus.Processing:
+                                                <span class="portal-bulk-status-processing">
+                                                    <span class="portal-bulk-spinner" aria-hidden="true"></span>
+                                                    @(string.IsNullOrEmpty(file.ProcessingStage) ? "Processing…" : file.ProcessingStage + "…")
+                                                </span>
+                                                break;
+                                            case BulkFileStatus.Passed:
+                                                <span class="portal-badge portal-badge-success">
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                                    Passed
+                                                </span>
+                                                break;
+                                            case BulkFileStatus.PassedWithWarnings:
+                                                <span class="portal-badge portal-badge-warning">
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                                    Warnings
+                                                </span>
+                                                break;
+                                            case BulkFileStatus.Failed:
+                                                <span class="portal-badge portal-badge-danger">
+                                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                                    Failed
+                                                </span>
+                                                break;
+                                            case BulkFileStatus.Skipped:
+                                                <span class="portal-badge portal-badge-neutral">Skipped</span>
+                                                break;
+                                        }
+                                    }
+                                </div>
+
+                                @* Action buttons *@
+                                @if (!_isProcessing && !file.IsUploading)
+                                {
+                                    <div class="portal-bulk-card-actions">
+                                        @if (file.Status == BulkFileStatus.Failed && file.BufferedContent is not null)
+                                        {
+                                            <button class="portal-bulk-retry-btn" @onclick="() => RetryFile(file)" type="button" aria-label="Retry @file.FileName">
+                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                                    <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+                                                </svg>
+                                                Retry
+                                            </button>
+                                            @if (file.Result?.ValidationReport?.Errors.Any() == true)
+                                            {
+                                                <button class="portal-bulk-fix-btn" @onclick="() => OpenFixModal(file)" type="button" aria-label="Fix and re-upload @file.FileName">
+                                                    Fix &amp; Re-upload
+                                                </button>
+                                            }
+                                        }
+                                        @if (file.Status == BulkFileStatus.Pending)
+                                        {
+                                            <label class="portal-btn portal-btn-ghost portal-btn-sm portal-bulk-replace-btn" title="Replace file" aria-label="Replace @file.FileName">
+                                                Replace
+                                                <InputFile OnChange="e => HandleReplaceFile(e, file)" accept=".xml,.xlsx,.csv" class="portal-upload-input-hidden" />
+                                            </label>
+                                        }
+                                        <button class="portal-btn portal-btn-ghost portal-btn-sm portal-btn-danger-text" @onclick="() => RemoveFile(file)" aria-label="Remove @file.FileName">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                                            </svg>
+                                        </button>
+                                        @if (file.Status is BulkFileStatus.Failed or BulkFileStatus.Passed or BulkFileStatus.PassedWithWarnings)
+                                        {
+                                            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="() => ToggleFileDetails(file)" aria-expanded="@(file.ShowDetails)" aria-label="Toggle details for @file.FileName">
+                                                <svg class="portal-bulk-chevron @(file.ShowDetails ? "portal-bulk-chevron-open" : "")" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                    <polyline points="6 9 12 15 18 9"/>
+                                                </svg>
+                                            </button>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+
+                        @* ── Per-file upload progress bar ── *@
+                        @if (file.IsUploading)
+                        {
+                            <div class="portal-bulk-card-upload-bar">
+                                <div class="portal-upload-progress-bar" style="--progress: @file.UploadProgress">
+                                    <div class="portal-upload-progress-fill"></div>
+                                </div>
+                                @if (file.UploadSpeedMbps > 0.01)
+                                {
+                                    <span class="portal-bulk-upload-speed">@file.UploadSpeedMbps.ToString("F1") MB/s</span>
+                                }
+                            </div>
+                        }
+
+                    @* ── Pre-validation panel (shown for pending CSV/XLSX before upload) ── *@
+                    @if (file.PreValidation is { } pv && file.Status == BulkFileStatus.Pending)
+                    {
+                        <div class="portal-bulk-preval-panel">
+
+                            @* Fingerprint card *@
+                            <div class="portal-bulk-fingerprint">
+                                @if (pv.DataRowCount > 0)
+                                {
+                                    <div class="portal-bulk-fingerprint-item">
+                                        <span class="portal-bulk-fingerprint-label">Rows</span>
+                                        <span class="portal-bulk-fingerprint-value">@pv.DataRowCount data rows</span>
+                                    </div>
+                                }
+                                @if (pv.ColumnCount > 0)
+                                {
+                                    <div class="portal-bulk-fingerprint-item">
+                                        <span class="portal-bulk-fingerprint-label">Columns</span>
+                                        <span class="portal-bulk-fingerprint-value">@pv.ColumnCount</span>
+                                    </div>
+                                }
+                                @if (pv.DetectedPeriod != null)
+                                {
+                                    <div class="portal-bulk-fingerprint-item">
+                                        <span class="portal-bulk-fingerprint-label">Period</span>
+                                        <span class="portal-bulk-fingerprint-value">@pv.DetectedPeriod</span>
+                                    </div>
+                                }
+                                @if (!string.IsNullOrEmpty(file.DetectedReturnCode))
+                                {
+                                    <div class="portal-bulk-fingerprint-item">
+                                        <span class="portal-bulk-fingerprint-label">Template</span>
+                                        <span class="portal-bulk-fingerprint-value">@file.DetectedReturnCode</span>
+                                    </div>
+                                }
+                                @if (pv.DataRowCount == 0 && pv.ColumnCount == 0)
+                                {
+                                    <div class="portal-bulk-fingerprint-item">
+                                        <span class="portal-bulk-fingerprint-label">File</span>
+                                        <span class="portal-bulk-fingerprint-value">@FormatFileSize(file.FileSize) · structure check not available for Excel</span>
+                                    </div>
+                                }
+                            </div>
+
+                            @* Duplicate warning *@
+                            @if (pv.IsDuplicate)
+                            {
+                                <div class="portal-bulk-preval-duplicate" role="alert">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                    <span>
+                                        This file appears identical to
+                                        @if (!string.IsNullOrEmpty(pv.DuplicatePreviousFile))
+                                        { <strong>@pv.DuplicatePreviousFile</strong> }
+                                        @if (!string.IsNullOrEmpty(pv.DuplicatePreviousDate))
+                                        { <span> uploaded on @FormatDuplicateDate(pv.DuplicatePreviousDate)</span> }
+                                        else
+                                        { <span> uploaded in this session</span> }
+                                        . Check before submitting again.
+                                    </span>
+                                </div>
+                            }
+
+                            @* Template mismatch *@
+                            @if (!string.IsNullOrEmpty(pv.SuggestedTemplateCode) && !string.IsNullOrEmpty(_selectedTemplateCode))
+                            {
+                                <div class="portal-bulk-preval-mismatch" role="alert">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                                    </svg>
+                                    <span>
+                                        This file appears to be a <strong>@pv.SuggestedTemplateCode</strong> template, but you selected <strong>@_selectedTemplateCode</strong>.
+                                    </span>
+                                    <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                                            @onclick="() => SwitchTemplateAsync(pv.SuggestedTemplateCode!)"
+                                            type="button">
+                                        Switch to @pv.SuggestedTemplateCode
+                                    </button>
+                                </div>
+                            }
+
+                            @* Issues warning *@
+                            @if (pv.Issues.Count > 0 && !file.UserAcknowledgedWarnings)
+                            {
+                                <div class="portal-bulk-preval-warning" role="alert">
+                                    <div class="portal-bulk-preval-warning-header">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                                        </svg>
+                                        Heads up: @pv.Issues.Count potential issue@(pv.Issues.Count == 1 ? "" : "s") detected. Continue uploading or fix now?
+                                    </div>
+
+                                    <div class="portal-bulk-preval-issue-list">
+                                        @foreach (var issue in pv.Issues.Take(6))
+                                        {
+                                            <div class="portal-bulk-preval-issue">
+                                                <span class="portal-bulk-preval-issue-loc">
+                                                    @(issue.Row.HasValue ? $"Row {issue.Row}" : "Header")@(issue.Column != null ? $" · {issue.Column}" : "")
+                                                </span>
+                                                <span class="portal-bulk-preval-issue-desc">@issue.Description</span>
+                                                @if (issue.Expected != null && issue.Found != null)
+                                                {
+                                                    <span class="portal-bulk-preval-issue-diff">
+                                                        Expected: <code>@issue.Expected</code> &nbsp;·&nbsp; Found: <code>@issue.Found</code>
+                                                    </span>
+                                                }
+                                            </div>
+                                        }
+                                        @if (pv.Issues.Count > 6)
+                                        {
+                                            <div class="portal-bulk-preval-issue" style="color: var(--cbn-text-muted);">
+                                                <span></span><span>…and @(pv.Issues.Count - 6) more issue@(pv.Issues.Count - 6 == 1 ? "" : "s")</span>
+                                            </div>
+                                        }
+                                    </div>
+
+                                    <div class="portal-bulk-preval-actions">
+                                        <button class="portal-btn portal-btn-outline portal-btn-sm"
+                                                @onclick="() => { file.UserAcknowledgedWarnings = true; }"
+                                                type="button">
+                                            Continue Uploading
+                                        </button>
+                                        <button class="portal-btn portal-btn-sm"
+                                                style="background: #d97706; color: #fff; border-color: #d97706;"
+                                                @onclick="() => OpenInlineEditor(file)"
+                                                type="button">
+                                            Fix and Re-upload
+                                        </button>
+                                    </div>
+                                </div>
+                            }
+
+                            @* Inline cell editor *@
+                            @if (file.ShowInlineEditor && file.EditableRows.Count > 0)
+                            {
+                                <div class="portal-bulk-inline-editor">
+                                    <div class="portal-bulk-inline-editor-header">
+                                        <div>
+                                            Fix issues — edit cells below, then download the corrected file
+                                            <div class="portal-bulk-inline-editor-subtitle">Showing first @file.EditableRows.Count data row@(file.EditableRows.Count == 1 ? "" : "s") · header row is read-only</div>
+                                        </div>
+                                        <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                                                @onclick="() => file.ShowInlineEditor = false"
+                                                type="button"
+                                                aria-label="Close editor">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                        </button>
+                                    </div>
+
+                                    <div class="portal-bulk-inline-editor-table-wrap">
+                                        <table class="portal-bulk-inline-editor-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>#</th>
+                                                    @foreach (var h in pv.Headers)
+                                                    {
+                                                        var colIdx2 = pv.Headers.IndexOf(h);
+                                                        var isHeaderIssue = pv.Issues.Any(i => i.Row == 1 && i.Column == $"Col {colIdx2 + 1}");
+                                                        <th class="@(isHeaderIssue ? "portal-bulk-editor-cell-issue" : "")">@h</th>
+                                                    }
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                @for (int ri = 0; ri < file.EditableRows.Count; ri++)
+                                                {
+                                                    var rowIndex = ri;
+                                                    var dataRowNum = ri + 2;
+                                                    var rowHasIssue = HasIssueAtRow(pv, dataRowNum);
+                                                    <tr class="@(rowHasIssue ? "portal-bulk-editor-row-issue" : "")">
+                                                        <td class="portal-bulk-editor-rownum">@dataRowNum</td>
+                                                        @for (int ci = 0; ci < file.EditableRows[ri].Count; ci++)
+                                                        {
+                                                            var colIndex = ci;
+                                                            var colHeader = pv.Headers.ElementAtOrDefault(ci);
+                                                            var cellHasIssue = HasIssueAtCell(pv, dataRowNum, $"Col {ci + 1}");
+                                                            <td class="@(cellHasIssue ? "portal-bulk-editor-cell-issue" : "")">
+                                                                <input class="portal-bulk-editor-input @(cellHasIssue ? "portal-bulk-editor-input-issue" : "")"
+                                                                       value="@file.EditableRows[rowIndex][colIndex]"
+                                                                       @onchange="e => file.EditableRows[rowIndex][colIndex] = e.Value?.ToString() ?? string.Empty"
+                                                                       aria-label="@(colHeader ?? $"Column {colIndex + 1}"), row @dataRowNum" />
+                                                            </td>
+                                                        }
+                                                    </tr>
+                                                }
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <div class="portal-bulk-inline-editor-footer">
+                                        <button class="portal-btn portal-btn-primary portal-btn-sm"
+                                                @onclick="() => SaveCorrectedFile(file)"
+                                                type="button">
+                                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                            </svg>
+                                            Save as New File
+                                        </button>
+                                        <span class="portal-bulk-inline-editor-hint">Downloads a corrected CSV — re-upload it to submit</span>
+                                    </div>
+                                </div>
+                            }
+
+                        </div>
+                    }
+
+                    @if (file.ShowDetails && file.Result is not null)
+                    {
+                        <div class="portal-bulk-filedetails">
+                            <div class="portal-bulk-detail-summary">
+                                <span class="portal-bulk-detail-chip portal-bulk-detail-errors">
+                                    @(file.Result.ValidationReport?.ErrorCount ?? 0) errors
+                                </span>
+                                <span class="portal-bulk-detail-chip portal-bulk-detail-warnings">
+                                    @(file.Result.ValidationReport?.WarningCount ?? 0) warnings
+                                </span>
+                                @if (file.Result.ProcessingDurationMs.HasValue)
+                                {
+                                    <span class="portal-bulk-detail-chip portal-bulk-detail-duration">
+                                        @file.Result.ProcessingDurationMs ms
+                                    </span>
+                                }
+                                @if (file.Result.SubmissionId > 0)
+                                {
+                                    <a href="/submissions/@file.Result.SubmissionId" class="portal-bulk-detail-link">
+                                        View Submission #@file.Result.SubmissionId
+                                    </a>
+                                }
+                                @if (file.ErrorFileBytes is not null && file.ErrorFileBytes.Length > 0)
+                                {
+                                    <button class="portal-btn portal-btn-ghost portal-btn-sm"
+                                            @onclick="() => DownloadErrorFile(file)"
+                                            type="button">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                        Download Error File
+                                    </button>
+                                }
+                            </div>
+
+                            @if (file.Result.ValidationReport?.Errors.Any() == true)
+                            {
+                                <div class="portal-bulk-error-panel">
+                                    <div class="portal-bulk-error-panel-header" @onclick="() => file.ShowErrors = !file.ShowErrors" role="button">
+                                        <span>@file.Result.ValidationReport.Errors.Count validation issue@(file.Result.ValidationReport.Errors.Count != 1 ? "s" : "")</span>
+                                        <svg class="portal-bulk-chevron @(file.ShowErrors ? "portal-bulk-chevron-open" : "")" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <polyline points="6 9 12 15 18 9"/>
+                                        </svg>
+                                    </div>
+                                    @if (file.ShowErrors)
+                                    {
+                                    <div class="portal-bulk-error-panel-body">
+                                        @foreach (var error in file.Result.ValidationReport.Errors.Take(50))
+                                        {
+                                            <div class="portal-bulk-error-row">
+                                                <span class="portal-badge @(error.Severity == "Error" ? "portal-badge-danger" : "portal-badge-warning")" style="font-size:0.6875rem;">
+                                                    @error.Severity
+                                                </span>
+                                                <span class="portal-bulk-error-msg">
+                                                    @if (!string.IsNullOrEmpty(error.Field))
+                                                    {
+                                                        <span class="portal-bulk-error-field">@error.Field: </span>
+                                                    }
+                                                    @error.Message
+                                                </span>
+                                                <span class="portal-bulk-error-rule">@error.RuleId</span>
+                                            </div>
+                                        }
+                                        @if (file.Result.ValidationReport.Errors.Count > 50)
+                                        {
+                                            <p class="portal-bulk-detail-overflow">
+                                                Showing 50 of @file.Result.ValidationReport.Errors.Count issues.
+                                                @if (file.Result.SubmissionId > 0)
+                                                {
+                                                    <a href="/submissions/@file.Result.SubmissionId">View all</a>
+                                                }
+                                            </p>
+                                        }
+                                    </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    </div>@* /.portal-bulk-card *@
+                }
+            </div>
+        </section>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             PRE-FLIGHT VALIDATION PREVIEW
+             ═══════════════════════════════════════════════════════════════ -->
+        var preflightFiles = _files.Where(f => f.Status == BulkFileStatus.Pending
+            && f.PreValidation is { DataRowCount: > 0 }
+            && !f.IsUploading).ToList();
+        @if (preflightFiles.Count > 0 && !_isProcessing && !_batchComplete)
+        {
+            <section class="portal-bulk-section portal-bulk-preflight" aria-label="Pre-flight validation">
+                <h2 class="portal-bulk-section-title">
+                    <span class="portal-bulk-section-num">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        </svg>
+                    </span>
+                    Pre-flight Validation
+                </h2>
+                <p class="portal-bulk-section-desc">Client-side schema check before submission. Columns not matching the template are highlighted.</p>
+
+                @foreach (var pff in preflightFiles)
+                {
+                    var pv2 = pff.PreValidation!;
+                    var expectedHdrs = _expectedHeadersCache.TryGetValue(pff.DetectedReturnCode ?? "", out var eh) ? eh : null;
+                    <div class="portal-bulk-preflight-file">
+                        <div class="portal-bulk-preflight-file-header">
+                            <span class="portal-bulk-card-name">@pff.FileName</span>
+                            <div class="portal-bulk-preflight-stats">
+                                <span>@pv2.DataRowCount rows</span>
+                                <span>@pv2.ColumnCount columns detected</span>
+                                @if (expectedHdrs != null)
+                                {
+                                    var unrecognised = pv2.Headers.Count(h => !expectedHdrs.Any(e => string.Equals(e, h, StringComparison.OrdinalIgnoreCase)));
+                                    if (unrecognised > 0)
+                                    {
+                                        <span class="portal-bulk-preflight-stat-warn">@unrecognised unrecognised</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="portal-bulk-preflight-stat-ok">All columns matched</span>
+                                    }
+                                }
+                            </div>
+                        </div>
+
+                        @if (pv2.Headers.Count > 0 && pv2.AllRows.Count > 1)
+                        {
+                            <div class="portal-bulk-preflight-table-wrap">
+                                <table class="portal-bulk-preflight-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="portal-bulk-preflight-rownum">#</th>
+                                            @for (int ci = 0; ci < pv2.Headers.Count; ci++)
+                                            {
+                                                var h = pv2.Headers[ci];
+                                                var isUnrecognised = expectedHdrs != null && !expectedHdrs.Any(e => string.Equals(e, h, StringComparison.OrdinalIgnoreCase));
+                                                <th class="@(isUnrecognised ? "portal-bulk-preflight-col-warn" : "")" title="@(isUnrecognised ? "Not in template schema" : "")">
+                                                    @h
+                                                    @if (isUnrecognised)
+                                                    {
+                                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="portal-bulk-preflight-warn-icon" aria-label="Unrecognised column" style="margin-left:3px;vertical-align:middle;">
+                                                            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                                        </svg>
+                                                    }
+                                                </th>
+                                            }
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var row in pv2.AllRows.Skip(1).Take(3).Select((r, i) => (row: r, idx: i + 2)))
+                                        {
+                                            <tr>
+                                                <td class="portal-bulk-preflight-rownum">@row.idx</td>
+                                                @for (int ci = 0; ci < pv2.Headers.Count; ci++)
+                                                {
+                                                    var isUnrecognised = expectedHdrs != null
+                                                        && !expectedHdrs.Any(e => string.Equals(e, pv2.Headers[ci], StringComparison.OrdinalIgnoreCase));
+                                                    <td class="@(isUnrecognised ? "portal-bulk-preflight-col-warn" : "")">
+                                                        @(ci < row.row.Length ? row.row[ci] : "")
+                                                    </td>
+                                                }
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                            @if (pv2.DataRowCount > 3)
+                            {
+                                <p class="portal-bulk-preflight-more">Showing 3 of @pv2.DataRowCount data rows</p>
+                            }
+                        }
+                    </div>
+                }
+            </section>
+        }
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             BATCH ACTIONS & PROGRESS
+             ═══════════════════════════════════════════════════════════════ -->
+        @if (_isProcessing)
+        {
+            <div class="portal-bulk-progress" role="status" aria-live="polite">
+                <div class="portal-bulk-multistage">
+                    @foreach (var (stage, icon, idx) in new[] {
+                        ("Uploading",   "↑", 0),
+                        ("Parsing",     "≡", 1),
+                        ("Validating",  "✓", 2),
+                        ("Submitting",  "→", 3)
+                    })
+                    {
+                        var isDone   = _stageIndex > idx;
+                        var isActive = _stageIndex == idx;
+                        <div class="portal-bulk-stage @(isDone ? "portal-bulk-stage-done" : isActive ? "portal-bulk-stage-active" : "portal-bulk-stage-pending")">
+                            <div class="portal-bulk-stage-dot">
+                                @if (isDone)
+                                {
+                                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                                }
+                                else if (isActive)
+                                {
+                                    <span class="portal-bulk-spinner portal-bulk-spinner-sm" aria-hidden="true"></span>
+                                }
+                            </div>
+                            <span class="portal-bulk-stage-label">@stage</span>
+                        </div>
+                        @if (idx < 3)
+                        {
+                            <div class="portal-bulk-stage-connector @(isDone ? "portal-bulk-stage-connector-done" : "")"></div>
+                        }
+                    }
+                </div>
+                <div class="portal-bulk-progress-bar" style="margin-top: 0.75rem;">
+                    <div class="portal-bulk-progress-fill" style="width: @(_files.Count > 0 ? (_processedCount * 100 / _files.Count) : 0)%"></div>
+                </div>
+                <p class="portal-bulk-progress-text">
+                    @_currentStageLabel — <strong>@_processedCount</strong> of <strong>@_files.Count</strong> files
+                </p>
+            </div>
+        }
+        else if (_batchComplete)
+        {
+            @* ── Split result panels ── *@
+            <div class="portal-bulk-split-results" aria-label="Batch results">
+                @* Success panel *@
+                @if (_passedCount + _warningCount > 0)
+                {
+                    <div class="portal-bulk-split-panel portal-bulk-split-success">
+                        <div class="portal-bulk-split-panel-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                            <span>@(_passedCount + _warningCount) Succeeded</span>
+                            <span class="portal-bulk-split-panel-sub">of @_files.Count files</span>
+                        </div>
+                        <ul class="portal-bulk-split-list">
+                            @foreach (var sf in _files.Where(f => f.Status is BulkFileStatus.Passed or BulkFileStatus.PassedWithWarnings))
+                            {
+                                <li class="portal-bulk-split-item">
+                                    <svg class="@GetFileTypeIconClass(sf.FileExtension)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                        <polyline points="14 2 14 8 20 8"/>
+                                    </svg>
+                                    <span class="portal-bulk-split-filename">@sf.FileName</span>
+                                    @if (sf.Status == BulkFileStatus.PassedWithWarnings)
+                                    {
+                                        <span class="portal-badge portal-badge-warning" style="font-size:0.625rem;">warnings</span>
+                                    }
+                                    @if (sf.Result?.SubmissionId > 0)
+                                    {
+                                        <a href="/submissions/@sf.Result.SubmissionId" class="portal-bulk-split-link">#@sf.Result.SubmissionId</a>
+                                    }
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                @* Failure panel *@
+                @if (_failedCount + _skippedCount > 0)
+                {
+                    <div class="portal-bulk-split-panel portal-bulk-split-failure">
+                        <div class="portal-bulk-split-panel-header">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            <span>@(_failedCount + _skippedCount) Failed</span>
+                            <span class="portal-bulk-split-panel-sub">@_skippedCount skipped</span>
+                        </div>
+                        <div class="portal-bulk-split-failed-list">
+                            @foreach (var ff in _files.Where(f => f.Status is BulkFileStatus.Failed or BulkFileStatus.Skipped))
+                            {
+                                <div class="portal-bulk-split-failed-item">
+                                    <div class="portal-bulk-split-failed-name">
+                                        <svg class="@GetFileTypeIconClass(ff.FileExtension)" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                                            <polyline points="14 2 14 8 20 8"/>
+                                        </svg>
+                                        <span>@ff.FileName</span>
+                                        @if (ff.Status == BulkFileStatus.Skipped)
+                                        {
+                                            <span class="portal-badge portal-badge-neutral" style="font-size:0.625rem;">skipped</span>
+                                        }
+                                    </div>
+                                    @* First 3 row-level errors *@
+                                    @if (ff.Result?.ValidationReport?.Errors.Any() == true)
+                                    {
+                                        <ul class="portal-bulk-split-errors">
+                                            @foreach (var err in ff.Result.ValidationReport.Errors.Take(3))
+                                            {
+                                                <li>
+                                                    @if (!string.IsNullOrEmpty(err.Field))
+                                                    {
+                                                        <span class="portal-bulk-split-err-field">@err.Field:</span>
+                                                    }
+                                                    <span>@err.Message</span>
+                                                </li>
+                                            }
+                                            @if (ff.Result.ValidationReport.Errors.Count > 3)
+                                            {
+                                                <li class="portal-bulk-split-err-more">+@(ff.Result.ValidationReport.Errors.Count - 3) more</li>
+                                            }
+                                        </ul>
+                                    }
+                                    else if (!string.IsNullOrEmpty(ff.ErrorMessage))
+                                    {
+                                        <p class="portal-bulk-split-err-msg">@ff.ErrorMessage</p>
+                                    }
+                                    <div class="portal-bulk-split-failed-actions">
+                                        @if (ff.BufferedContent is not null)
+                                        {
+                                            <button class="portal-bulk-retry-btn" @onclick="() => RetryFile(ff)" type="button">
+                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                                    <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.5"/>
+                                                </svg>
+                                                Retry
+                                            </button>
+                                        }
+                                        @if (ff.Result?.ValidationReport?.Errors.Any() == true)
+                                        {
+                                            <button class="portal-bulk-fix-btn" @onclick="() => OpenFixModal(ff)" type="button">Fix &amp; Re-upload</button>
+                                        }
+                                        @if (ff.ErrorFileBytes is not null && ff.ErrorFileBytes.Length > 0)
+                                        {
+                                            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="() => DownloadErrorFile(ff)" type="button">
+                                                Download Error File
+                                            </button>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+
+        @* ── Download Error Report (always shown when failures exist) ── *@
+        @if (_files.Any(f => f.Result?.ValidationReport?.Errors.Any() == true) && !_isProcessing)
+        {
+            <div class="portal-bulk-actions portal-bulk-actions-error">
+                <button class="portal-bulk-error-report-btn" @onclick="DownloadAllErrorsCsv" type="button">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download Error Report (CSV)
+                </button>
+            </div>
+        }
+
+        <div class="portal-bulk-actions">
+            @if (!_isProcessing && !_batchComplete)
+            {
+                <button class="portal-btn portal-btn-primary"
+                        disabled="@(_selectedPeriodId == 0 || _files.Count == 0 || _files.Any(f => f.IsUploading))"
+                        @onclick="ValidateAll">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                    </svg>
+                    Submit All
+                </button>
+            }
+
+            @if (_batchComplete)
+            {
+                @if (_passedCount + _warningCount > 0)
+                {
+                    <button class="portal-btn portal-btn-outline" @onclick="ResetBatch">
+                        Upload More Files
+                    </button>
+                    <a href="@BuildSubmissionsHref()" class="portal-btn portal-btn-primary">
+                        View Submissions
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                            <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+                        </svg>
+                    </a>
+                }
+                else
+                {
+                    <button class="portal-btn portal-btn-outline" @onclick="ResetBatch">Try Again</button>
+                }
+            }
+        </div>
+    }
+
+    @* ── Fix & Re-upload Modal ── *@
+    @if (_fixModalFile is not null)
+    {
+        <div class="portal-bulk-fix-modal-backdrop" @onclick="CloseFixModal" role="dialog" aria-modal="true" aria-label="Fix and re-upload @_fixModalFile.FileName">
+            <div class="portal-bulk-fix-modal" @onclick:stopPropagation>
+                <div class="portal-bulk-fix-modal-header">
+                    <div>
+                        <h3 class="portal-bulk-fix-modal-title">Fix &amp; Re-upload</h3>
+                        <p class="portal-bulk-fix-modal-subtitle">@_fixModalFile.FileName — first 5 errors</p>
+                    </div>
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="CloseFixModal" aria-label="Close">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+                <div class="portal-bulk-fix-modal-body">
+                    <table class="portal-bulk-fix-modal-table">
+                        <thead>
+                            <tr>
+                                <th>Row</th>
+                                <th>Field</th>
+                                <th>Error</th>
+                                <th>Expected Format</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var (err, i) in (_fixModalFile.Result?.ValidationReport?.Errors ?? Enumerable.Empty<ValidationErrorDto>()).Take(5).Select((e, i) => (e, i)))
+                            {
+                                <tr>
+                                    <td class="portal-bulk-fix-rownum">@(i + 1)</td>
+                                    <td class="portal-bulk-fix-field">@(err.Field ?? "—")</td>
+                                    <td class="portal-bulk-fix-msg">@err.Message</td>
+                                    <td class="portal-bulk-fix-expected">@(err.Category ?? "—")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+                <div class="portal-bulk-fix-modal-footer">
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="CloseFixModal" type="button">Close</button>
+                    <label class="portal-btn portal-btn-primary portal-btn-sm">
+                        Replace File
+                        <InputFile OnChange="e => HandleReplaceFile(e, _fixModalFile)" accept=".xml,.xlsx,.csv" class="portal-upload-input-hidden" />
+                    </label>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "module")]
+    public string? Module { get; set; }
+
+    [SupplyParameterFromQuery(Name = "returnCode")]
+    public string? ReturnCode { get; set; }
+
+    // ── Auth ──────────────────────────────────────────────────────
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+    private int _institutionId;
+    private int? _userId;
+    private Guid? _tenantId;
+    private bool _bulkContextLoaded;
+    private string _moduleFilter = string.Empty;
+    private string _moduleName = string.Empty;
+    private string _requestedReturnCode = string.Empty;
+
+    // ── Period ────────────────────────────────────────────────────
+    private List<PeriodSelectItem> _periods = new();
+    private int _selectedPeriodId;
+    private bool _isLoadingPeriods = true;
+
+    // ── Files ─────────────────────────────────────────────────────
+    private List<BulkFileEntry> _files = new();
+    private bool _isDragOver;
+    private string? _uploadError;
+
+    // ── Template preview ──────────────────────────────────────────
+    private List<string> _templatePreviewHeaders = new();
+    private bool _isLoadingTemplatePreview;
+
+    // ── Fix & Re-upload modal ─────────────────────────────────────
+    private BulkFileEntry? _fixModalFile;
+
+    // ── Processing stage ──────────────────────────────────────────
+    private int _stageIndex;          // 0=Uploading 1=Parsing 2=Validating 3=Submitting
+    private string _currentStageLabel = "Processing";
+
+    // ── Processing ────────────────────────────────────────────────
+    private bool _isProcessing;
+    private bool _batchComplete;
+    private int _processedCount;
+    private int _passedCount;
+    private int _warningCount;
+    private int _failedCount;
+    private int _skippedCount;
+
+    // ── Known templates for auto-detection ─────────────────────────
+    private List<TemplateSelectItem> _templates = new();
+    private string _selectedTemplateCode = string.Empty;
+    private HashSet<string> _knownReturnCodes = new(StringComparer.OrdinalIgnoreCase);
+
+    // ── Pre-validation ────────────────────────────────────────────
+    private Dictionary<string, string[]> _expectedHeadersCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private bool _dropZoneEnhanced = false;
+
+    // ── Lifecycle ──────────────────────────────────────────────────
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_dropZoneEnhanced)
+        {
+            _dropZoneEnhanced = true;
+            await DragDrop.InitDropZone("#bulk-dropzone", new
+            {
+                accept = new[] { "application/xml", "text/xml", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv" }
+            });
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = await AuthState!;
+        var user = state.User;
+        var instIdStr = user.FindFirst("InstitutionId")?.Value;
+        int.TryParse(instIdStr, out _institutionId);
+        var userIdStr = user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+        if (int.TryParse(userIdStr, out var uid)) _userId = uid;
+        var tenantIdStr = user.FindFirst("TenantId")?.Value ?? user.FindFirst("tid")?.Value;
+        if (Guid.TryParse(tenantIdStr, out var tenantId))
+        {
+            _tenantId = tenantId;
+        }
+
+        _bulkContextLoaded = true;
+        await ApplyBulkContextAsync(forceReload: true);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_bulkContextLoaded)
+        {
+            await ApplyBulkContextAsync(forceReload: false);
+        }
+    }
+
+    private async Task LoadPeriods()
+    {
+        _isLoadingPeriods = true;
+        try
+        {
+            _periods = [];
+
+            var selectedReturnCode = !string.IsNullOrWhiteSpace(_selectedTemplateCode)
+                ? _selectedTemplateCode
+                : _templates.FirstOrDefault()?.ReturnCode;
+
+            if (!string.IsNullOrWhiteSpace(selectedReturnCode))
+            {
+                _periods = await SubmissionService.GetOpenPeriods(_institutionId, selectedReturnCode);
+            }
+
+            if (_selectedPeriodId > 0 && _periods.All(x => x.ReturnPeriodId != _selectedPeriodId))
+            {
+                _selectedPeriodId = 0;
+            }
+
+            if (_selectedPeriodId == 0 && _periods.Count == 1)
+            {
+                _selectedPeriodId = _periods[0].ReturnPeriodId;
+            }
+        }
+        catch { }
+        finally
+        {
+            _isLoadingPeriods = false;
+        }
+    }
+
+    private async Task LoadKnownTemplates()
+    {
+        try
+        {
+            _templates = await SubmissionService.GetTemplatesForInstitution(
+                _institutionId,
+                string.IsNullOrWhiteSpace(_moduleFilter) ? null : _moduleFilter);
+            _knownReturnCodes = _templates.Select(t => t.ReturnCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrWhiteSpace(_requestedReturnCode))
+            {
+                var requestedTemplate = _templates.FirstOrDefault(t =>
+                    string.Equals(t.ReturnCode, _requestedReturnCode, StringComparison.OrdinalIgnoreCase));
+
+                if (requestedTemplate is not null)
+                {
+                    _selectedTemplateCode = requestedTemplate.ReturnCode;
+                    return;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(_selectedTemplateCode) &&
+                _templates.Any(t => string.Equals(t.ReturnCode, _selectedTemplateCode, StringComparison.OrdinalIgnoreCase)))
+            {
+                return;
+            }
+
+            if (_templates.Count == 1)
+            {
+                _selectedTemplateCode = _templates[0].ReturnCode;
+            }
+            else
+            {
+                _selectedTemplateCode = string.Empty;
+            }
+        }
+        catch { }
+    }
+
+    private async Task DownloadExcelTemplate()
+    {
+        if (!_tenantId.HasValue || string.IsNullOrWhiteSpace(_selectedTemplateCode))
+        {
+            return;
+        }
+
+        var bytes = await TemplateDownloadService.GenerateTemplateExcel(_tenantId.Value, _selectedTemplateCode);
+        var base64 = Convert.ToBase64String(bytes);
+        await JS.InvokeVoidAsync(
+            "portalDownloadBase64File",
+            base64,
+            $"{_selectedTemplateCode}_template.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private async Task DownloadCsvTemplate()
+    {
+        if (!_tenantId.HasValue || string.IsNullOrWhiteSpace(_selectedTemplateCode))
+        {
+            return;
+        }
+
+        var csv = await TemplateDownloadService.GenerateTemplateCsv(_tenantId.Value, _selectedTemplateCode);
+        await JS.InvokeVoidAsync("portalDownloadFile", csv, $"{_selectedTemplateCode}_template.csv", "text/csv");
+    }
+
+    // ── File Upload ────────────────────────────────────────────────
+    private async Task HandleFilesSelected(InputFileChangeEventArgs e)
+    {
+        _uploadError = null;
+        const int chunkSize = 65536; // 64 KB
+
+        foreach (var file in e.GetMultipleFiles(maximumFileCount: 50))
+        {
+            var ext = Path.GetExtension(file.Name).ToLowerInvariant();
+            if (ext is not ".xml" and not ".xlsx" and not ".csv")
+            {
+                _uploadError = $"Skipped '{file.Name}' — accepted types are .xml, .xlsx, .csv.";
+                continue;
+            }
+
+            if (file.Size > 10 * 1024 * 1024)
+            {
+                _uploadError = $"Skipped '{file.Name}' — exceeds 10 MB limit.";
+                continue;
+            }
+
+            if (ext is ".xlsx" or ".csv" && string.IsNullOrWhiteSpace(_selectedTemplateCode))
+            {
+                _uploadError = $"Skipped '{file.Name}' — select a template before uploading Excel/CSV files.";
+                continue;
+            }
+
+            // Avoid duplicates
+            if (_files.Any(f => f.FileName == file.Name))
+                continue;
+
+            // Add entry immediately so the user sees upload progress
+            var entry = new BulkFileEntry
+            {
+                FileName = file.Name,
+                FileSize = file.Size,
+                FileExtension = ext,
+                Status = BulkFileStatus.Pending,
+                IsUploading = true,
+                UploadProgress = 0
+            };
+            _files.Add(entry);
+            StateHasChanged();
+
+            // Read in chunks to track progress
+            var ms = new MemoryStream((int)Math.Min(file.Size, 10 * 1024 * 1024));
+            var buffer = new byte[chunkSize];
+            long bytesRead = 0;
+            var startTime = DateTime.UtcNow;
+
+            try
+            {
+                await using var stream = file.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+                int read;
+                while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                {
+                    await ms.WriteAsync(buffer, 0, read);
+                    bytesRead += read;
+                    entry.UploadProgress = file.Size > 0 ? (int)(bytesRead * 100 / file.Size) : 100;
+                    var elapsed = (DateTime.UtcNow - startTime).TotalSeconds;
+                    entry.UploadSpeedMbps = elapsed > 0.05 ? bytesRead / 1_048_576.0 / elapsed : 0;
+                    StateHasChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                entry.IsUploading = false;
+                entry.Status = BulkFileStatus.Failed;
+                entry.ErrorMessage = $"Failed to read file: {ex.Message}";
+                ms.Dispose();
+                StateHasChanged();
+                continue;
+            }
+
+            ms.Position = 0;
+            var returnCode = ext == ".xml" ? DetectReturnCode(ms) : _selectedTemplateCode;
+            ms.Position = 0;
+
+            entry.BufferedContent = ms;
+            entry.DetectedReturnCode = returnCode;
+            entry.TemplateFound = !string.IsNullOrEmpty(returnCode) && _knownReturnCodes.Contains(returnCode);
+            entry.IsUploading = false;
+            entry.UploadProgress = 100;
+            StateHasChanged();
+
+            // Run client-side pre-validation for CSV/Excel files
+            if (ext == ".csv")
+                await RunCsvPreValidation(entry);
+            else if (ext == ".xlsx")
+                await RunXlsxPreValidation(entry);
+            StateHasChanged();
+        }
+    }
+
+    private string DetectReturnCode(Stream xmlStream)
+    {
+        try
+        {
+            var settings = new System.Xml.XmlReaderSettings
+            {
+                Async = false,
+                IgnoreWhitespace = true,
+                IgnoreComments = true
+            };
+
+            using var reader = System.Xml.XmlReader.Create(xmlStream, settings);
+            while (reader.Read())
+            {
+                if (reader.NodeType == System.Xml.XmlNodeType.Element)
+                {
+                    // The root element name is usually the return code
+                    return reader.LocalName;
+                }
+            }
+        }
+        catch { }
+        return "";
+    }
+
+    private void HandleDragOver() => _isDragOver = true;
+    private void HandleDragLeave() => _isDragOver = false;
+
+    // ── Pre-validation ─────────────────────────────────────────────
+    private async Task RunCsvPreValidation(BulkFileEntry entry)
+    {
+        if (entry.BufferedContent == null) return;
+        try
+        {
+            entry.BufferedContent.Position = 0;
+            using var reader = new System.IO.StreamReader(entry.BufferedContent, System.Text.Encoding.UTF8, leaveOpen: true);
+            var rawContent = await reader.ReadToEndAsync();
+            entry.BufferedContent.Position = 0;
+
+            var result = new PreValidationResult();
+
+            // Parse all rows
+            var lines = rawContent.Split('\n')
+                .Select(l => l.TrimEnd('\r'))
+                .Where(l => l.Length > 0)
+                .ToList();
+
+            var parsed = lines.Select(ParseCsvLine).ToList();
+            result.AllRows = parsed;
+            result.ColumnCount = parsed.Count > 0 ? parsed[0].Length : 0;
+            result.DataRowCount = Math.Max(0, parsed.Count - 1);
+            result.Headers = parsed.Count > 0 ? parsed[0].ToList() : new();
+
+            // Compute hash
+            entry.BufferedContent.Position = 0;
+            var hashBytes = System.Security.Cryptography.SHA256.HashData(entry.BufferedContent.ToArray());
+            entry.BufferedContent.Position = 0;
+            result.FileHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+            // Check for duplicate in localStorage and current session
+            var dupResult = await JS.InvokeAsync<DuplicateCheckResult>("portalBulkCheckDuplicate", result.FileHash);
+            result.IsDuplicate = dupResult.IsDuplicate;
+            result.DuplicatePreviousDate = dupResult.Date;
+            result.DuplicatePreviousFile = dupResult.FileName;
+            if (!result.IsDuplicate)
+            {
+                var sessionDup = _files.FirstOrDefault(f => f != entry && f.PreValidation?.FileHash == result.FileHash);
+                if (sessionDup != null) { result.IsDuplicate = true; result.DuplicatePreviousFile = sessionDup.FileName; }
+            }
+
+            // Validate column consistency across first 10 data rows
+            var dataRows = parsed.Skip(1).Take(10).ToList();
+            for (int i = 0; i < dataRows.Count; i++)
+            {
+                if (dataRows[i].Length != result.ColumnCount)
+                {
+                    result.Issues.Add(new PreValidationIssue
+                    {
+                        Row = i + 2,
+                        Type = "column_count",
+                        Description = $"Row {i + 2} has {dataRows[i].Length} column(s), expected {result.ColumnCount}",
+                        Expected = result.ColumnCount.ToString(),
+                        Found = dataRows[i].Length.ToString()
+                    });
+                }
+            }
+
+            // Validate headers against template schema
+            var expectedHeaders = await GetExpectedHeaders(entry.DetectedReturnCode);
+            if (expectedHeaders?.Length > 0 && result.Headers.Count > 0)
+            {
+                if (expectedHeaders.Length != result.Headers.Count)
+                {
+                    result.Issues.Add(new PreValidationIssue
+                    {
+                        Row = 1,
+                        Type = "header_count",
+                        Description = $"File has {result.Headers.Count} column(s), template expects {expectedHeaders.Length}",
+                        Expected = $"{expectedHeaders.Length} columns",
+                        Found = $"{result.Headers.Count} columns"
+                    });
+                }
+                else
+                {
+                    for (int i = 0; i < expectedHeaders.Length; i++)
+                    {
+                        var found = result.Headers.ElementAtOrDefault(i) ?? "(missing)";
+                        if (!string.Equals(expectedHeaders[i], found, StringComparison.OrdinalIgnoreCase))
+                        {
+                            result.Issues.Add(new PreValidationIssue
+                            {
+                                Row = 1,
+                                Column = $"Col {i + 1}",
+                                Type = "header_mismatch",
+                                Description = $"Column {i + 1} header doesn't match template",
+                                Expected = expectedHeaders[i],
+                                Found = found
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Detect template mismatch from filename
+            var templateFromFilename = DetectTemplateFromFilename(entry.FileName);
+            if (!string.IsNullOrEmpty(templateFromFilename) &&
+                !string.IsNullOrEmpty(_selectedTemplateCode) &&
+                !string.Equals(templateFromFilename, _selectedTemplateCode, StringComparison.OrdinalIgnoreCase))
+            {
+                result.SuggestedTemplateCode = templateFromFilename;
+            }
+
+            result.DetectedPeriod = DetectPeriodFromFilename(entry.FileName);
+            entry.PreValidation = result;
+
+            // Pre-populate editable rows with the first 10 data rows
+            entry.EditableRows = parsed.Skip(1).Take(10)
+                .Select(r => r.ToList())
+                .ToList();
+        }
+        catch { /* pre-validation is best-effort; don't block upload */ }
+    }
+
+    private async Task RunXlsxPreValidation(BulkFileEntry entry)
+    {
+        if (entry.BufferedContent == null) return;
+        try
+        {
+            var result = new PreValidationResult();
+            entry.BufferedContent.Position = 0;
+            var hashBytes = System.Security.Cryptography.SHA256.HashData(entry.BufferedContent.ToArray());
+            entry.BufferedContent.Position = 0;
+            result.FileHash = Convert.ToHexString(hashBytes).ToLowerInvariant();
+
+            var dupResult = await JS.InvokeAsync<DuplicateCheckResult>("portalBulkCheckDuplicate", result.FileHash);
+            result.IsDuplicate = dupResult.IsDuplicate;
+            result.DuplicatePreviousDate = dupResult.Date;
+            result.DuplicatePreviousFile = dupResult.FileName;
+            if (!result.IsDuplicate)
+            {
+                var sessionDup = _files.FirstOrDefault(f => f != entry && f.PreValidation?.FileHash == result.FileHash);
+                if (sessionDup != null) { result.IsDuplicate = true; result.DuplicatePreviousFile = sessionDup.FileName; }
+            }
+
+            result.DetectedPeriod = DetectPeriodFromFilename(entry.FileName);
+            var templateFromFilename = DetectTemplateFromFilename(entry.FileName);
+            if (!string.IsNullOrEmpty(templateFromFilename) &&
+                !string.IsNullOrEmpty(_selectedTemplateCode) &&
+                !string.Equals(templateFromFilename, _selectedTemplateCode, StringComparison.OrdinalIgnoreCase))
+            {
+                result.SuggestedTemplateCode = templateFromFilename;
+            }
+
+            entry.PreValidation = result;
+        }
+        catch { }
+    }
+
+    private async Task<string[]?> GetExpectedHeaders(string returnCode)
+    {
+        if (string.IsNullOrWhiteSpace(returnCode) || !_tenantId.HasValue) return null;
+        if (_expectedHeadersCache.TryGetValue(returnCode, out var cached)) return cached;
+        try
+        {
+            var csv = await TemplateDownloadService.GenerateTemplateCsv(_tenantId.Value, returnCode);
+            var firstLine = csv.Split('\n')[0].TrimEnd('\r');
+            var headers = ParseCsvLine(firstLine);
+            _expectedHeadersCache[returnCode] = headers;
+            return headers;
+        }
+        catch { return null; }
+    }
+
+    private static string[] ParseCsvLine(string line)
+    {
+        var result = new List<string>();
+        var inQuotes = false;
+        var current = new System.Text.StringBuilder();
+        foreach (char c in line)
+        {
+            if (c == '"') { inQuotes = !inQuotes; }
+            else if (c == ',' && !inQuotes) { result.Add(current.ToString().Trim()); current.Clear(); }
+            else { current.Append(c); }
+        }
+        result.Add(current.ToString().Trim());
+        return result.ToArray();
+    }
+
+    private static string? DetectPeriodFromFilename(string fileName)
+    {
+        var patterns = new[] { @"Q[1-4][-_]?20\d{2}", @"20\d{2}[-_]?Q[1-4]", @"Q[1-4][-_]\d{2}\b" };
+        foreach (var pattern in patterns)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(fileName, pattern,
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (m.Success) return m.Value.Replace("_", "-");
+        }
+        return null;
+    }
+
+    private string? DetectTemplateFromFilename(string fileName)
+    {
+        foreach (var code in _knownReturnCodes)
+            if (fileName.Contains(code, StringComparison.OrdinalIgnoreCase)) return code;
+        return null;
+    }
+
+    private void OpenInlineEditor(BulkFileEntry file)
+    {
+        file.ShowInlineEditor = true;
+        file.UserAcknowledgedWarnings = true;
+    }
+
+    private async Task SaveCorrectedFile(BulkFileEntry file)
+    {
+        if (file.PreValidation == null) return;
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine(BuildCsvLine(file.PreValidation.Headers.ToArray()));
+        foreach (var row in file.EditableRows)
+            sb.AppendLine(BuildCsvLine(row.ToArray()));
+        // Append rows beyond what was shown in the editor
+        if (file.PreValidation.AllRows.Count > file.EditableRows.Count + 1)
+            foreach (var row in file.PreValidation.AllRows.Skip(file.EditableRows.Count + 1))
+                sb.AppendLine(BuildCsvLine(row));
+
+        var baseName = Path.GetFileNameWithoutExtension(file.FileName);
+        await JS.InvokeVoidAsync("portalBulkDownloadCsv", sb.ToString(), $"{baseName}_corrected.csv");
+    }
+
+    private static string BuildCsvLine(string[] cells) =>
+        string.Join(",", cells.Select(c =>
+            c.Contains(',') || c.Contains('"') || c.Contains('\n')
+                ? $"\"{c.Replace("\"", "\"\"")}\""
+                : c));
+
+    private static bool HasIssueAtRow(PreValidationResult pv, int rowNum)
+        => pv.Issues.Any(i => i.Row == rowNum && i.Type != "header_count" && i.Type != "header_mismatch");
+
+    private static bool HasIssueAtCell(PreValidationResult pv, int rowNum, string? colName)
+        => pv.Issues.Any(i => i.Row == rowNum && (i.Column == null || i.Column == colName));
+
+    private static string FormatDuplicateDate(string? isoDate)
+    {
+        if (string.IsNullOrEmpty(isoDate)) return "recently";
+        return DateTime.TryParse(isoDate, out var dt) ? dt.ToString("MMMM d, yyyy") : isoDate;
+    }
+
+    private async Task LoadTemplatePreview()
+    {
+        await LoadPeriods();
+
+        if (string.IsNullOrWhiteSpace(_selectedTemplateCode))
+        {
+            _templatePreviewHeaders = new();
+            return;
+        }
+        _isLoadingTemplatePreview = true;
+        StateHasChanged();
+        try
+        {
+            _expectedHeadersCache.Clear();
+            var headers = await GetExpectedHeaders(_selectedTemplateCode);
+            _templatePreviewHeaders = headers?.ToList() ?? new();
+        }
+        catch { _templatePreviewHeaders = new(); }
+        finally { _isLoadingTemplatePreview = false; }
+    }
+
+    private async Task HandleReplaceFile(InputFileChangeEventArgs e, BulkFileEntry? target)
+    {
+        if (target == null) return;
+        _fixModalFile = null;
+        var replacement = e.GetMultipleFiles(1).FirstOrDefault();
+        if (replacement == null) return;
+        var ext = Path.GetExtension(replacement.Name).ToLowerInvariant();
+        if (ext is not ".xml" and not ".xlsx" and not ".csv") return;
+        if (replacement.Size > 10 * 1024 * 1024) return;
+
+        var ms = new MemoryStream();
+        await using var stream = replacement.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+        await stream.CopyToAsync(ms);
+        ms.Position = 0;
+
+        target.BufferedContent?.Dispose();
+        target.FileName = replacement.Name;
+        target.FileSize = replacement.Size;
+        target.FileExtension = ext;
+        target.BufferedContent = ms;
+        target.Status = BulkFileStatus.Pending;
+        target.Result = null;
+        target.ErrorMessage = null;
+        target.ErrorFileBytes = null;
+        target.PreValidation = null;
+        target.ShowDetails = false;
+
+        var returnCode = ext == ".xml" ? DetectReturnCode(ms) : _selectedTemplateCode;
+        ms.Position = 0;
+        target.DetectedReturnCode = returnCode;
+        target.TemplateFound = !string.IsNullOrEmpty(returnCode) && _knownReturnCodes.Contains(returnCode);
+
+        if (ext == ".csv") await RunCsvPreValidation(target);
+        else if (ext == ".xlsx") await RunXlsxPreValidation(target);
+        StateHasChanged();
+    }
+
+    private void OpenFixModal(BulkFileEntry file) => _fixModalFile = file;
+    private void CloseFixModal() => _fixModalFile = null;
+
+    private async Task SwitchTemplateAsync(string code)
+    {
+        _selectedTemplateCode = code;
+        // Invalidate header cache for any re-validation
+        _expectedHeadersCache.Clear();
+        await LoadTemplatePreview();
+        StateHasChanged();
+    }
+
+    private void RemoveFile(BulkFileEntry file)
+    {
+        file.BufferedContent?.Dispose();
+        _files.Remove(file);
+    }
+
+    private void ToggleFileDetails(BulkFileEntry file)
+    {
+        file.ShowDetails = !file.ShowDetails;
+    }
+
+    // ── Batch Processing ──────────────────────────────────────────
+    private async Task ValidateAll()
+    {
+        if (_selectedPeriodId == 0 || _files.Count == 0)
+            return;
+
+        _isProcessing = true;
+        _batchComplete = false;
+        _processedCount = 0;
+        _passedCount = 0;
+        _warningCount = 0;
+        _stageIndex = 0;
+        _currentStageLabel = "Uploading";
+        _failedCount = 0;
+        _skippedCount = 0;
+        StateHasChanged();
+
+        foreach (var file in _files)
+        {
+            if (!file.TemplateFound || string.IsNullOrEmpty(file.DetectedReturnCode))
+            {
+                file.Status = BulkFileStatus.Skipped;
+                file.ErrorMessage = "No matching template found for this file.";
+                _skippedCount++;
+            }
+            else
+            {
+                await ProcessSingleFile(file);
+                switch (file.Status)
+                {
+                    case BulkFileStatus.Passed:             _passedCount++;   break;
+                    case BulkFileStatus.PassedWithWarnings: _warningCount++;  break;
+                    case BulkFileStatus.Failed:             _failedCount++;   break;
+                    case BulkFileStatus.Skipped:            _skippedCount++;  break;
+                }
+            }
+
+            _processedCount++;
+            StateHasChanged();
+        }
+
+        _isProcessing = false;
+        _batchComplete = true;
+
+        // Store hashes of successfully uploaded files so future sessions detect duplicates
+        foreach (var f in _files.Where(f => f.Status is BulkFileStatus.Passed or BulkFileStatus.PassedWithWarnings
+                                         && !string.IsNullOrEmpty(f.PreValidation?.FileHash)))
+        {
+            await JS.InvokeVoidAsync("portalBulkStoreHash", f.PreValidation!.FileHash, f.FileName);
+        }
+
+        if (_passedCount > 0)
+            Toast.Success($"{_passedCount} of {_files.Count} returns processed successfully.");
+        else if (_failedCount == _files.Count)
+            Toast.Error("All files failed validation. Please review the errors.");
+
+        StateHasChanged();
+    }
+
+    private async Task ProcessSingleFile(BulkFileEntry file)
+    {
+        file.Status = BulkFileStatus.Processing;
+        file.Result = null;
+        file.ErrorMessage = null;
+
+        file.ProcessingStage = "Parsing";
+        _stageIndex = 1; _currentStageLabel = "Parsing";
+        StateHasChanged();
+        await Task.Delay(1); // yield so UI updates
+
+        file.ProcessingStage = "Validating";
+        _stageIndex = 2; _currentStageLabel = "Validating";
+        StateHasChanged();
+        await Task.Delay(1);
+
+        file.ProcessingStage = "Submitting";
+        _stageIndex = 3; _currentStageLabel = "Submitting";
+        StateHasChanged();
+
+        try
+        {
+            file.BufferedContent!.Position = 0;
+
+            if (string.Equals(file.FileExtension, ".xml", StringComparison.OrdinalIgnoreCase))
+            {
+                var xmlResult = await SubmissionService.ProcessSubmission(
+                    file.BufferedContent,
+                    file.DetectedReturnCode,
+                    _institutionId,
+                    _selectedPeriodId,
+                    submittedByUserId: _userId);
+
+                file.Result = xmlResult;
+                file.Status = xmlResult.Status switch
+                {
+                    "Accepted" or "PendingApproval" => BulkFileStatus.Passed,
+                    "AcceptedWithWarnings"           => BulkFileStatus.PassedWithWarnings,
+                    _                               => BulkFileStatus.Failed
+                };
+            }
+            else
+            {
+                if (!_tenantId.HasValue)
+                    throw new InvalidOperationException("Tenant context is required for bulk data upload.");
+
+                BulkUploadResult bulkResult = string.Equals(file.FileExtension, ".xlsx", StringComparison.OrdinalIgnoreCase)
+                    ? await BulkUploadService.ProcessExcelUpload(file.BufferedContent, _tenantId.Value, file.DetectedReturnCode, _institutionId, _selectedPeriodId, _userId)
+                    : await BulkUploadService.ProcessCsvUpload(file.BufferedContent, _tenantId.Value, file.DetectedReturnCode, _institutionId, _selectedPeriodId, _userId);
+
+                file.Result = BuildSubmissionResultFromBulk(file.DetectedReturnCode, bulkResult);
+                file.ErrorFileBytes = bulkResult.ErrorFile;
+                file.ErrorFileName = bulkResult.ErrorFileName;
+
+                if (bulkResult.Success && bulkResult.Status is "Accepted" or "PendingApproval")
+                    file.Status = BulkFileStatus.Passed;
+                else if (bulkResult.Success && bulkResult.Status == "AcceptedWithWarnings")
+                    file.Status = BulkFileStatus.PassedWithWarnings;
+                else
+                {
+                    file.Status = BulkFileStatus.Failed;
+                    file.ErrorMessage = bulkResult.Message;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            file.Status = BulkFileStatus.Failed;
+            file.ErrorMessage = ex.Message;
+        }
+    }
+
+    private async Task RetryFile(BulkFileEntry file)
+    {
+        if (file.Status != BulkFileStatus.Failed || file.BufferedContent is null)
+            return;
+
+        file.ErrorFileBytes = null;
+        file.ErrorFileName = null;
+        await ProcessSingleFile(file);
+
+        // Recompute all counters from current file states
+        _passedCount   = _files.Count(f => f.Status == BulkFileStatus.Passed);
+        _warningCount  = _files.Count(f => f.Status == BulkFileStatus.PassedWithWarnings);
+        _failedCount   = _files.Count(f => f.Status == BulkFileStatus.Failed);
+        _skippedCount  = _files.Count(f => f.Status == BulkFileStatus.Skipped);
+        StateHasChanged();
+    }
+
+    private async Task DownloadAllErrorsCsv()
+    {
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("File,ReturnCode,Row,Severity,Category,Rule,Field,Message,ExpectedFormat");
+
+        foreach (var file in _files.Where(f => f.Result?.ValidationReport?.Errors.Any() == true))
+        {
+            int rowNum = 1;
+            foreach (var err in file.Result!.ValidationReport!.Errors)
+            {
+                var msg      = (err.Message  ?? "").Replace("\"", "\"\"");
+                var field    = (err.Field    ?? "").Replace("\"", "\"\"");
+                var category = (err.Category ?? "").Replace("\"", "\"\"");
+                var expected = err.Category switch
+                {
+                    "TypeRange" => "Numeric value within allowed range",
+                    "Required"  => "Non-empty value required",
+                    "Format"    => "Expected date/code format per schema",
+                    _           => err.Category ?? ""
+                };
+                sb.AppendLine($"\"{file.FileName}\",\"{file.DetectedReturnCode}\",\"{rowNum}\",\"{err.Severity}\",\"{category}\",\"{err.RuleId}\",\"{field}\",\"{msg}\",\"{expected}\"");
+                rowNum++;
+            }
+        }
+
+        await JS.InvokeVoidAsync("portalDownloadFile", sb.ToString(), "bulk_error_report.csv", "text/csv");
+    }
+
+    private static SubmissionResultDto BuildSubmissionResultFromBulk(string returnCode, BulkUploadResult bulkResult)
+    {
+        return new SubmissionResultDto
+        {
+            SubmissionId = bulkResult.SubmissionId,
+            ReturnCode = returnCode,
+            Status = bulkResult.Status,
+            ValidationReport = new ValidationReportDto
+            {
+                IsValid = bulkResult.Success,
+                ErrorCount = bulkResult.Errors.Count(x => string.Equals(x.Severity, "Error", StringComparison.OrdinalIgnoreCase)),
+                WarningCount = bulkResult.Errors.Count(x => string.Equals(x.Severity, "Warning", StringComparison.OrdinalIgnoreCase)),
+                Errors = bulkResult.Errors.Select(x => new ValidationErrorDto
+                {
+                    RuleId = "BULK",
+                    Field = x.FieldCode,
+                    Message = x.Message,
+                    Severity = x.Severity,
+                    Category = x.Category
+                }).ToList()
+            }
+        };
+    }
+
+    private async Task DownloadErrorFile(BulkFileEntry file)
+    {
+        if (file.ErrorFileBytes is null || file.ErrorFileBytes.Length == 0)
+        {
+            return;
+        }
+
+        var fileName = string.IsNullOrWhiteSpace(file.ErrorFileName)
+            ? $"{file.DetectedReturnCode}_upload_errors.xlsx"
+            : file.ErrorFileName;
+
+        await JS.InvokeVoidAsync(
+            "portalDownloadBase64File",
+            Convert.ToBase64String(file.ErrorFileBytes),
+            fileName,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private void ResetBatch()
+    {
+        foreach (var file in _files)
+            file.BufferedContent?.Dispose();
+
+        _files.Clear();
+        _batchComplete = false;
+        _processedCount = 0;
+        _passedCount = 0;
+        _warningCount = 0;
+        _failedCount = 0;
+        _skippedCount = 0;
+        _uploadError = null;
+    }
+
+    private async Task ApplyBulkContextAsync(bool forceReload)
+    {
+        var normalizedModule = NormalizeContextValue(Module);
+        var normalizedReturnCode = NormalizeContextValue(ReturnCode);
+
+        if (!forceReload &&
+            string.Equals(_moduleFilter, normalizedModule, StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(_requestedReturnCode, normalizedReturnCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _moduleFilter = normalizedModule;
+        _requestedReturnCode = normalizedReturnCode;
+        _moduleName = PortalSubmissionLinkBuilder.ResolveModuleName(_moduleFilter) ?? string.Empty;
+
+        await LoadKnownTemplates();
+        await LoadPeriods();
+        await LoadTemplatePreview();
+    }
+
+    private string BuildSubmissionsHref() =>
+        string.IsNullOrWhiteSpace(_moduleFilter)
+            ? "/submissions"
+            : $"/submissions?module={Uri.EscapeDataString(_moduleFilter)}";
+
+    private static string NormalizeContextValue(string? value) =>
+        string.IsNullOrWhiteSpace(value)
+            ? string.Empty
+            : value.Trim().ToUpperInvariant();
+
+    private void ClearAll()
+    {
+        ResetBatch();
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────
+    private static string GetFileTypeIconClass(string ext) => ext.ToLowerInvariant() switch
+    {
+        ".xml"  => "portal-bulk-filetype-xml",
+        ".xlsx" => "portal-bulk-filetype-xlsx",
+        ".csv"  => "portal-bulk-filetype-csv",
+        _       => ""
+    };
+
+    private static string GetFileCardClass(BulkFileEntry file) => file.Status switch
+    {
+        BulkFileStatus.Passed             => "portal-bulk-card-passed",
+        BulkFileStatus.PassedWithWarnings => "portal-bulk-card-warnings",
+        BulkFileStatus.Failed             => "portal-bulk-card-failed",
+        BulkFileStatus.Processing         => "portal-bulk-card-processing",
+        BulkFileStatus.Skipped            => "portal-bulk-card-skipped",
+        _                                 => ""
+    };
+
+    private static string FormatFileSize(long bytes)
+    {
+        if (bytes >= 1048576) return $"{bytes / 1048576.0:F1} MB";
+        if (bytes >= 1024) return $"{bytes / 1024.0:F1} KB";
+        return $"{bytes} bytes";
+    }
+
+    private static string GetFileRowClass(BulkFileEntry file) => file.Status switch
+    {
+        BulkFileStatus.Passed => "portal-bulk-filerow-passed",
+        BulkFileStatus.PassedWithWarnings => "portal-bulk-filerow-warnings",
+        BulkFileStatus.Failed => "portal-bulk-filerow-failed",
+        BulkFileStatus.Processing => "portal-bulk-filerow-processing",
+        BulkFileStatus.Skipped => "portal-bulk-filerow-skipped",
+        _ => ""
+    };
+
+    // ── Models ─────────────────────────────────────────────────────
+    private enum BulkFileStatus
+    {
+        Pending,
+        Processing,
+        Passed,
+        PassedWithWarnings,
+        Failed,
+        Skipped
+    }
+
+    private class BulkFileEntry
+    {
+        public string FileName { get; set; } = "";
+        public long FileSize { get; set; }
+        public MemoryStream? BufferedContent { get; set; }
+        public string FileExtension { get; set; } = string.Empty;
+        public string DetectedReturnCode { get; set; } = "";
+        public bool TemplateFound { get; set; }
+        public BulkFileStatus Status { get; set; }
+        public SubmissionResultDto? Result { get; set; }
+        public string? ErrorMessage { get; set; }
+        public byte[]? ErrorFileBytes { get; set; }
+        public string? ErrorFileName { get; set; }
+        public bool ShowDetails { get; set; }
+        public bool ShowErrors { get; set; } = true;
+        public bool IsUploading { get; set; }
+        public int UploadProgress { get; set; }
+        public double UploadSpeedMbps { get; set; }
+        public string ProcessingStage { get; set; } = "";
+        // Pre-validation
+        public PreValidationResult? PreValidation { get; set; }
+        public bool UserAcknowledgedWarnings { get; set; }
+        public bool ShowInlineEditor { get; set; }
+        public List<List<string>> EditableRows { get; set; } = new();
+    }
+
+    private class PreValidationResult
+    {
+        public int DataRowCount { get; set; }
+        public int ColumnCount { get; set; }
+        public List<string> Headers { get; set; } = new();
+        public string? DetectedPeriod { get; set; }
+        public bool IsDuplicate { get; set; }
+        public string? DuplicatePreviousDate { get; set; }
+        public string? DuplicatePreviousFile { get; set; }
+        public string? SuggestedTemplateCode { get; set; }
+        public List<PreValidationIssue> Issues { get; set; } = new();
+        public string FileHash { get; set; } = "";
+        public List<string[]> AllRows { get; set; } = new();
+    }
+
+    private class PreValidationIssue
+    {
+        public int? Row { get; set; }
+        public string? Column { get; set; }
+        public string Type { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string? Expected { get; set; }
+        public string? Found { get; set; }
+    }
+
+    private class DuplicateCheckResult
+    {
+        public bool IsDuplicate { get; set; }
+        public string? Date { get; set; }
+        public string? FileName { get; set; }
+    }
+}

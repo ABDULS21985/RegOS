@@ -1,0 +1,376 @@
+@page "/subscription/modules"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Portal.Utilities
+@inject ISubscriptionService SubscriptionService
+@inject ITenantContext TenantContext
+@inject ToastService Toast
+@inject DialogService Dialog
+
+<PageTitle>Subscription Modules</PageTitle>
+
+<ConfirmDialog />
+
+<div class="portal-sub-shell">
+
+    <SubscriptionOverdueBanner />
+
+    <header class="portal-page-header portal-page-header-split">
+        <div class="portal-page-header-main">
+            <p class="portal-sub-kicker">Subscription</p>
+            <h1 class="portal-page-title">Module Access</h1>
+            <p class="portal-page-subtitle">Activate or deactivate modules based on licence eligibility and plan limits.</p>
+        </div>
+        <div class="portal-page-header-actions portal-sub-actions-top">
+            <a class="portal-btn portal-btn-outline portal-btn-sm" href="/subscription/my-plan">Back to Plan</a>
+            <a class="portal-btn portal-btn-primary portal-btn-sm" href="/subscription/invoices">View Invoices</a>
+        </div>
+    </header>
+
+    @if (_loading)
+    {
+        <SkeletonGuard OnRetry="Load">
+            <div aria-busy="true" aria-label="Loading modules…">
+                <div class="fc-skel-stats-row fc-skel-section">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="6" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="9" />
+                </div>
+                <div class="portal-card fc-skel-section">
+                    <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-4);">
+                        @for (int i = 0; i < 6; i++)
+                        {
+                            var si = 12 + i * 5;
+                            <div class="fc-skel-card-body" style="display:flex; flex-direction:column; gap:var(--space-3);">
+                                <div style="display:flex; justify-content:space-between; align-items:center;">
+                                    <div class="fc-skel fc-skel-text-lg" style="width: 55%; --skeleton-index: @si;"></div>
+                                    <div class="fc-skel fc-skel-block" style="width: 52px; height: 22px; --skeleton-index: @si;"></div>
+                                </div>
+                                <div class="fc-skel fc-skel-text" style="width: 80%; --skeleton-index: @(si+1);"></div>
+                                <div class="fc-skel fc-skel-text" style="width: 60%; --skeleton-index: @(si+2);"></div>
+                                <div class="fc-skel fc-skel-block" style="height: 36px; --skeleton-index: @(si+3);"></div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </SkeletonGuard>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="portal-alert portal-alert-error">@_error</div>
+    }
+    else
+    {
+        <section class="portal-dash-stats">
+            <article class="portal-stat-card">
+                <div class="portal-stat-label">Active Modules</div>
+                <div class="portal-stat-value">@_modules.Count(m => m.IsActive)</div>
+                <div class="portal-stat-detail">currently enabled</div>
+            </article>
+            <article class="portal-stat-card">
+                <div class="portal-stat-label">Eligible</div>
+                <div class="portal-stat-value">@_modules.Count(m => m.IsEligible)</div>
+                <div class="portal-stat-detail">licence eligible</div>
+            </article>
+            <article class="portal-stat-card">
+                <div class="portal-stat-label">Upgradeable</div>
+                <div class="portal-stat-value">@_modules.Count(m => m.IsEligible && !m.IsAvailableOnPlan)</div>
+                <div class="portal-stat-detail">requires plan upgrade</div>
+            </article>
+            <article class="portal-stat-card">
+                <div class="portal-stat-label">Monthly Spend</div>
+                <div class="portal-stat-value">
+                    @FormatCurrency(_modules.Where(m => m.IsActive).Sum(m => m.PriceMonthly ?? 0))
+                </div>
+                <div class="portal-stat-detail">active module charges</div>
+            </article>
+        </section>
+
+        <section class="portal-card">
+            <div class="portal-sub-filter-row">
+                <button class="@GetFilterClass(FilterAll)" @onclick="() => SetFilter(FilterAll)">All</button>
+                <button class="@GetFilterClass(FilterActive)" @onclick="() => SetFilter(FilterActive)">Active</button>
+                <button class="@GetFilterClass(FilterEligible)" @onclick="() => SetFilter(FilterEligible)">Eligible</button>
+                <button class="@GetFilterClass(FilterUpgrade)" @onclick="() => SetFilter(FilterUpgrade)">Upgrade Required</button>
+            </div>
+
+            @if (!FilteredModules.Any())
+            {
+                <div class="portal-empty-state">
+                    <p>No modules in this view.</p>
+                </div>
+            }
+            else
+            {
+                <div class="portal-sub-module-grid">
+                    @foreach (var module in FilteredModules)
+                    {
+                        var moduleCode = module.ModuleCode;
+                        var canToggle = (module.IsEligible && module.IsAvailableOnPlan)
+                                        || module.IsActive;
+                        var isBusy = _busyModuleCode == moduleCode;
+
+                        <article class="portal-sub-module-card @(module.IsActive ? "portal-sub-module-card--active" : "")">
+
+                            @* Header: name + badge *@
+                            <header class="portal-sub-module-head">
+                                <div>
+                                    <h3>@module.ModuleName</h3>
+                                    <p>@module.ModuleCode</p>
+                                </div>
+                                <span class="portal-badge @GetModuleBadgeClass(module)">@GetModuleLabel(module)</span>
+                            </header>
+
+                            @* Toggle row *@
+                            <div class="portal-sub-module-toggle-row">
+                                <div>
+                                    <p class="portal-sub-caption">Module Status</p>
+                                    <SpringToggle Value="@module.IsActive"
+                                                  ValueChanged="@(v => OnToggle(moduleCode, v))"
+                                                  Label="@(module.IsActive ? "Active" : "Inactive")"
+                                                  Disabled="@(!canToggle || isBusy || module.IsRequired)" />
+                                </div>
+                                @if (module.IsRequired)
+                                {
+                                    <span class="portal-badge portal-badge-neutral portal-badge-sm">Required</span>
+                                }
+                            </div>
+
+                            @* Pricing row *@
+                            <div class="portal-sub-module-meta">
+                                <div>
+                                    <span class="portal-sub-caption">Monthly</span>
+                                    <p class="portal-sub-module-price-big">
+                                        @(module.PriceMonthly.HasValue ? $"NGN {module.PriceMonthly.Value:N2}" : "—")
+                                        <span>/mo</span>
+                                    </p>
+                                </div>
+                                <div>
+                                    <span class="portal-sub-caption">Annual</span>
+                                    <strong>@(module.PriceAnnual.HasValue ? $"NGN {module.PriceAnnual.Value:N2}" : "—")</strong>
+                                </div>
+                                <div>
+                                    <span class="portal-sub-caption">Type</span>
+                                    <strong>@(module.IsRequired ? "Required" : "Optional")</strong>
+                                </div>
+                            </div>
+
+                            @* Availability message *@
+                            @if (!string.IsNullOrWhiteSpace(module.Message) && module.Message != "Active")
+                            {
+                                <p class="portal-sub-module-message">@module.Message</p>
+                            }
+
+                            @* Footer actions *@
+                            <footer class="portal-sub-module-actions">
+                                @if (HasWorkspace(module.ModuleCode))
+                                {
+                                    <a class="portal-btn portal-btn-ghost portal-btn-sm"
+                                       href="@GetWorkspaceHref(module.ModuleCode)">
+                                        @(module.IsActive ? "Open Workspace" : "Preview Workflow")
+                                    </a>
+                                }
+                                @if (!module.IsEligible)
+                                {
+                                    <span class="portal-sub-caption">Not licence-eligible</span>
+                                }
+                                else if (!module.IsAvailableOnPlan)
+                                {
+                                    <a class="portal-btn portal-btn-outline portal-btn-sm"
+                                       href="/subscription/my-plan">
+                                        Upgrade Plan
+                                    </a>
+                                }
+                                else if (module.IsActive && !module.IsRequired)
+                                {
+                                    <button class="portal-btn portal-btn-danger portal-btn-sm"
+                                            disabled="@isBusy"
+                                            @onclick="() => ConfirmDeactivate(moduleCode)">
+                                        @if (isBusy)
+                                        {
+                                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                        }
+                                        Remove
+                                    </button>
+                                }
+                                else if (!module.IsActive)
+                                {
+                                    <button class="portal-btn portal-btn-primary portal-btn-sm"
+                                            disabled="@isBusy"
+                                            @onclick="() => Activate(moduleCode)">
+                                        @if (isBusy)
+                                        {
+                                            <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                        }
+                                        Activate
+                                    </button>
+                                }
+                            </footer>
+
+                        </article>
+                    }
+                </div>
+            }
+        </section>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private string _filter = "ALL";
+    private const string FilterAll = "ALL";
+    private const string FilterActive = "ACTIVE";
+    private const string FilterEligible = "ELIGIBLE";
+    private const string FilterUpgrade = "UPGRADE";
+    private string? _busyModuleCode;
+    private Guid _tenantId;
+    private List<ModuleAvailability> _modules = new();
+
+    private IEnumerable<ModuleAvailability> FilteredModules => _filter switch
+    {
+        "ACTIVE" => _modules.Where(m => m.IsActive),
+        "ELIGIBLE" => _modules.Where(m => m.IsEligible),
+        "UPGRADE" => _modules.Where(m => m.IsEligible && !m.IsAvailableOnPlan),
+        _ => _modules
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            _error = "Tenant context not available.";
+            _loading = false;
+            return;
+        }
+
+        _tenantId = TenantContext.CurrentTenantId.Value;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        try
+        {
+            _modules = await SubscriptionService.GetAvailableModules(_tenantId);
+            _modules = _modules.OrderBy(m => m.ModuleCode).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private void SetFilter(string filter) => _filter = filter;
+
+    private Task OnToggle(string moduleCode, bool value)
+    {
+        if (value) return Activate(moduleCode);
+        return ConfirmDeactivate(moduleCode);
+    }
+
+    private async Task Activate(string moduleCode)
+    {
+        var module = _modules.FirstOrDefault(m => m.ModuleCode == moduleCode);
+        if (module is null) return;
+
+        _busyModuleCode = moduleCode;
+
+        await OptimisticAction.Execute(
+            getter: () => module.IsActive,
+            setter: v => module.IsActive = v,
+            optimisticValue: true,
+            action: async () =>
+            {
+                await SubscriptionService.ActivateModule(_tenantId, moduleCode);
+                var refreshed = await SubscriptionService.GetAvailableModules(_tenantId);
+                _modules = refreshed.OrderBy(m => m.ModuleCode).ToList();
+            },
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(module.ModuleName + " activated."),
+            onFailure: ex => Toast.Error("Failed to activate: " + ex.Message)
+        );
+
+        _busyModuleCode = null;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmDeactivate(string moduleCode)
+    {
+        var module = _modules.FirstOrDefault(m => m.ModuleCode == moduleCode);
+        if (module is null) return;
+
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = $"Remove {module.ModuleName}?",
+            Message = $"Deactivating \"{module.ModuleName}\" will immediately remove access for all users. This can be re-enabled at any time.",
+            ConfirmText = "Remove Module",
+            CancelText = "Keep Active",
+            IsDestructive = true,
+            Icon = "warning"
+        });
+
+        if (!confirmed) return;
+
+        await Deactivate(moduleCode);
+    }
+
+    private async Task Deactivate(string moduleCode)
+    {
+        var module = _modules.FirstOrDefault(m => m.ModuleCode == moduleCode);
+        if (module is null) return;
+
+        _busyModuleCode = moduleCode;
+
+        await OptimisticAction.Execute(
+            getter: () => module.IsActive,
+            setter: v => module.IsActive = v,
+            optimisticValue: false,
+            action: async () =>
+            {
+                await SubscriptionService.DeactivateModule(_tenantId, moduleCode);
+                var refreshed = await SubscriptionService.GetAvailableModules(_tenantId);
+                _modules = refreshed.OrderBy(m => m.ModuleCode).ToList();
+            },
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(module.ModuleName + " deactivated."),
+            onFailure: ex => Toast.Error("Failed to deactivate: " + ex.Message)
+        );
+
+        _busyModuleCode = null;
+        StateHasChanged();
+    }
+
+    private string GetFilterClass(string filter)
+        => _filter == filter
+            ? "portal-btn portal-btn-sm portal-btn-primary"
+            : "portal-btn portal-btn-sm portal-btn-outline";
+
+    private static string GetModuleBadgeClass(ModuleAvailability module)
+    {
+        if (module.IsActive) return "portal-badge-success";
+        if (!module.IsEligible) return "portal-badge-danger";
+        if (!module.IsAvailableOnPlan) return "portal-badge-warning";
+        return "portal-badge-info";
+    }
+
+    private static string GetModuleLabel(ModuleAvailability module)
+    {
+        if (module.IsActive) return "Active";
+        if (!module.IsEligible) return "Not Eligible";
+        if (!module.IsAvailableOnPlan) return "Upgrade Required";
+        return "Available";
+    }
+
+    private static bool HasWorkspace(string moduleCode) => PortalModuleWorkspaceCatalog.HasWorkspace(moduleCode);
+
+    private static string GetWorkspaceHref(string moduleCode) => PortalModuleWorkspaceCatalog.GetWorkspaceHref(moduleCode);
+
+    private static string FormatCurrency(decimal value) => value.ToString("N2");
+}

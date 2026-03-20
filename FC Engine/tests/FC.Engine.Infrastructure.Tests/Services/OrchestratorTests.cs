@@ -83,6 +83,45 @@ public class ValidationOrchestratorTests
     // ── Test 1: All four phases execute when no errors ──────────────────
 
     [Fact]
+    public async Task Existing_ValidationOrchestrator_Pipeline_Unchanged()
+    {
+        var template = BuildTemplate(
+            new TemplateField
+            {
+                FieldName = "amount",
+                DisplayName = "Amount",
+                DataType = FieldDataType.Money,
+                IsRequired = false
+            });
+
+        _cache.Setup(c => c.GetPublishedTemplate(ReturnCode, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(template);
+        _formulaEvaluator.Setup(x => x.Evaluate(It.IsAny<ReturnDataRecord>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ValidationError>());
+        _crossSheetValidator.Setup(x => x.Validate(
+                It.IsAny<ReturnDataRecord>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ValidationError>());
+        _crossSheetValidator.Setup(x => x.ValidateCrossModule(
+                It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ValidationError>());
+        _businessRuleEvaluator.Setup(x => x.Evaluate(
+                It.IsAny<ReturnDataRecord>(), It.IsAny<Submission>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<ValidationError>());
+
+        var record = BuildRecord(new Dictionary<string, object?> { ["amount"] = 100m });
+        var submission = CreateSubmission(); // existing path: Guid.Empty tenant + no module code
+
+        var report = await CreateSut().Validate(record, submission, InstitutionId, ReturnPeriodId, CancellationToken.None);
+
+        report.IsValid.Should().BeTrue();
+        _formulaEvaluator.Verify(x => x.Evaluate(record, It.IsAny<CancellationToken>()), Times.Once);
+        _crossSheetValidator.Verify(x => x.Validate(record, InstitutionId, ReturnPeriodId, It.IsAny<CancellationToken>()), Times.Once);
+        _crossSheetValidator.Verify(x => x.ValidateCrossModule(
+            It.IsAny<Guid>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        _businessRuleEvaluator.Verify(x => x.Evaluate(record, submission, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async Task Validate_WhenNoErrors_RunsAllFourPhases()
     {
         // Arrange

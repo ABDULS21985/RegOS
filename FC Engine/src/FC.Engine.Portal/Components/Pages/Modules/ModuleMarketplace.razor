@@ -1,0 +1,325 @@
+@page "/modules"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Infrastructure.DragDrop
+@using FC.Engine.Infrastructure.Metadata
+@using Microsoft.EntityFrameworkCore
+@inject IEntitlementService EntitlementSvc
+@inject ITenantContext TenantContext
+@inject IDbContextFactory<MetadataDbContext> DbFactory
+@inject DragDropInterop DragDrop
+
+<PageTitle>Modules — RegOS™ Portal</PageTitle>
+
+<div class="portal-page">
+    <PortalPageHeader Title="Regulatory Modules"
+                      Subtitle="View all available regulatory modules and your entitlement status based on your licence types"
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Modules", IsCurrent: true) })">
+        <SecondaryActions>
+            @if (!_loading && _allModules.Any())
+            {
+                <button class="portal-btn portal-btn-ghost portal-btn-sm @(_customizeOrder ? "portal-btn-active" : "")"
+                        @onclick="ToggleCustomizeOrder"
+                        title="@(_customizeOrder ? "Exit customize mode" : "Drag cards to customize module order")">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
+                    @(_customizeOrder ? "Done" : "Customize Order")
+                </button>
+                @if (_customizeOrder)
+                {
+                    <button class="portal-btn portal-btn-ghost portal-btn-sm portal-btn-danger-ghost" @onclick="ResetModuleOrder">
+                        Reset
+                    </button>
+                }
+            }
+        </SecondaryActions>
+    </PortalPageHeader>
+
+    @if (_loading)
+    {
+        <SkeletonGuard OnRetry="ReloadAsync">
+            <div aria-busy="true" aria-label="Loading regulatory modules...">
+                <div class="fc-skel-stats-row fc-skel-section">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="1" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="2" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+                </div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-top:1.5rem">
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="4" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="5" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="6" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="7" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="8" />
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="9" />
+                </div>
+            </div>
+        </SkeletonGuard>
+    }
+    else if (_error != null)
+    {
+        <div class="portal-alert portal-alert-danger">
+            <p>@_error</p>
+        </div>
+    }
+    else
+    {
+        <!-- SUMMARY -->
+        <div class="portal-stats-row">
+            <div class="portal-stat-card">
+                <span class="portal-stat-value">@_allModules.Count</span>
+                <span class="portal-stat-label">Total Modules</span>
+            </div>
+            <div class="portal-stat-card portal-stat-card-success">
+                <span class="portal-stat-value">@_activeModules.Count</span>
+                <span class="portal-stat-label">Active</span>
+            </div>
+            <div class="portal-stat-card">
+                <span class="portal-stat-value">@Math.Max(_eligibleModules.Count - _activeModules.Count, 0)</span>
+                <span class="portal-stat-label">Eligible - Not Activated</span>
+            </div>
+            <div class="portal-stat-card portal-stat-card-muted">
+                <span class="portal-stat-value">@(_allModules.Count - _eligibleModules.Count)</span>
+                <span class="portal-stat-label">Not Available</span>
+            </div>
+        </div>
+
+        <!-- MODULE GRID -->
+        @if (!_allModules.Any())
+        {
+            <PortalEmptyState Variant="search"
+                              Title="No modules available"
+                              Description="No regulatory modules are currently available for your jurisdiction. Contact your administrator or check your licence entitlements."
+                              HasEntitlementRestriction="!_eligibleModules.Any()" />
+        }
+        else
+        {
+        <div class="portal-card-grid" id="module-card-grid">
+            @foreach (var module in _allModules)
+            {
+                var status = GetModuleStatus(module);
+                <div class="portal-card @GetCardClass(status)" data-item-id="@module.ModuleCode">
+                    <div class="portal-card-header">
+                        @if (_customizeOrder)
+                        {
+                            <button class="portal-drag-handle portal-drag-handle-card" title="Drag to reorder" aria-label="Drag to reorder" tabindex="0">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
+                            </button>
+                        }
+                        <div class="portal-card-title-row">
+                            <h3 class="portal-card-title">@module.ModuleName</h3>
+                            <span class="portal-badge @GetBadgeClass(status)">@status</span>
+                        </div>
+                        <span class="portal-card-code">@module.ModuleCode</span>
+                    </div>
+                    <div class="portal-card-body">
+                        <div class="portal-card-meta">
+                            <div class="portal-card-meta-item">
+                                <span class="portal-card-meta-label">Regulator</span>
+                                <span class="portal-card-meta-value">@module.RegulatorCode</span>
+                            </div>
+                            <div class="portal-card-meta-item">
+                                <span class="portal-card-meta-label">Jurisdiction</span>
+                                <span class="portal-card-meta-value">@module.Jurisdiction</span>
+                            </div>
+                            <div class="portal-card-meta-item">
+                                <span class="portal-card-meta-label">Sheets</span>
+                                <span class="portal-card-meta-value">@module.SheetCount</span>
+                            </div>
+                            @if (!string.IsNullOrEmpty(module.DefaultFrequency))
+                            {
+                                <div class="portal-card-meta-item">
+                                    <span class="portal-card-meta-label">Frequency</span>
+                                    <span class="portal-card-meta-value">@module.DefaultFrequency</span>
+                                </div>
+                            }
+                        </div>
+                        @if (IsRequired(module))
+                        {
+                            <span class="portal-badge portal-badge-outline">Required</span>
+                        }
+                    </div>
+                    @if (HasWorkspace(module))
+                    {
+                        <div class="portal-card-footer" style="display:flex; gap:0.75rem; align-items:center; flex-wrap:wrap; padding:0 1.5rem 1.5rem;">
+                            @if (_activeModules.Contains(module.ModuleCode))
+                            {
+                                <a href="@GetWorkspaceHref(module.ModuleCode)" class="portal-btn portal-btn-primary portal-btn-sm">Open Workspace</a>
+                                <a href="@PortalSubmissionLinkBuilder.BuildSubmitHref(null, module.ModuleCode)" class="portal-btn portal-btn-outline portal-btn-sm">Start Filing</a>
+                                <a href="@PortalSubmissionLinkBuilder.BuildBulkSubmitHref(module.ModuleCode)" class="portal-btn portal-btn-ghost portal-btn-sm">Bulk Upload</a>
+                            }
+                            else if (_eligibleModules.Contains(module.ModuleCode))
+                            {
+                                <a href="@GetWorkspaceHref(module.ModuleCode)" class="portal-btn portal-btn-outline portal-btn-sm">Preview Workflow</a>
+                                <a href="/subscription/modules" class="portal-btn portal-btn-primary portal-btn-sm">Activate Module</a>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private bool _customizeOrder = false;
+    private List<ModuleViewModel> _allModules = new();
+    private HashSet<string> _eligibleModules = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _activeModules = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> _requiredModules = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _error = null;
+        try
+        {
+            var tenantId = TenantContext.CurrentTenantId;
+            if (!tenantId.HasValue)
+            {
+                _error = "No tenant context available.";
+                _loading = false;
+                return;
+            }
+
+            var entitlement = await EntitlementSvc.ResolveEntitlements(tenantId.Value);
+
+            _eligibleModules = entitlement.EligibleModules
+                .Select(m => m.ModuleCode)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _activeModules = entitlement.ActiveModules
+                .Select(m => m.ModuleCode)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            _requiredModules = entitlement.EligibleModules
+                .Where(m => m.IsRequired)
+                .Select(m => m.ModuleCode)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var tenantJurisdictionIds = await db.Institutions
+                .AsNoTracking()
+                .Where(i => i.TenantId == tenantId.Value)
+                .Select(i => i.JurisdictionId)
+                .Distinct()
+                .ToListAsync();
+
+            if (tenantJurisdictionIds.Count == 0)
+            {
+                var nigeriaId = await db.Jurisdictions
+                    .AsNoTracking()
+                    .Where(j => j.CountryCode == "NG")
+                    .Select(j => j.Id)
+                    .FirstOrDefaultAsync();
+
+                if (nigeriaId > 0)
+                {
+                    tenantJurisdictionIds.Add(nigeriaId);
+                }
+            }
+
+            _allModules = await db.Modules
+                .AsNoTracking()
+                .Include(m => m.Jurisdiction)
+                .Where(m => m.IsActive
+                         && (!m.JurisdictionId.HasValue || tenantJurisdictionIds.Contains(m.JurisdictionId.Value)))
+                .OrderBy(m => m.DisplayOrder)
+                .ThenBy(m => m.ModuleCode)
+                .Select(m => new ModuleViewModel
+                {
+                    ModuleCode = m.ModuleCode!,
+                    ModuleName = m.ModuleName!,
+                    RegulatorCode = m.RegulatorCode!,
+                    Jurisdiction = m.Jurisdiction != null ? m.Jurisdiction.CountryCode : "Global",
+                    SheetCount = m.SheetCount,
+                    DefaultFrequency = m.DefaultFrequency
+                })
+                .ToListAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load modules: {ex.Message}";
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private string GetModuleStatus(ModuleViewModel module)
+    {
+        if (_activeModules.Contains(module.ModuleCode)) return "Active";
+        if (_eligibleModules.Contains(module.ModuleCode)) return "Eligible - Not Activated";
+        return "Not Available";
+    }
+
+    private bool IsRequired(ModuleViewModel module) =>
+        _requiredModules.Contains(module.ModuleCode);
+
+    private static bool HasWorkspace(ModuleViewModel module) =>
+        PortalModuleWorkspaceCatalog.HasWorkspace(module.ModuleCode);
+
+    private static string GetWorkspaceHref(string moduleCode) =>
+        PortalModuleWorkspaceCatalog.GetWorkspaceHref(moduleCode);
+
+    private static string GetCardClass(string status) => status switch
+    {
+        "Active" => "portal-card-active",
+        "Eligible - Not Activated" => "portal-card-eligible",
+        _ => "portal-card-disabled"
+    };
+
+    private static string GetBadgeClass(string status) => status switch
+    {
+        "Active" => "portal-badge-success",
+        "Eligible - Not Activated" => "portal-badge-info",
+        _ => "portal-badge-muted"
+    };
+
+    private async Task ToggleCustomizeOrder()
+    {
+        _customizeOrder = !_customizeOrder;
+        StateHasChanged();
+
+        if (_customizeOrder)
+        {
+            await Task.Yield(); // allow Blazor to render handles first
+            await DragDrop.InitSortable("#module-card-grid", ".portal-card", new
+            {
+                storageKey = "fc-module-order",
+                handle = ".portal-drag-handle"
+            });
+        }
+        else
+        {
+            await DragDrop.Destroy("module-card-grid");
+        }
+    }
+
+    private async Task ResetModuleOrder()
+    {
+        try
+        {
+            await DragDrop.Destroy("module-card-grid");
+        }
+        catch { /* ignore */ }
+
+        _customizeOrder = false;
+        StateHasChanged();
+    }
+
+    private class ModuleViewModel
+    {
+        public string ModuleCode { get; set; } = "";
+        public string ModuleName { get; set; } = "";
+        public string RegulatorCode { get; set; } = "";
+        public string Jurisdiction { get; set; } = "Global";
+        public int SheetCount { get; set; }
+        public string? DefaultFrequency { get; set; }
+    }
+}

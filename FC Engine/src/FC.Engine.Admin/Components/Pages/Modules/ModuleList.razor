@@ -1,0 +1,252 @@
+@page "/modules"
+@attribute [Authorize(Roles = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Infrastructure.Metadata
+@using Microsoft.EntityFrameworkCore
+@inject IDbContextFactory<MetadataDbContext> DbFactory
+@inject NavigationManager Navigation
+
+<PageTitle>Module Registry</PageTitle>
+
+<PageHeader Title="Module Registry"
+            Subtitle="Operational overview of all regulatory packs loaded into the universal template engine."
+            CountBadge="@(!_loading ? _rows.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="OpenImport" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Import Module
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+
+    @{
+        var chips = GetActiveFilterChips().ToList();
+    }
+    @if (chips.Count > 0)
+    {
+        <div class="fc-active-filters">
+            <span class="fc-active-filters-label">Filters active:</span>
+            @foreach (var chip in chips)
+            {
+                var c = chip;
+                <span class="fc-filter-chip">
+                    @c.Label
+                    <button class="fc-filter-chip__remove" type="button" @onclick="@c.Clear" title="Remove filter">x</button>
+                </span>
+            }
+            <button class="fc-filter-clear-all" type="button" @onclick="ResetFilters">Clear all x</button>
+        </div>
+    }
+
+    <DataTable TItem="ModuleListRow"
+               Items="@FilteredModules.ToList()"
+               Loading="_loading"
+               WrapperClass="fc-dt-wrapper--modules"
+               ShowPagination="true"
+               Sortable="true"
+               EmptyTitle="No modules found"
+               EmptyText="Try adjusting your search or filters, or import a new module."
+               SkeletonRows="5">
+        <ToolbarContent>
+            <div class="fc-toolbar-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" placeholder="Search by code, name, or regulator..."
+                       value="@_searchQuery" @oninput="OnSearchInput" aria-label="Search modules" />
+            </div>
+            <div class="fc-toolbar-filter">
+                <select value="@_statusFilter" @onchange="OnStatusChange" aria-label="Filter by status">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+        </ToolbarContent>
+        <ChildContent>
+            <DataColumn TItem="ModuleListRow" Title="Code" SortKey="x => x.ModuleCode" Width="120px">
+                <CellTemplate><code>@context.ModuleCode</code></CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="ModuleListRow" Title="Name" SortKey="x => x.ModuleName" MinWidth="220px">
+                <CellTemplate><span class="fc-modules-cell-text fc-fw-500">@context.ModuleName</span></CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="ModuleListRow" Title="Regulator" SortKey="x => x.RegulatorCode" MinWidth="180px">
+                <CellTemplate><span class="fc-modules-cell-text">@context.RegulatorCode</span></CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="ModuleListRow" Title="Sheets" Width="80px">
+                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.SheetCount</span></CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="ModuleListRow" Title="Version" Width="80px">
+                <CellTemplate>
+                    @if (context.CurrentVersion is not null)
+                    {
+                        <span class="fc-badge fc-badge--success">@context.CurrentVersion</span>
+                    }
+                    else
+                    {
+                        <span class="fc-text-subtle">—</span>
+                    }
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="ModuleListRow" Title="Status" Width="80px">
+                <CellTemplate>
+                    @if (context.IsActive)
+                    {
+                        <span class="fc-badge fc-badge--success">Active</span>
+                    }
+                    else
+                    {
+                        <span class="fc-badge fc-badge--danger">Inactive</span>
+                    }
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="ModuleListRow" Title="Tenants" Width="80px">
+                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.ActiveTenants</span></CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="ModuleListRow" Title="Actions" Width="100px" Align="right">
+                <CellTemplate>
+                    <button class="fc-btn fc-btn--ghost" @onclick:stopPropagation="true" @onclick="() => OpenDetail(context.ModuleCode)" type="button" title="View module details">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        View
+                    </button>
+                </CellTemplate>
+            </DataColumn>
+        </ChildContent>
+    </DataTable>
+
+</div>
+
+@code {
+    // URL query parameters — Blazor hydrates these from the address bar
+    [Parameter, SupplyParameterFromQuery(Name = "search")] public string? QSearch { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "status")] public string? QStatus { get; set; }
+
+    private bool _loading = true;
+    private List<ModuleListRow> _rows = new();
+    private string _searchQuery = "";
+    private string _statusFilter = "";
+
+    private IEnumerable<ModuleListRow> FilteredModules => _rows
+        .Where(r => string.IsNullOrEmpty(_searchQuery) ||
+                    r.ModuleCode.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    r.ModuleName.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                    r.RegulatorCode.Contains(_searchQuery, StringComparison.OrdinalIgnoreCase))
+        .Where(r => string.IsNullOrEmpty(_statusFilter) ||
+                    (_statusFilter == "active" && r.IsActive) ||
+                    (_statusFilter == "inactive" && !r.IsActive));
+
+    // Restore filter state from URL on browser back/forward
+    protected override Task OnParametersSetAsync()
+    {
+        var s = QSearch ?? "";
+        var f = QStatus ?? "";
+        if (s != _searchQuery) _searchQuery = s;
+        if (f != _statusFilter) _statusFilter = f;
+        return Task.CompletedTask;
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        var modules = await db.Modules
+            .AsNoTracking()
+            .OrderBy(m => m.DisplayOrder)
+            .ThenBy(m => m.ModuleCode)
+            .ToListAsync();
+
+        // Load all versions then group client-side — EF Core cannot translate
+        // OrderByDescending().First() inside a GroupBy projection to SQL.
+        var allVersions = await db.ModuleVersions
+            .AsNoTracking()
+            .OrderByDescending(v => v.Id)
+            .ToListAsync();
+        var versions = allVersions
+            .GroupBy(v => v.ModuleId)
+            .Select(g => g.First())
+            .ToList();
+
+        // Materialize the join first; GroupBy with Distinct().Count() inside a server-side
+        // projection is not guaranteed to translate across all EF Core provider versions.
+        var rawTenantRows = await db.SubscriptionModules
+            .AsNoTracking()
+            .Where(sm => sm.IsActive)
+            .Join(db.Subscriptions.AsNoTracking(), sm => sm.SubscriptionId, s => s.Id,
+                (sm, s) => new { sm.ModuleId, s.TenantId })
+            .ToListAsync();
+
+        var tenantCounts = rawTenantRows
+            .GroupBy(x => x.ModuleId)
+            .Select(g => new { ModuleId = g.Key, Tenants = g.Select(x => x.TenantId).Distinct().Count() })
+            .ToList();
+
+        var versionMap = versions.ToDictionary(v => v.ModuleId);
+        var tenantMap = tenantCounts.ToDictionary(v => v.ModuleId, v => v.Tenants);
+
+        _rows = modules.Select(m => new ModuleListRow
+        {
+            ModuleCode = m.ModuleCode,
+            ModuleName = m.ModuleName,
+            RegulatorCode = m.RegulatorCode,
+            SheetCount = m.SheetCount,
+            IsActive = m.IsActive,
+            CurrentVersion = versionMap.TryGetValue(m.Id, out var version) ? version.VersionCode : null,
+            ActiveTenants = tenantMap.TryGetValue(m.Id, out var count) ? count : 0
+        }).ToList();
+
+        _loading = false;
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        _searchQuery = e.Value?.ToString() ?? "";
+        PushUrl();
+    }
+
+    private void OnStatusChange(ChangeEventArgs e)
+    {
+        _statusFilter = e.Value?.ToString() ?? "";
+        PushUrl();
+    }
+
+    private void PushUrl() => Navigation.NavigateTo(BuildUrl(), replace: true);
+
+    private string BuildUrl()
+    {
+        var q = new List<string>();
+        if (!string.IsNullOrEmpty(_searchQuery)) q.Add($"search={Uri.EscapeDataString(_searchQuery)}");
+        if (!string.IsNullOrEmpty(_statusFilter)) q.Add($"status={Uri.EscapeDataString(_statusFilter)}");
+        return "/modules" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
+    }
+
+    private void ResetFilters()
+    {
+        _searchQuery  = "";
+        _statusFilter = "";
+        Navigation.NavigateTo("/modules");
+    }
+
+    private sealed record FilterChip(string Label, Action Clear);
+
+    private IEnumerable<FilterChip> GetActiveFilterChips()
+    {
+        if (!string.IsNullOrEmpty(_searchQuery))
+            yield return new FilterChip($"search: {_searchQuery}",  () => { _searchQuery  = ""; PushUrl(); });
+        if (!string.IsNullOrEmpty(_statusFilter))
+            yield return new FilterChip($"status: {_statusFilter}", () => { _statusFilter = ""; PushUrl(); });
+    }
+
+    private void OpenImport() => Navigation.NavigateTo("/modules/import");
+    private void OpenDetail(string moduleCode) => Navigation.NavigateTo($"/modules/{moduleCode}");
+
+    private sealed class ModuleListRow
+    {
+        public string ModuleCode { get; set; } = string.Empty;
+        public string ModuleName { get; set; } = string.Empty;
+        public string RegulatorCode { get; set; } = string.Empty;
+        public int SheetCount { get; set; }
+        public bool IsActive { get; set; }
+        public string? CurrentVersion { get; set; }
+        public int ActiveTenants { get; set; }
+    }
+}

@@ -6,71 +6,32 @@
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Application.Services
 @using FC.Engine.Admin.Services
+@using Microsoft.EntityFrameworkCore
 @inject IPortalUserRepository UserRepo
 @inject AuthService AuthService
 @inject ToastService Toast
 @inject DialogService Dialog
+@inject IDbContextFactory<FC.Engine.Infrastructure.Metadata.MetadataDbContext> DbFactory
 
-<div class="admin-page">
+<PageHeader Title="User Management"
+            Subtitle="Manage platform identities, roles, and access across the RegOS™ administrative portal.">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="OpenCreateModal" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add User
+        </button>
+    </PrimaryAction>
+</PageHeader>
 
-    <!-- Breadcrumb -->
-    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
-        <a href="/">Dashboard</a>
-        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
-        <span class="detail-breadcrumb-current">Users</span>
-    </nav>
-
-    <!-- Page Header -->
-    <div class="admin-header">
-        <div class="admin-header-top">
-            <div>
-                <h1>User Management</h1>
-                <p class="admin-header-subtitle">Manage platform identities, roles, and access across the FC Engine administrative portal.</p>
-            </div>
-            <button class="admin-btn-primary" @onclick="OpenCreateModal" type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-                Add User
-            </button>
-        </div>
-
-        <!-- Summary Chips -->
-        <div class="admin-summary-chips">
-            <span class="admin-chip">
-                <span class="admin-chip-count">@_users.Count</span> Total Users
-            </span>
-            <span class="admin-chip">
-                <span class="admin-chip-dot admin-chip-dot-active" aria-hidden="true"></span>
-                <span class="admin-chip-count">@_users.Count(u => u.IsActive)</span> Active
-            </span>
-            @if (_users.Any(u => !u.IsActive))
-            {
-                <span class="admin-chip">
-                    <span class="admin-chip-dot admin-chip-dot-inactive" aria-hidden="true"></span>
-                    <span class="admin-chip-count">@_users.Count(u => !u.IsActive)</span> Inactive
-                </span>
-            }
-            <span class="admin-chip">
-                <span class="admin-chip-dot admin-chip-dot-admin" aria-hidden="true"></span>
-                <span class="admin-chip-count">@_users.Count(u => u.Role == PortalRole.Admin)</span> Admins
-            </span>
-            <span class="admin-chip">
-                <span class="admin-chip-dot admin-chip-dot-approver" aria-hidden="true"></span>
-                <span class="admin-chip-count">@_users.Count(u => u.Role == PortalRole.Approver)</span> Approvers
-            </span>
-            <span class="admin-chip">
-                <span class="admin-chip-dot admin-chip-dot-viewer" aria-hidden="true"></span>
-                <span class="admin-chip-count">@_users.Count(u => u.Role == PortalRole.Viewer)</span> Viewers
-            </span>
-        </div>
-    </div>
+<div class="fc-page">
 
     <!-- Toolbar -->
-    <div class="admin-toolbar">
-        <div class="admin-toolbar-search">
+    <div class="fc-toolbar">
+        <div class="fc-toolbar-search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" placeholder="Search by name or email..." @bind="_searchQuery" @bind:event="oninput" aria-label="Search users" />
         </div>
-        <div class="admin-toolbar-filter">
+        <div class="fc-toolbar-filter">
             <select @bind="_roleFilter" aria-label="Filter by role">
                 <option value="">All Roles</option>
                 @foreach (var role in Enum.GetValues<PortalRole>())
@@ -89,21 +50,21 @@
     <!-- Content -->
     @if (_loading)
     {
-        <div class="skel-user-grid" role="status" aria-label="Loading users">
+        <div class="fc-skel-fc-user-grid" role="status" aria-label="Loading users">
             @for (var i = 0; i < 6; i++)
             {
-                <div class="skel-user-card">
-                    <div class="skel-user-header">
-                        <div class="skel skel-circle skel-user-avatar" style="width:48px;height:48px;"></div>
-                        <div class="skel-user-info">
-                            <div class="skel skel-text" style="width:120px;"></div>
-                            <div class="skel skel-text" style="width:160px;"></div>
+                <div class="fc-skel-fc-user-card">
+                    <div class="fc-skel-user-header">
+                        <div class="fc-skel fc-skel-circle fc-skel-user-avatar" style="--skel-w:48px;--skel-h:48px"></div>
+                        <div class="fc-skel-user-info">
+                            <div class="fc-skel fc-skel-text" style="--skel-w:120px"></div>
+                            <div class="fc-skel fc-skel-text" style="--skel-w:160px"></div>
                         </div>
-                        <div class="skel" style="width:60px;height:22px;border-radius:var(--radius-pill);"></div>
+                        <div class="fc-skel fc-skel-circle" style="--skel-w:60px;--skel-h:22px"></div>
                     </div>
-                    <div class="skel-user-meta">
-                        <div class="skel" style="width:80px;height:10px;"></div>
-                        <div class="skel" style="width:100px;height:10px;"></div>
+                    <div class="fc-skel-fc-user-meta">
+                        <div class="fc-skel" style="--skel-w:80px;--skel-h:10px"></div>
+                        <div class="fc-skel" style="--skel-w:100px;--skel-h:10px"></div>
                     </div>
                 </div>
             }
@@ -111,48 +72,48 @@
     }
     else if (!FilteredUsers.Any())
     {
-        <div class="admin-empty">
-            <div class="admin-empty-icon">
+        <div class="fc-empty">
+            <div class="fc-empty-icon">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
             </div>
             @if (string.IsNullOrEmpty(_searchQuery) && string.IsNullOrEmpty(_roleFilter) && string.IsNullOrEmpty(_statusFilter))
             {
-                <h3 class="admin-empty-title">No users found</h3>
-                <p class="admin-empty-text">Add the first user to begin managing platform access.</p>
+                <h3 class="fc-empty-title">No users found</h3>
+                <p class="fc-empty-text">Add the first user to begin managing platform access.</p>
             }
             else
             {
-                <h3 class="admin-empty-title">No matching users</h3>
-                <p class="admin-empty-text">Try adjusting your search or filters.</p>
+                <h3 class="fc-empty-title">No matching users</h3>
+                <p class="fc-empty-text">Try adjusting your search or filters.</p>
             }
         </div>
     }
     else
     {
         <!-- User Card Grid -->
-        <div class="user-grid" role="list">
+        <div class="fc-user-grid" role="list">
             @foreach (var user in FilteredUsers)
             {
-                <div class="user-card" role="listitem">
-                    <div class="user-card-header">
-                        <div class="user-avatar" aria-hidden="true">@GetInitials(user.DisplayName)</div>
-                        <div class="user-identity">
-                            <div class="user-name" title="@user.DisplayName">@user.DisplayName</div>
-                            <div class="user-email" title="@user.Email">@user.Email</div>
+                <div class="fc-user-card" role="listitem">
+                    <div class="fc-user-card-header">
+                        <div class="fc-user-avatar" aria-hidden="true">@GetInitials(user.DisplayName)</div>
+                        <div class="fc-user-identity">
+                            <div class="fc-user-name" title="@user.DisplayName">@user.DisplayName</div>
+                            <div class="fc-user-email" title="@user.Email">@user.Email</div>
                         </div>
-                        <span class="role-badge @GetRoleBadgeClass(user.Role)">@user.Role</span>
+                        <span class="fc-role-badge @GetRoleBadgeClass(user.Role)">@user.Role</span>
                     </div>
 
-                    <div class="user-meta">
-                        <span class="user-meta-item">
-                            <span class="user-status-dot @(user.IsActive ? "user-status-dot-active" : "user-status-dot-inactive")" aria-hidden="true"></span>
+                    <div class="fc-user-meta">
+                        <span class="fc-user-meta-item">
+                            <span class="fc-user-status-dot @(user.IsActive ? "fc-user-status-dot-active" : "fc-user-status-dot-inactive")" aria-hidden="true"></span>
                             @(user.IsActive ? "Active" : "Inactive")
                         </span>
-                        <span class="user-meta-item" title="@user.Username">
+                        <span class="fc-user-meta-item" title="@user.Username">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4-4v2"/><circle cx="12" cy="7" r="4"/></svg>
                             @user.Username
                         </span>
-                        <span class="user-meta-item">
+                        <span class="fc-user-meta-item">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                             @if (user.LastLoginAt.HasValue)
                             {
@@ -165,16 +126,16 @@
                         </span>
                     </div>
 
-                    <div class="user-card-actions">
-                        <button class="user-action-btn" @onclick="() => OpenEditModal(user)" type="button" title="Edit user">
+                    <div class="fc-user-card-actions">
+                        <button class="fc-btn fc-btn--ghost" @onclick="() => OpenEditModal(user)" type="button" title="Edit user">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                             Edit
                         </button>
-                        <button class="user-action-btn" @onclick="() => ResetPassword(user)" type="button" title="Reset password">
+                        <button class="fc-btn fc-btn--ghost" @onclick="() => ResetPassword(user)" type="button" title="Reset password">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
                             Reset Password
                         </button>
-                        <button class="user-action-btn @(user.IsActive ? "user-action-btn-danger" : "")"
+                        <button class="fc-btn fc-btn--ghost @(user.IsActive ? "fc-btn--danger" : "")"
                                 @onclick="() => ToggleUserStatus(user)" type="button"
                                 title="@(user.IsActive ? "Disable account" : "Enable account")">
                             @if (user.IsActive)
@@ -197,7 +158,7 @@
 
 <!-- Create/Edit User Modal -->
 <AppModal @bind-Visible="_showModal" Title="@(_editingUser is null ? "Create New User" : "Edit User")"
-          Subtitle="@(_editingUser is null ? "Add a new platform user with role-based access" : $"Update details for {_editingUser.DisplayName}")"
+          Subtitle="@(_editingUser is null ? "Add a new platform user with fc-role-based access" : $"Update details for {_editingUser.DisplayName}")"
           Size="lg">
     <ChildContent>
         @if (!string.IsNullOrEmpty(_formError))
@@ -205,76 +166,88 @@
             <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@_formError" Dismissible="true" OnDismiss="() => _formError = null" />
         }
 
-        <div class="admin-form-grid">
+        <div class="fc-form-grid">
             @if (_editingUser is null)
             {
-                <div class="admin-form-group">
-                    <label class="admin-form-label admin-form-label-required">Username</label>
-                    <input class="admin-form-input" @bind="_formUsername" placeholder="e.g. jdoe" />
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Username</label>
+                    <input class="fc-form-input" @bind="_formUsername" placeholder="e.g. jdoe" />
                 </div>
             }
 
-            <div class="admin-form-group">
-                <label class="admin-form-label admin-form-label-required">Display Name</label>
-                <input class="admin-form-input" @bind="_formDisplayName" placeholder="e.g. John Doe" />
+            <div class="fc-form-group">
+                <label class="fc-form-label">Tenant Scope</label>
+                <select class="fc-form-input" @bind="_formTenantId">
+                    <option value="">Platform Admin (no tenant)</option>
+                    @foreach (var t in _tenantOptions)
+                    {
+                        <option value="@t.TenantId">@t.TenantName</option>
+                    }
+                </select>
+                <small class="fc-form-hint">Leave as "Platform Admin" for users who need cross-tenant access.</small>
             </div>
 
-            <div class="admin-form-group">
-                <label class="admin-form-label admin-form-label-required">Email Address</label>
-                <input class="admin-form-input" type="email" @bind="_formEmail" placeholder="e.g. john.doe@cbn.gov.ng" />
+            <div class="fc-form-group">
+                <label class="fc-form-label fc-form-label-required">Display Name</label>
+                <input class="fc-form-input" @bind="_formDisplayName" placeholder="e.g. John Doe" />
+            </div>
+
+            <div class="fc-form-group">
+                <label class="fc-form-label fc-form-label-required">Email Address</label>
+                <input class="fc-form-input" type="email" @bind="_formEmail" placeholder="e.g. john.doe@cbn.gov.ng" />
             </div>
 
             @if (_editingUser is null)
             {
-                <div class="admin-form-group">
-                    <label class="admin-form-label admin-form-label-required">Password</label>
-                    <input class="admin-form-input" type="password" @bind="_formPassword" placeholder="Minimum 8 characters" />
+                <div class="fc-form-group">
+                    <label class="fc-form-label fc-form-label-required">Password</label>
+                    <input class="fc-form-input" type="password" @bind="_formPassword" placeholder="Minimum 12 characters" />
                 </div>
             }
         </div>
 
         <!-- Role Selection -->
-        <div style="margin-top: var(--space-6);">
-            <div class="admin-form-section-label">Role Assignment</div>
-            <div class="role-cards">
-                <label class="role-card role-card-admin @(_formRole == PortalRole.Admin ? "role-card-selected" : "")"
+        <div class="fc-mt-6">
+            <div class="fc-form-section-label">Role Assignment</div>
+            <div class="fc-role-cards">
+                <label class="fc-role-card fc-role-card-admin @(_formRole == PortalRole.Admin ? "fc-role-card-selected" : "")"
                        tabindex="0" @onkeydown="e => HandleRoleKeyDown(e, PortalRole.Admin)">
-                    <input type="radio" name="role-select" checked="@(_formRole == PortalRole.Admin)" @onchange="() => _formRole = PortalRole.Admin" />
-                    <div class="role-card-radio"><div class="role-card-radio-inner"></div></div>
-                    <div class="role-card-content">
-                        <div class="role-card-title">Admin</div>
-                        <div class="role-card-desc">Full platform administration access including user management, system configuration, and all data operations.</div>
+                    <input type="radio" name="fc-role-select" checked="@(_formRole == PortalRole.Admin)" @onchange="() => _formRole = PortalRole.Admin" />
+                    <div class="fc-role-card-radio"><div class="fc-role-card-radio-inner"></div></div>
+                    <div class="fc-role-card-content">
+                        <div class="fc-role-card-title">Admin</div>
+                        <div class="fc-role-card-desc">Full platform administration access including user management, system configuration, and all data operations.</div>
                     </div>
                 </label>
 
-                <label class="role-card role-card-approver @(_formRole == PortalRole.Approver ? "role-card-selected" : "")"
+                <label class="fc-role-card fc-role-card-approver @(_formRole == PortalRole.Approver ? "fc-role-card-selected" : "")"
                        tabindex="0" @onkeydown="e => HandleRoleKeyDown(e, PortalRole.Approver)">
-                    <input type="radio" name="role-select" checked="@(_formRole == PortalRole.Approver)" @onchange="() => _formRole = PortalRole.Approver" />
-                    <div class="role-card-radio"><div class="role-card-radio-inner"></div></div>
-                    <div class="role-card-content">
-                        <div class="role-card-title">Approver</div>
-                        <div class="role-card-desc">Can review, approve, and manage template workflows, version publishing, and submission oversight.</div>
+                    <input type="radio" name="fc-role-select" checked="@(_formRole == PortalRole.Approver)" @onchange="() => _formRole = PortalRole.Approver" />
+                    <div class="fc-role-card-radio"><div class="fc-role-card-radio-inner"></div></div>
+                    <div class="fc-role-card-content">
+                        <div class="fc-role-card-title">Approver</div>
+                        <div class="fc-role-card-desc">Can review, approve, and manage template workflows, version publishing, and submission oversight.</div>
                     </div>
                 </label>
 
-                <label class="role-card role-card-viewer @(_formRole == PortalRole.Viewer ? "role-card-selected" : "")"
+                <label class="fc-role-card fc-role-card-viewer @(_formRole == PortalRole.Viewer ? "fc-role-card-selected" : "")"
                        tabindex="0" @onkeydown="e => HandleRoleKeyDown(e, PortalRole.Viewer)">
-                    <input type="radio" name="role-select" checked="@(_formRole == PortalRole.Viewer)" @onchange="() => _formRole = PortalRole.Viewer" />
-                    <div class="role-card-radio"><div class="role-card-radio-inner"></div></div>
-                    <div class="role-card-content">
-                        <div class="role-card-title">Viewer</div>
-                        <div class="role-card-desc">Read-only access to permitted templates, submissions, and dashboard analytics.</div>
+                    <input type="radio" name="fc-role-select" checked="@(_formRole == PortalRole.Viewer)" @onchange="() => _formRole = PortalRole.Viewer" />
+                    <div class="fc-role-card-radio"><div class="fc-role-card-radio-inner"></div></div>
+                    <div class="fc-role-card-content">
+                        <div class="fc-role-card-title">Viewer</div>
+                        <div class="fc-role-card-desc">Read-only access to permitted templates, submissions, and dashboard analytics.</div>
                     </div>
                 </label>
             </div>
         </div>
     </ChildContent>
     <FooterContent>
-        <button class="admin-btn-outline" @onclick="CloseModal" type="button">Cancel</button>
-        <button class="admin-btn-primary" @onclick="SaveUser" disabled="@_saving" type="button">
+        <button class="fc-btn fc-btn--outline" @onclick="CloseModal" type="button">Cancel</button>
+        <button class="fc-btn fc-btn--primary @(_saving ? "fc-btn--loading" : "")" @onclick="SaveUser" disabled="@_saving" aria-busy="@(_saving ? "true" : null)" type="button">
             @if (_saving)
             {
-                <span class="spinner" style="width:16px;height:16px;"></span>
+                <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
             }
             @(_editingUser is null ? "Create User" : "Save Changes")
         </button>
@@ -288,17 +261,17 @@
         {
             <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@_passwordError" Dismissible="true" OnDismiss="() => _passwordError = null" />
         }
-        <div class="admin-form-group">
-            <label class="admin-form-label admin-form-label-required">New Password</label>
-            <input class="admin-form-input" type="password" @bind="_newPassword" placeholder="Minimum 8 characters" />
+        <div class="fc-form-group">
+            <label class="fc-form-label fc-form-label-required">New Password</label>
+            <input class="fc-form-input" type="password" @bind="_newPassword" placeholder="Minimum 12 characters" />
         </div>
     </ChildContent>
     <FooterContent>
-        <button class="admin-btn-outline" @onclick="() => _showPasswordModal = false" type="button">Cancel</button>
-        <button class="admin-btn-primary" @onclick="ConfirmResetPassword" disabled="@_saving" type="button">
+        <button class="fc-btn fc-btn--outline" @onclick="() => _showPasswordModal = false" type="button">Cancel</button>
+        <button class="fc-btn fc-btn--primary @(_saving ? "fc-btn--loading" : "")" @onclick="ConfirmResetPassword" disabled="@_saving" aria-busy="@(_saving ? "true" : null)" type="button">
             @if (_saving)
             {
-                <span class="spinner" style="width:16px;height:16px;"></span>
+                <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
             }
             Reset Password
         </button>
@@ -322,8 +295,12 @@
     private string _formEmail = "";
     private string _formPassword = "";
     private PortalRole _formRole = PortalRole.Viewer;
+    private string _formTenantId = "";
     private string? _formError;
     private bool _saving;
+
+    // Tenant options for scoping
+    private List<TenantOption> _tenantOptions = new();
 
     // Password reset modal
     private bool _showPasswordModal;
@@ -348,6 +325,12 @@
     protected override async Task OnInitializedAsync()
     {
         _users = await UserRepo.GetAll();
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _tenantOptions = await db.Tenants
+            .Where(t => t.Status == Domain.Enums.TenantStatus.Active)
+            .OrderBy(t => t.TenantName)
+            .Select(t => new TenantOption { TenantId = t.TenantId, TenantName = t.TenantName })
+            .ToListAsync();
         _loading = false;
     }
 
@@ -369,9 +352,9 @@
 
     private static string GetRoleBadgeClass(PortalRole role) => role switch
     {
-        PortalRole.Admin => "role-badge-admin",
-        PortalRole.Approver => "role-badge-approver",
-        _ => "role-badge-viewer"
+        PortalRole.Admin => "fc-role-badge-admin",
+        PortalRole.Approver => "fc-role-badge-approver",
+        _ => "fc-role-badge-viewer"
     };
 
     // --- Create / Edit Modal ---
@@ -383,6 +366,7 @@
         _formEmail = "";
         _formPassword = "";
         _formRole = PortalRole.Viewer;
+        _formTenantId = "";
         _formError = null;
         _showModal = true;
     }
@@ -393,6 +377,7 @@
         _formDisplayName = user.DisplayName;
         _formEmail = user.Email;
         _formRole = user.Role;
+        _formTenantId = user.TenantId?.ToString() ?? "";
         _formError = null;
         _showModal = true;
     }
@@ -425,8 +410,21 @@
                     _saving = false;
                     return;
                 }
+                if (_formPassword.Length < 12)
+                {
+                    _formError = "Password must be at least 12 characters.";
+                    _saving = false;
+                    return;
+                }
+                if (!string.IsNullOrWhiteSpace(_formEmail) && !_formEmail.Contains('@'))
+                {
+                    _formError = "Please enter a valid email address.";
+                    _saving = false;
+                    return;
+                }
 
-                await AuthService.CreateUser(_formUsername.Trim(), _formDisplayName.Trim(), _formEmail.Trim(), _formPassword, _formRole);
+                Guid? tenantId = string.IsNullOrEmpty(_formTenantId) ? null : Guid.Parse(_formTenantId);
+                await AuthService.CreateUser(_formUsername.Trim(), _formDisplayName.Trim(), _formEmail.Trim(), _formPassword, _formRole, tenantId);
                 Toast.Success($"User '{_formDisplayName.Trim()}' created successfully.");
             }
             else
@@ -438,12 +436,36 @@
                     _saving = false;
                     return;
                 }
+                if (!string.IsNullOrWhiteSpace(_formEmail) && !_formEmail.Contains('@'))
+                {
+                    _formError = "Please enter a valid email address.";
+                    _saving = false;
+                    return;
+                }
 
-                _editingUser.DisplayName = _formDisplayName.Trim();
-                _editingUser.Email = _formEmail.Trim();
-                _editingUser.Role = _formRole;
-                await UserRepo.Update(_editingUser);
-                Toast.Success($"User '{_editingUser.DisplayName}' updated successfully.");
+                // Apply changes only after validation passes — avoid mutating entity before save
+                var previousDisplayName = _editingUser.DisplayName;
+                var previousEmail = _editingUser.Email;
+                var previousRole = _editingUser.Role;
+                var previousTenantId = _editingUser.TenantId;
+                try
+                {
+                    _editingUser.DisplayName = _formDisplayName.Trim();
+                    _editingUser.Email = _formEmail.Trim();
+                    _editingUser.Role = _formRole;
+                    _editingUser.TenantId = string.IsNullOrEmpty(_formTenantId) ? null : Guid.Parse(_formTenantId);
+                    await UserRepo.Update(_editingUser);
+                    Toast.Success($"User '{_editingUser.DisplayName}' updated successfully.");
+                }
+                catch
+                {
+                    // Revert local entity on failure so UI stays consistent
+                    _editingUser.DisplayName = previousDisplayName;
+                    _editingUser.Email = previousEmail;
+                    _editingUser.Role = previousRole;
+                    _editingUser.TenantId = previousTenantId;
+                    throw;
+                }
             }
 
             _users = await UserRepo.GetAll();
@@ -474,16 +496,16 @@
         _passwordError = null;
         if (_passwordResetUser is null) return;
 
-        if (string.IsNullOrWhiteSpace(_newPassword) || _newPassword.Length < 8)
+        if (string.IsNullOrWhiteSpace(_newPassword) || _newPassword.Length < 12)
         {
-            _passwordError = "Password must be at least 8 characters.";
+            _passwordError = "Password must be at least 12 characters.";
             return;
         }
 
         _saving = true;
         try
         {
-            await AuthService.ChangePassword(_passwordResetUser.Id, _newPassword);
+            await AuthService.ChangePassword(_passwordResetUser, _newPassword);
             Toast.Success($"Password for '{_passwordResetUser.DisplayName}' has been reset.");
             _showPasswordModal = false;
         }
@@ -516,5 +538,11 @@
         await UserRepo.Update(user);
         _users = await UserRepo.GetAll();
         Toast.Success($"User '{user.DisplayName}' has been {(user.IsActive ? "enabled" : "disabled")}.");
+    }
+
+    private sealed class TenantOption
+    {
+        public Guid TenantId { get; set; }
+        public string TenantName { get; set; } = string.Empty;
     }
 }

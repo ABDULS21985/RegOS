@@ -1,0 +1,65 @@
+@page "/onboarding/tour/{Role}"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@inject OnboardingWizardService WizardService
+@inject ITenantContext TenantContext
+@inject AuthenticationStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>Guided Tour — RegOS™ Portal</PageTitle>
+
+<div class="portal-page">
+    <PortalPageHeader Title="@_definition.Title"
+                      Subtitle="Follow the highlighted steps to complete onboarding orientation."
+                      BackUrl="/onboarding/checklist"
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Onboarding", "/onboarding/checklist"), new(_definition.Title, IsCurrent: true) })" />
+
+    @if (!_tourFinished)
+    {
+        <GuidedTour Steps="_definition.Steps" OnCompleted="OnCompleted" OnClosed="OnClosed" />
+    }
+    else
+    {
+        <div class="portal-alert portal-alert-success">
+            Guided tour completed.
+        </div>
+        <a class="portal-btn portal-btn-primary" href="/onboarding/checklist">Back to Checklist</a>
+    }
+</div>
+
+@code {
+    [Parameter] public string Role { get; set; } = "maker";
+
+    private GuidedTourDefinition _definition = GuidedTourCatalog.GetDefinition("maker");
+    private bool _tourFinished;
+
+    protected override void OnParametersSet()
+    {
+        _definition = GuidedTourCatalog.GetDefinition(Role);
+    }
+
+    private async Task OnCompleted()
+    {
+        _tourFinished = true;
+
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        var state = await AuthStateProvider.GetAuthenticationStateAsync();
+        var performedBy = state.User.Identity?.Name
+            ?? state.User.FindFirst("DisplayName")?.Value
+            ?? "institution-user";
+
+        await WizardService.MarkGuidedTourCompleted(
+            TenantContext.CurrentTenantId.Value,
+            _definition.Role,
+            performedBy);
+    }
+
+    private Task OnClosed()
+    {
+        Navigation.NavigateTo("/", forceLoad: false);
+        return Task.CompletedTask;
+    }
+}

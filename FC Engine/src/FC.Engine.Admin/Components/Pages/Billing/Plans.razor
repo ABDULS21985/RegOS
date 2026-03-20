@@ -1,0 +1,348 @@
+@page "/billing/plans"
+@using Microsoft.AspNetCore.Authorization
+@using System.Text.Json
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Infrastructure.Metadata
+@using FC.Engine.Admin.Services
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject IDbContextFactory<MetadataDbContext> DbFactory
+@inject ToastService Toast
+@inject DialogService Dialog
+
+<PageTitle>Billing Plans</PageTitle>
+
+<PageHeader Title="Subscription Plans"
+            Subtitle="Manage commercial plans, limits, and base pricing for all tenants."
+            CountBadge="@(!_loading ? _plans.Count : null)" />
+
+<div class="fc-page">
+
+    <DataTable TItem="SubscriptionPlan"
+               Items="@FilteredPlans.ToList()"
+               Loading="_loading"
+               Sortable="true"
+               ShowPagination="false"
+               EmptyTitle="@(string.IsNullOrEmpty(_searchTerm) && string.IsNullOrEmpty(_statusFilter) ? "No subscription plans found" : "No matching plans")"
+               EmptyText="@(string.IsNullOrEmpty(_searchTerm) && string.IsNullOrEmpty(_statusFilter) ? "Plans will appear here once they have been configured in the system." : "Try adjusting your search or filters.")"
+               SkeletonRows="5">
+        <ToolbarContent>
+            <div class="fc-toolbar-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" placeholder="Search by code, name, or description..." @bind="_searchTerm" @bind:event="oninput" aria-label="Search plans" />
+            </div>
+            <div class="fc-toolbar-filter">
+                <select @bind="_statusFilter" aria-label="Filter by status">
+                    <option value="">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                </select>
+            </div>
+        </ToolbarContent>
+        <ChildContent>
+            <DataColumn TItem="SubscriptionPlan" Title="Plan" SortKey="p => p.PlanName" Width="200px">
+                <CellTemplate>
+                    <div class="fc-fw-500">@context.PlanName</div>
+                    <div class="fc-text-caption-muted">@context.PlanCode</div>
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionPlan" Title="Tier" SortKey="p => p.Tier" Width="70px">
+                <CellTemplate>@context.Tier</CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionPlan" Title="Monthly" SortKey="p => p.BasePriceMonthly" Width="120px">
+                <CellTemplate>@FormatCurrency(context.BasePriceMonthly)</CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionPlan" Title="Annual" SortKey="p => p.BasePriceAnnual" Width="120px">
+                <CellTemplate>@FormatCurrency(context.BasePriceAnnual)</CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionPlan" Title="Limits" Width="160px">
+                <CellTemplate>
+                    <div class="fc-text-caption">Modules: @context.MaxModules</div>
+                    <div class="fc-text-caption">Users: @context.MaxUsersPerEntity</div>
+                    <div class="fc-text-caption">Entities: @context.MaxEntities</div>
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionPlan" Title="Features" Width="100px">
+                <CellTemplate>
+                    <span class="fc-badge fc-badge--neutral">@CountFeatures(context.Features)</span>
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionPlan" Title="Status" SortKey="p => p.IsActive" Width="90px">
+                <CellTemplate>
+                    @if (context.IsActive)
+                    {
+                        <span class="fc-badge fc-badge--success">Active</span>
+                    }
+                    else
+                    {
+                        <span class="fc-badge fc-badge--danger">Inactive</span>
+                    }
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionPlan" Title="Actions" Align="right" Width="90px">
+                <CellTemplate>
+                    <button class="fc-btn fc-btn--ghost" @onclick="() => BeginEdit(context)" @onclick:stopPropagation="true" type="button" title="Edit plan">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        Edit
+                    </button>
+                </CellTemplate>
+            </DataColumn>
+        </ChildContent>
+    </DataTable>
+
+</div>
+
+<!-- Edit Plan Modal -->
+<AppModal @bind-Visible="_showModal" Title="@($"Edit Plan: {_editing?.PlanCode}")"
+          Subtitle="Update pricing, limits, and feature configuration" Size="lg">
+    <ChildContent>
+        @if (!string.IsNullOrEmpty(_formError))
+        {
+            <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@_formError" Dismissible="true" OnDismiss="() => _formError = null" />
+        }
+
+        @if (_editing is not null)
+        {
+            <div class="fc-form-grid">
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Plan Name</label>
+                    <input class="fc-form-input" @bind="_editing.PlanName" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Tier</label>
+                    <input class="fc-form-input" type="number" min="0" @bind="_editing.Tier" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Trial Days</label>
+                    <input class="fc-form-input" type="number" min="0" @bind="_editing.TrialDays" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Monthly Price (NGN)</label>
+                    <input class="fc-form-input" type="number" min="0" step="0.01" @bind="_editing.BasePriceMonthly" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Annual Price (NGN)</label>
+                    <input class="fc-form-input" type="number" min="0" step="0.01" @bind="_editing.BasePriceAnnual" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Max Modules</label>
+                    <input class="fc-form-input" type="number" min="1" @bind="_editing.MaxModules" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Max Users / Entity</label>
+                    <input class="fc-form-input" type="number" min="1" @bind="_editing.MaxUsersPerEntity" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Max Entities</label>
+                    <input class="fc-form-input" type="number" min="1" @bind="_editing.MaxEntities" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">API Calls / Month</label>
+                    <input class="fc-form-input" type="number" min="0" @bind="_editing.MaxApiCallsPerMonth" />
+                </div>
+
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Storage (MB)</label>
+                    <input class="fc-form-input" type="number" min="0" @bind="_editing.MaxStorageMb" />
+                </div>
+            </div>
+
+            <div class="fc-form-section-mt">
+                <div class="fc-form-group">
+                    <label class="fc-form-label">Features (JSON array or comma-separated)</label>
+                    <textarea class="fc-form-input" rows="4" @bind="_editing.Features"></textarea>
+                </div>
+            </div>
+
+            <div class="fc-form-section-mt">
+                <div class="fc-form-check">
+                    <input type="checkbox" id="plan-is-active" @bind="_editing.IsActive" />
+                    <label class="fc-form-label" for="plan-is-active">Plan is active</label>
+                </div>
+            </div>
+        }
+    </ChildContent>
+    <FooterContent>
+        <button class="fc-btn fc-btn--outline" @onclick="CancelEdit" type="button">Cancel</button>
+        <button class="fc-btn fc-btn--primary @(_saving ? "fc-btn--loading" : "")" @onclick="SaveEdit" disabled="@_saving" aria-busy="@(_saving ? "true" : null)" type="button">
+            @if (_saving)
+            {
+                <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span>
+            }
+            Save Changes
+        </button>
+    </FooterContent>
+</AppModal>
+
+@code {
+    private bool _loading = true;
+    private bool _saving;
+    private string _searchTerm = string.Empty;
+    private string _statusFilter = string.Empty;
+    private string? _formError;
+    private bool _showModal;
+    private List<SubscriptionPlan> _plans = new();
+    private PlanEditorModel? _editing;
+
+    private IEnumerable<SubscriptionPlan> FilteredPlans => _plans
+        .Where(p => string.IsNullOrWhiteSpace(_searchTerm)
+            || p.PlanCode.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)
+            || p.PlanName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(p.Description)
+                && p.Description.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)))
+        .Where(p => string.IsNullOrEmpty(_statusFilter)
+            || (_statusFilter == "active" && p.IsActive)
+            || (_statusFilter == "inactive" && !p.IsActive))
+        .OrderBy(p => p.DisplayOrder)
+        .ThenBy(p => p.PlanCode);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadPlans();
+        _loading = false;
+    }
+
+    private async Task LoadPlans()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _plans = await db.SubscriptionPlans
+            .AsNoTracking()
+            .OrderBy(p => p.DisplayOrder)
+            .ThenBy(p => p.PlanCode)
+            .ToListAsync();
+    }
+
+    private void BeginEdit(SubscriptionPlan plan)
+    {
+        _formError = null;
+
+        _editing = new PlanEditorModel
+        {
+            Id = plan.Id,
+            PlanCode = plan.PlanCode,
+            PlanName = plan.PlanName,
+            Tier = plan.Tier,
+            MaxModules = plan.MaxModules,
+            MaxUsersPerEntity = plan.MaxUsersPerEntity,
+            MaxEntities = plan.MaxEntities,
+            MaxApiCallsPerMonth = plan.MaxApiCallsPerMonth,
+            MaxStorageMb = plan.MaxStorageMb,
+            BasePriceMonthly = plan.BasePriceMonthly,
+            BasePriceAnnual = plan.BasePriceAnnual,
+            TrialDays = plan.TrialDays,
+            Features = plan.Features,
+            IsActive = plan.IsActive
+        };
+
+        _showModal = true;
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_editing is null)
+        {
+            return;
+        }
+
+        _formError = null;
+        _saving = true;
+
+        try
+        {
+            await using var db = await DbFactory.CreateDbContextAsync();
+            var plan = await db.SubscriptionPlans.FirstOrDefaultAsync(p => p.Id == _editing.Id);
+            if (plan is null)
+            {
+                _formError = "Selected plan no longer exists.";
+                _saving = false;
+                return;
+            }
+
+            plan.PlanName = _editing.PlanName.Trim();
+            plan.Tier = Math.Max(0, _editing.Tier);
+            plan.MaxModules = Math.Max(1, _editing.MaxModules);
+            plan.MaxUsersPerEntity = Math.Max(1, _editing.MaxUsersPerEntity);
+            plan.MaxEntities = Math.Max(1, _editing.MaxEntities);
+            plan.MaxApiCallsPerMonth = Math.Max(0, _editing.MaxApiCallsPerMonth);
+            plan.MaxStorageMb = Math.Max(0, _editing.MaxStorageMb);
+            plan.BasePriceMonthly = Math.Max(0, _editing.BasePriceMonthly);
+            plan.BasePriceAnnual = Math.Max(0, _editing.BasePriceAnnual);
+            plan.TrialDays = Math.Max(0, _editing.TrialDays);
+            plan.Features = string.IsNullOrWhiteSpace(_editing.Features) ? "[]" : _editing.Features.Trim();
+            plan.IsActive = _editing.IsActive;
+
+            await db.SaveChangesAsync();
+            await LoadPlans();
+
+            Toast.Success($"Updated plan {plan.PlanCode}.");
+            _showModal = false;
+            _editing = null;
+        }
+        catch (Exception ex)
+        {
+            _formError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private void CancelEdit()
+    {
+        _editing = null;
+        _formError = null;
+        _showModal = false;
+    }
+
+    private static string FormatCurrency(decimal value) => value.ToString("N2");
+
+    private static int CountFeatures(string? features)
+    {
+        if (string.IsNullOrWhiteSpace(features))
+        {
+            return 0;
+        }
+
+        try
+        {
+            if (features.TrimStart().StartsWith("[", StringComparison.Ordinal))
+            {
+                var parsed = JsonSerializer.Deserialize<List<string>>(features);
+                return parsed?.Count ?? 0;
+            }
+
+            return features.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private sealed class PlanEditorModel
+    {
+        public int Id { get; set; }
+        public string PlanCode { get; set; } = string.Empty;
+        public string PlanName { get; set; } = string.Empty;
+        public int Tier { get; set; }
+        public int MaxModules { get; set; }
+        public int MaxUsersPerEntity { get; set; }
+        public int MaxEntities { get; set; }
+        public int MaxApiCallsPerMonth { get; set; }
+        public int MaxStorageMb { get; set; }
+        public decimal BasePriceMonthly { get; set; }
+        public decimal BasePriceAnnual { get; set; }
+        public int TrialDays { get; set; }
+        public string? Features { get; set; }
+        public bool IsActive { get; set; }
+    }
+}

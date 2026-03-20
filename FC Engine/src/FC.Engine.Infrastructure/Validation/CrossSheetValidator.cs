@@ -2,6 +2,8 @@ using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.DataRecord;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore;
 
 namespace FC.Engine.Infrastructure.Validation;
 
@@ -10,16 +12,22 @@ public class CrossSheetValidator : ICrossSheetValidator
     private readonly IFormulaRepository _formulaRepo;
     private readonly IGenericDataRepository _dataRepo;
     private readonly ITemplateMetadataCache _cache;
+    private readonly MetadataDbContext? _db;
+    private readonly IEntitlementService? _entitlementService;
     private readonly ExpressionParser _expressionParser = new();
 
     public CrossSheetValidator(
         IFormulaRepository formulaRepo,
         IGenericDataRepository dataRepo,
-        ITemplateMetadataCache cache)
+        ITemplateMetadataCache cache,
+        MetadataDbContext? db = null,
+        IEntitlementService? entitlementService = null)
     {
         _formulaRepo = formulaRepo;
         _dataRepo = dataRepo;
         _cache = cache;
+        _db = db;
+        _entitlementService = entitlementService;
     }
 
     public async Task<IReadOnlyList<ValidationError>> Validate(
@@ -63,6 +71,202 @@ public class CrossSheetValidator : ICrossSheetValidator
         return errors;
     }
 
+    public async Task<IReadOnlyList<ValidationError>> ValidateCrossModule(
+        Guid tenantId,
+        int submissionId,
+        string moduleCode,
+        int institutionId,
+        int returnPeriodId,
+        CancellationToken ct = default)
+    {
+        if (_db is null)
+        {
+            return Array.Empty<ValidationError>();
+        }
+
+        var rules = await _db.CrossSheetRules
+            .Include(r => r.SourceModule)
+            .Include(r => r.TargetModule)
+            .Where(r => r.IsActive
+                        && r.SourceModuleId != null
+                        && r.TargetModuleId != null
+                        && r.SourceModule != null
+                        && r.SourceModule.ModuleCode == moduleCode
+                        && r.SourceTemplateCode != null
+                        && r.SourceFieldCode != null
+                        && r.TargetTemplateCode != null
+                        && r.TargetFieldCode != null
+                        && r.Operator != null)
+            .ToListAsync(ct);
+
+        if (rules.Count == 0)
+        {
+            return Array.Empty<ValidationError>();
+        }
+
+        var errors = new List<ValidationError>();
+        var sourceSubmission = await _db.Submissions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(s => s.Id == submissionId, ct);
+
+        if (sourceSubmission is null)
+        {
+            return Array.Empty<ValidationError>();
+        }
+
+        foreach (var rule in rules)
+        {
+            if (rule.TargetModule?.ModuleCode is null)
+            {
+                continue;
+            }
+
+            if (_entitlementService is not null)
+            {
+                var hasAccess = await _entitlementService.HasModuleAccess(tenantId, rule.TargetModule.ModuleCode, ct);
+                if (!hasAccess)
+                {
+                    continue;
+                }
+            }
+
+            var sourceSubmissionId = await ResolveSourceSubmissionId(
+                sourceSubmission,
+                rule.SourceTemplateCode!,
+                institutionId,
+                returnPeriodId,
+                ct);
+
+            if (!sourceSubmissionId.HasValue)
+            {
+                continue;
+            }
+
+            var targetSubmission = await _db.Submissions
+                .AsNoTracking()
+                .Where(s => s.TenantId == tenantId
+                            && s.InstitutionId == institutionId
+                            && s.ReturnPeriodId == returnPeriodId
+                            && s.ReturnCode == rule.TargetTemplateCode)
+                .OrderByDescending(s => s.SubmittedAt)
+                .FirstOrDefaultAsync(ct);
+
+            if (targetSubmission is null)
+            {
+                continue;
+            }
+
+            var sourceRecord = await _dataRepo.GetBySubmission(rule.SourceTemplateCode!, sourceSubmissionId.Value, ct);
+            var targetRecord = await _dataRepo.GetBySubmission(rule.TargetTemplateCode!, targetSubmission.Id, ct);
+
+            if (sourceRecord is null || targetRecord is null)
+            {
+                continue;
+            }
+
+            var sourceValue = ResolveFieldValue(sourceRecord, rule.SourceFieldCode!);
+            var targetValue = ResolveFieldValue(targetRecord, rule.TargetFieldCode!);
+            if (sourceValue is null || targetValue is null)
+            {
+                continue;
+            }
+
+            if (!EvaluateCrossModuleRule(
+                    sourceValue.Value,
+                    targetValue.Value,
+                    rule.Operator!,
+                    rule.ToleranceAmount,
+                    rule.TolerancePercent))
+            {
+                errors.Add(new ValidationError
+                {
+                    RuleId = rule.RuleCode,
+                    Field = rule.SourceFieldCode!,
+                    Message = $"Cross-module validation failed: {rule.Description ?? rule.RuleName}. " +
+                              $"Source ({rule.SourceTemplateCode}.{rule.SourceFieldCode})={sourceValue.Value}, " +
+                              $"Target ({rule.TargetTemplateCode}.{rule.TargetFieldCode})={targetValue.Value}",
+                    Severity = rule.Severity,
+                    Category = ValidationCategory.CrossSheet,
+                    ExpectedValue = $"{rule.Operator} target",
+                    ActualValue = sourceValue.Value.ToString(),
+                    ReferencedReturnCode = $"{rule.SourceTemplateCode},{rule.TargetTemplateCode}"
+                });
+            }
+        }
+
+        return errors;
+    }
+
+    private async Task<int?> ResolveSourceSubmissionId(
+        Submission currentSubmission,
+        string sourceTemplateCode,
+        int institutionId,
+        int returnPeriodId,
+        CancellationToken ct)
+    {
+        if (_db is null)
+        {
+            return null;
+        }
+
+        if (string.Equals(currentSubmission.ReturnCode, sourceTemplateCode, StringComparison.OrdinalIgnoreCase))
+        {
+            return currentSubmission.Id;
+        }
+
+        var sourceSubmission = await _db.Submissions
+            .AsNoTracking()
+            .Where(s => s.TenantId == currentSubmission.TenantId
+                        && s.InstitutionId == institutionId
+                        && s.ReturnPeriodId == returnPeriodId
+                        && s.ReturnCode == sourceTemplateCode)
+            .OrderByDescending(s => s.SubmittedAt)
+            .FirstOrDefaultAsync(ct);
+
+        return sourceSubmission?.Id;
+    }
+
+    private static decimal? ResolveFieldValue(ReturnDataRecord record, string fieldCode)
+    {
+        var row = record.Rows.FirstOrDefault();
+        return row?.GetDecimal(fieldCode);
+    }
+
+    private static bool EvaluateCrossModuleRule(
+        decimal source,
+        decimal target,
+        string op,
+        decimal toleranceAmount,
+        decimal? tolerancePercent)
+    {
+        var normalized = op.Trim().ToUpperInvariant();
+        var adjustedTargetLower = target - toleranceAmount;
+        var adjustedTargetUpper = target + toleranceAmount;
+
+        var result = normalized switch
+        {
+            "EQUALS" => source >= adjustedTargetLower && source <= adjustedTargetUpper,
+            "GREATERTHAN" => source > adjustedTargetLower,
+            "LESSTHAN" => source < adjustedTargetUpper,
+            "GREATEREQUAL" => source >= adjustedTargetLower,
+            "LESSEQUAL" => source <= adjustedTargetUpper,
+            _ => source >= adjustedTargetLower && source <= adjustedTargetUpper
+        };
+
+        if (result)
+        {
+            return true;
+        }
+
+        if (!tolerancePercent.HasValue || target == 0)
+        {
+            return false;
+        }
+
+        var deltaPercent = Math.Abs(source - target) / Math.Abs(target) * 100m;
+        return deltaPercent <= tolerancePercent.Value;
+    }
+
     private async Task<ValidationError?> EvaluateRule(
         Domain.Validation.CrossSheetRule rule,
         ReturnDataRecord currentRecord,
@@ -95,6 +299,9 @@ public class CrossSheetValidator : ICrossSheetValidator
         }
 
         // Evaluate the expression
+        if (rule.Expression is null)
+            return null;
+
         var result = _expressionParser.Evaluate(rule.Expression.Expression, variables);
 
         if (!result.Passes)

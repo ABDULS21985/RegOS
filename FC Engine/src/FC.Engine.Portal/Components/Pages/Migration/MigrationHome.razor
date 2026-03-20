@@ -1,0 +1,702 @@
+@page "/migration"
+@attribute [Authorize(Policy = "InstitutionAdmin")]
+@using System.Security.Claims
+@using FC.Engine.Portal.Services
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Domain.Enums
+@using Microsoft.AspNetCore.Components.Forms
+@inject IHistoricalMigrationService MigrationService
+@inject TemplateBrowserService TemplateBrowserService
+@inject SubmissionService SubmissionSvc
+@inject NavigationManager Navigation
+
+<PageTitle>Historical Migration — RegOS™ Portal</PageTitle>
+
+<div class="portal-page">
+    <PortalPageHeader Title="Historical Data Migration"
+                      Subtitle="Upload legacy Excel, CSV, or PDF returns and migrate them as read-only historical submissions."
+                      Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Migration", IsCurrent: true) })">
+        <SecondaryActions>
+            <a class="portal-btn portal-btn-outline portal-btn-sm" href="/migration/tracker">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="margin-right:0.25rem;"><path d="M2 8h12M2 4h8M2 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+                Progress Tracker
+            </a>
+        </SecondaryActions>
+    </PortalPageHeader>
+
+    <div class="portal-fsd-shell">
+        <section class="portal-fsd-banner @ResolveBannerTone()" aria-label="Migration posture">
+            <div>
+                <div class="portal-fsd-eyebrow">Migration posture</div>
+                <h2 class="portal-fsd-banner-title">@BuildBannerHeadline()</h2>
+                <p class="portal-fsd-banner-copy">@BuildBannerCopy()</p>
+            </div>
+            <div class="portal-fsd-banner-meta">
+                <div class="portal-fsd-meta-label">Primary watchpoint</div>
+                <div class="portal-fsd-meta-value">@BuildWatchpointLabel()</div>
+                <div class="portal-fsd-note-copy">@BuildWatchpointCopy()</div>
+            </div>
+        </section>
+
+        <section class="portal-fsd-hero" aria-labelledby="migration-home-title">
+            <div>
+                <div class="portal-fsd-eyebrow">Historical import lane</div>
+                <h1 id="migration-home-title" class="portal-fsd-hero-title">Stand up the migration runway before backlog becomes operational drag.</h1>
+                <p class="portal-fsd-hero-copy">
+                    This workspace now combines intake readiness, step-by-step progression, and live job outcomes so legacy returns
+                    can move from upload to read-only historical record with less operator guesswork.
+                </p>
+                <div class="portal-fsd-chip-row">
+                    <span class="portal-fsd-chip portal-fsd-chip--info">@jobs.Count total jobs</span>
+                    <span class="portal-fsd-chip @(CommittedJobs > 0 ? "portal-fsd-chip--success" : "portal-fsd-chip--info")">@CommittedJobs committed</span>
+                    <span class="portal-fsd-chip @(ActiveJobs > 0 ? "portal-fsd-chip--warning" : "portal-fsd-chip--success")">@ActiveJobs in flight</span>
+                    <span class="portal-fsd-chip @(FailedJobs > 0 ? "portal-fsd-chip--danger" : "portal-fsd-chip--success")">@FailedJobs failed</span>
+                </div>
+            </div>
+            <div class="portal-fsd-hero-aside">
+                <div class="portal-fsd-note">
+                    <div class="portal-fsd-note-label">Current runway stage</div>
+                    <div class="portal-fsd-note-value">@BuildCurrentStepLabel()</div>
+                    <div class="portal-fsd-note-copy">@BuildCurrentStepCopy()</div>
+                </div>
+                <div class="portal-fsd-note">
+                    <div class="portal-fsd-note-label">Latest job</div>
+                    <div class="portal-fsd-note-value">@BuildLatestJobLabel()</div>
+                    <div class="portal-fsd-note-copy">@BuildLatestJobCopy()</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="portal-fsd-stat-grid" aria-label="Migration metrics">
+            <article class="portal-fsd-stat">
+                <div class="portal-fsd-stat-label">Committed imports</div>
+                <div class="portal-fsd-stat-value @(CommittedJobs > 0 ? "portal-fsd-chip--success" : "portal-fsd-chip--info")">@CommittedJobs</div>
+                <div class="portal-fsd-stat-copy">Historical return sets already committed as read-only records.</div>
+            </article>
+            <article class="portal-fsd-stat">
+                <div class="portal-fsd-stat-label">Pipeline jobs</div>
+                <div class="portal-fsd-stat-value @(ActiveJobs > 0 ? "portal-fsd-chip--warning" : "portal-fsd-chip--success")">@ActiveJobs</div>
+                <div class="portal-fsd-stat-copy">Jobs still in upload, mapping, validation, or preview stages.</div>
+            </article>
+            <article class="portal-fsd-stat">
+                <div class="portal-fsd-stat-label">Rows parsed</div>
+                <div class="portal-fsd-stat-value portal-fsd-chip--info">@ImportedRows</div>
+                <div class="portal-fsd-stat-copy">Total rows represented in the current tenant’s historical import queue.</div>
+            </article>
+            <article class="portal-fsd-stat">
+                <div class="portal-fsd-stat-label">Warnings and errors</div>
+                <div class="portal-fsd-stat-value @(TotalExceptions > 0 ? "portal-fsd-chip--danger" : "portal-fsd-chip--success")">@TotalExceptions</div>
+                <div class="portal-fsd-stat-copy">Combined warning and error count visible in the current job set.</div>
+            </article>
+        </section>
+
+        <section class="portal-fsd-grid">
+            <div style="display:grid; gap:1rem;">
+                <section class="portal-fsd-panel">
+                    <div class="portal-fsd-panel-head">
+                        <div>
+                            <div class="portal-fsd-panel-eyebrow">Runway map</div>
+                            <h2 class="portal-fsd-panel-title">Five-step migration journey</h2>
+                            <p class="portal-fsd-panel-copy">The current queue drives the highlighted stage. Committed jobs mark the full runway as completed.</p>
+                        </div>
+                        <div class="portal-fsd-panel-metric">Step @(GetCurrentStep() + 1) / @_steps.Length</div>
+                    </div>
+                    <div class="portal-fsd-panel-body">
+                        <div class="portal-mig-journey">
+                            @for (int si = 0; si < _steps.Length; si++)
+                            {
+                                var stepIdx = si;
+                                var step = _steps[si];
+                                var stepClass = GetStepClass(stepIdx);
+                                <div class="portal-mig-step @stepClass">
+                                    <div class="portal-mig-step-icon">
+                                        @if (stepClass.Contains("completed"))
+                                        {
+                                            <svg class="portal-mig-step-check" viewBox="0 0 16 16" fill="none">
+                                                <path d="M3 8l3.5 3.5L13 4.5" stroke="#16a34a" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                            </svg>
+                                        }
+                                        else
+                                        {
+                                            <span>@(stepIdx + 1)</span>
+                                        }
+                                    </div>
+                                    <div class="portal-mig-step-body">
+                                        <div class="portal-mig-step-num">Step @(stepIdx + 1)</div>
+                                        <div class="portal-mig-step-title">@step.Title</div>
+                                        <div class="portal-mig-step-desc">@step.Desc</div>
+                                        @if (stepClass.Contains("active"))
+                                        {
+                                            <div class="portal-mig-step-active-badge">
+                                                <span class="portal-mig-step-active-dot"></span>
+                                                In Progress
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </section>
+
+                <section class="portal-fsd-panel">
+                    <div class="portal-fsd-panel-head">
+                        <div>
+                            <div class="portal-fsd-panel-eyebrow">New import</div>
+                            <h2 class="portal-fsd-panel-title">Start a new historical import job</h2>
+                            <p class="portal-fsd-panel-copy">Select the target return, reporting period, and legacy source file before parsing into the mapping workflow.</p>
+                        </div>
+                        <div class="portal-fsd-panel-metric">@BuildSelectionLabel()</div>
+                    </div>
+                    <div class="portal-fsd-panel-body">
+                        <div class="portal-form-grid portal-form-grid-3" style="margin-top:0;">
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Template</label>
+                                <select class="portal-form-select" value="@selectedReturnCode" @onchange="OnTemplateChanged">
+                                    <option value="">Select template...</option>
+                                    @foreach (var template in templates)
+                                    {
+                                        <option value="@template.ReturnCode">@template.ReturnCode — @template.TemplateName</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Reporting Period</label>
+                                <select class="portal-form-select" @bind="selectedPeriodId" disabled="@(periods.Count == 0)">
+                                    <option value="0">Select period...</option>
+                                    @foreach (var period in periods)
+                                    {
+                                        <option value="@period.ReturnPeriodId">@period.Label</option>
+                                    }
+                                </select>
+                            </div>
+                            <div class="portal-form-group">
+                                <label class="portal-form-label">Source File</label>
+                                <InputFile OnChange="OnFileSelected" accept=".xlsx,.xls,.csv,.txt,.pdf" />
+                                @if (selectedFile is not null)
+                                {
+                                    <span class="portal-form-hint">@selectedFile.Name (@FormatBytes(selectedFile.Size))</span>
+                                }
+                            </div>
+                        </div>
+
+                        @if (!string.IsNullOrWhiteSpace(errorMessage))
+                        {
+                            <div class="portal-validation-banner portal-validation-banner-error" style="margin-top:0.8rem;">@errorMessage</div>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(successMessage))
+                        {
+                            <div class="portal-validation-banner portal-validation-banner-success" style="margin-top:0.8rem;">@successMessage</div>
+                        }
+
+                        <div style="margin-top:1rem; display:flex; gap:0.5rem; flex-wrap:wrap; align-items:center;">
+                            <button class="portal-btn portal-btn-primary" @onclick="CreateImportJob" disabled="@isProcessing">
+                                @if (isProcessing)
+                                {
+                                    <span class="portal-spinner portal-spinner-sm" style="margin-right:0.375rem;"></span>
+                                    <span>Processing…</span>
+                                }
+                                else
+                                {
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="margin-right:0.375rem;"><path d="M8 2v9M4 7l4 4 4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M2 13h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                                    <span>Upload and Parse</span>
+                                }
+                            </button>
+                            <button class="portal-btn portal-btn-outline" @onclick="LoadJobs" disabled="@isProcessing">Refresh</button>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="portal-fsd-panel">
+                    <div class="portal-fsd-panel-head">
+                        <div>
+                            <div class="portal-fsd-panel-eyebrow">Job queue</div>
+                            <h2 class="portal-fsd-panel-title">Historical import jobs</h2>
+                            <p class="portal-fsd-panel-copy">Track where each import sits in the workflow and open the mapping or review path directly from the queue.</p>
+                        </div>
+                        <div class="portal-fsd-panel-metric">@jobs.Count job@(jobs.Count == 1 ? string.Empty : "s")</div>
+                    </div>
+                    <div class="portal-fsd-panel-body">
+                        @if (jobs.Count == 0)
+                        {
+                            <div class="portal-fsd-empty">No migration jobs exist yet. Upload a legacy file above to create the first job in this tenant scope.</div>
+                        }
+                        else
+                        {
+                            <div class="portal-table-responsive">
+                                <table class="portal-table">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>Return</th>
+                                            <th>File</th>
+                                            <th>Step</th>
+                                            <th>Status</th>
+                                            <th style="text-align:right;">Rows</th>
+                                            <th style="text-align:right;">Warn</th>
+                                            <th style="text-align:right;">Err</th>
+                                            <th>Updated</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @foreach (var job in jobs)
+                                        {
+                                            var jobStep = GetJobStep(job.Status);
+                                            <tr>
+                                                <td style="font-variant-numeric:tabular-nums; color:var(--cbn-text-muted); font-size:0.78rem;">#@job.Id</td>
+                                                <td style="font-weight:600; font-size:0.8125rem;">@job.ReturnCode</td>
+                                                <td style="font-size:0.78rem; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@job.SourceFileName">@job.SourceFileName</td>
+                                                <td>
+                                                    <span class="portal-mig-job-step portal-mig-job-step--@(job.Status == ImportJobStatus.Failed ? "err" : jobStep.ToString())">
+                                                        @if (job.Status == ImportJobStatus.Committed)
+                                                        {
+                                                            <svg width="10" height="10" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                                        }
+                                                        @GetJobStepLabel(job.Status)
+                                                    </span>
+                                                </td>
+                                                <td><span class="portal-badge @GetStatusBadge(job.Status)">@job.Status</span></td>
+                                                <td style="text-align:right; font-variant-numeric:tabular-nums;">@job.RecordCount</td>
+                                                <td style="text-align:right; font-variant-numeric:tabular-nums; @(job.WarningCount > 0 ? "color:#d97706;font-weight:600;" : "")">@job.WarningCount</td>
+                                                <td style="text-align:right; font-variant-numeric:tabular-nums; @(job.ErrorCount > 0 ? "color:#dc2626;font-weight:600;" : "")">@job.ErrorCount</td>
+                                                <td style="font-size:0.75rem; color:var(--cbn-text-muted);">@job.UpdatedAt.ToString("dd MMM HH:mm")</td>
+                                                <td>
+                                                    <button class="portal-btn portal-btn-sm portal-btn-outline" @onclick="() => OpenWorkflow(job.Id)">
+                                                        @(job.Status is ImportJobStatus.Committed or ImportJobStatus.Failed ? "View" : "Open →")
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+                </section>
+            </div>
+
+            <aside class="portal-fsd-side">
+                <section class="portal-fsd-panel">
+                    <div class="portal-fsd-panel-head">
+                        <div>
+                            <div class="portal-fsd-panel-eyebrow">Intake readiness</div>
+                            <h2 class="portal-fsd-panel-title">Current import scope</h2>
+                            <p class="portal-fsd-panel-copy">Sanity check the current selection before creating the next import job.</p>
+                        </div>
+                    </div>
+                    <div class="portal-fsd-panel-body">
+                        <div class="portal-fsd-side-list">
+                            <div class="portal-fsd-side-item">
+                                <div class="portal-fsd-side-item-head">
+                                    <strong>Tenant scope</strong>
+                                    <span class="portal-fsd-risk @(tenantId.HasValue ? "portal-fsd-risk--success" : "portal-fsd-risk--danger")">@(tenantId.HasValue ? "Ready" : "Missing")</span>
+                                </div>
+                                <span>@BuildTenantScopeCopy()</span>
+                            </div>
+                            <div class="portal-fsd-side-item">
+                                <div class="portal-fsd-side-item-head">
+                                    <strong>Template selection</strong>
+                                    <span class="portal-fsd-side-item-value">@BuildTemplateLabel()</span>
+                                </div>
+                                <span>@(periods.Count > 0 ? $"{periods.Count} available reporting period options loaded for the current return." : "Pick a template to load matching reporting periods.")</span>
+                            </div>
+                            <div class="portal-fsd-side-item">
+                                <div class="portal-fsd-side-item-head">
+                                    <strong>Source file</strong>
+                                    <span class="portal-fsd-side-item-value">@BuildFileLabel()</span>
+                                </div>
+                                <span>Supported formats are Excel, CSV, text, and PDF for read-only historical import.</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="portal-fsd-panel">
+                    <div class="portal-fsd-panel-head">
+                        <div>
+                            <div class="portal-fsd-panel-eyebrow">Outcome rail</div>
+                            <h2 class="portal-fsd-panel-title">Recent migration outcomes</h2>
+                            <p class="portal-fsd-panel-copy">The most recent jobs in scope, ordered by last update so the freshest issues stay visible.</p>
+                        </div>
+                    </div>
+                    <div class="portal-fsd-panel-body">
+                        @if (jobs.Count == 0)
+                        {
+                            <div class="portal-fsd-empty">Once import jobs exist, the latest outcomes will appear here for quick triage.</div>
+                        }
+                        else
+                        {
+                            <div class="portal-fsd-side-list">
+                                @foreach (var job in jobs.Take(4))
+                                {
+                                    <div class="portal-fsd-side-item">
+                                        <div class="portal-fsd-side-item-head">
+                                            <strong>@job.ReturnCode · #@job.Id</strong>
+                                            <span class="portal-fsd-risk @BuildJobRiskClass(job.Status)">@job.Status</span>
+                                        </div>
+                                        <span>@job.SourceFileName</span>
+                                        <div class="portal-fsd-metrics">
+                                            <div class="portal-fsd-metric">
+                                                <small>Rows</small>
+                                                <strong>@job.RecordCount</strong>
+                                            </div>
+                                            <div class="portal-fsd-metric">
+                                                <small>Updated</small>
+                                                <strong>@job.UpdatedAt.ToString("dd MMM")</strong>
+                                            </div>
+                                        </div>
+                                        @if (job.WarningCount > 0 || job.ErrorCount > 0)
+                                        {
+                                            <div class="portal-fsd-recommendation">Warnings: @job.WarningCount · Errors: @job.ErrorCount. Review the mapping and preview steps before commit.</div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </section>
+            </aside>
+        </section>
+    </div>
+</div>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private record MigStepDef(string Title, string Desc);
+
+    private static readonly MigStepDef[] _steps =
+    [
+        new("Upload Legacy Data", "Upload your Excel, CSV, or PDF file from the legacy system"),
+        new("Map Fields", "Connect source columns to RegOS™ schema fields"),
+        new("Validate Mapping", "Run relaxed validation to check data integrity"),
+        new("Preview Import", "Review a 10-row sample before final commit"),
+        new("Confirm & Import", "Commit as read-only historical submissions")
+    ];
+
+    private List<TemplateBrowseItem> templates = [];
+    private List<FC.Engine.Portal.Services.PeriodSelectItem> periods = [];
+    private List<ImportJobDto> jobs = [];
+    private string selectedReturnCode = string.Empty;
+    private int selectedPeriodId;
+    private IBrowserFile? selectedFile;
+    private string? errorMessage;
+    private string? successMessage;
+    private bool isProcessing;
+    private int institutionId;
+    private int userId;
+    private Guid? tenantId;
+    private ImportJobDto? LatestJob => jobs.FirstOrDefault();
+    private int CommittedJobs => jobs.Count(j => j.Status == ImportJobStatus.Committed);
+    private int FailedJobs => jobs.Count(j => j.Status == ImportJobStatus.Failed);
+    private int ActiveJobs => jobs.Count(j => j.Status is not ImportJobStatus.Committed and not ImportJobStatus.Failed);
+    private int ImportedRows => jobs.Sum(j => j.RecordCount);
+    private int TotalExceptions => jobs.Sum(j => j.WarningCount + j.ErrorCount);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadUserContext();
+        templates = tenantId.HasValue
+            ? await TemplateBrowserService.GetAllTemplates(tenantId.Value)
+            : [];
+        await LoadJobs();
+    }
+
+    private async Task LoadUserContext()
+    {
+        if (AuthState is null) return;
+        var state = await AuthState;
+        var user = state.User;
+        var institutionIdRaw = user.FindFirst("InstitutionId")?.Value;
+        _ = int.TryParse(institutionIdRaw, out institutionId);
+        var userIdRaw = user.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? user.FindFirst("sub")?.Value;
+        _ = int.TryParse(userIdRaw, out userId);
+        if (PortalTenantClaimResolver.TryResolveTenantId(user, out var resolvedTenantId))
+        {
+            tenantId = resolvedTenantId;
+        }
+    }
+
+    private async Task LoadJobs()
+    {
+        errorMessage = null;
+        successMessage = null;
+        if (!tenantId.HasValue) { jobs = []; return; }
+        jobs = (await MigrationService.GetJobs(tenantId.Value, institutionId))
+            .OrderByDescending(x => x.UpdatedAt)
+            .ToList();
+    }
+
+    private async Task OnTemplateChanged(ChangeEventArgs args)
+    {
+        selectedReturnCode = args.Value?.ToString()?.Trim() ?? string.Empty;
+        selectedPeriodId = 0;
+        periods = [];
+        if (!tenantId.HasValue || string.IsNullOrWhiteSpace(selectedReturnCode)) return;
+        try
+        {
+            periods = await SubmissionSvc.GetPeriodsForTemplate(selectedReturnCode);
+            selectedPeriodId = periods.FirstOrDefault()?.ReturnPeriodId ?? 0;
+        }
+        catch (Exception ex) { errorMessage = ex.Message; }
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs args)
+    {
+        selectedFile = args.FileCount > 0 ? args.File : null;
+    }
+
+    private async Task CreateImportJob()
+    {
+        errorMessage = null;
+        successMessage = null;
+        if (!tenantId.HasValue) { errorMessage = "Tenant context is missing."; return; }
+        if (institutionId <= 0 || userId <= 0) { errorMessage = "User context is missing."; return; }
+        if (string.IsNullOrWhiteSpace(selectedReturnCode)) { errorMessage = "Select a template."; return; }
+        if (selectedPeriodId <= 0) { errorMessage = "Select a reporting period."; return; }
+        if (selectedFile is null) { errorMessage = "Select a source file."; return; }
+
+        isProcessing = true;
+        try
+        {
+            await using var stream = selectedFile.OpenReadStream(50 * 1024 * 1024);
+            var job = await MigrationService.UploadAndParse(
+                tenantId.Value, institutionId, selectedReturnCode, selectedPeriodId,
+                selectedFile.Name, stream, userId);
+            successMessage = $"Import job #{job.Id} created — file parsed, ready for field mapping.";
+            await LoadJobs();
+        }
+        catch (Exception ex) { errorMessage = ex.Message; }
+        finally { isProcessing = false; }
+    }
+
+    private void OpenWorkflow(int importJobId) => Navigation.NavigateTo($"/migration/mapping/{importJobId}");
+
+    private int GetCurrentStep()
+    {
+        var latest = jobs.FirstOrDefault();
+        return latest?.Status switch
+        {
+            ImportJobStatus.Uploaded => 0,
+            ImportJobStatus.Parsed => 0,
+            ImportJobStatus.MappingReview => 1,
+            ImportJobStatus.Validated => 2,
+            ImportJobStatus.Staged => 3,
+            ImportJobStatus.Committed => 4,
+            _ => 0
+        };
+    }
+
+    private bool AreAllCommitted() => jobs.Count > 0 && jobs.All(j => j.Status == ImportJobStatus.Committed);
+
+    private bool IsStepCompleted(int stepIdx)
+    {
+        if (!jobs.Any()) return false;
+        if (AreAllCommitted()) return true;
+        return stepIdx < GetCurrentStep();
+    }
+
+    private string GetStepClass(int stepIdx)
+    {
+        if (IsStepCompleted(stepIdx)) return "portal-mig-step--completed";
+        var current = GetCurrentStep();
+        if (stepIdx == current && jobs.Any() && !AreAllCommitted()) return "portal-mig-step--active";
+        return "portal-mig-step--upcoming";
+    }
+
+    private static int GetJobStep(ImportJobStatus status) => status switch
+    {
+        ImportJobStatus.Uploaded or ImportJobStatus.Parsed => 0,
+        ImportJobStatus.MappingReview => 1,
+        ImportJobStatus.Validated => 2,
+        ImportJobStatus.Staged => 3,
+        ImportJobStatus.Committed => 4,
+        _ => 0
+    };
+
+    private static string GetJobStepLabel(ImportJobStatus status) => status switch
+    {
+        ImportJobStatus.Uploaded or ImportJobStatus.Parsed => "Upload",
+        ImportJobStatus.MappingReview => "Map Fields",
+        ImportJobStatus.Validated => "Validate",
+        ImportJobStatus.Staged => "Preview",
+        ImportJobStatus.Committed => "Committed",
+        ImportJobStatus.Failed => "Failed",
+        _ => "Unknown"
+    };
+
+    private static string GetStatusBadge(ImportJobStatus status) => status switch
+    {
+        ImportJobStatus.Committed => "portal-badge-success",
+        ImportJobStatus.Failed => "portal-badge-danger",
+        ImportJobStatus.MappingReview => "portal-badge-warning",
+        ImportJobStatus.Validated => "portal-badge-info",
+        ImportJobStatus.Staged => "portal-badge-info",
+        _ => "portal-badge-neutral"
+    };
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes < 1024) return $"{bytes} B";
+        if (bytes < 1024 * 1024) return $"{bytes / 1024d:F1} KB";
+        return $"{bytes / (1024d * 1024d):F1} MB";
+    }
+
+    private string ResolveBannerTone()
+    {
+        if (FailedJobs > 0)
+        {
+            return "portal-fsd-banner--danger";
+        }
+
+        if (ActiveJobs > 0 || isProcessing)
+        {
+            return "portal-fsd-banner--warning";
+        }
+
+        if (CommittedJobs > 0)
+        {
+            return "portal-fsd-banner--success";
+        }
+
+        return string.Empty;
+    }
+
+    private string BuildBannerHeadline()
+    {
+        if (FailedJobs > 0)
+        {
+            return $"{FailedJobs} migration job{(FailedJobs == 1 ? string.Empty : "s")} need operator attention.";
+        }
+
+        if (ActiveJobs > 0)
+        {
+            return $"{ActiveJobs} historical import job{(ActiveJobs == 1 ? string.Empty : "s")} are moving through the runway.";
+        }
+
+        if (CommittedJobs > 0)
+        {
+            return $"{CommittedJobs} historical import job{(CommittedJobs == 1 ? string.Empty : "s")} already landed safely.";
+        }
+
+        return "Historical migration runway is ready for the next backlog.";
+    }
+
+    private string BuildBannerCopy()
+    {
+        if (FailedJobs > 0)
+        {
+            return "Review the failed jobs in the outcome rail, reopen the workflow, and resolve mapping or validation issues before creating additional backlog.";
+        }
+
+        if (ActiveJobs > 0)
+        {
+            return "The queue is active across upload, mapping, validation, or preview stages. Keep the latest jobs moving so operators do not lose context.";
+        }
+
+        if (CommittedJobs > 0)
+        {
+            return "Committed jobs are now preserved as read-only historical submissions, giving teams an auditable legacy record without reopening live filing flows.";
+        }
+
+        return "Choose the target return, reporting period, and legacy source file to create the first import job in this tenant scope.";
+    }
+
+    private string BuildWatchpointLabel()
+    {
+        if (FailedJobs > 0)
+        {
+            return "Failed jobs";
+        }
+
+        if (ActiveJobs > 0)
+        {
+            return "Active queue";
+        }
+
+        return tenantId.HasValue ? "Tenant ready" : "Context missing";
+    }
+
+    private string BuildWatchpointCopy()
+    {
+        if (FailedJobs > 0)
+        {
+            return "Resolve the failed mapping or validation paths before the queue grows further.";
+        }
+
+        if (ActiveJobs > 0)
+        {
+            return $"{ActiveJobs} job{(ActiveJobs == 1 ? string.Empty : "s")} still need human review or progression through the next runway stage.";
+        }
+
+        return tenantId.HasValue
+            ? "Tenant and user context are available, so the workspace can create new import jobs."
+            : "Tenant context is not resolved yet, so import creation will remain blocked.";
+    }
+
+    private string BuildCurrentStepLabel()
+    {
+        if (!jobs.Any())
+        {
+            return "Awaiting intake";
+        }
+
+        return _steps[Math.Clamp(GetCurrentStep(), 0, _steps.Length - 1)].Title;
+    }
+
+    private string BuildCurrentStepCopy()
+    {
+        if (AreAllCommitted())
+        {
+            return "All visible jobs have completed the five-step runway and now exist as historical read-only records.";
+        }
+
+        if (!jobs.Any())
+        {
+            return "No jobs exist yet, so the workflow is waiting on the first file upload.";
+        }
+
+        return _steps[Math.Clamp(GetCurrentStep(), 0, _steps.Length - 1)].Desc;
+    }
+
+    private string BuildLatestJobLabel() => LatestJob is null
+        ? "No job yet"
+        : $"{LatestJob.ReturnCode} · {LatestJob.Status}";
+
+    private string BuildLatestJobCopy() => LatestJob is null
+        ? "The latest file parsed, mapped, or committed in this tenant scope will appear here."
+        : $"{LatestJob.SourceFileName} was last updated on {LatestJob.UpdatedAt:dd MMM yyyy HH:mm}.";
+
+    private string BuildSelectionLabel()
+    {
+        if (!string.IsNullOrWhiteSpace(selectedReturnCode))
+        {
+            return selectedReturnCode;
+        }
+
+        return "No return selected";
+    }
+
+    private string BuildTenantScopeCopy() => tenantId.HasValue
+        ? $"Tenant {tenantId.Value} is resolved and institution {(institutionId > 0 ? institutionId.ToString() : "context")} is in scope."
+        : "Tenant scope is missing, so upload and parse cannot start yet.";
+
+    private string BuildTemplateLabel() => string.IsNullOrWhiteSpace(selectedReturnCode)
+        ? "Choose return"
+        : selectedReturnCode;
+
+    private string BuildFileLabel() => selectedFile is null
+        ? "Awaiting upload"
+        : $"{selectedFile.Name} · {FormatBytes(selectedFile.Size)}";
+
+    private string BuildJobRiskClass(ImportJobStatus status) => status switch
+    {
+        ImportJobStatus.Committed => "portal-fsd-risk--success",
+        ImportJobStatus.Failed => "portal-fsd-risk--danger",
+        ImportJobStatus.MappingReview or ImportJobStatus.Validated or ImportJobStatus.Staged => "portal-fsd-risk--warning",
+        _ => "portal-fsd-risk--info"
+    };
+}

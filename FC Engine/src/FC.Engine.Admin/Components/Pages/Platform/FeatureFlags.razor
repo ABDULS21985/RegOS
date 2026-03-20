@@ -1,0 +1,300 @@
+@page "/platform/feature-flags"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Admin.Services
+@using FC.Engine.Admin.Utilities
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Entities
+@inject PlatformAdminService PlatformService
+@inject IFeatureFlagService FeatureFlagService
+
+<PageTitle>Feature Flags</PageTitle>
+
+<PageHeader Title="Feature Flags"
+            Subtitle="Global toggles, gradual rollout, and tenant/plan targeting with audit logging." />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="fc-alert fc-alert--inline fc-alert--success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="fc-alert fc-alert--inline fc-alert--error">@_error</div>
+}
+
+@if (_loading)
+{
+    <div aria-busy="true" aria-label="Loading feature flags">
+        <div class="fc-grid fc-grid-2 fc-mb-4">
+            <div class="fc-card"><div class="fc-card__body">
+                @for (var i = 0; i < 6; i++)
+                {
+                    <div class="fc-skel fc-skel-text" style="--skel-w:100%;--skel-h:40px;--skel-mb:12px;"></div>
+                }
+            </div></div>
+            <div class="fc-card"><div class="fc-card__body">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="fc-skel fc-skel-text" style="--skel-w:100%;--skel-h:40px;--skel-mb:12px;"></div>
+                }
+            </div></div>
+        </div>
+        <div class="fc-card"><div class="fc-card__body">
+            @for (var i = 0; i < 5; i++)
+            {
+                <div class="fc-skel fc-skel-text" style="--skel-w:100%;--skel-h:40px;--skel-mb:8px;"></div>
+            }
+        </div></div>
+    </div>
+}
+else
+{
+    <div class="fc-grid fc-grid-2 fc-mb-4">
+        <section class="fc-card">
+            <div class="fc-card__header"><h2 class="fc-card__title">Create / Update Flag</h2></div>
+            <div class="fc-card__body">
+                <div class="fc-form-row"><label>Flag Code</label><input class="fc-input" @bind="_edit.FlagCode" placeholder="e.g. rg28_beta_console" /></div>
+                <div class="fc-form-row"><label>Description</label><input class="fc-input" @bind="_edit.Description" /></div>
+                <div class="fc-form-row"><label>Rollout Percent (0-100)</label><input class="fc-input" type="number" min="0" max="100" @bind="_edit.RolloutPercent" /></div>
+                <div class="fc-form-row"><label>Allowed Tenants (CSV or JSON array)</label><textarea class="fc-input" rows="3" @bind="_edit.AllowedTenants"></textarea></div>
+                <div class="fc-form-row"><label>Allowed Plans (CSV or JSON array)</label><textarea class="fc-input" rows="3" @bind="_edit.AllowedPlans"></textarea></div>
+                <div class="fc-form-row fc-flex-row--gap2">
+                    <input type="checkbox" @bind="_edit.IsEnabled" /> <label class="fc-m-0">Globally Enabled</label>
+                </div>
+                <div class="fc-flex-row--gap2 fc-mt-4">
+                    <button class="fc-btn fc-btn--primary @(_isSaving ? "fc-btn--loading" : "")" @onclick="Save" disabled="@_isSaving" aria-busy="@(_isSaving ? "true" : null)">
+                        @if (_isSaving) { <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span> }
+                        Save
+                    </button>
+                    <button class="fc-btn fc-btn--outline" @onclick="ResetForm" disabled="@_isSaving">Reset</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="fc-card">
+            <div class="fc-card__header"><h2 class="fc-card__title">Quick Evaluation</h2></div>
+            <div class="fc-card__body">
+                <div class="fc-form-row"><label>Flag Code</label><input class="fc-input" @bind="_evalFlagCode" /></div>
+                <div class="fc-form-row"><label>Tenant Id (optional)</label><input class="fc-input" @bind="_evalTenantId" placeholder="GUID" /></div>
+                <button class="fc-btn fc-btn--outline @(_isEvaluating ? "fc-btn--loading" : "")" @onclick="Evaluate" disabled="@_isEvaluating" aria-busy="@(_isEvaluating ? "true" : null)">
+                    @if (_isEvaluating) { <span class="fc-spinner fc-spinner--sm fc-spinner--muted" aria-hidden="true"></span> }
+                    Evaluate
+                </button>
+                @if (_evalResult.HasValue)
+                {
+                    <div class="fc-eval-result" style="--eval-color:@(_evalResult.Value ? "#166534" : "#991b1b")">
+                        Result: @(_evalResult.Value ? "Enabled" : "Disabled")
+                    </div>
+                }
+            </div>
+        </section>
+    </div>
+
+    <div class="fc-card">
+        <div class="fc-card__header"><h2 class="fc-card__title">Existing Flags</h2></div>
+        <div class="fc-card__body fc-card-body--flush">
+            <table class="fc-table">
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Description</th>
+                        <th>Enabled</th>
+                        <th>Rollout %</th>
+                        <th>Allowed Tenants</th>
+                        <th>Allowed Plans</th>
+                        <th>Updated</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var flag in _flags)
+                    {
+                        <tr>
+                            <td><code>@flag.FlagCode</code></td>
+                            <td>@flag.Description</td>
+                            <td>
+                                <span class="fc-badge @(flag.IsEnabled ? "fc-badge--success" : "fc-badge--muted")">
+                                    @(flag.IsEnabled ? "Enabled" : "Disabled")
+                                </span>
+                            </td>
+                            <td>@flag.RolloutPercent</td>
+                            <td class="fc-td-truncate">@(flag.AllowedTenants ?? "-")</td>
+                            <td class="fc-td-truncate">@(flag.AllowedPlans ?? "-")</td>
+                            <td>@flag.UpdatedAt.ToString("dd MMM yyyy HH:mm")</td>
+                            <td>
+                                <div class="fc-tag-group">
+                                    <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => Edit(flag)" disabled="@(_togglingFlagCode == flag.FlagCode)">Edit</button>
+                                    @if (_togglingFlagCode == flag.FlagCode)
+                                    {
+                                        <button class="fc-btn fc-btn--primary fc-btn--xs fc-btn--loading" disabled aria-busy="true">
+                                            <span class="fc-spinner fc-spinner--xs fc-spinner--white" aria-hidden="true"></span>
+                                            @(flag.IsEnabled ? "Disable" : "Enable")
+                                        </button>
+                                    }
+                                    else
+                                    {
+                                        <button class="fc-btn fc-btn--primary fc-btn--xs" @onclick="() => Toggle(flag)">
+                                            @(flag.IsEnabled ? "Disable" : "Enable")
+                                        </button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private List<FeatureFlag> _flags = new();
+    private UpdateFeatureFlagRequest _edit = new();
+    private bool _loading = true;
+    private bool _isSaving;
+    private bool _isEvaluating;
+    private string? _togglingFlagCode;
+    private string? _error;
+    private string? _message;
+    private string _evalFlagCode = string.Empty;
+    private string _evalTenantId = string.Empty;
+    private bool? _evalResult;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        _message = null;
+
+        try
+        {
+            _flags = (await PlatformService.GetFeatureFlags()).ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void Edit(FeatureFlag flag)
+    {
+        _edit = new UpdateFeatureFlagRequest
+        {
+            FlagCode = flag.FlagCode,
+            Description = flag.Description,
+            IsEnabled = flag.IsEnabled,
+            RolloutPercent = flag.RolloutPercent,
+            AllowedTenants = flag.AllowedTenants,
+            AllowedPlans = flag.AllowedPlans
+        };
+    }
+
+    private async Task Save()
+    {
+        _error = null;
+        _message = null;
+
+        if (string.IsNullOrWhiteSpace(_edit.FlagCode) || string.IsNullOrWhiteSpace(_edit.Description))
+        {
+            _error = "Flag code and description are required.";
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.UpsertFeatureFlag(_edit, actor);
+            _message = "Feature flag saved.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private async Task Toggle(FeatureFlag flag)
+    {
+        _error = null;
+        _message = null;
+        _togglingFlagCode = flag.FlagCode;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.UpsertFeatureFlag(new UpdateFeatureFlagRequest
+            {
+                FlagCode = flag.FlagCode,
+                Description = flag.Description,
+                IsEnabled = !flag.IsEnabled,
+                RolloutPercent = flag.RolloutPercent,
+                AllowedTenants = flag.AllowedTenants,
+                AllowedPlans = flag.AllowedPlans
+            }, actor);
+
+            _message = $"Flag '{flag.FlagCode}' {(!flag.IsEnabled ? "enabled" : "disabled")}.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _togglingFlagCode = null;
+        }
+    }
+
+    private void ResetForm()
+    {
+        _edit = new UpdateFeatureFlagRequest();
+        _evalResult = null;
+    }
+
+    private async Task Evaluate()
+    {
+        _error = null;
+        _evalResult = null;
+        _isEvaluating = true;
+        try
+        {
+            Guid? tenantId = null;
+            if (!string.IsNullOrWhiteSpace(_evalTenantId))
+            {
+                tenantId = Guid.Parse(_evalTenantId.Trim());
+            }
+
+            _evalResult = await FeatureFlagService.IsEnabled(_evalFlagCode, tenantId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _isEvaluating = false;
+        }
+    }
+
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+}

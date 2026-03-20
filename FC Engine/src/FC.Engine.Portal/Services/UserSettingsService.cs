@@ -34,6 +34,7 @@ public class UserSettingsService
             Username = user.Username,
             Email = user.Email,
             DisplayName = user.DisplayName,
+            PreferredLanguage = string.IsNullOrWhiteSpace(user.PreferredLanguage) ? "en" : user.PreferredLanguage,
             Role = user.Role.ToString(),
             IsActive = user.IsActive,
             MustChangePassword = user.MustChangePassword,
@@ -57,14 +58,46 @@ public class UserSettingsService
         return true;
     }
 
+    public async Task<bool> UpdatePreferredLanguage(int userId, string languageCode, CancellationToken ct = default)
+    {
+        var user = await _userRepo.GetById(userId, ct);
+        if (user is null)
+        {
+            return false;
+        }
+
+        user.PreferredLanguage = string.IsNullOrWhiteSpace(languageCode)
+            ? "en"
+            : languageCode.Trim().ToLowerInvariant();
+        await _userRepo.Update(user, ct);
+        return true;
+    }
+
     /// <summary>
     /// Change the user's password via InstitutionAuthService.
-    /// Returns false if the old password is wrong or the user is not found.
+    /// Returns a specific error message on failure so the UI can distinguish causes.
     /// </summary>
-    public async Task<bool> ChangePassword(
+    public async Task<(bool Success, string? Error)> ChangePassword(
         int userId, string currentPassword, string newPassword, CancellationToken ct = default)
     {
-        return await _authService.ChangePassword(userId, currentPassword, newPassword, ct);
+        if (string.IsNullOrEmpty(newPassword) || newPassword.Length < 8)
+            return (false, "Password must be at least 8 characters.");
+
+        if (!newPassword.Any(char.IsUpper))
+            return (false, "Password must include at least one uppercase letter.");
+
+        if (!newPassword.Any(char.IsLower))
+            return (false, "Password must include at least one lowercase letter.");
+
+        if (!newPassword.Any(char.IsDigit))
+            return (false, "Password must include at least one number.");
+
+        var success = await _authService.ChangePassword(userId, currentPassword, newPassword, ct);
+
+        if (!success)
+            return (false, "The current password is incorrect.");
+
+        return (true, null);
     }
 
     /// <summary>
@@ -87,6 +120,7 @@ public class UserSettingsService
             Address = inst.Address ?? "",
             SubscriptionTier = inst.SubscriptionTier,
             MaxUsersAllowed = inst.MaxUsersAllowed,
+            MakerCheckerEnabled = inst.MakerCheckerEnabled,
             IsActive = inst.IsActive,
             CreatedAt = inst.CreatedAt,
             LastSubmissionAt = inst.LastSubmissionAt
@@ -125,6 +159,7 @@ public class UserProfileModel
     public string Username { get; set; } = "";
     public string Email { get; set; } = "";
     public string DisplayName { get; set; } = "";
+    public string PreferredLanguage { get; set; } = "en";
     public string Role { get; set; } = "";
     public bool IsActive { get; set; }
     public bool MustChangePassword { get; set; }
@@ -153,6 +188,7 @@ public class InstitutionDetailModel
     public string Address { get; set; } = "";
     public string SubscriptionTier { get; set; } = "";
     public int MaxUsersAllowed { get; set; }
+    public bool MakerCheckerEnabled { get; set; }
     public bool IsActive { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? LastSubmissionAt { get; set; }

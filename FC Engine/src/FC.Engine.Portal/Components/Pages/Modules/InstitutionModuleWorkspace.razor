@@ -1,0 +1,748 @@
+@page "/workflows/{ModuleKey}"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@inject ModuleWorkspaceService WorkspaceService
+
+<PageTitle>@(_workspace?.Title ?? "Module Workspace") — RegOS™ Portal</PageTitle>
+
+@if (_loading)
+{
+    <div class="portal-page">
+        <div class="fc-skel-stats-row fc-skel-section">
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="0" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="1" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="2" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Stat" Index="3" />
+        </div>
+        <div class="portal-card" style="min-height: 22rem; margin-top: 1rem;">
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" Index="4" />
+        </div>
+    </div>
+}
+else if (_workspace is null)
+{
+    <div class="portal-page">
+        <PortalEmptyState Variant="search"
+                          Title="Module workspace unavailable"
+                          Description="This workflow is not registered in the institution portal yet. Return to Modules to launch from an available operational module.">
+            <Actions>
+                <a href="/modules" class="portal-btn portal-btn-primary portal-btn-sm">Back to Modules</a>
+            </Actions>
+        </PortalEmptyState>
+    </div>
+}
+else
+{
+    <div class="portal-page pmw-page">
+        <PortalPageHeader Title="@_workspace.Title"
+                          Subtitle="@_workspace.Summary"
+                          Breadcrumb="@BuildBreadcrumb()">
+            <SecondaryActions>
+                <span class="portal-badge portal-badge-neutral">@_workspace.RegulatorCode</span>
+                <span class="portal-badge portal-badge-outline">@_workspace.DefaultFrequency</span>
+                <span class="portal-badge @GetAccessBadgeClass(_workspace.AccessState)">@GetAccessLabel(_workspace.AccessState)</span>
+            </SecondaryActions>
+            <PrimaryAction>
+                @if (_workspace.AccessState == ModuleWorkspaceAccessState.Active)
+                {
+                    <a href="@_workspace.SubmitHref" class="portal-btn portal-btn-primary">
+                        Start Filing
+                    </a>
+                }
+                else if (_workspace.AccessState == ModuleWorkspaceAccessState.EligibleNotActivated)
+                {
+                    <a href="/subscription/modules" class="portal-btn portal-btn-primary">
+                        Activate Module
+                    </a>
+                }
+                else
+                {
+                    <a href="/modules" class="portal-btn portal-btn-outline">
+                        Review Module Access
+                    </a>
+                }
+            </PrimaryAction>
+        </PortalPageHeader>
+
+        <section class="pmw-hero">
+            <div class="pmw-hero-main">
+                <p class="pmw-eyebrow">@_workspace.Eyebrow</p>
+                <h2 class="pmw-title">@_workspace.InstitutionName</h2>
+                <p class="pmw-copy">@_workspace.AccessMessage</p>
+            </div>
+            <div class="pmw-focus-card">
+                <div class="pmw-focus-head">
+                    <span class="pmw-focus-title">Operational focus</span>
+                    <span class="pmw-focus-stamp">Updated @(_workspace.GeneratedAt.ToLocalTime().ToString("dd MMM HH:mm"))</span>
+                </div>
+                @foreach (var focusArea in _workspace.FocusAreas)
+                {
+                    <div class="pmw-focus-row">
+                        <span class="pmw-focus-dot" aria-hidden="true"></span>
+                        <span>@focusArea</span>
+                    </div>
+                }
+            </div>
+        </section>
+
+        <section class="pmw-metrics" aria-label="Workspace metrics">
+            @foreach (var metric in _workspace.Metrics)
+            {
+                <article class="pmw-metric pmw-metric--@metric.Tone">
+                    <span class="pmw-metric-label">@metric.Label</span>
+                    <strong class="pmw-metric-value">@metric.Value</strong>
+                    <span class="pmw-metric-detail">@metric.Detail</span>
+                </article>
+            }
+        </section>
+
+        <section class="portal-card pmw-actions">
+            <div class="pmw-section-head">
+                <div>
+                    <h3>Launch actions</h3>
+                    <p>Move directly into the module workflow without bouncing through generic portal views.</p>
+                </div>
+            </div>
+            <div class="pmw-action-grid">
+                <a href="@_workspace.ModuleDashboardHref" class="pmw-action-tile">
+                    <strong>Module dashboard</strong>
+                    <span>Review period status, quality trend, and filing timeliness for @_workspace.ModuleName.</span>
+                </a>
+                <a href="@_workspace.TemplatesHref" class="pmw-action-tile">
+                    <strong>Templates</strong>
+                    <span>Browse module-scoped return templates, field structure, and sample artefacts.</span>
+                </a>
+                <a href="@_workspace.SubmissionsHref" class="pmw-action-tile">
+                    <strong>Recent filings</strong>
+                    <span>Inspect prior submissions, rejection patterns, and approval status in the same module lane.</span>
+                </a>
+                @if (_workspace.AccessState == ModuleWorkspaceAccessState.Active)
+                {
+                    <a href="@_workspace.BulkSubmitHref" class="pmw-action-tile">
+                        <strong>Bulk upload</strong>
+                        <span>Load multiple files into the same module lane with the template filter already applied.</span>
+                    </a>
+                }
+                <a href="@(_workspace.AccessState == ModuleWorkspaceAccessState.Active ? _workspace.SubmitHref : "/subscription/modules")" class="pmw-action-tile">
+                    <strong>@(_workspace.AccessState == ModuleWorkspaceAccessState.Active ? "Start filing" : "Activate workflow")</strong>
+                    <span>@(_workspace.AccessState == ModuleWorkspaceAccessState.Active ? "Enter the institution filing wizard already scoped to this module." : "Enable the module from Subscription Modules to unlock filing and submission actions.")</span>
+                </a>
+            </div>
+        </section>
+
+        <div class="pmw-grid">
+            <section class="portal-card">
+                <div class="pmw-section-head">
+                    <div>
+                        <h3>Workflow readiness</h3>
+                        <p>Use the module checklist to move from access to filing without losing track of queue state.</p>
+                    </div>
+                </div>
+                <div class="pmw-step-list">
+                    @foreach (var step in _workspace.WorkflowSteps)
+                    {
+                        <div class="pmw-step pmw-step--@step.Status">
+                            <span class="pmw-step-status">@GetStepLabel(step.Status)</span>
+                            <div>
+                                <strong>@step.Title</strong>
+                                <p>@step.Detail</p>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </section>
+
+            <section class="portal-card">
+                <div class="pmw-section-head">
+                    <div>
+                        <h3>Attention queue</h3>
+                        <p>Keep the next filing, correction, or review action visible inside the module lane.</p>
+                    </div>
+                </div>
+                @if (_workspace.AttentionItems.Any())
+                {
+                    <div class="pmw-attention-list">
+                        @foreach (var item in _workspace.AttentionItems)
+                        {
+                            <article class="pmw-attention-item pmw-attention-item--@item.Tone">
+                                <div class="pmw-attention-main">
+                                    <div class="pmw-attention-head">
+                                        <strong>@item.Title</strong>
+                                        <span class="portal-badge @GetSubmissionBadgeClass(item.Status)">@item.Status</span>
+                                    </div>
+                                    <p>@item.Detail</p>
+                                    <span class="pmw-table-sub">@item.OccurredAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</span>
+                                </div>
+                                <a href="@item.ActionHref" class="portal-btn portal-btn-primary portal-btn-sm">
+                                    @item.ActionLabel
+                                </a>
+                            </article>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="portal-empty-state">
+                        <p>No attention items are blocking this module right now.</p>
+                    </div>
+                }
+            </section>
+        </div>
+
+        <div class="pmw-grid">
+            <section class="portal-card">
+                <div class="pmw-section-head">
+                    <div>
+                        <h3>Current periods</h3>
+                        <p>Review open or recent filing periods in the module before you launch the next submission.</p>
+                    </div>
+                </div>
+                @if (_workspace.CurrentPeriods.Any())
+                {
+                    <div class="pmw-period-list">
+                        @foreach (var period in _workspace.CurrentPeriods)
+                        {
+                            <article class="pmw-period pmw-period--@period.RagClass">
+                                <div>
+                                    <strong>@period.Label</strong>
+                                    <p>@period.Status · due @period.Deadline.ToLocalTime().ToString("dd MMM yyyy")</p>
+                                </div>
+                                <div class="pmw-period-meta">
+                                    <span>@period.CompletionPercent.ToString("0")% complete</span>
+                                    <span>@period.ValidationErrorCount error(s)</span>
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+                else if (_workspace.PeriodRows.Any())
+                {
+                    <div class="pmw-period-list">
+                        @foreach (var period in _workspace.PeriodRows)
+                        {
+                            <article class="pmw-period pmw-period--@(period.IsDueSoon ? "amber" : "green")">
+                                <div>
+                                    <strong>@period.Label</strong>
+                                    <p>@period.Status · reporting date @period.ReportingDate.ToString("dd MMM yyyy")</p>
+                                </div>
+                                <div class="pmw-period-meta">
+                                    <span>Due @period.Deadline.ToString("dd MMM yyyy")</span>
+                                    <span>@(period.IsOpen ? "Open" : "Closed")</span>
+                                </div>
+                            </article>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="portal-empty-state">
+                        <p>No module periods are available yet.</p>
+                    </div>
+                }
+            </section>
+        </div>
+
+        <div class="pmw-grid">
+            <section class="portal-card">
+                <div class="pmw-section-head">
+                    <div>
+                        <h3>Module templates</h3>
+                        <p>Start a return directly from the module template inventory.</p>
+                    </div>
+                    <a href="@_workspace.TemplatesHref" class="portal-inline-link">Open template browser</a>
+                </div>
+                @if (_workspace.TemplateRows.Any())
+                {
+                    <div class="portal-table-container">
+                        <table class="portal-table">
+                            <thead>
+                                <tr>
+                                    <th>Return</th>
+                                    <th>Frequency</th>
+                                    <th>Structure</th>
+                                    <th>Last submission</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var template in _workspace.TemplateRows)
+                                {
+                                    <tr>
+                                        <td>
+                                            <strong>@template.ReturnCode</strong>
+                                            <div class="pmw-table-sub">@template.TemplateName</div>
+                                        </td>
+                                        <td>@template.Frequency</td>
+                                        <td>@template.StructuralCategory</td>
+                                        <td>
+                                            @if (template.LastSubmissionAt.HasValue)
+                                            {
+                                                <span>@template.LastSubmissionAt.Value.ToLocalTime().ToString("dd MMM yyyy")</span>
+                                                <div class="pmw-table-sub">@(template.LastSubmissionStatus ?? "Submitted")</div>
+                                            }
+                                            else
+                                            {
+                                                <span>Not filed yet</span>
+                                            }
+                                        </td>
+                                        <td class="pmw-actions-col">
+                                            <a href="@template.DetailHref" class="portal-inline-link">Inspect</a>
+                                            @if (_workspace.AccessState == ModuleWorkspaceAccessState.Active)
+                                            {
+                                                <a href="@template.StartHref" class="portal-inline-link">Start</a>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+                else
+                {
+                    <div class="portal-empty-state">
+                        <p>No published templates are available for this module yet.</p>
+                    </div>
+                }
+            </section>
+
+            <section class="portal-card">
+                <div class="pmw-section-head">
+                    <div>
+                        <h3>Recent module submissions</h3>
+                        <p>Keep the live filing trail visible while preparing the next return.</p>
+                    </div>
+                    <a href="@_workspace.SubmissionsHref" class="portal-inline-link">View all</a>
+                </div>
+                @if (_workspace.RecentSubmissions.Any())
+                {
+                    <div class="pmw-submission-list">
+                        @foreach (var submission in _workspace.RecentSubmissions)
+                        {
+                            <a href="@submission.DetailHref" class="pmw-submission-item">
+                                <div>
+                                    <strong>@submission.ReturnCode</strong>
+                                    <p>@submission.PeriodLabel · @submission.SubmittedAt.ToLocalTime().ToString("dd MMM yyyy HH:mm")</p>
+                                </div>
+                                <div class="pmw-submission-meta">
+                                    <span class="portal-badge @GetSubmissionBadgeClass(submission.Status)">@submission.Status</span>
+                                    @if (submission.ErrorCount > 0 || submission.WarningCount > 0)
+                                    {
+                                        <span class="pmw-table-sub">@submission.ErrorCount error(s), @submission.WarningCount warning(s)</span>
+                                    }
+                                    @if (!string.IsNullOrWhiteSpace(submission.ActionLabel) && !string.IsNullOrWhiteSpace(submission.ActionHref))
+                                    {
+                                        <span class="pmw-submission-action">@submission.ActionLabel</span>
+                                    }
+                                </div>
+                            </a>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="portal-empty-state">
+                        <p>No module submissions have been recorded yet.</p>
+                    </div>
+                }
+            </section>
+        </div>
+
+        <section class="portal-card">
+            <div class="pmw-section-head">
+                <div>
+                    <h3>Guidance and help</h3>
+                    <p>Reference the module guidance before the next filing cycle begins.</p>
+                </div>
+                <a href="/help" class="portal-inline-link">Open help center</a>
+            </div>
+            @if (_workspace.HelpArticles.Any())
+            {
+                <div class="pmw-help-grid">
+                    @foreach (var article in _workspace.HelpArticles)
+                    {
+                        <article class="pmw-help-card">
+                            <span class="portal-badge portal-badge-neutral">@article.Category.Replace("_", " ", StringComparison.Ordinal)</span>
+                            <h4>@article.Title</h4>
+                            <p>@Summarize(article.Content)</p>
+                        </article>
+                    }
+                </div>
+            }
+            else
+            {
+                <div class="portal-empty-state">
+                    <p>No module guidance articles are available yet.</p>
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    [Parameter] public string ModuleKey { get; set; } = string.Empty;
+
+    private InstitutionModuleWorkspaceModel? _workspace;
+    private bool _loading = true;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        _workspace = await WorkspaceService.GetWorkspaceAsync(ModuleKey);
+        _loading = false;
+    }
+
+    private IReadOnlyList<BreadcrumbItem> BuildBreadcrumb()
+    {
+        var title = _workspace?.Title ?? "Module Workspace";
+        return
+        [
+            new BreadcrumbItem("Home", "/"),
+            new BreadcrumbItem("Modules", "/modules"),
+            new BreadcrumbItem(title, IsCurrent: true)
+        ];
+    }
+
+    private static string GetAccessLabel(ModuleWorkspaceAccessState accessState) => accessState switch
+    {
+        ModuleWorkspaceAccessState.Active => "Active",
+        ModuleWorkspaceAccessState.EligibleNotActivated => "Eligible",
+        ModuleWorkspaceAccessState.NotAvailable => "Unavailable",
+        _ => "Unavailable"
+    };
+
+    private static string GetAccessBadgeClass(ModuleWorkspaceAccessState accessState) => accessState switch
+    {
+        ModuleWorkspaceAccessState.Active => "portal-badge-success",
+        ModuleWorkspaceAccessState.EligibleNotActivated => "portal-badge-warning",
+        ModuleWorkspaceAccessState.NotAvailable => "portal-badge-danger",
+        _ => "portal-badge-muted"
+    };
+
+    private static string GetStepLabel(string status) => status switch
+    {
+        "complete" => "Complete",
+        "in-progress" => "In Progress",
+        _ => "Action needed"
+    };
+
+    private static string GetSubmissionBadgeClass(string status) => status switch
+    {
+        "Accepted" => "portal-badge-success",
+        "AcceptedWithWarnings" => "portal-badge-warning",
+        "PendingApproval" => "portal-badge-info",
+        "Rejected" or "ApprovalRejected" => "portal-badge-danger",
+        _ => "portal-badge-neutral"
+    };
+
+    private static string Summarize(string content)
+    {
+        var normalized = string.Join(' ', content
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
+        return normalized.Length <= 180
+            ? normalized
+            : $"{normalized[..177]}...";
+    }
+}
+
+<style>
+    .pmw-page {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .pmw-hero,
+    .pmw-metrics,
+    .pmw-grid,
+    .pmw-action-grid,
+    .pmw-help-grid {
+        display: grid;
+        gap: 1rem;
+    }
+
+    .pmw-hero,
+    .pmw-grid {
+        grid-template-columns: minmax(0, 1.5fr) minmax(20rem, 1fr);
+    }
+
+    .pmw-hero-main,
+    .pmw-focus-card,
+    .pmw-metric,
+    .pmw-action-tile,
+    .pmw-help-card {
+        background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(247,249,252,0.96));
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        border-radius: 24px;
+        box-shadow: 0 18px 45px rgba(15, 23, 42, 0.06);
+    }
+
+    .pmw-hero-main,
+    .pmw-focus-card {
+        padding: 1.5rem;
+    }
+
+    .pmw-eyebrow {
+        margin: 0 0 0.6rem;
+        font-size: 0.78rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #0f766e;
+        font-weight: 700;
+    }
+
+    .pmw-title {
+        margin: 0;
+        font-size: clamp(1.9rem, 3vw, 2.6rem);
+        line-height: 1.05;
+        color: #102033;
+    }
+
+    .pmw-copy {
+        margin: 0.9rem 0 0;
+        color: #526072;
+        max-width: 58rem;
+    }
+
+    .pmw-focus-head,
+    .pmw-section-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: start;
+    }
+
+    .pmw-focus-title,
+    .pmw-section-head h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 700;
+        color: #102033;
+    }
+
+    .pmw-focus-stamp,
+    .pmw-section-head p,
+    .pmw-table-sub {
+        color: #617084;
+        font-size: 0.9rem;
+    }
+
+    .pmw-section-head p {
+        margin: 0.25rem 0 0;
+    }
+
+    .pmw-focus-row,
+    .pmw-step,
+    .pmw-submission-item {
+        display: flex;
+        gap: 0.75rem;
+        align-items: start;
+    }
+
+    .pmw-focus-dot {
+        width: 0.65rem;
+        height: 0.65rem;
+        margin-top: 0.45rem;
+        border-radius: 999px;
+        background: #0f766e;
+        flex: 0 0 auto;
+    }
+
+    .pmw-metrics {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .pmw-metric {
+        padding: 1.1rem 1.2rem;
+    }
+
+    .pmw-metric-label {
+        display: block;
+        color: #617084;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .pmw-metric-value {
+        display: block;
+        margin-top: 0.45rem;
+        font-size: 2rem;
+        color: #102033;
+    }
+
+    .pmw-metric-detail {
+        display: block;
+        margin-top: 0.35rem;
+        color: #617084;
+        font-size: 0.9rem;
+    }
+
+    .pmw-metric--success { border-color: rgba(16, 185, 129, 0.18); }
+    .pmw-metric--warning { border-color: rgba(245, 158, 11, 0.2); }
+    .pmw-metric--danger { border-color: rgba(239, 68, 68, 0.18); }
+
+    .pmw-actions,
+    .pmw-step-list,
+    .pmw-attention-list,
+    .pmw-submission-list,
+    .pmw-period-list {
+        display: grid;
+        gap: 0.75rem;
+    }
+
+    .pmw-action-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin-top: 1rem;
+    }
+
+    .pmw-action-tile {
+        padding: 1rem;
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .pmw-action-tile strong {
+        display: block;
+        margin-bottom: 0.4rem;
+        color: #102033;
+    }
+
+    .pmw-action-tile span {
+        color: #617084;
+        font-size: 0.92rem;
+        line-height: 1.5;
+    }
+
+    .pmw-step {
+        padding: 0.95rem 1rem;
+        border-radius: 18px;
+        background: rgba(248, 250, 252, 0.9);
+        border: 1px solid rgba(15, 23, 42, 0.06);
+    }
+
+    .pmw-step-status {
+        display: inline-flex;
+        min-width: 6rem;
+        justify-content: center;
+        padding: 0.28rem 0.65rem;
+        border-radius: 999px;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: #e2e8f0;
+        color: #334155;
+    }
+
+    .pmw-step--complete .pmw-step-status {
+        background: rgba(16, 185, 129, 0.14);
+        color: #047857;
+    }
+
+    .pmw-step--in-progress .pmw-step-status {
+        background: rgba(245, 158, 11, 0.14);
+        color: #b45309;
+    }
+
+    .pmw-step p,
+    .pmw-attention-item p,
+    .pmw-period p,
+    .pmw-submission-item p,
+    .pmw-help-card p {
+        margin: 0.3rem 0 0;
+        color: #617084;
+    }
+
+    .pmw-attention-item {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: center;
+        padding: 0.95rem 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(15, 23, 42, 0.06);
+        background: rgba(248, 250, 252, 0.92);
+    }
+
+    .pmw-attention-item--danger { border-color: rgba(239, 68, 68, 0.2); }
+    .pmw-attention-item--warning { border-color: rgba(245, 158, 11, 0.22); }
+    .pmw-attention-item--info { border-color: rgba(59, 130, 246, 0.2); }
+
+    .pmw-attention-main {
+        display: grid;
+        gap: 0.25rem;
+    }
+
+    .pmw-attention-head {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+    }
+
+    .pmw-period,
+    .pmw-submission-item {
+        justify-content: space-between;
+        padding: 0.95rem 1rem;
+        border-radius: 18px;
+        border: 1px solid rgba(15, 23, 42, 0.06);
+        background: rgba(248, 250, 252, 0.92);
+        color: inherit;
+        text-decoration: none;
+    }
+
+    .pmw-period--amber { border-color: rgba(245, 158, 11, 0.22); }
+    .pmw-period--green { border-color: rgba(16, 185, 129, 0.18); }
+    .pmw-period--red { border-color: rgba(239, 68, 68, 0.2); }
+
+    .pmw-period-meta,
+    .pmw-submission-meta {
+        display: grid;
+        gap: 0.3rem;
+        justify-items: end;
+        text-align: right;
+    }
+
+    .pmw-submission-action {
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: #0f766e;
+    }
+
+    .pmw-actions-col {
+        display: flex;
+        gap: 0.8rem;
+        justify-content: flex-end;
+    }
+
+    .pmw-help-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        margin-top: 1rem;
+    }
+
+    .pmw-help-card {
+        padding: 1rem;
+    }
+
+    .pmw-help-card h4 {
+        margin: 0.75rem 0 0;
+        color: #102033;
+    }
+
+    @@media (max-width: 1100px) {
+        .pmw-hero,
+        .pmw-grid,
+        .pmw-action-grid,
+        .pmw-help-grid,
+        .pmw-metrics {
+            grid-template-columns: 1fr;
+        }
+
+        .pmw-attention-item {
+            flex-direction: column;
+            align-items: start;
+        }
+    }
+</style>

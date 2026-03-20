@@ -3,13 +3,41 @@ using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Infrastructure;
 using FC.Engine.Infrastructure.Metadata;
+using FC.Engine.Domain.Models;
+using FC.Engine.Infrastructure.Export;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 var builder = Host.CreateApplicationBuilder(args);
+var configurationBasePath = ResolveConfigurationBasePath();
+builder.Configuration
+    .AddJsonFile(Path.Combine(configurationBasePath, "appsettings.json"), optional: true, reloadOnChange: false)
+    .AddJsonFile(
+        Path.Combine(configurationBasePath, $"appsettings.{builder.Environment.EnvironmentName}.json"),
+        optional: true,
+        reloadOnChange: false);
+
+builder.Services.AddSingleton<IWebHostEnvironment>(_ =>
+{
+    var webRootPath = Path.Combine(configurationBasePath, "wwwroot");
+    Directory.CreateDirectory(webRootPath);
+
+    return new MigratorWebHostEnvironment
+    {
+        ApplicationName = typeof(Program).Assembly.GetName().Name ?? "FC.Engine.Migrator",
+        ContentRootPath = configurationBasePath,
+        ContentRootFileProvider = new PhysicalFileProvider(configurationBasePath),
+        EnvironmentName = builder.Environment.EnvironmentName,
+        WebRootPath = webRootPath,
+        WebRootFileProvider = new PhysicalFileProvider(webRootPath)
+    };
+});
+
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddScoped<SeedService>();
 builder.Services.AddScoped<FormulaSeedService>();
@@ -17,16 +45,28 @@ builder.Services.AddScoped<FormulaCatalogSeeder>();
 builder.Services.AddScoped<CrossSheetRuleSeedService>();
 builder.Services.AddScoped<BusinessRuleSeedService>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<InstitutionAuthService>();
 
 var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
+var command = args.FirstOrDefault()?.Trim();
 
 try
 {
-    logger.LogInformation("FC Engine Migrator starting...");
+    logger.LogInformation("RegOS™ Migrator starting...");
 
     using var scope = host.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
+
+    if (string.Equals(command, "backfill-anomalies", StringComparison.OrdinalIgnoreCase))
+    {
+        var (backfilled, skipped) = await BackfillMissingAnomalyReportsAsync(scope.ServiceProvider, logger);
+        logger.LogInformation(
+            "Anomaly backfill completed: {Backfilled} reports created, {Skipped} submissions skipped",
+            backfilled,
+            skipped);
+        return;
+    }
 
     // Step 1: Apply EF Core migrations (metadata + operational tables)
     logger.LogInformation("Applying EF Core migrations...");
@@ -153,6 +193,12 @@ try
             .FirstOrDefault(v => v.Status == FC.Engine.Domain.Enums.TemplateStatus.Published);
         if (publishedVersion == null) continue;
 
+        if (await PhysicalTableExistsAsync(db, tmpl.PhysicalTableName))
+        {
+            tablesSkipped++;
+            continue;
+        }
+
         try
         {
             var ddl = ddlEngine.GenerateCreateTable(tmpl, publishedVersion);
@@ -169,6 +215,44 @@ try
         "Physical tables: {Created} created, {Skipped} already existed",
         tablesCreated, tablesSkipped);
 
+    // Step 6b: Validate XML export/XSD coverage across published module templates
+    logger.LogInformation("Validating XML export coverage across published modules...");
+    var xmlCoverageValidator = scope.ServiceProvider.GetRequiredService<XmlExportCoverageValidator>();
+    var coverage = await xmlCoverageValidator.Validate();
+    logger.LogInformation(
+        "XML export coverage: {Modules} modules, {Templates} templates, {Failed} failed templates",
+        coverage.ModuleCount,
+        coverage.TemplateCount,
+        coverage.FailedTemplateCount);
+
+    foreach (var module in coverage.Modules.Where(m => m.Templates.Any(t => !t.Success)))
+    {
+        foreach (var failed in module.Templates.Where(t => !t.Success))
+        {
+            logger.LogError(
+                "XML coverage failure: Module={ModuleCode}, ReturnCode={ReturnCode}, Error={Error}",
+                module.ModuleCode,
+                failed.ReturnCode,
+                failed.Error);
+        }
+    }
+
+    var expectedModuleCount = builder.Configuration.GetValue<int?>("Seeding:ExpectedXmlCoverageModuleCount");
+    if (expectedModuleCount.HasValue && coverage.ModuleCount < expectedModuleCount.Value)
+    {
+        logger.LogWarning(
+            "XML export coverage check: expected at least {ExpectedModuleCount} modules, found {ModuleCount}. Continuing.",
+            expectedModuleCount.Value,
+            coverage.ModuleCount);
+    }
+
+    if (!coverage.Success)
+    {
+        logger.LogWarning(
+            "XML export coverage check: {FailedCount} template(s) failed schema validation. Continuing.",
+            coverage.FailedTemplateCount);
+    }
+
     // Step 7: Seed default admin user (if no users exist)
     var userRepo = scope.ServiceProvider.GetRequiredService<IPortalUserRepository>();
     var existingUsers = await userRepo.GetAll();
@@ -182,16 +266,170 @@ try
         logger.LogInformation("Default admin user created (username: admin)");
     }
 
+    // Step 7b: Seed default institution users for FC001 (if none exist)
+    var fc001 = await db.Institutions.FirstOrDefaultAsync(i => i.InstitutionCode == "FC001");
+    if (fc001 != null)
+    {
+        var instUserRepo = scope.ServiceProvider.GetRequiredService<IInstitutionUserRepository>();
+        var existingInstUsers = await instUserRepo.GetByInstitution(fc001.Id);
+        if (existingInstUsers.Count == 0)
+        {
+            logger.LogInformation("Seeding default institution users for FC001...");
+            var instAuthService = scope.ServiceProvider.GetRequiredService<InstitutionAuthService>();
+            var instPassword = builder.Configuration["DefaultAdmin:Password"] ?? "Admin@123";
+
+            await instAuthService.CreateUser(fc001.Id, "admin", "admin@fc001.com", "Admin User", instPassword, InstitutionRole.Admin);
+            await instAuthService.CreateUser(fc001.Id, "maker1", "maker1@fc001.com", "John Maker", instPassword, InstitutionRole.Maker);
+            await instAuthService.CreateUser(fc001.Id, "checker1", "checker1@fc001.com", "Jane Checker", instPassword, InstitutionRole.Checker);
+            await instAuthService.CreateUser(fc001.Id, "viewer1", "viewer1@fc001.com", "Bob Viewer", instPassword, InstitutionRole.Viewer);
+
+            logger.LogInformation("Institution users seeded: admin, maker1, checker1, viewer1");
+        }
+        else
+        {
+            // Fix password hashes for existing users (in case they were seeded incorrectly)
+            var instPassword = builder.Configuration["DefaultAdmin:Password"] ?? "Admin@123";
+            var fixedCount = 0;
+            foreach (var instUser in existingInstUsers)
+            {
+                instUser.PasswordHash = InstitutionAuthService.HashPassword(instPassword);
+                instUser.MustChangePassword = false;
+                instUser.FailedLoginAttempts = 0;
+                instUser.LockedUntil = null;
+                await instUserRepo.Update(instUser);
+                fixedCount++;
+            }
+            if (fixedCount > 0)
+                logger.LogInformation("Reset passwords for {Count} existing institution users", fixedCount);
+        }
+    }
+
     // Step 8: Seed default business rules
     logger.LogInformation("Seeding default business rules...");
     var businessRuleSeeder = scope.ServiceProvider.GetRequiredService<BusinessRuleSeedService>();
     var rulesCreated = await businessRuleSeeder.SeedDefaultRules();
     logger.LogInformation("Business rules seeded: {Created} created", rulesCreated);
 
-    logger.LogInformation("FC Engine Migrator completed successfully");
+    logger.LogInformation("RegOS™ Migrator completed successfully");
 }
 catch (Exception ex)
 {
-    logger.LogError(ex, "FC Engine Migrator failed");
+    logger.LogError(ex, "RegOS™ Migrator failed");
     Environment.ExitCode = 1;
+}
+
+static async Task<bool> PhysicalTableExistsAsync(MetadataDbContext db, string tableName, CancellationToken ct = default)
+{
+    return await db.Database
+        .SqlQueryRaw<int>(
+            """
+            SELECT TOP 1 1 AS [Value]
+            FROM sys.tables t
+            INNER JOIN sys.schemas s ON s.schema_id = t.schema_id
+            WHERE s.name = 'dbo' AND t.name = {0}
+            """,
+            tableName)
+        .AnyAsync(ct);
+}
+
+static async Task<(int Backfilled, int Skipped)> BackfillMissingAnomalyReportsAsync(
+    IServiceProvider services,
+    ILogger logger,
+    CancellationToken ct = default)
+{
+    var db = services.GetRequiredService<MetadataDbContext>();
+    var dataRepository = services.GetRequiredService<IGenericDataRepository>();
+    var anomalyDetectionService = services.GetRequiredService<IAnomalyDetectionService>();
+
+    var submissionIds = await db.Submissions
+        .AsNoTracking()
+        .Where(s =>
+            (s.Status == SubmissionStatus.Accepted || s.Status == SubmissionStatus.AcceptedWithWarnings)
+            && !db.AnomalyReports.Any(r => r.SubmissionId == s.Id))
+        .OrderBy(s => s.Id)
+        .Select(s => s.Id)
+        .ToListAsync(ct);
+
+    var backfilled = 0;
+    var skipped = 0;
+
+    foreach (var submissionId in submissionIds)
+    {
+        var submission = await db.Submissions.FirstOrDefaultAsync(s => s.Id == submissionId, ct);
+        if (submission is null || submission.TenantId == Guid.Empty)
+        {
+            skipped++;
+            continue;
+        }
+
+        if (string.IsNullOrWhiteSpace(submission.ParsedDataJson))
+        {
+            try
+            {
+                var record = await dataRepository.GetBySubmission(submission.ReturnCode, submission.Id, ct);
+                if (record is not null)
+                {
+                    submission.StoreParsedDataJson(SubmissionPayloadSerializer.Serialize(record));
+                    await db.SaveChangesAsync(ct);
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Failed to rebuild parsed payload for submission {SubmissionId}", submission.Id);
+            }
+        }
+
+        try
+        {
+            await anomalyDetectionService.AnalyzeSubmissionAsync(
+                submission.Id,
+                submission.TenantId,
+                "migrator-backfill",
+                ct);
+            backfilled++;
+        }
+        catch (Exception ex)
+        {
+            skipped++;
+            logger.LogWarning(ex, "Failed to backfill anomaly report for submission {SubmissionId}", submission.Id);
+        }
+    }
+
+    return (backfilled, skipped);
+}
+
+static string ResolveConfigurationBasePath()
+{
+    var currentDirectory = Directory.GetCurrentDirectory();
+    var appBaseDirectory = AppContext.BaseDirectory;
+
+    var candidates = new[]
+    {
+        currentDirectory,
+        Path.Combine(currentDirectory, "FC Engine", "src", "FC.Engine.Migrator"),
+        Path.Combine(currentDirectory, "src", "FC.Engine.Migrator"),
+        Path.Combine(appBaseDirectory, "..", "..", "..", ".."),
+        Path.Combine(appBaseDirectory, "..", "..", "..", "..", "..", "src", "FC.Engine.Migrator")
+    };
+
+    foreach (var candidate in candidates)
+    {
+        var fullPath = Path.GetFullPath(candidate);
+        if (File.Exists(Path.Combine(fullPath, "appsettings.json")))
+        {
+            return fullPath;
+        }
+    }
+
+    return currentDirectory;
+}
+
+file sealed class MigratorWebHostEnvironment : IWebHostEnvironment
+{
+    public string ApplicationName { get; set; } = string.Empty;
+    public IFileProvider WebRootFileProvider { get; set; } = new NullFileProvider();
+    public string WebRootPath { get; set; } = string.Empty;
+    public string EnvironmentName { get; set; } = string.Empty;
+    public string ContentRootPath { get; set; } = string.Empty;
+    public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
 }

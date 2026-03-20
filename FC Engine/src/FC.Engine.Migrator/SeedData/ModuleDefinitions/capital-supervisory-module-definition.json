@@ -1,0 +1,194 @@
+{
+  "moduleCode": "CAPITAL_SUPERVISION",
+  "moduleVersion": "1.0.0",
+  "description": "Capital management and supervisory planning module pack covering watchlist posture, buffers, RWA optimisation, planning, what-if actions, and capital stack recommendations.",
+  "templates": [
+    {
+      "returnCode": "CAP_WAT",
+      "name": "Capital Watchlist Summary",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "cap",
+      "sections": [
+        { "code": "WAT", "name": "Capital Watchlist", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "institution_code", "label": "Institution Code", "dataType": "Text", "section": "WAT", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-CAP-WAT-001" },
+        { "fieldCode": "institution_name", "label": "Institution Name", "dataType": "Text", "section": "WAT", "required": true, "displayOrder": 2, "regulatoryReference": "CBN-CAP-WAT-002" },
+        { "fieldCode": "capital_score_percent", "label": "Capital Score Percent", "dataType": "Percentage", "section": "WAT", "required": true, "displayOrder": 3, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-WAT-003" },
+        { "fieldCode": "current_car_percent", "label": "Current CAR Percent", "dataType": "Percentage", "section": "WAT", "required": true, "displayOrder": 4, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-WAT-004" },
+        { "fieldCode": "watch_signal", "label": "Watch Signal", "dataType": "Enum", "section": "WAT", "required": true, "displayOrder": 5, "enumValues": "Current,Watch,Critical", "regulatoryReference": "CBN-CAP-WAT-005" },
+        { "fieldCode": "lead_alert", "label": "Lead Alert", "dataType": "Text", "section": "WAT", "required": false, "displayOrder": 6, "regulatoryReference": "CBN-CAP-WAT-006" }
+      ]
+    },
+    {
+      "returnCode": "CAP_BUF",
+      "name": "Buffer Management",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "cap",
+      "sections": [
+        { "code": "BUF", "name": "Capital Buffers", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "institution_code", "label": "Institution Code", "dataType": "Text", "section": "BUF", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-CAP-BUF-001" },
+        { "fieldCode": "minimum_car_percent", "label": "Minimum CAR Percent", "dataType": "Percentage", "section": "BUF", "required": true, "displayOrder": 2, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-BUF-002" },
+        { "fieldCode": "conservation_buffer_percent", "label": "Conservation Buffer Percent", "dataType": "Percentage", "section": "BUF", "required": true, "displayOrder": 3, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-BUF-003" },
+        { "fieldCode": "countercyclical_buffer_percent", "label": "Countercyclical Buffer Percent", "dataType": "Percentage", "section": "BUF", "required": true, "displayOrder": 4, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-BUF-004" },
+        { "fieldCode": "dsib_buffer_percent", "label": "D-SIB Buffer Percent", "dataType": "Percentage", "section": "BUF", "required": true, "displayOrder": 5, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-BUF-005" },
+        { "fieldCode": "total_buffer_requirement_percent", "label": "Total Buffer Requirement Percent", "dataType": "Percentage", "section": "BUF", "required": false, "displayOrder": 6, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-BUF-006" },
+        { "fieldCode": "available_headroom_percent", "label": "Available Headroom Percent", "dataType": "Percentage", "section": "BUF", "required": true, "displayOrder": 7, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-BUF-007" }
+      ],
+      "formulas": [
+        {
+          "formulaType": "Custom",
+          "customFunction": "SUM",
+          "targetField": "total_buffer_requirement_percent",
+          "sourceFields": [ "conservation_buffer_percent", "countercyclical_buffer_percent", "dsib_buffer_percent" ],
+          "severity": "Warning",
+          "description": "Total regulatory buffer stack."
+        }
+      ],
+      "crossSheetRules": [
+        {
+          "description": "Every buffer record must map to a defined capital watchlist institution.",
+          "sourceTemplate": "CAP_WAT",
+          "sourceField": "institution_code",
+          "targetTemplate": "CAP_BUF",
+          "targetField": "institution_code",
+          "operator": "Equals",
+          "severity": "Error"
+        }
+      ]
+    },
+    {
+      "returnCode": "CAP_RWA",
+      "name": "RWA Optimisation Opportunities",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "cap",
+      "sections": [
+        { "code": "RWA", "name": "RWA Optimisation", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "institution_code", "label": "Institution Code", "dataType": "Text", "section": "RWA", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-CAP-RWA-001" },
+        { "fieldCode": "action_code", "label": "Action Code", "dataType": "Text", "section": "RWA", "required": true, "displayOrder": 2, "regulatoryReference": "CBN-CAP-RWA-002" },
+        { "fieldCode": "optimisation_action", "label": "Optimisation Action", "dataType": "Text", "section": "RWA", "required": true, "displayOrder": 3, "regulatoryReference": "CBN-CAP-RWA-003" },
+        { "fieldCode": "rwa_reduction_percent", "label": "RWA Reduction Percent", "dataType": "Percentage", "section": "RWA", "required": true, "displayOrder": 4, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-RWA-004" },
+        { "fieldCode": "projected_car_uplift_percent", "label": "Projected CAR Uplift Percent", "dataType": "Percentage", "section": "RWA", "required": true, "displayOrder": 5, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-RWA-005" },
+        { "fieldCode": "execution_status", "label": "Execution Status", "dataType": "Enum", "section": "RWA", "required": true, "displayOrder": 6, "enumValues": "Candidate,Approved,In Flight,Closed", "regulatoryReference": "CBN-CAP-RWA-006" }
+      ],
+      "crossSheetRules": [
+        {
+          "description": "Every RWA optimisation action must map to a defined capital watchlist institution.",
+          "sourceTemplate": "CAP_WAT",
+          "sourceField": "institution_code",
+          "targetTemplate": "CAP_RWA",
+          "targetField": "institution_code",
+          "operator": "Equals",
+          "severity": "Error"
+        }
+      ]
+    },
+    {
+      "returnCode": "CAP_PLN",
+      "name": "Capital Planning & Forecasting",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "cap",
+      "sections": [
+        { "code": "PLN", "name": "Capital Planning", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "institution_code", "label": "Institution Code", "dataType": "Text", "section": "PLN", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-CAP-PLN-001" },
+        { "fieldCode": "horizon_quarter", "label": "Horizon Quarter", "dataType": "Text", "section": "PLN", "required": true, "displayOrder": 2, "regulatoryReference": "CBN-CAP-PLN-002" },
+        { "fieldCode": "projected_car_percent", "label": "Projected CAR Percent", "dataType": "Percentage", "section": "PLN", "required": true, "displayOrder": 3, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-PLN-003" },
+        { "fieldCode": "minimum_headroom_percent", "label": "Minimum Headroom Percent", "dataType": "Percentage", "section": "PLN", "required": true, "displayOrder": 4, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-PLN-004" },
+        { "fieldCode": "total_buffer_headroom_percent", "label": "Total Buffer Headroom Percent", "dataType": "Percentage", "section": "PLN", "required": true, "displayOrder": 5, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-PLN-005" },
+        { "fieldCode": "dividend_constraint_flag", "label": "Dividend Constraint Flag", "dataType": "Boolean", "section": "PLN", "required": true, "displayOrder": 6, "regulatoryReference": "CBN-CAP-PLN-006" }
+      ],
+      "crossSheetRules": [
+        {
+          "description": "Every capital planning row must map to a defined capital watchlist institution.",
+          "sourceTemplate": "CAP_WAT",
+          "sourceField": "institution_code",
+          "targetTemplate": "CAP_PLN",
+          "targetField": "institution_code",
+          "operator": "Equals",
+          "severity": "Error"
+        }
+      ]
+    },
+    {
+      "returnCode": "CAP_ACT",
+      "name": "What-If Capital Actions",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "cap",
+      "sections": [
+        { "code": "ACT", "name": "Capital Actions", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "institution_code", "label": "Institution Code", "dataType": "Text", "section": "ACT", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-CAP-ACT-001" },
+        { "fieldCode": "scenario_code", "label": "Scenario Code", "dataType": "Text", "section": "ACT", "required": true, "displayOrder": 2, "regulatoryReference": "CBN-CAP-ACT-002" },
+        { "fieldCode": "action_type", "label": "Action Type", "dataType": "Enum", "section": "ACT", "required": true, "displayOrder": 3, "enumValues": "Issuance,Dividend Restraint,Portfolio Rebalance,Collateral,Off-Balance Sheet", "regulatoryReference": "CBN-CAP-ACT-003" },
+        { "fieldCode": "capital_raise_bn", "label": "Capital Raise (Bn)", "dataType": "Decimal", "section": "ACT", "required": false, "displayOrder": 4, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-ACT-004" },
+        { "fieldCode": "rwa_optimisation_percent", "label": "RWA Optimisation Percent", "dataType": "Percentage", "section": "ACT", "required": true, "displayOrder": 5, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-ACT-005" },
+        { "fieldCode": "projected_car_percent", "label": "Projected CAR Percent", "dataType": "Percentage", "section": "ACT", "required": true, "displayOrder": 6, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-ACT-006" },
+        { "fieldCode": "execution_readiness", "label": "Execution Readiness", "dataType": "Enum", "section": "ACT", "required": true, "displayOrder": 7, "enumValues": "Candidate,Ready,Approved,Executed", "regulatoryReference": "CBN-CAP-ACT-007" }
+      ],
+      "crossSheetRules": [
+        {
+          "description": "Every capital action must map to a defined capital watchlist institution.",
+          "sourceTemplate": "CAP_WAT",
+          "sourceField": "institution_code",
+          "targetTemplate": "CAP_ACT",
+          "targetField": "institution_code",
+          "operator": "Equals",
+          "severity": "Error"
+        }
+      ]
+    },
+    {
+      "returnCode": "CAP_STK",
+      "name": "Capital Stack Recommendation",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "cap",
+      "sections": [
+        { "code": "STK", "name": "Capital Stack", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "institution_code", "label": "Institution Code", "dataType": "Text", "section": "STK", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-CAP-STK-001" },
+        { "fieldCode": "target_car_percent", "label": "Target CAR Percent", "dataType": "Percentage", "section": "STK", "required": true, "displayOrder": 2, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-STK-002" },
+        { "fieldCode": "cet1_share_percent", "label": "CET1 Share Percent", "dataType": "Percentage", "section": "STK", "required": true, "displayOrder": 3, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-STK-003" },
+        { "fieldCode": "at1_share_percent", "label": "AT1 Share Percent", "dataType": "Percentage", "section": "STK", "required": true, "displayOrder": 4, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-STK-004" },
+        { "fieldCode": "tier2_share_percent", "label": "Tier 2 Share Percent", "dataType": "Percentage", "section": "STK", "required": true, "displayOrder": 5, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-STK-005" },
+        { "fieldCode": "total_stack_share_percent", "label": "Total Stack Share Percent", "dataType": "Percentage", "section": "STK", "required": false, "displayOrder": 6, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-STK-006" },
+        { "fieldCode": "weighted_cost_percent", "label": "Weighted Cost Percent", "dataType": "Percentage", "section": "STK", "required": true, "displayOrder": 7, "decimalPlaces": 2, "regulatoryReference": "CBN-CAP-STK-007" }
+      ],
+      "formulas": [
+        {
+          "formulaType": "Custom",
+          "customFunction": "SUM",
+          "targetField": "total_stack_share_percent",
+          "sourceFields": [ "cet1_share_percent", "at1_share_percent", "tier2_share_percent" ],
+          "severity": "Warning",
+          "description": "Total capital stack share across CET1, AT1, and Tier 2."
+        }
+      ],
+      "crossSheetRules": [
+        {
+          "description": "Every capital stack recommendation must map to a defined capital watchlist institution.",
+          "sourceTemplate": "CAP_WAT",
+          "sourceField": "institution_code",
+          "targetTemplate": "CAP_STK",
+          "targetField": "institution_code",
+          "operator": "Equals",
+          "severity": "Error"
+        }
+      ]
+    }
+  ],
+  "interModuleDataFlows": []
+}

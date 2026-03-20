@@ -1,0 +1,536 @@
+@page "/platform/tenants"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Admin.Services
+@using FC.Engine.Admin.Utilities
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Infrastructure.Services
+@inject PlatformAdminService PlatformService
+@inject TenantManagementService TenantService
+@inject NavigationManager Navigation
+@inject ToastService Toast
+
+<PageTitle>Tenant List</PageTitle>
+
+<PageHeader Title="Global Tenant List"
+            Subtitle="Search, filter, sort, export, and take quick tenant actions." />
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="fc-alert fc-alert--inline fc-alert--error">@_error</div>
+}
+
+<div class="fc-card fc-card--mb">
+    <div class="fc-card__body">
+        <div class="fc-grid fc-grid-3">
+            <div class="fc-form-row">
+                <label>Search</label>
+                <input class="fc-input" @bind="_query.Search" placeholder="Tenant, slug, email" />
+            </div>
+            <div class="fc-form-row">
+                <label>Status</label>
+                <select class="fc-input" @bind="_query.Status">
+                    <option value="">All</option>
+                    @foreach (var status in Enum.GetNames<TenantStatus>())
+                    {
+                        <option value="@status">@status</option>
+                    }
+                </select>
+            </div>
+            <div class="fc-form-row">
+                <label>Plan</label>
+                <select class="fc-input" @bind="_query.PlanCode">
+                    <option value="">All</option>
+                    @foreach (var plan in _data.PlanOptions)
+                    {
+                        <option value="@plan">@plan</option>
+                    }
+                </select>
+            </div>
+            <div class="fc-form-row">
+                <label>Licence Type</label>
+                <select class="fc-input" @bind="_query.LicenceType">
+                    <option value="">All</option>
+                    @foreach (var licence in _data.LicenceOptions)
+                    {
+                        <option value="@licence">@licence</option>
+                    }
+                </select>
+            </div>
+            <div class="fc-form-row">
+                <label>Min Modules</label>
+                <input class="fc-input" type="number" min="0" @bind="_query.MinModuleCount" />
+            </div>
+            <div class="fc-form-row">
+                <label>Sort By</label>
+                <select class="fc-input" @bind="_query.SortBy">
+                    <option value="name">Name</option>
+                    <option value="status">Status</option>
+                    <option value="plan">Plan</option>
+                    <option value="reconciliation">Reconciliation</option>
+                    <option value="modules">Modules</option>
+                    <option value="users">Users</option>
+                    <option value="entities">Entities</option>
+                    <option value="mrr">MRR</option>
+                    <option value="created">Created</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="fc-filter-bar">
+            <label class="fc-form-check fc-text-muted-sm">
+                <input type="checkbox" @bind="_query.SortDescending" />
+                Descending
+            </label>
+            <label class="fc-form-check fc-text-muted-sm">
+                <input type="checkbox" @bind="_query.OnlyNeedsReconciliation" />
+                Needs reconciliation only
+            </label>
+            <label class="fc-form-check fc-text-muted-sm">
+                <input type="checkbox" @bind="_query.OnlyStaleReconciliation" />
+                Stale only
+            </label>
+            <button class="fc-btn fc-btn--primary" @onclick="ApplyFilters" disabled="@_loading">Apply</button>
+            <button class="fc-btn fc-btn--outline" @onclick="ResetFilters" disabled="@_loading">Reset</button>
+            <button class="fc-btn fc-btn--warning"
+                    @onclick="ReconcileVisibleTenants"
+                    disabled="@(_loading || _bulkReconciling || VisibleTenantsNeedingReconciliation == 0)">
+                @if (_bulkReconciling)
+                {
+                    <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span>
+                }
+                Reconcile Visible (@VisibleTenantsNeedingReconciliation)
+            </button>
+            <button class="fc-btn fc-btn--outline" @onclick="Export" disabled="@_loading">Export Excel</button>
+            <span class="fc-count-label">@_data.Tenants.Count tenant(s)</span>
+        </div>
+
+        <div class="fc-grid fc-grid-5 fc-mt-4">
+            <div class="fc-kv"><span>Healthy</span><strong>@_data.EntitlementSummary.HealthyTenants</strong></div>
+            <div class="fc-kv"><span>Needs Reconciliation</span><strong>@_data.EntitlementSummary.NeedsReconciliationTenants</strong></div>
+            <div class="fc-kv"><span>Stale</span><strong>@_data.EntitlementSummary.StaleReconciliationTenants</strong></div>
+            <div class="fc-kv"><span>Reconciled 24h</span><strong>@_data.EntitlementSummary.ReconciledLast24Hours</strong></div>
+            <div class="fc-kv"><span>No Activity</span><strong>@_data.EntitlementSummary.NoEntitlementActivityTenants</strong></div>
+        </div>
+    </div>
+</div>
+
+@{
+    var chips = GetActiveFilterChips().ToList();
+}
+@if (chips.Count > 0)
+{
+    <div class="fc-active-filters">
+        <span class="fc-active-filters-label">Filters active:</span>
+        @foreach (var chip in chips)
+        {
+            var c = chip;
+            <span class="fc-filter-chip">
+                @c.Label
+                <button class="fc-filter-chip__remove" type="button" @onclick="@c.Clear" title="Remove filter">x</button>
+            </span>
+        }
+        <button class="fc-filter-clear-all" type="button" @onclick="ResetFilters">Clear all x</button>
+    </div>
+}
+
+<DataTable TItem="PlatformTenantListItem"
+           Items="@_data.Tenants"
+           Loading="_loading"
+           Sortable="false"
+           ShowPagination="true"
+           PageSize="25"
+           EmptyTitle="No tenants found"
+           EmptyText="Try adjusting your search or filters and click Apply."
+           SkeletonRows="5">
+    <ChildContent>
+        <DataColumn TItem="PlatformTenantListItem" Title="Tenant Name" Width="200px">
+            <CellTemplate>
+                <div class="fc-cell-primary">@context.TenantName</div>
+                <small class="fc-cell-sub">@(context.ContactEmail ?? "-")</small>
+            </CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Slug" Width="140px">
+            <CellTemplate><code>@context.TenantSlug</code></CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Status" Width="120px">
+            <CellTemplate>
+                <span class="fc-badge @GetStatusBadge(context.Status)">@context.Status</span>
+            </CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Plan" Width="120px">
+            <CellTemplate>@context.PlanName</CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Active Modules" Width="120px">
+            <CellTemplate>@context.ActiveModules</CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Entitlements" Width="150px">
+            <CellTemplate>
+                @if (context.PendingReconciliationModules > 0)
+                {
+                    <div class="fc-mb-1">
+                        <span class="fc-badge @GetReconciliationBadge(context.ReconciliationState)">@context.ReconciliationState</span>
+                    </div>
+                    <div class="fc-text-muted-sm">@context.PendingReconciliationModules pending</div>
+                }
+                else
+                {
+                    <span class="fc-badge fc-badge--success">Healthy</span>
+                }
+            </CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Last Entitlement" Width="170px">
+            <CellTemplate>
+                @if (context.LastEntitlementActionAt.HasValue)
+                {
+                    <div>@(context.LastEntitlementAction ?? "Activity")</div>
+                    <div class="fc-text-muted-sm">@context.LastEntitlementActionAt.Value.ToString("dd MMM yyyy HH:mm")</div>
+                }
+                else
+                {
+                    <span class="fc-text-muted-sm">No activity</span>
+                }
+            </CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Users" Width="80px">
+            <CellTemplate>@context.Users</CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Entities" Width="80px">
+            <CellTemplate>@context.Entities</CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="MRR" Width="120px">
+            <CellTemplate>NGN @context.Mrr.ToString("N2")</CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Created" Width="120px">
+            <CellTemplate>@context.CreatedAt.ToString("dd MMM yyyy")</CellTemplate>
+        </DataColumn>
+        <DataColumn TItem="PlatformTenantListItem" Title="Actions" Align="right" Width="220px">
+            <CellTemplate>
+                <div class="fc-actions">
+                    <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => OpenTenant(context.TenantId)" @onclick:stopPropagation="true">View</button>
+                    <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => ImpersonateTenant(context.TenantId)" @onclick:stopPropagation="true">Impersonate</button>
+                    @if (_savingTenantIds.Contains(context.TenantId))
+                    {
+                        <button class="fc-btn fc-btn--xs fc-btn--neutral" disabled aria-label="Saving..." @onclick:stopPropagation="true">
+                            <span class="fc-spinner fc-spinner--xs fc-spinner--muted" aria-hidden="true"></span>
+                            Saving...
+                        </button>
+                    }
+                    else if (context.PendingReconciliationModules > 0)
+                    {
+                        <button class="fc-btn fc-btn--xs fc-btn--warning" @onclick="() => ReconcileTenant(context.TenantId)" @onclick:stopPropagation="true">Reconcile</button>
+                    }
+                    else if (context.Status == TenantStatus.Active)
+                    {
+                        <button class="fc-btn fc-btn--xs fc-btn--danger" @onclick="() => SuspendTenant(context.TenantId)" @onclick:stopPropagation="true">Suspend</button>
+                    }
+                    else if (context.Status == TenantStatus.PendingActivation || context.Status == TenantStatus.Suspended)
+                    {
+                        <button class="fc-btn fc-btn--xs fc-btn--success" @onclick="() => ActivateTenant(context.TenantId)" @onclick:stopPropagation="true">Activate</button>
+                    }
+                </div>
+            </CellTemplate>
+        </DataColumn>
+    </ChildContent>
+</DataTable>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    // URL query parameters — Blazor hydrates these from the address bar on every navigation
+    [Parameter, SupplyParameterFromQuery(Name = "search")]   public string? QSearch   { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "status")]   public string? QStatus   { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "plan")]     public string? QPlan     { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "licence")]  public string? QLicence  { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "minMods")]  public int?    QMinMods  { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "needsRecon")] public bool? QNeedsRecon { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "staleRecon")] public bool? QStaleRecon { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "sort")]     public string? QSort     { get; set; }
+    [Parameter, SupplyParameterFromQuery(Name = "sortDesc")] public bool?   QSortDesc { get; set; }
+
+    private PlatformTenantListQuery _query = new();
+    private PlatformTenantListResult _data = new();
+    private bool _loading = true;
+    private bool _bulkReconciling;
+    private bool _initialized;
+    private string? _error;
+    private HashSet<Guid> _savingTenantIds = new();
+
+    private int VisibleTenantsNeedingReconciliation => _data.Tenants.Count(x => x.PendingReconciliationModules > 0);
+
+    // Fires on every navigation (browser back/forward); on first load runs before OnInitializedAsync
+    protected override async Task OnParametersSetAsync()
+    {
+        _query.Search         = QSearch   ?? "";
+        _query.Status         = QStatus   ?? "";
+        _query.PlanCode       = QPlan     ?? "";
+        _query.LicenceType    = QLicence  ?? "";
+        _query.MinModuleCount = QMinMods;
+        _query.OnlyNeedsReconciliation = QNeedsRecon ?? false;
+        _query.OnlyStaleReconciliation = QStaleRecon ?? false;
+        _query.SortBy         = QSort     ?? "name";
+        _query.SortDescending = QSortDesc ?? false;
+        if (_initialized) await LoadAsync();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _initialized = true;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _data = await PlatformService.GetTenantList(_query);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task ActivateTenant(Guid tenantId)
+    {
+        var tenant = _data.Tenants.Find(t => t.TenantId == tenantId);
+        if (tenant is null) return;
+
+        var actor = await GetActor();
+        _savingTenantIds.Add(tenantId);
+
+        await OptimisticAction.Execute(
+            getter: () => tenant.Status,
+            setter: v => tenant.Status = v,
+            optimisticValue: TenantStatus.Active,
+            action: () => PlatformService.ActivateTenant(tenantId, actor),
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(tenant.TenantName + " activated."),
+            onFailure: ex => Toast.Error("Failed to activate: " + ex.Message)
+        );
+
+        _savingTenantIds.Remove(tenantId);
+        StateHasChanged();
+    }
+
+    private async Task SuspendTenant(Guid tenantId)
+    {
+        var tenant = _data.Tenants.Find(t => t.TenantId == tenantId);
+        if (tenant is null) return;
+
+        var actor = await GetActor();
+        _savingTenantIds.Add(tenantId);
+
+        await OptimisticAction.Execute(
+            getter: () => tenant.Status,
+            setter: v => tenant.Status = v,
+            optimisticValue: TenantStatus.Suspended,
+            action: () => PlatformService.SuspendTenant(tenantId, actor),
+            onStateChanged: StateHasChanged,
+            onSuccess: () => Toast.Success(tenant.TenantName + " suspended."),
+            onFailure: ex => Toast.Error("Failed to suspend: " + ex.Message)
+        );
+
+        _savingTenantIds.Remove(tenantId);
+        StateHasChanged();
+    }
+
+    private async Task ReconcileTenant(Guid tenantId)
+    {
+        var tenant = _data.Tenants.Find(t => t.TenantId == tenantId);
+        if (tenant is null) return;
+
+        _savingTenantIds.Add(tenantId);
+        try
+        {
+            var result = await TenantService.ReconcileTenantModulesAsync(tenantId);
+            await LoadAsync();
+            Toast.Success($"{tenant.TenantName}: {BuildReconciliationMessage(result)}");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error("Failed to reconcile modules: " + ex.Message);
+        }
+        finally
+        {
+            _savingTenantIds.Remove(tenantId);
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReconcileVisibleTenants()
+    {
+        var tenantIds = _data.Tenants
+            .Where(x => x.PendingReconciliationModules > 0)
+            .Select(x => x.TenantId)
+            .ToList();
+
+        if (tenantIds.Count == 0)
+        {
+            Toast.Info("No visible tenants need reconciliation.");
+            return;
+        }
+
+        _bulkReconciling = true;
+        foreach (var tenantId in tenantIds)
+        {
+            _savingTenantIds.Add(tenantId);
+        }
+
+        try
+        {
+            var result = await TenantService.ReconcileTenantModulesAsync(tenantIds);
+            await LoadAsync();
+            Toast.Success(BuildBatchReconciliationMessage(result));
+        }
+        catch (Exception ex)
+        {
+            Toast.Error("Failed to reconcile visible tenants: " + ex.Message);
+        }
+        finally
+        {
+            _bulkReconciling = false;
+            foreach (var tenantId in tenantIds)
+            {
+                _savingTenantIds.Remove(tenantId);
+            }
+            StateHasChanged();
+        }
+    }
+
+    private void OpenTenant(Guid tenantId)
+        => Navigation.NavigateTo($"/platform/tenants/{tenantId}");
+
+    private void ImpersonateTenant(Guid tenantId)
+        => Navigation.NavigateTo($"/platform/impersonate?tenantId={tenantId}", forceLoad: true);
+
+    // Encode current filter inputs into URL (replace: true = no history entry)
+    private void ApplyFilters() => Navigation.NavigateTo(BuildUrl(), replace: true);
+
+    // Navigate to clean URL; OnParametersSetAsync resets _query and reloads
+    private void ResetFilters() => Navigation.NavigateTo("/platform/tenants");
+
+    private string BuildUrl()
+    {
+        var q = new List<string>();
+        AddQuery(q, "search",   _query.Search);
+        AddQuery(q, "status",   _query.Status);
+        AddQuery(q, "plan",     _query.PlanCode);
+        AddQuery(q, "licence",  _query.LicenceType);
+        AddQuery(q, "minMods",  _query.MinModuleCount?.ToString());
+        if (_query.OnlyNeedsReconciliation) AddQuery(q, "needsRecon", "true");
+        if (_query.OnlyStaleReconciliation) AddQuery(q, "staleRecon", "true");
+        if (_query.SortBy != "name")  AddQuery(q, "sort",     _query.SortBy);
+        if (_query.SortDescending)    AddQuery(q, "sortDesc", "true");
+        return "/platform/tenants" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
+    }
+
+    private string BuildUrlExcluding(string excl)
+    {
+        var q = new List<string>();
+        if (excl != "search")   AddQuery(q, "search",   QSearch);
+        if (excl != "status")   AddQuery(q, "status",   QStatus);
+        if (excl != "plan")     AddQuery(q, "plan",     QPlan);
+        if (excl != "licence")  AddQuery(q, "licence",  QLicence);
+        if (excl != "minMods")  AddQuery(q, "minMods",  QMinMods?.ToString());
+        if (excl != "needsRecon" && (QNeedsRecon ?? false)) AddQuery(q, "needsRecon", "true");
+        if (excl != "staleRecon" && (QStaleRecon ?? false)) AddQuery(q, "staleRecon", "true");
+        if (excl != "sort"     && !string.IsNullOrEmpty(QSort) && QSort != "name") AddQuery(q, "sort", QSort);
+        if (excl != "sortDesc" && (QSortDesc ?? false)) AddQuery(q, "sortDesc", "true");
+        return "/platform/tenants" + (q.Count > 0 ? "?" + string.Join("&", q) : "");
+    }
+
+    private void RemoveFilter(string param) =>
+        Navigation.NavigateTo(BuildUrlExcluding(param), replace: true);
+
+    private sealed record FilterChip(string Label, Action Clear);
+
+    private IEnumerable<FilterChip> GetActiveFilterChips()
+    {
+        if (!string.IsNullOrEmpty(QSearch))
+            yield return new FilterChip($"search: {QSearch}",       () => RemoveFilter("search"));
+        if (!string.IsNullOrEmpty(QStatus))
+            yield return new FilterChip($"status: {QStatus}",       () => RemoveFilter("status"));
+        if (!string.IsNullOrEmpty(QPlan))
+            yield return new FilterChip($"plan: {QPlan}",           () => RemoveFilter("plan"));
+        if (!string.IsNullOrEmpty(QLicence))
+            yield return new FilterChip($"licence: {QLicence}",     () => RemoveFilter("licence"));
+        if (QMinMods.HasValue)
+            yield return new FilterChip($"min modules: {QMinMods}", () => RemoveFilter("minMods"));
+        if (QNeedsRecon ?? false)
+            yield return new FilterChip("needs reconciliation", () => RemoveFilter("needsRecon"));
+        if (QStaleRecon ?? false)
+            yield return new FilterChip("stale reconciliation", () => RemoveFilter("staleRecon"));
+        if (!string.IsNullOrEmpty(QSort) && QSort != "name")
+            yield return new FilterChip(
+                $"sorted by: {QSort} {((QSortDesc ?? false) ? "↓" : "↑")}",
+                () => RemoveFilter("sort"));
+    }
+
+    private void Export()
+    {
+        var query = new List<string>();
+        AddQuery(query, "search", _query.Search);
+        AddQuery(query, "status", _query.Status);
+        AddQuery(query, "plan", _query.PlanCode);
+        AddQuery(query, "licence", _query.LicenceType);
+        AddQuery(query, "sortBy", _query.SortBy);
+        AddQuery(query, "sortDesc", _query.SortDescending ? "true" : "false");
+        AddQuery(query, "minModules", _query.MinModuleCount?.ToString());
+        AddQuery(query, "needsReconciliation", _query.OnlyNeedsReconciliation ? "true" : null);
+        AddQuery(query, "staleReconciliation", _query.OnlyStaleReconciliation ? "true" : null);
+
+        var qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
+        Navigation.NavigateTo($"/platform/tenants/export{qs}", forceLoad: true);
+    }
+
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+
+    private static void AddQuery(List<string> list, string key, string? value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            list.Add($"{Uri.EscapeDataString(key)}={Uri.EscapeDataString(value)}");
+        }
+    }
+
+    private static string GetStatusBadge(TenantStatus status) => status switch
+    {
+        TenantStatus.Active => "fc-badge--success",
+        TenantStatus.PendingActivation => "fc-badge--warning",
+        TenantStatus.Suspended => "fc-badge--danger",
+        TenantStatus.Deactivated => "fc-badge--neutral",
+        TenantStatus.Archived => "fc-badge--neutral",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string GetReconciliationBadge(string state) => state switch
+    {
+        "Healthy" => "fc-badge--success",
+        "Action Needed" => "fc-badge--warning",
+        "Stale" => "fc-badge--danger",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string BuildReconciliationMessage(SubscriptionModuleEntitlementBootstrapResult reconciliation)
+        => $"{reconciliation.ModulesCreated} activated, "
+         + $"{reconciliation.ModulesReactivated} reactivated, "
+         + $"{reconciliation.ModulesUpdated} repriced, "
+         + $"{reconciliation.ModulesDeactivated} deactivated.";
+
+    private static string BuildBatchReconciliationMessage(TenantModuleReconciliationBatchResult result)
+        => $"Reconciled {result.ProcessedTenants} of {result.RequestedTenants} tenant(s): "
+         + BuildReconciliationMessage(result.Reconciliation);
+}

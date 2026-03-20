@@ -1,0 +1,66 @@
+@* Reusable Chart.js canvas component.
+   Wraps a <canvas> with proper ARIA semantics, a hidden accessible data table,
+   and clean JS interop lifecycle (init on first render, destroy on dispose). *@
+
+@using Microsoft.JSInterop
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<div class="fc-chart-wrapper @CssClass" style="--chart-h:@(Height)px">
+    <canvas id="@_id"
+            role="img"
+            aria-label="@AriaLabel"
+            @(FallbackTable != null ? $"aria-describedby=\"{_tableId}\"" : "")>
+    </canvas>
+</div>
+
+@if (FallbackTable != null)
+{
+    <div id="@_tableId" class="fc-sr-only">
+        @FallbackTable
+    </div>
+}
+
+@code {
+    /// <summary>Chart specification object passed directly to <c>fcCharts.init</c>.</summary>
+    [Parameter] public object?         Spec          { get; set; }
+
+    /// <summary>Accessible name for the chart (role="img" aria-label).</summary>
+    [Parameter] public string          AriaLabel     { get; set; } = "Chart";
+
+    /// <summary>Fixed pixel height of the chart container. Defaults to 280px.</summary>
+    [Parameter] public int             Height        { get; set; } = 280;
+
+    /// <summary>Extra CSS class(es) applied to the wrapper div.</summary>
+    [Parameter] public string?         CssClass      { get; set; }
+
+    /// <summary>
+    /// Optional render-fragment rendered as a visually-hidden accessible table
+    /// containing the raw chart data. Linked via aria-describedby.
+    /// </summary>
+    [Parameter] public RenderFragment? FallbackTable { get; set; }
+
+    // Stable unique IDs for this instance
+    private readonly string _id      = $"fc-chart-{Guid.NewGuid():N}";
+    private readonly string _tableId = $"fc-chart-tbl-{Guid.NewGuid():N}";
+
+    private bool _initialized;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Spec != null)
+        {
+            _initialized = true;
+            await JS.InvokeVoidAsync("fcCharts.init", _id, Spec);
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_initialized)
+        {
+            try { await JS.InvokeVoidAsync("fcCharts.destroy", _id); }
+            catch { /* JS runtime may be gone during hot-reload / nav */ }
+        }
+    }
+}

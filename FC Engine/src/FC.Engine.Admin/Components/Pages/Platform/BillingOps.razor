@@ -1,0 +1,246 @@
+@page "/platform/billing-ops"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Admin.Services
+@using FC.Engine.Admin.Utilities
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject PlatformAdminService PlatformService
+@inject ChartJsInterop Charts
+
+<PageTitle>Billing Operations</PageTitle>
+
+<PageHeader Title="Billing Operations"
+            Subtitle="MRR, ARR, ARPU, churn, invoice operations, and dunning workflows." />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="fc-alert fc-alert--inline fc-alert--success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="fc-alert fc-alert--inline fc-alert--error">@_error</div>
+}
+
+@if (_loading)
+{
+    <div class="fc-grid fc-grid-4 fc-mb-4" aria-busy="true" aria-label="Loading billing operations">
+        @for (var i = 0; i < 4; i++)
+        {
+            <div class="fc-card"><div class="fc-card__body"><div class="fc-skel fc-skel-text" style="--skel-w:60%;--skel-h:14px;--skel-mb:8px;"></div><div class="fc-skel fc-skel-text" style="--skel-w:40%;--skel-h:28px;"></div></div></div>
+        }
+    </div>
+    <div class="fc-grid fc-grid-2 fc-mb-4">
+        <div class="fc-card"><div class="fc-card__body"><div class="fc-skel fc-skel-block" style="--skel-h:220px;"></div></div></div>
+        <div class="fc-card"><div class="fc-card__body"><div class="fc-skel fc-skel-block" style="--skel-h:220px;"></div></div></div>
+    </div>
+    <div class="fc-card"><div class="fc-card__body">
+        @for (var i = 0; i < 5; i++)
+        {
+            <div class="fc-skel fc-skel-text" style="--skel-w:100%;--skel-h:40px;--skel-mb:8px;"></div>
+        }
+    </div></div>
+}
+else if (_data is not null)
+{
+    <div class="fc-grid fc-grid-4 fc-mb-4">
+        <div class="fc-card"><div class="fc-card__body"><div class="fc-stat-label">MRR</div><div class="fc-stat-value">NGN @_data.Mrr.ToString("N2")</div></div></div>
+        <div class="fc-card"><div class="fc-card__body"><div class="fc-stat-label">ARR</div><div class="fc-stat-value">NGN @_data.Arr.ToString("N2")</div></div></div>
+        <div class="fc-card"><div class="fc-card__body"><div class="fc-stat-label">ARPU</div><div class="fc-stat-value">NGN @_data.Arpu.ToString("N2")</div></div></div>
+        <div class="fc-card"><div class="fc-card__body"><div class="fc-stat-label">Churn</div><div class="fc-stat-value">@_data.ChurnRatePercent.ToString("0.##")%</div><div class="fc-text-muted-sm">Trailing 3M: @_data.ChurnRateTrailing3MonthsPercent.ToString("0.##")%</div></div></div>
+    </div>
+
+    <div class="fc-grid fc-grid-2 fc-mb-4">
+        <div class="fc-card"><div class="fc-card__header"><h2 class="fc-card__title">Revenue by Plan</h2></div><div class="fc-card__body fc-chart-height"><canvas id="billingByPlanChart"></canvas></div></div>
+        <div class="fc-card"><div class="fc-card__header"><h2 class="fc-card__title">Revenue by Module</h2></div><div class="fc-card__body fc-chart-height"><canvas id="billingByModuleChart"></canvas></div></div>
+    </div>
+
+    <div class="fc-card fc-mb-4">
+        <div class="fc-card__body fc-card-body--filter">
+            <div class="fc-form-row fc-form-row--min">
+                <label>Invoice Status</label>
+                <select class="fc-input" @bind="_statusFilter">
+                    <option value="">All</option>
+                    @foreach (var status in Enum.GetNames<InvoiceStatus>())
+                    {
+                        <option value="@status">@status</option>
+                    }
+                </select>
+            </div>
+            <button class="fc-btn fc-btn--outline" @onclick="ApplyFilter">Apply Filter</button>
+        </div>
+    </div>
+
+    <div class="fc-card">
+        <div class="fc-card__header"><h2 class="fc-card__title">Invoice Management</h2></div>
+        <div class="fc-card__body fc-card-body--flush">
+            <table class="fc-table">
+                <thead>
+                    <tr>
+                        <th>Invoice</th>
+                        <th>Tenant</th>
+                        <th>Status</th>
+                        <th>Total</th>
+                        <th>Due Date</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var invoice in _filteredInvoices)
+                    {
+                        <tr>
+                            <td>@invoice.InvoiceNumber</td>
+                            <td>@invoice.TenantName</td>
+                            <td>@invoice.Status</td>
+                            <td>NGN @invoice.TotalAmount.ToString("N2")</td>
+                            <td>@(invoice.DueDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                            <td>
+                                <div class="fc-tag-group">
+                                    @if (invoice.Status != InvoiceStatus.Paid)
+                                    {
+                                        <button class="fc-btn fc-btn--primary fc-btn--xs" @onclick="() => RecordPayment(invoice.InvoiceId)">Record Payment</button>
+                                    }
+                                    @if (invoice.Status == InvoiceStatus.Issued || invoice.Status == InvoiceStatus.Overdue)
+                                    {
+                                        <button class="fc-btn fc-btn--outline fc-btn--xs" @onclick="() => SendDunning(invoice.InvoiceId)">Send Dunning</button>
+                                    }
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private PlatformBillingOpsData? _data;
+    private List<PlatformBillingInvoiceRow> _filteredInvoices = new();
+    private string? _statusFilter;
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private string? _error;
+    private string? _message;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is null || _chartsRendered)
+        {
+            return;
+        }
+
+        await Charts.RenderDoughnutChart("billingByPlanChart", BuildRevenueChart(_data.RevenueByPlan, "Revenue by Plan"));
+        await Charts.RenderBarChart("billingByModuleChart", BuildRevenueChart(_data.RevenueByModule, "Revenue by Module"));
+        _chartsRendered = true;
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+        _message = null;
+        _chartsRendered = false;
+
+        try
+        {
+            _data = await PlatformService.GetBillingOps();
+            ApplyFilter();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void ApplyFilter()
+    {
+        if (_data is null)
+        {
+            _filteredInvoices = new List<PlatformBillingInvoiceRow>();
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_statusFilter))
+        {
+            _filteredInvoices = _data.Invoices.ToList();
+            return;
+        }
+
+        _filteredInvoices = _data.Invoices
+            .Where(i => string.Equals(i.Status.ToString(), _statusFilter, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+    }
+
+    private async Task RecordPayment(int invoiceId)
+    {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.RecordManualPayment(invoiceId, actor);
+            _message = "Manual payment recorded.";
+        });
+    }
+
+    private async Task SendDunning(int invoiceId)
+    {
+        await ExecuteAction(async actor =>
+        {
+            await PlatformService.SendDunningReminder(invoiceId, actor);
+            _message = "Dunning reminder sent.";
+        });
+    }
+
+    private async Task ExecuteAction(Func<string, Task> action)
+    {
+        _error = null;
+        _message = null;
+        try
+        {
+            var actor = await GetActor();
+            await action(actor);
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+    }
+
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+
+    private static TrendData BuildRevenueChart(List<RevenueBreakdownItem> rows, string title)
+    {
+        return new TrendData
+        {
+            Title = title,
+            Labels = rows.Select(r => r.Label).ToList(),
+            Datasets =
+            {
+                new TrendDataset
+                {
+                    Label = "Amount",
+                    Data = rows.Select(r => r.Amount).ToList(),
+                    BackgroundColor = "#1d4ed8",
+                    BorderColor = "#1d4ed8"
+                }
+            }
+        };
+    }
+}

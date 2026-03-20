@@ -1,0 +1,290 @@
+@page "/platform/capital/buffers"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject FC.Engine.Infrastructure.Services.CapitalPlanningScenarioStoreService ScenarioStore
+@inject FC.Engine.Admin.Services.ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>Buffer Management</PageTitle>
+
+<PageHeader Title="Buffer Management"
+            Subtitle="Track minimum capital, conservation, countercyclical, and D-SIB buffers with trigger warnings."
+            BackUrl="/platform/capital">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load buffer data" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <div class="fc-cap-kpi-strip">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="fc-cap-kpi"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="88px" /></div>
+                }
+            </div>
+        }
+        else if (_scenario is null)
+        {
+            <EmptyState Context="data" Heading="No capital scenario found" Description="Save a capital planning scenario to view buffer positions." />
+        }
+        else
+        {
+            var totalRequired = _scenario.MinimumRequirementPercent + _scenario.ConservationBufferPercent + _scenario.CountercyclicalBufferPercent + _scenario.DsibBufferPercent;
+            var headroom = _scenario.CurrentCarPercent - totalRequired;
+
+            <div class="fc-cap-kpi-strip">
+                <div class="fc-cap-kpi">
+                    <div class="fc-cap-kpi-value">@_scenario.CurrentCarPercent.ToString("F1")%</div>
+                    <div class="fc-cap-kpi-label">Current CAR</div>
+                </div>
+                <div class="fc-cap-kpi">
+                    <div class="fc-cap-kpi-value">@totalRequired.ToString("F1")%</div>
+                    <div class="fc-cap-kpi-label">Total Required</div>
+                </div>
+                <div class="fc-cap-kpi">
+                    <div class="fc-cap-kpi-value @(headroom >= 3 ? "fc-cap-kpi-value--green" : headroom >= 1 ? "fc-cap-kpi-value--amber" : "fc-cap-kpi-value--red")">
+                        @headroom.ToString("F1")%
+                    </div>
+                    <div class="fc-cap-kpi-label">Headroom</div>
+                </div>
+                <div class="fc-cap-kpi">
+                    <div class="fc-cap-kpi-value">@_scenario.TargetCarPercent.ToString("F1")%</div>
+                    <div class="fc-cap-kpi-label">Target CAR</div>
+                </div>
+            </div>
+
+            <div class="rg-grid rg-grid-2">
+                <div class="fc-card">
+                    <div class="fc-card__header"><h2 class="fc-card__title">Buffer Stack</h2></div>
+                    <div class="fc-card__body">
+                        <canvas id="bufferStackChart"></canvas>
+                    </div>
+                </div>
+                <div class="fc-card">
+                    <div class="fc-card__header"><h2 class="fc-card__title">Buffer Erosion Projection</h2></div>
+                    <div class="fc-card__body">
+                        <canvas id="bufferProjectionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Buffer Detail</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="BufferRow" Items="@_bufferRows" Sortable="true" ShowExport="true" ExportFileName="buffer-management">
+                        <ChildContent>
+                            <DataColumn TItem="BufferRow" Title="Buffer" SortKey="@(x => x.Name)">
+                                <CellTemplate><strong>@context.Name</strong></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="BufferRow" Title="Required %" Width="120px" SortKey="@(x => x.RequiredPct)">
+                                <CellTemplate>@context.RequiredPct.ToString("F2")%</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="BufferRow" Title="Available %" Width="120px" SortKey="@(x => x.AvailablePct)">
+                                <CellTemplate>@context.AvailablePct.ToString("F2")%</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="BufferRow" Title="Distance to Breach" Width="150px" SortKey="@(x => x.DistanceToBreach)">
+                                <CellTemplate>
+                                    <span class="@BufferStatusClass(context.DistanceToBreach)">
+                                        @context.DistanceToBreach.ToString("F2")%
+                                    </span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="BufferRow" Title="Status" Width="110px" SortKey="@(x => x.Status)">
+                                <CellTemplate>
+                                    <span class="fc-badge @BufferBadgeClass(context.Status)">@context.Status</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="BufferRow" Title="Qtr to Breach" Width="120px" SortKey="@(x => x.QuartersToBreach)">
+                                <CellTemplate>
+                                    @if (context.QuartersToBreach.HasValue)
+                                    {
+                                        <span class="@(context.QuartersToBreach <= 2 ? "fc-cap-kpi-value--red" : "")">Q@(context.QuartersToBreach)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="fc-text-muted">—</span>
+                                    }
+                                </CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private Exception? _loadException;
+    private CapitalPlanningScenarioState? _scenario;
+    private List<BufferRow> _bufferRows = [];
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loading && !_chartsRendered && _scenario is not null)
+        {
+            _chartsRendered = true;
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        _chartsRendered = false;
+        try
+        {
+            _scenario = await ScenarioStore.LoadAsync();
+            if (_scenario is not null)
+            {
+                _bufferRows = BuildBufferRows(_scenario);
+            }
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static List<BufferRow> BuildBufferRows(CapitalPlanningScenarioState s)
+    {
+        var currentCar = s.CurrentCarPercent;
+        var rwaGrowth = s.QuarterlyRwaGrowthPercent;
+        var earnings = s.QuarterlyRetainedEarningsBn;
+        var rwa = s.CurrentRwaBn > 0 ? s.CurrentRwaBn : 1m;
+
+        var rows = new List<BufferRow>();
+
+        AddBuffer(rows, "Minimum Requirement", s.MinimumRequirementPercent, currentCar, rwaGrowth, earnings, rwa);
+        AddBuffer(rows, "Conservation Buffer", s.ConservationBufferPercent, currentCar - s.MinimumRequirementPercent, rwaGrowth, earnings, rwa);
+        AddBuffer(rows, "Countercyclical Buffer", s.CountercyclicalBufferPercent, currentCar - s.MinimumRequirementPercent - s.ConservationBufferPercent, rwaGrowth, earnings, rwa);
+        AddBuffer(rows, "D-SIB Buffer", s.DsibBufferPercent, currentCar - s.MinimumRequirementPercent - s.ConservationBufferPercent - s.CountercyclicalBufferPercent, rwaGrowth, earnings, rwa);
+
+        return rows;
+    }
+
+    private static void AddBuffer(List<BufferRow> rows, string name, decimal required, decimal available, decimal rwaGrowth, decimal earnings, decimal rwa)
+    {
+        if (available < 0) available = 0;
+        var distance = available - required;
+        var status = distance >= 2 ? "Comfortable" : distance >= 0 ? "Watch" : "Breach";
+
+        int? qtrToBreach = null;
+        if (rwaGrowth > 0 && distance > 0)
+        {
+            // Rough estimate: how many quarters until organic RWA growth erodes this buffer
+            var qCar = available;
+            for (var q = 1; q <= 20; q++)
+            {
+                var projRwa = rwa * (decimal)Math.Pow((double)(1m + rwaGrowth / 100m), q);
+                var projCapital = rwa * available / 100m + earnings * q;
+                var projCar = projRwa > 0 ? projCapital / projRwa * 100m : 0;
+                if (projCar < required)
+                {
+                    qtrToBreach = q;
+                    break;
+                }
+            }
+        }
+        else if (distance < 0)
+        {
+            qtrToBreach = 0;
+        }
+
+        rows.Add(new BufferRow
+        {
+            Name = name,
+            RequiredPct = required,
+            AvailablePct = Math.Round(available, 2),
+            DistanceToBreach = Math.Round(distance, 2),
+            Status = status,
+            QuartersToBreach = qtrToBreach
+        });
+    }
+
+    private static string BufferStatusClass(decimal distance) => distance switch
+    {
+        >= 2 => "fc-cap-kpi-value--green",
+        >= 0 => "fc-cap-kpi-value--amber",
+        _ => "fc-cap-kpi-value--red"
+    };
+
+    private static string BufferBadgeClass(string status) => status switch
+    {
+        "Comfortable" => "fc-badge--success",
+        "Watch" => "fc-badge--warning",
+        _ => "fc-badge--danger"
+    };
+
+    private async Task RenderChartsAsync()
+    {
+        if (_scenario is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("fcCharts.renderStackedBar", "bufferStackChart", new
+            {
+                labels = new[] { "Capital Structure" },
+                datasets = new object[]
+                {
+                    new { label = "Minimum", data = new[] { (double)_scenario.MinimumRequirementPercent }, backgroundColor = "#dc2626" },
+                    new { label = "Conservation", data = new[] { (double)_scenario.ConservationBufferPercent }, backgroundColor = "#d97706" },
+                    new { label = "Countercyclical", data = new[] { (double)_scenario.CountercyclicalBufferPercent }, backgroundColor = "#0284c7" },
+                    new { label = "D-SIB", data = new[] { (double)_scenario.DsibBufferPercent }, backgroundColor = "#7c3aed" },
+                    new { label = "Headroom", data = new[] { Math.Max(0, (double)(_scenario.CurrentCarPercent - _scenario.MinimumRequirementPercent - _scenario.ConservationBufferPercent - _scenario.CountercyclicalBufferPercent - _scenario.DsibBufferPercent)) }, backgroundColor = "#059669" }
+                }
+            });
+
+            // 8-quarter projection
+            var labels = new List<string> { "Current" };
+            var carData = new List<double> { (double)_scenario.CurrentCarPercent };
+            var reqData = new List<double>();
+            var totalReq = (double)(_scenario.MinimumRequirementPercent + _scenario.ConservationBufferPercent + _scenario.CountercyclicalBufferPercent + _scenario.DsibBufferPercent);
+
+            var rwa = (double)_scenario.CurrentRwaBn;
+            var capital = rwa * (double)_scenario.CurrentCarPercent / 100.0;
+            reqData.Add(totalReq);
+
+            for (var q = 1; q <= 8; q++)
+            {
+                rwa *= (1.0 + (double)_scenario.QuarterlyRwaGrowthPercent / 100.0);
+                capital += (double)_scenario.QuarterlyRetainedEarningsBn;
+                var car = rwa > 0 ? capital / rwa * 100.0 : 0;
+                labels.Add($"Q{q}");
+                carData.Add(Math.Round(car, 2));
+                reqData.Add(totalReq);
+            }
+
+            await JS.InvokeVoidAsync("fcCharts.renderLine", "bufferProjectionChart", new
+            {
+                labels,
+                datasets = new object[]
+                {
+                    new { label = "Projected CAR", data = carData, borderColor = "#006B3F", backgroundColor = "rgba(0,107,63,0.1)", fill = true },
+                    new { label = "Total Required", data = reqData, borderColor = "#dc2626", borderDash = new[] { 6, 4 }, fill = false }
+                }
+            });
+        }
+        catch { }
+    }
+
+    private sealed class BufferRow
+    {
+        public string Name { get; init; } = string.Empty;
+        public decimal RequiredPct { get; init; }
+        public decimal AvailablePct { get; init; }
+        public decimal DistanceToBreach { get; init; }
+        public string Status { get; init; } = string.Empty;
+        public int? QuartersToBreach { get; init; }
+    }
+}

@@ -1,0 +1,275 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PENSION FUND ADMINISTRATOR (PFA) REGULATORY RETURN - XML SCHEMA DEFINITION
+  PenCom Reporting Standards | PRA 2014 | Multi-Fund Structure
+  Version: 1.0 | March 2026
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:pfa="urn:pencom:pfa:reporting:v1"
+           targetNamespace="urn:pencom:pfa:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+
+  <xs:element name="PFAReturn" type="pfa:PFAReturnType"/>
+
+  <xs:complexType name="PFAReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="pfa:HeaderType"/>
+      <xs:element name="AssetsUnderManagement" type="pfa:AUMType" minOccurs="0"/>
+      <xs:element name="InvestmentCompliance" type="pfa:InvestmentComplianceType" minOccurs="0"/>
+      <xs:element name="Contributions" type="pfa:ContributionsType" minOccurs="0"/>
+      <xs:element name="RSAManagement" type="pfa:RSAManagementType" minOccurs="0"/>
+      <xs:element name="BenefitsAdministration" type="pfa:BenefitsType" minOccurs="0"/>
+      <xs:element name="FinancialStatements" type="pfa:FinancialStatementsType" minOccurs="0"/>
+      <xs:element name="RateOfReturn" type="pfa:RateOfReturnType" minOccurs="0"/>
+      <xs:element name="Governance" type="pfa:GovernanceType" minOccurs="0"/>
+      <xs:element name="Operational" type="pfa:OperationalType" minOccurs="0"/>
+      <xs:element name="AMLCompliance" type="pfa:AMLComplianceType" minOccurs="0"/>
+      <xs:element name="Signature" type="pfa:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="PFALicenceNo"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="20"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="PFAName"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="200"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReturnType" type="pfa:ReturnTypeEnum"/>
+      <xs:element name="PFCName" type="xs:string"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="ContactPerson" type="xs:string"/>
+      <xs:element name="ContactEmail" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AUM -->
+  <xs:complexType name="AUMType">
+    <xs:sequence>
+      <xs:element name="FundAUM" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FundType" type="pfa:FundTypeEnum"/>
+            <xs:element name="RSAHolders" type="xs:nonNegativeInteger"/>
+            <xs:element name="AUM" type="pfa:AmountType"/>
+            <xs:element name="NAVPerUnit" type="xs:decimal"/>
+            <xs:element name="MonthlyGrowthPct" type="pfa:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalRSAHolders" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalAUM" type="pfa:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- INVESTMENT COMPLIANCE -->
+  <xs:complexType name="InvestmentComplianceType">
+    <xs:sequence>
+      <xs:element name="FundAllocation" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FundType" type="pfa:FundTypeEnum"/>
+            <xs:element name="AssetAllocation" maxOccurs="unbounded">
+              <xs:complexType>
+                <xs:sequence>
+                  <xs:element name="AssetClass" type="xs:string"/>
+                  <xs:element name="MarketValue" type="pfa:AmountType"/>
+                  <xs:element name="PctOfFund" type="pfa:RatioType"/>
+                  <xs:element name="PenComLimit" type="pfa:RatioType"/>
+                  <xs:element name="IsCompliant" type="xs:boolean"/>
+                </xs:sequence>
+              </xs:complexType>
+            </xs:element>
+            <xs:element name="EquityExposurePct" type="pfa:RatioType"/>
+            <xs:element name="AltAssetsPct" type="pfa:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="InvestmentBreach" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FundType" type="pfa:FundTypeEnum"/>
+            <xs:element name="AssetClass" type="xs:string"/>
+            <xs:element name="LimitPct" type="pfa:RatioType"/>
+            <xs:element name="ActualPct" type="pfa:RatioType"/>
+            <xs:element name="BreachAmount" type="pfa:AmountType"/>
+            <xs:element name="DateDetected" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CONTRIBUTIONS -->
+  <xs:complexType name="ContributionsType">
+    <xs:sequence>
+      <xs:element name="MandatoryEmployer" type="pfa:AmountType"/>
+      <xs:element name="MandatoryEmployee" type="pfa:AmountType"/>
+      <xs:element name="TotalMandatory" type="pfa:AmountType"/>
+      <xs:element name="AVC" type="pfa:AmountType"/>
+      <xs:element name="MicroPension" type="pfa:AmountType"/>
+      <xs:element name="TotalContributions" type="pfa:AmountType"/>
+      <xs:element name="UnremittedAmount" type="pfa:AmountType"/>
+      <xs:element name="EmployersWithOutstanding" type="xs:nonNegativeInteger"/>
+      <xs:element name="ContributingEmployers" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveContributors" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- RSA MANAGEMENT -->
+  <xs:complexType name="RSAManagementType">
+    <xs:sequence>
+      <xs:element name="TotalRSAHolders" type="xs:nonNegativeInteger"/>
+      <xs:element name="NewRegistrations" type="xs:nonNegativeInteger"/>
+      <xs:element name="TransfersIn" type="xs:nonNegativeInteger"/>
+      <xs:element name="TransfersOut" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveContributors" type="xs:nonNegativeInteger"/>
+      <xs:element name="InactiveRSAs" type="xs:nonNegativeInteger"/>
+      <xs:element name="MaleHolders" type="xs:nonNegativeInteger"/>
+      <xs:element name="FemaleHolders" type="xs:nonNegativeInteger"/>
+      <xs:element name="DataRecaptureRate" type="pfa:RatioType"/>
+      <xs:element name="NINCapturePct" type="pfa:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- BENEFITS -->
+  <xs:complexType name="BenefitsType">
+    <xs:sequence>
+      <xs:element name="BenefitPayment" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="BenefitType" type="pfa:BenefitTypeEnum"/>
+            <xs:element name="Applications" type="xs:nonNegativeInteger"/>
+            <xs:element name="Processed" type="xs:nonNegativeInteger"/>
+            <xs:element name="AmountPaid" type="pfa:AmountType"/>
+            <xs:element name="AvgProcessingDays" type="xs:decimal"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalBenefitsPaid" type="pfa:AmountType"/>
+      <xs:element name="ActivePensioners" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL STATEMENTS -->
+  <xs:complexType name="FinancialStatementsType">
+    <xs:sequence>
+      <xs:element name="TotalRevenue" type="pfa:AmountType"/>
+      <xs:element name="FeeIncome" type="pfa:AmountType"/>
+      <xs:element name="TotalExpenses" type="pfa:AmountType"/>
+      <xs:element name="ProfitBeforeTax" type="pfa:AmountType"/>
+      <xs:element name="ProfitAfterTax" type="pfa:AmountType"/>
+      <xs:element name="TotalAssets" type="pfa:AmountType"/>
+      <xs:element name="TotalLiabilities" type="pfa:AmountType"/>
+      <xs:element name="ShareholdersEquity" type="pfa:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- RATE OF RETURN -->
+  <xs:complexType name="RateOfReturnType">
+    <xs:sequence>
+      <xs:element name="FundPerformance" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FundType" type="pfa:FundTypeEnum"/>
+            <xs:element name="OpeningNAV" type="xs:decimal"/>
+            <xs:element name="ClosingNAV" type="xs:decimal"/>
+            <xs:element name="QuarterlyReturn" type="pfa:RatioType"/>
+            <xs:element name="YTDReturn" type="pfa:RatioType"/>
+            <xs:element name="AnnualisedReturn" type="pfa:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- GOVERNANCE -->
+  <xs:complexType name="GovernanceType">
+    <xs:sequence>
+      <xs:element name="Director" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="Role" type="xs:string"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="Committee" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CommitteeName" type="xs:string"/>
+            <xs:element name="Chairperson" type="xs:string"/>
+            <xs:element name="MeetingsHeld" type="xs:nonNegativeInteger"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- OPERATIONAL -->
+  <xs:complexType name="OperationalType">
+    <xs:sequence>
+      <xs:element name="ComplaintsReceived" type="xs:nonNegativeInteger"/>
+      <xs:element name="ComplaintsResolved" type="xs:nonNegativeInteger"/>
+      <xs:element name="BranchCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="StaffStrength" type="xs:nonNegativeInteger"/>
+      <xs:element name="SystemUptime" type="pfa:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AML -->
+  <xs:complexType name="AMLComplianceType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="KYCVerificationRate" type="pfa:RatioType"/>
+      <xs:element name="StaffTrainedPct" type="pfa:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SIGNATURE -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CEOSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CIOSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that the information provided is true, accurate, and complete to the best of our knowledge and in compliance with PenCom regulations and the Pension Reform Act 2014."/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENUMERATIONS -->
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="AUM"/><xs:enumeration value="INV"/><xs:enumeration value="CON"/>
+      <xs:enumeration value="RSA"/><xs:enumeration value="BEN"/><xs:enumeration value="FIN"/>
+      <xs:enumeration value="ROR"/><xs:enumeration value="GOV"/><xs:enumeration value="OPR"/>
+      <xs:enumeration value="AML"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FundTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="FundI"/><xs:enumeration value="FundII"/><xs:enumeration value="FundIII"/>
+      <xs:enumeration value="FundIV"/><xs:enumeration value="FundV"/>
+      <xs:enumeration value="FundVI_Active"/><xs:enumeration value="FundVI_Retiree"/>
+      <xs:enumeration value="FundVII"/><xs:enumeration value="AES"/><xs:enumeration value="CPFA"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="BenefitTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="ProgrammedWithdrawal"/><xs:enumeration value="LifeAnnuity"/>
+      <xs:enumeration value="LumpSum25Pct"/><xs:enumeration value="EnBloc"/>
+      <xs:enumeration value="TemporaryUnemployment"/><xs:enumeration value="DeathBenefit"/>
+      <xs:enumeration value="VoluntaryWithdrawal"/><xs:enumeration value="ResidentialMortgage"/>
+      <xs:enumeration value="MedicalIllness"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

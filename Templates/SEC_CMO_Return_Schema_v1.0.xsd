@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CAPITAL MARKET OPERATOR (CMO) REGULATORY RETURN - XML SCHEMA DEFINITION
+  SEC Nigeria | ISA 2025 | Rule 905 | Jan 2026 Revised Capital Framework
+  Version: 1.0 | March 2026
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:sec="urn:sec:cmo:reporting:v1"
+           targetNamespace="urn:sec:cmo:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+
+  <xs:element name="CMOReturn" type="sec:CMOReturnType"/>
+
+  <xs:complexType name="CMOReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="sec:HeaderType"/>
+      <xs:element name="NetCapital" type="sec:NetCapitalType" minOccurs="0"/>
+      <xs:element name="FinancialStatements" type="sec:FinancialStatementsType" minOccurs="0"/>
+      <xs:element name="TradingActivity" type="sec:TradingActivityType" minOccurs="0"/>
+      <xs:element name="CollectiveInvestment" type="sec:CISType" minOccurs="0"/>
+      <xs:element name="IssuingHouse" type="sec:IssuingHouseType" minOccurs="0"/>
+      <xs:element name="Registrar" type="sec:RegistrarType" minOccurs="0"/>
+      <xs:element name="ClientAssets" type="sec:ClientAssetsType" minOccurs="0"/>
+      <xs:element name="AMLCompliance" type="sec:AMLComplianceType" minOccurs="0"/>
+      <xs:element name="Governance" type="sec:GovernanceType" minOccurs="0"/>
+      <xs:element name="DigitalAssets" type="sec:DigitalAssetsType" minOccurs="0"/>
+      <xs:element name="Signature" type="sec:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="SECRegNo"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="20"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="CMOName"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="200"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReturnType" type="sec:ReturnTypeEnum"/>
+      <xs:element name="CMOCategory" type="sec:CMOCategoryEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="ContactPerson" type="xs:string"/>
+      <xs:element name="ContactEmail" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- NET CAPITAL -->
+  <xs:complexType name="NetCapitalType">
+    <xs:sequence>
+      <xs:element name="PaidUpCapital" type="sec:AmountType"/>
+      <xs:element name="SharePremium" type="sec:AmountType"/>
+      <xs:element name="RetainedEarnings" type="xs:decimal"/>
+      <xs:element name="OtherReserves" type="sec:AmountType"/>
+      <xs:element name="TotalEquity" type="sec:AmountType"/>
+      <xs:element name="TotalDeductions" type="sec:AmountType"/>
+      <xs:element name="NetCapital" type="sec:AmountType"/>
+      <xs:element name="MinCapitalRequirement" type="sec:AmountType"/>
+      <xs:element name="Surplus" type="xs:decimal"/>
+      <xs:element name="IsCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL STATEMENTS -->
+  <xs:complexType name="FinancialStatementsType">
+    <xs:sequence>
+      <xs:element name="TotalRevenue" type="sec:AmountType"/>
+      <xs:element name="BrokerageIncome" type="sec:AmountType" minOccurs="0"/>
+      <xs:element name="FundManagementFees" type="sec:AmountType" minOccurs="0"/>
+      <xs:element name="TotalExpenses" type="sec:AmountType"/>
+      <xs:element name="ProfitBeforeTax" type="xs:decimal"/>
+      <xs:element name="ProfitAfterTax" type="xs:decimal"/>
+      <xs:element name="TotalAssets" type="sec:AmountType"/>
+      <xs:element name="TotalLiabilities" type="sec:AmountType"/>
+      <xs:element name="ShareholdersEquity" type="sec:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- TRADING ACTIVITY -->
+  <xs:complexType name="TradingActivityType">
+    <xs:sequence>
+      <xs:element name="MarketTrade" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="MarketName" type="xs:string"/>
+            <xs:element name="NumberOfTrades" type="xs:nonNegativeInteger"/>
+            <xs:element name="Volume" type="xs:nonNegativeInteger"/>
+            <xs:element name="Value" type="sec:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalTradingValue" type="sec:AmountType"/>
+      <xs:element name="ActiveClientAccounts" type="xs:nonNegativeInteger"/>
+      <xs:element name="MarginLoansOutstanding" type="sec:AmountType" minOccurs="0"/>
+      <xs:element name="ClientFundsHeld" type="sec:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CIS / FUND MANAGEMENT -->
+  <xs:complexType name="CISType">
+    <xs:sequence>
+      <xs:element name="Fund" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FundName" type="xs:string"/>
+            <xs:element name="FundType" type="sec:FundTypeEnum"/>
+            <xs:element name="NAV" type="sec:AmountType"/>
+            <xs:element name="UnitsInIssue" type="xs:nonNegativeInteger"/>
+            <xs:element name="NAVPerUnit" type="xs:decimal"/>
+            <xs:element name="QuarterlyReturn" type="sec:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalAUM" type="sec:AmountType"/>
+      <xs:element name="GrossSubscriptions" type="sec:AmountType"/>
+      <xs:element name="GrossRedemptions" type="sec:AmountType"/>
+      <xs:element name="NetInflows" type="xs:decimal"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ISSUING HOUSE -->
+  <xs:complexType name="IssuingHouseType">
+    <xs:sequence>
+      <xs:element name="Transaction" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="TransactionType" type="xs:string"/>
+            <xs:element name="NumberOfDeals" type="xs:nonNegativeInteger"/>
+            <xs:element name="GrossAmount" type="sec:AmountType"/>
+            <xs:element name="FeesEarned" type="sec:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalUnderwritingExposure" type="sec:AmountType" minOccurs="0"/>
+      <xs:element name="UndisposedSecurities" type="sec:AmountType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- REGISTRAR -->
+  <xs:complexType name="RegistrarType">
+    <xs:sequence>
+      <xs:element name="CompaniesServiced" type="xs:nonNegativeInteger"/>
+      <xs:element name="ShareholderAccounts" type="xs:nonNegativeInteger"/>
+      <xs:element name="TransfersProcessed" type="xs:nonNegativeInteger"/>
+      <xs:element name="DividendsDisbursed" type="sec:AmountType"/>
+      <xs:element name="UnclaimedDividends" type="sec:AmountType"/>
+      <xs:element name="DematerialisationRate" type="sec:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CLIENT ASSETS -->
+  <xs:complexType name="ClientAssetsType">
+    <xs:sequence>
+      <xs:element name="ClientFundsTotal" type="sec:AmountType"/>
+      <xs:element name="ClientFundsTrust" type="sec:AmountType"/>
+      <xs:element name="SegregationCompliant" type="xs:boolean"/>
+      <xs:element name="ClientSecuritiesCSCS" type="sec:AmountType"/>
+      <xs:element name="FidelityBondAmount" type="sec:AmountType"/>
+      <xs:element name="FidelityBondExpiry" type="xs:date"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AML -->
+  <xs:complexType name="AMLComplianceType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="KYCCompletionRate" type="sec:RatioType"/>
+      <xs:element name="PEPClients" type="xs:nonNegativeInteger"/>
+      <xs:element name="StaffTrainedPct" type="sec:RatioType"/>
+      <xs:element name="BoardAMLReport" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- GOVERNANCE -->
+  <xs:complexType name="GovernanceType">
+    <xs:sequence>
+      <xs:element name="Director" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="Role" type="xs:string"/>
+            <xs:element name="SECApproved" type="xs:boolean"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="SponsoredIndividual" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Name" type="xs:string"/>
+            <xs:element name="SIRegNo" type="xs:string"/>
+            <xs:element name="RegistrationExpiry" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="RegistrationRenewalDate" type="xs:date"/>
+      <xs:element name="FidelityBondInPlace" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- DIGITAL ASSETS -->
+  <xs:complexType name="DigitalAssetsType">
+    <xs:sequence>
+      <xs:element name="VASPCategory" type="sec:VASPCategoryEnum"/>
+      <xs:element name="RegisteredUsers" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveUsers" type="xs:nonNegativeInteger"/>
+      <xs:element name="TradingVolume" type="sec:AmountType"/>
+      <xs:element name="AssetsInCustody" type="sec:AmountType"/>
+      <xs:element name="ColdStorageRatio" type="sec:RatioType"/>
+      <xs:element name="RegulatoryCapital" type="sec:AmountType"/>
+      <xs:element name="CapitalRequirement" type="sec:AmountType"/>
+      <xs:element name="IsCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SIGNATURE -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="MDSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that the information provided is true, accurate, and complete to the best of our knowledge and in compliance with the Investments and Securities Act 2025 and SEC Rules and Regulations."/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENUMERATIONS -->
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="CAP"/><xs:enumeration value="FIN"/><xs:enumeration value="TRD"/>
+      <xs:enumeration value="CIS"/><xs:enumeration value="IHS"/><xs:enumeration value="REG"/>
+      <xs:enumeration value="CLI"/><xs:enumeration value="AML"/><xs:enumeration value="GOV"/>
+      <xs:enumeration value="DAS"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="CMOCategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Broker"/><xs:enumeration value="Dealer"/><xs:enumeration value="BrokerDealer"/>
+      <xs:enumeration value="FundManager"/><xs:enumeration value="IssuingHouse"/><xs:enumeration value="Registrar"/>
+      <xs:enumeration value="Trustee"/><xs:enumeration value="Custodian"/><xs:enumeration value="RatingAgency"/>
+      <xs:enumeration value="VASP"/><xs:enumeration value="InterDealerBroker"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="FundTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="MoneyMarket"/><xs:enumeration value="FixedIncome"/><xs:enumeration value="Equity"/>
+      <xs:enumeration value="Balanced"/><xs:enumeration value="Ethical"/><xs:enumeration value="REIS"/>
+      <xs:enumeration value="Infrastructure"/><xs:enumeration value="ETF"/><xs:enumeration value="PrivateEquity"/>
+      <xs:enumeration value="VentureCapital"/><xs:enumeration value="Specialised"/><xs:enumeration value="Discretionary"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="VASPCategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Exchange"/><xs:enumeration value="Custodian"/>
+      <xs:enumeration value="Tokenisation"/><xs:enumeration value="Ancillary"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

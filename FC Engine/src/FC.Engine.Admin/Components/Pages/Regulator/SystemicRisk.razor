@@ -1,0 +1,591 @@
+@page "/regulator/systemic-risk"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject ISystemicRiskService SystemicRiskService
+@inject FC.Engine.Infrastructure.Charts.ChartJsInterop Charts
+@inject RegulatorSessionService RegulatorSession
+@inject ToastService Toast
+
+<PageTitle>Systemic Risk Dashboard</PageTitle>
+
+<PageHeader Title="Systemic Risk Dashboard"
+            Subtitle="Comprehensive systemic risk indicators, contagion analysis and supervisory actions">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="Load">Refresh Dashboard</button>
+    </PrimaryAction>
+</PageHeader>
+
+<SectionErrorBoundary Title="Couldn't load systemic risk dashboard" ExternalError="@_loadException" OnRetry="Load">
+    @if (_loading)
+    {
+        <div class="rg-grid rg-grid-2" style="margin-bottom:0.75rem;">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="80px" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="80px" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="80px" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="80px" />
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="48px" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="6" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="200px" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="8" />
+}
+    else if (_dashboard is null)
+    {
+        <EmptyState Context="data" Size="sm"
+                    Heading="No systemic risk data"
+                    Description="No systemic risk data is available for your jurisdiction. Try refreshing the dashboard."
+                    PrimaryActionLabel="Refresh"
+                    OnPrimaryAction="Load" />
+    }
+    else
+    {
+        var s = _dashboard.Summary;
+
+        <div class="rg-premium-flow">
+            <section class="rg-premium-banner @ResolveSystemicBannerTone()" aria-label="Systemic posture">
+                <div class="rg-premium-banner__grid">
+                    <div>
+                        <div class="rg-premium-banner__eyebrow">Systemic posture</div>
+                        <h2 class="rg-premium-banner__headline">@BuildSystemicBannerHeadline()</h2>
+                        <p class="rg-premium-banner__detail">@BuildSystemicBannerDetail()</p>
+                    </div>
+                    <div class="rg-premium-banner__meta">
+                        <div class="rg-premium-banner__meta-label">Primary watchpoint</div>
+                        <div class="rg-premium-banner__meta-value">@BuildSystemicFocusLabel()</div>
+                        <div class="rg-premium-banner__meta-copy">@BuildSystemicFocusCopy()</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rg-premium-hero" aria-labelledby="systemic-risk-hero-title">
+                <div class="rg-premium-hero__grid">
+                    <div>
+                        <div class="rg-premium-hero__eyebrow">Supervision lane</div>
+                        <h1 id="systemic-risk-hero-title" class="rg-premium-hero__title">Track systemic pressure before institution risk turns into sector contagion.</h1>
+                        <p class="rg-premium-hero__subtitle">
+                            This workspace brings together sector pressure, contagion links, CAMELS posture, and intervention backlog
+                            so supervisors can focus on the institutions and clusters most likely to amplify instability.
+                        </p>
+                        <div class="rg-premium-badge-row">
+                            <span class="rg-premium-chip rg-premium-chip--info">@s.TotalEntities entities</span>
+                            <span class="rg-premium-chip @(s.SystemicRiskIndex > 60 ? "rg-premium-chip--danger" : s.SystemicRiskIndex > 30 ? "rg-premium-chip--warning" : "rg-premium-chip--success")">@s.SystemicRiskIndex.ToString("0.#") systemic index</span>
+                            <span class="rg-premium-chip @(s.TotalActiveFlags > 0 ? "rg-premium-chip--danger" : "rg-premium-chip--success")">@s.TotalActiveFlags active flags</span>
+                            <span class="rg-premium-chip @(_dashboard.Contagion.HighRiskClusters.Count > 0 ? "rg-premium-chip--warning" : "rg-premium-chip--success")">@_dashboard.Contagion.HighRiskClusters.Count high-risk clusters</span>
+                        </div>
+                    </div>
+                    <div class="rg-premium-hero__aside">
+                        <div class="rg-premium-note">
+                            <div class="rg-premium-note__label">Sector average CAR</div>
+                            <div class="rg-premium-note__value">@s.SectorAverageCar.ToString("0.##")%</div>
+                            <div class="rg-premium-note__copy">Average capital adequacy across the supervised sector versus the 10% regulatory floor.</div>
+                        </div>
+                        <div class="rg-premium-note">
+                            <div class="rg-premium-note__label">Pending actions</div>
+                            <div class="rg-premium-note__value">@_dashboard.PendingActions.Count</div>
+                            <div class="rg-premium-note__copy">Supervisory interventions currently open because warning flags already escalated into response action.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rg-premium-stat-grid" aria-label="Systemic summary metrics">
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Total supervised entities</div>
+                    <div class="rg-premium-stat__value rg-premium-stat__value--info">@s.TotalEntities</div>
+                    <div class="rg-premium-stat__note">Licensed institutions currently inside the regulator’s active surveillance perimeter.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Systemic risk index</div>
+                    <div class="rg-premium-stat__value @(s.SystemicRiskIndex > 60 ? "rg-premium-stat__value--danger" : s.SystemicRiskIndex > 30 ? "rg-premium-stat__value--warning" : "rg-premium-stat__value--success")">@s.SystemicRiskIndex.ToString("0.#")</div>
+                    <div class="rg-premium-stat__note">Composite of CAR, NPL, contagion, and concentration metrics across the sector.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Sector average CAR</div>
+                    <div class="rg-premium-stat__value @(s.SectorAverageCar < 10 ? "rg-premium-stat__value--danger" : s.SectorAverageCar < 15 ? "rg-premium-stat__value--warning" : "rg-premium-stat__value--success")">@s.SectorAverageCar.ToString("0.##")%</div>
+                    <div class="rg-premium-stat__note">Average solvency posture across institutions in the current systemic view.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Active warning flags</div>
+                    <div class="rg-premium-stat__value @(s.TotalActiveFlags > 0 ? "rg-premium-stat__value--danger" : "rg-premium-stat__value--success")">@s.TotalActiveFlags</div>
+                    <div class="rg-premium-stat__note">Early-warning triggers still awaiting supervisory follow-through.</div>
+                </article>
+            </section>
+
+        <!-- Summary KPI Cards -->
+        <div class="rg-grid rg-grid-2" style="margin-bottom:0.75rem;">
+            <div class="rg-card" style="text-align:center;border-left:4px solid #006B3F;">
+                <div style="font-size:0.8rem;color:#6b7280;">Total Supervised Entities</div>
+                <div style="font-size:1.75rem;font-weight:700;color:#006B3F;">@s.TotalEntities</div>
+                <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.25rem;">Licensed institutions under active CBN supervisory oversight</div>
+            </div>
+            <div class="rg-card" style="text-align:center;border-left:4px solid @(s.SystemicRiskIndex > 60 ? "#dc2626" : s.SystemicRiskIndex > 30 ? "#d97706" : "#059669");">
+                <div style="font-size:0.8rem;color:#6b7280;">Systemic Risk Index</div>
+                <div style="font-size:1.75rem;font-weight:700;color:@(s.SystemicRiskIndex > 60 ? "#dc2626" : s.SystemicRiskIndex > 30 ? "#d97706" : "#059669");">@s.SystemicRiskIndex.ToString("0.#")</div>
+                <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.25rem;">Weighted composite of CAR, NPL, contagion and concentration risk (0-100)</div>
+            </div>
+            <div class="rg-card" style="text-align:center;">
+                <div style="font-size:0.8rem;color:#6b7280;">Sector Average CAR</div>
+                <div style="font-size:1.75rem;font-weight:700;color:@(s.SectorAverageCar < 10 ? "#dc2626" : s.SectorAverageCar < 15 ? "#d97706" : "#059669");">@s.SectorAverageCar.ToString("0.##")%</div>
+                <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.25rem;">Mean capital adequacy ratio across all supervised entities. CBN minimum: 10%</div>
+            </div>
+            <div class="rg-card" style="text-align:center;">
+                <div style="font-size:0.8rem;color:#6b7280;">Active Warning Flags</div>
+                <div style="font-size:1.75rem;font-weight:700;color:@(s.TotalActiveFlags > 0 ? "#dc2626" : "#059669");">@s.TotalActiveFlags</div>
+                <div style="font-size:0.7rem;color:#9ca3af;margin-top:0.25rem;">Unresolved early-warning triggers requiring supervisory attention</div>
+            </div>
+        </div>
+
+        <!-- RAG Distribution -->
+        <div class="rg-card" style="margin-bottom:0.75rem;">
+            <h3 style="margin-top:0;">Entity Risk Distribution</h3>
+            <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Proportion of supervised entities by RAG rating. Green &lt; 30 risk score, Amber 30-60, Red &gt; 60.</p>
+            <div style="display:flex;gap:1rem;align-items:center;">
+                <div style="flex:1;display:flex;gap:4px;height:32px;">
+                    @if (s.TotalEntities > 0)
+                    {
+                        <div style="flex:@s.GreenCount;background:#059669;border-radius:4px 0 0 4px;display:flex;align-items:center;justify-content:center;color:white;font-weight:600;font-size:0.85rem;" title="Green: @s.GreenCount">@s.GreenCount</div>
+                        <div style="flex:@Math.Max(s.AmberCount, 0);background:#d97706;display:flex;align-items:center;justify-content:center;color:white;font-weight:600;font-size:0.85rem;" title="Amber: @s.AmberCount">@(s.AmberCount > 0 ? s.AmberCount.ToString() : "")</div>
+                        <div style="flex:@Math.Max(s.RedCount, 0);background:#dc2626;border-radius:0 4px 4px 0;display:flex;align-items:center;justify-content:center;color:white;font-weight:600;font-size:0.85rem;" title="Red: @s.RedCount">@(s.RedCount > 0 ? s.RedCount.ToString() : "")</div>
+                    }
+                </div>
+                <div style="font-size:0.8rem;color:#6b7280;white-space:nowrap;">
+                    <span style="color:#059669;">Green: @s.GreenCount</span> |
+                    <span style="color:#d97706;">Amber: @s.AmberCount</span> |
+                    <span style="color:#dc2626;">Red: @s.RedCount</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Systemic Early Warning Indicators -->
+        @if (_dashboard.SystemicIndicators.Count > 0)
+        {
+            <div class="rg-card" style="margin-bottom:0.75rem;border-left:4px solid #d97706;">
+                <h3 style="margin-top:0;">Systemic Early Warning Indicators</h3>
+                <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Sector-wide indicators that have breached their supervisory thresholds. Red indicators require immediate escalation.</p>
+                <div class="rg-table-wrap">
+                    <table class="rg-table">
+                        <thead>
+                            <tr>
+                                <th title="Red = immediate escalation, Amber = watch-list">Severity</th>
+                                <th title="Name of the systemic risk indicator being monitored">Indicator</th>
+                                <th title="What this indicator measures and why it matters">Description</th>
+                                <th title="Latest observed value for this indicator across the sector">Current</th>
+                                <th title="Supervisory breach threshold that triggered this warning">Threshold</th>
+                                <th title="Number of institutions contributing to this breach">Affected</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var indicator in _dashboard.SystemicIndicators)
+                            {
+                                <tr>
+                                    <td>
+                                        <span class="rg-badge @(indicator.Severity == RiskRating.Red ? "open" : "query")">@indicator.Severity</span>
+                                    </td>
+                                    <td><strong>@indicator.Title</strong></td>
+                                    <td style="font-size:0.85rem;">@indicator.Description</td>
+                                    <td>@indicator.CurrentValue.ToString("0.##")</td>
+                                    <td>@indicator.Threshold.ToString("0.##")</td>
+                                    <td>@indicator.AffectedEntities</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- Sector Heatmap: entities by risk score vs size -->
+        <div class="rg-card" style="margin-bottom:0.75rem;">
+            <h3 style="margin-top:0;">Entity Heatmap (Risk Score vs Size)</h3>
+            <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Each entity plotted by composite risk score against total asset size. Large + high-risk entities pose the greatest systemic threat.</p>
+            @if (_dashboard.HeatmapData.Count == 0)
+            {
+                <EmptyState Context="data" Size="sm"
+                            Heading="No heatmap data"
+                            Description="No entity heatmap data is available for the current period." />
+            }
+            else
+            {
+                <div class="rg-table-wrap">
+                    <table class="rg-table">
+                        <thead>
+                            <tr>
+                                <th title="RAG classification: Green (low), Amber (moderate), Red (high systemic risk)">Rating</th>
+                                <th title="Licensed institution name as registered with the CBN">Institution</th>
+                                <th title="CBN licence category (e.g. DMB, MFB, FC)">Licence</th>
+                                <th title="Composite risk score derived from CAMELS, NPL, and concentration metrics (0-100)">Risk Score</th>
+                                <th title="Total balance-sheet assets reported in the most recent prudential return">Total Assets</th>
+                                <th title="Number of active early-warning flags currently raised for this entity">Flags</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var entity in _dashboard.HeatmapData.OrderBy(h => h.RiskScore))
+                            {
+                                var bgColor = entity.Rating switch
+                                {
+                                    RiskRating.Red => "#fef2f2",
+                                    RiskRating.Amber => "#fffbeb",
+                                    _ => "transparent"
+                                };
+                                <tr style="background:@bgColor;">
+                                    <td>
+                                        <span class="rg-badge @(entity.Rating == RiskRating.Red ? "open" : entity.Rating == RiskRating.Amber ? "query" : "")"
+                                              style="@(entity.Rating == RiskRating.Green ? "background:#dcfce7;color:#166534;" : "")">
+                                            @entity.Rating
+                                        </span>
+                                    </td>
+                                    <td><strong>@entity.InstitutionName</strong></td>
+                                    <td>@entity.LicenceType</td>
+                                    <td>@entity.RiskScore.ToString("0.##")</td>
+                                    <td>@FormatNumber(entity.Size)</td>
+                                    <td>@entity.FlagCount</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        <!-- CAMELS Scores Table -->
+        <div class="rg-card" style="margin-bottom:0.75rem;">
+            <h3 style="margin-top:0;">CAMELS Composite Scores</h3>
+            <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Supervisory ratings per institution across Capital adequacy, Asset quality, Management, Earnings, Liquidity and Sensitivity to market risk. Scale: 1 (strong) to 5 (critical).</p>
+            @if (_dashboard.Scores.Count == 0)
+            {
+                <EmptyState Context="data" Size="sm"
+                            Heading="No CAMELS scores"
+                            Description="No CAMELS composite scores are available for the current period." />
+            }
+            else
+            {
+                <div class="rg-chart"><canvas id="camelsChart"></canvas></div>
+                <div class="rg-table-wrap" style="margin-top:0.5rem;">
+                    <table class="rg-table">
+                        <thead>
+                            <tr>
+                                <th title="Overall RAG classification based on composite CAMELS score">Rating</th>
+                                <th title="Licensed institution name">Institution</th>
+                                <th title="Capital adequacy — ability to absorb losses and maintain solvency (CAR, Tier 1 ratio)">C</th>
+                                <th title="Asset quality — soundness of loan portfolio and provisioning coverage (NPL ratio, write-offs)">A</th>
+                                <th title="Management — governance effectiveness and operational risk controls (compliance score, audit)">M</th>
+                                <th title="Earnings — profitability and sustainability of income (ROA, ROE, NIM, cost-to-income)">E</th>
+                                <th title="Liquidity — ability to meet short-term obligations (LCR, NSFR, liquid assets ratio)">L</th>
+                                <th title="Sensitivity to market risk — exposure to FX, interest rate, and portfolio concentration">S</th>
+                                <th title="Weighted average of all six CAMELS components. Lower is stronger.">Composite</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var score in _dashboard.Scores)
+                            {
+                                var bgColor = score.Rating switch
+                                {
+                                    RiskRating.Red => "#fef2f2",
+                                    RiskRating.Amber => "#fffbeb",
+                                    _ => "transparent"
+                                };
+                                <tr style="background:@bgColor;">
+                                    <td>
+                                        <span class="rg-badge @(score.Rating == RiskRating.Red ? "open" : score.Rating == RiskRating.Amber ? "query" : "")"
+                                              style="@(score.Rating == RiskRating.Green ? "background:#dcfce7;color:#166534;" : "")">
+                                            @score.Rating
+                                        </span>
+                                    </td>
+                                    <td><strong>@score.InstitutionName</strong></td>
+                                    <td>@score.Capital.ToString("0.#")</td>
+                                    <td>@score.AssetQuality.ToString("0.#")</td>
+                                    <td>@score.Management.ToString("0.#")</td>
+                                    <td>@score.Earnings.ToString("0.#")</td>
+                                    <td>@score.Liquidity.ToString("0.#")</td>
+                                    <td>@score.Sensitivity.ToString("0.#")</td>
+                                    <td style="font-weight:700;">@score.Composite.ToString("0.##")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+
+        <!-- Contagion Analysis -->
+        @if (_dashboard.Contagion.Links.Count > 0)
+        {
+            <div class="rg-card" style="margin-bottom:0.75rem;border-left:4px solid #7c3aed;">
+                <h3 style="margin-top:0;">Contagion Network Analysis</h3>
+                <p style="color:#6b7280;font-size:0.85rem;margin:0 0 0.5rem;">
+                    @_dashboard.Contagion.ClusterCount high-risk cluster(s) identified based on CAR correlation analysis (threshold: 0.7+).
+                </p>
+
+                @if (_dashboard.Contagion.HighRiskClusters.Count > 0)
+                {
+                    <div style="margin-bottom:0.5rem;">
+                        <strong>High-Risk Clusters (correlation &gt; 0.85):</strong>
+                        <ul style="margin:0.25rem 0 0 1.5rem;">
+                            @foreach (var cluster in _dashboard.Contagion.HighRiskClusters)
+                            {
+                                <li style="color:#7c3aed;">@cluster</li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                <div class="rg-table-wrap">
+                    <table class="rg-table">
+                        <thead>
+                            <tr>
+                                <th title="Institution whose CAR movement drives the correlated pair">Source</th>
+                                <th title="Institution whose CAR movement follows the source entity">Target</th>
+                                <th title="Pearson correlation coefficient of CAR time series (0-1). Higher = stronger co-movement.">Correlation</th>
+                                <th title="High (&gt;0.85): near-identical CAR movement, possible shared exposures. Moderate (0.7-0.85): significant co-movement worth monitoring.">Risk Level</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var link in _dashboard.Contagion.Links.Take(15))
+                            {
+                                var riskLevel = link.CorrelationStrength > 0.85m ? "High" : link.CorrelationStrength > 0.7m ? "Moderate" : "Low";
+                                var riskColor = link.CorrelationStrength > 0.85m ? "#dc2626" : "#d97706";
+                                <tr>
+                                    <td>@link.SourceName</td>
+                                    <td>@link.TargetName</td>
+                                    <td>@link.CorrelationStrength.ToString("0.###")</td>
+                                    <td style="color:@riskColor;font-weight:600;">@riskLevel</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- Institutional Warning Flags -->
+        @if (_dashboard.InstitutionalFlags.Count > 0)
+        {
+            <div class="rg-card" style="margin-bottom:0.75rem;">
+                <h3 style="margin-top:0;">Institutional Warning Flags (@_dashboard.InstitutionalFlags.Count)</h3>
+                <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Active early-warning triggers raised by the automated prudential surveillance engine. Red flags mandate supervisory follow-up within 48 hours.</p>
+                <div class="rg-table-wrap">
+                    <table class="rg-table">
+                        <thead>
+                            <tr>
+                                <th title="Red = breach requiring immediate supervisory action, Amber = deteriorating trend on watch">Severity</th>
+                                <th title="Licensed institution that triggered the warning flag">Institution</th>
+                                <th title="System flag code identifying the specific rule that fired (e.g. CAR_BREACH, NPL_SPIKE)">Flag</th>
+                                <th title="Human-readable explanation of why this flag was raised">Message</th>
+                                <th title="Date and time when the surveillance engine first detected this breach">Triggered</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var flag in _dashboard.InstitutionalFlags)
+                            {
+                                <tr>
+                                    <td>
+                                        <span class="rg-badge @(flag.Severity == EarlyWarningSeverity.Red ? "open" : "query")">@flag.Severity</span>
+                                    </td>
+                                    <td>@flag.InstitutionName</td>
+                                    <td style="font-family:monospace;font-size:0.8rem;">@flag.FlagCode</td>
+                                    <td>@flag.Message</td>
+                                    <td>@flag.TriggeredAt.ToString("dd MMM yyyy HH:mm")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- Pending Supervisory Actions -->
+        @if (_dashboard.PendingActions.Count > 0)
+        {
+            <div class="rg-card" style="border-left:4px solid #dc2626;">
+                <h3 style="margin-top:0;">Pending Supervisory Actions (@_dashboard.PendingActions.Count)</h3>
+                <p style="font-size:0.78rem;color:#9ca3af;margin:-0.25rem 0 0.65rem;">Regulatory interventions initiated in response to warning flags. Overdue actions auto-escalate to the next supervisory tier.</p>
+                <div class="rg-table-wrap">
+                    <table class="rg-table">
+                        <thead>
+                            <tr>
+                                <th title="Institution subject to the supervisory action">Institution</th>
+                                <th title="The warning flag code that triggered this supervisory response">Trigger</th>
+                                <th title="Type of intervention: Formal letter, On-site inspection, Sanction, or Remediation order">Action</th>
+                                <th title="Current escalation tier: L1 (desk review), L2 (formal notice), L3 (enforcement)">Escalation</th>
+                                <th title="Current processing status of the supervisory action">Status</th>
+                                <th title="Deadline for completing this action before automatic escalation">Due Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var action in _dashboard.PendingActions)
+                            {
+                                <tr>
+                                    <td><strong>@action.InstitutionName</strong></td>
+                                    <td style="font-family:monospace;font-size:0.8rem;">@action.TriggerFlag</td>
+                                    <td>@action.ActionType</td>
+                                    <td>@action.EscalationLevel</td>
+                                    <td><span class="rg-badge open">@action.Status</span></td>
+                                    <td>@action.DueDate?.ToString("dd MMM yyyy")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        </div>
+    }
+</SectionErrorBoundary>
+
+@code {
+    private string _regulatorCode = string.Empty;
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private Exception? _loadException;
+    private SystemicRiskDashboard? _dashboard;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorCode = session.RegulatorCode;
+        await Load();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_loading || _chartsRendered || _dashboard is null || _dashboard.Scores.Count == 0)
+            return;
+
+        try
+        {
+            // CAMELS bar chart -- show composite scores per institution
+            var topEntities = _dashboard.Scores
+                .OrderBy(s => s.Composite)
+                .Take(20)
+                .ToList();
+
+            await Charts.RenderBarChart("camelsChart", new TrendData
+            {
+                Labels = topEntities.Select(s => s.InstitutionName.Length > 20
+                    ? s.InstitutionName[..20] + "..."
+                    : s.InstitutionName).ToList(),
+                Datasets =
+                {
+                    new TrendDataset
+                    {
+                        Label = "CAMELS Composite",
+                        Data = topEntities.Select(s => s.Composite).ToList(),
+                        BackgroundColor = "#0f766e",
+                        BorderColor = "#0f766e"
+                    }
+                }
+            });
+        }
+        catch
+        {
+            // Chart may fail if canvas not yet in DOM
+        }
+
+        _chartsRendered = true;
+    }
+
+    private async Task Load()
+    {
+        if (string.IsNullOrWhiteSpace(_regulatorCode))
+        {
+            Toast.Error("Regulator context is unavailable.");
+            return;
+        }
+
+        _loading = true;
+        _chartsRendered = false;
+        _loadException = null;
+        StateHasChanged();
+
+        try
+        {
+            _dashboard = await SystemicRiskService.GetDashboard(_regulatorCode);
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+            Toast.Error($"Failed to load systemic risk dashboard: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string FormatNumber(decimal value)
+    {
+        if (value >= 1_000_000_000_000m) return $"{value / 1_000_000_000_000m:0.##}T";
+        if (value >= 1_000_000_000m) return $"{value / 1_000_000_000m:0.##}B";
+        if (value >= 1_000_000m) return $"{value / 1_000_000m:0.##}M";
+        if (value >= 1_000m) return $"{value / 1_000m:0.##}K";
+        return value.ToString("N0");
+    }
+
+    private string ResolveSystemicBannerTone()
+    {
+        if (_dashboard is null)
+        {
+            return "rg-premium-banner--info";
+        }
+
+        var summary = _dashboard.Summary;
+        return summary.SystemicRiskIndex > 60 || summary.TotalActiveFlags > 0
+            ? "rg-premium-banner--danger"
+            : summary.SystemicRiskIndex > 30 || _dashboard.Contagion.HighRiskClusters.Count > 0
+                ? "rg-premium-banner--warning"
+                : "rg-premium-banner--success";
+    }
+
+    private string BuildSystemicBannerHeadline()
+    {
+        if (_dashboard is null)
+        {
+            return "Systemic surveillance posture is refreshing.";
+        }
+
+        var summary = _dashboard.Summary;
+        return summary.SystemicRiskIndex > 60
+            ? "Systemic pressure is elevated across the supervised estate."
+            : summary.TotalActiveFlags > 0
+                ? $"{summary.TotalActiveFlags} active warning flag{(summary.TotalActiveFlags == 1 ? string.Empty : "s")} are shaping current sector priorities."
+                : "Sector-wide systemic posture is currently stable in the active regulator scope.";
+    }
+
+    private string BuildSystemicBannerDetail()
+    {
+        if (_dashboard is null)
+        {
+            return "Refresh the current regulator scope to load systemic indicators, contagion links, and intervention posture.";
+        }
+
+        var summary = _dashboard.Summary;
+        return $"The sector currently contains {summary.RedCount} red-rated and {summary.AmberCount} amber-rated institutions, with {_dashboard.Contagion.ClusterCount} contagion cluster(s) visible in the active lens.";
+    }
+
+    private string BuildSystemicFocusLabel()
+    {
+        if (_dashboard is null)
+        {
+            return "Awaiting data";
+        }
+
+        return _dashboard.HeatmapData
+            .OrderByDescending(h => h.RiskScore)
+            .Select(h => h.InstitutionName)
+            .FirstOrDefault() ?? "Sector watchlist";
+    }
+
+    private string BuildSystemicFocusCopy()
+    {
+        if (_dashboard is null)
+        {
+            return "Systemic focus will appear once the surveillance data is loaded.";
+        }
+
+        var highest = _dashboard.HeatmapData.OrderByDescending(h => h.RiskScore).FirstOrDefault();
+        return highest is null
+            ? "No entity-level heatmap data is currently available."
+            : $"Highest visible composite risk score: {highest.RiskScore:0.#}, with {highest.FlagCount} active flag(s) and total assets of {FormatNumber(highest.Size)}.";
+    }
+}

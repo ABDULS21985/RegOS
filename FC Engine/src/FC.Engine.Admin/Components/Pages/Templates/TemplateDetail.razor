@@ -2,6 +2,7 @@
 @using Microsoft.AspNetCore.Authorization
 @using Microsoft.AspNetCore.Components.Authorization
 @attribute [Authorize]
+@using FC.Engine.Admin.Utilities
 @using FC.Engine.Domain.Abstractions
 @using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.Metadata
@@ -17,46 +18,71 @@
 @inject ToastService Toast
 @inject DialogService Dialog
 
-<div class="detail-page">
+<PageHeader Title="@(_detail?.Name ?? ReturnCode)"
+            Subtitle="@(_detail != null ? $"{_detail.ReturnCode} — {_detail.Frequency} template · {_detail.StructuralCategory} structure" : null)"
+            StatusBadge="@_activeVersion?.Status"
+            StatusVariant="@(_activeVersion?.Status switch { "Published" => "success", "Review" => "warning", "Draft" => "neutral", _ => "neutral" })"
+            BackUrl="/templates">
+    <PrimaryAction>
+        @if (_activeVersion?.Status == "Draft")
+        {
+            <AuthorizeView Roles="Admin,Approver">
+                <Authorized>
+                    <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="SubmitForReview">Submit for Review</button>
+                </Authorized>
+            </AuthorizeView>
+        }
+        @if (_activeVersion?.Status == "Review")
+        {
+            <AuthorizeView Roles="Admin">
+                <Authorized>
+                    <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="PreviewDdl">Preview DDL</button>
+                    <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="PublishVersion">Publish</button>
+                </Authorized>
+            </AuthorizeView>
+        }
+        @if (_activeVersion?.Status == "Published")
+        {
+            <AuthorizeView Roles="Admin,Approver">
+                <Authorized>
+                    <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="CreateDraftVersion">New Draft</button>
+                </Authorized>
+            </AuthorizeView>
+        }
+    </PrimaryAction>
+</PageHeader>
 
-    <!-- Breadcrumb -->
-    <nav class="detail-breadcrumb" aria-label="Breadcrumb">
-        <a href="/">Dashboard</a>
-        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
-        <a href="/templates">Templates</a>
-        <span class="detail-breadcrumb-sep" aria-hidden="true">/</span>
-        <span class="detail-breadcrumb-current">@ReturnCode</span>
-    </nav>
+<div class="fc-detail-page">
 
     @if (_loading)
     {
-        <div class="skel-detail" role="status" aria-label="Loading template">
-            <div class="skel-detail-hero">
-                <div class="skel skel-text-xl" style="width:200px;"></div>
-                <div class="skel skel-text" style="width:300px;"></div>
-                <div style="display:flex;gap:var(--space-3);margin-top:var(--space-2);">
-                    <div class="skel" style="width:80px;height:24px;border-radius:var(--radius-pill);"></div>
-                    <div class="skel" style="width:70px;height:24px;border-radius:var(--radius-pill);"></div>
-                    <div class="skel" style="width:90px;height:24px;border-radius:var(--radius-pill);"></div>
+        <div class="fc-skel-detail" role="status" aria-label="Loading template">
+            <div class="fc-skel-detail-hero">
+                <div class="fc-skel fc-skel-text-xl" style="--skel-w:200px"></div>
+                <div class="fc-skel fc-skel-text" style="--skel-w:300px"></div>
+                <div class="fc-flex-row--gap3 fc-mt-2">
+                    <div class="fc-skel" style="--skel-w:80px;--skel-h:24px"></div>
+                    <div class="fc-skel" style="--skel-w:70px;--skel-h:24px"></div>
+                    <div class="fc-skel" style="--skel-w:90px;--skel-h:24px"></div>
                 </div>
             </div>
-            <div class="skel-detail-tabs">
+            <div class="fc-skel-detail-tabs">
                 @for (var i = 0; i < 5; i++)
                 {
-                    <div class="skel skel-detail-tab" style="width:@(60 + i * 10)px;"></div>
+                    <div class="fc-skel fc-skel-detail-tab" style="--skel-w:@(60 + i * 10)px"></div>
                 }
             </div>
-            <div class="skel-detail-section">
+            <div class="fc-skel-detail-section">
                 @for (var i = 0; i < 4; i++)
                 {
-                    <div class="skel skel-text" style="width:@(40 + i * 20)%;"></div>
+                    <div class="fc-skel fc-skel-text" style="--skel-w:@(40 + i * 20)%"></div>
                 }
             </div>
         </div>
     }
     else if (_detail == null)
     {
-        <div class="detail-alert detail-alert-error">
+        <div class="fc-alert fc-alert--inline fc-alert--error">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
             Template not found: @ReturnCode
         </div>
@@ -68,163 +94,107 @@
             <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@_errorMessage" Dismissible="true" OnDismiss="() => _errorMessage = null" />
         }
 
-        <!-- Hero Header -->
-        <section class="detail-hero" role="banner">
-            <div class="detail-hero-left">
-                <div class="detail-hero-title-row">
-                    <h1 class="detail-hero-title">@_detail.Name</h1>
-                    @if (_activeVersion != null)
-                    {
-                        <span class="detail-status detail-status-@_activeVersion.Status.ToLowerInvariant()">
-                            <span class="detail-status-dot" aria-hidden="true"></span>
-                            @_activeVersion.Status
-                        </span>
-                    }
-                </div>
-                <p class="detail-hero-subtitle">@_detail.ReturnCode &mdash; @_detail.Frequency template &middot; @_detail.StructuralCategory structure</p>
-
-                <div class="detail-hero-meta">
-                    <div class="detail-meta-item">
-                        <span class="detail-meta-label">Return Code</span>
-                        <span class="detail-meta-value"><code>@_detail.ReturnCode</code></span>
-                    </div>
-                    <div class="detail-meta-item">
-                        <span class="detail-meta-label">Category</span>
-                        <span class="detail-meta-value">@_detail.StructuralCategory</span>
-                    </div>
-                    <div class="detail-meta-item">
-                        <span class="detail-meta-label">Version</span>
-                        <span class="detail-meta-value">v@(_activeVersion?.VersionNumber)</span>
-                    </div>
-                    <div class="detail-meta-item">
-                        <span class="detail-meta-label">Fields</span>
-                        <span class="detail-meta-value">@(_activeVersion?.FieldCount ?? 0)</span>
-                    </div>
-                    <div class="detail-meta-item">
-                        <span class="detail-meta-label">Formulas</span>
-                        <span class="detail-meta-value">@(_activeVersion?.FormulaCount ?? 0)</span>
-                    </div>
-                </div>
+        <!-- Template meta strip -->
+        <div class="fc-detail-meta-strip">
+            <div class="fc-detail-meta-item">
+                <span class="fc-detail-meta-label">Return Code</span>
+                <span class="fc-detail-meta-value"><code>@_detail.ReturnCode</code></span>
             </div>
-
-            <div class="detail-hero-actions">
-                @if (_activeVersion?.Status == "Draft")
-                {
-                    <AuthorizeView Roles="Admin,Approver" Context="submitAuth">
-                        <Authorized Context="sAuth">
-                            <button class="btn btn-outline btn-sm" @onclick="SubmitForReview">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
-                                Submit for Review
-                            </button>
-                        </Authorized>
-                    </AuthorizeView>
-                }
-                @if (_activeVersion?.Status == "Review")
-                {
-                    <AuthorizeView Roles="Admin" Context="publishAuth">
-                        <Authorized Context="pAuth">
-                            <button class="btn btn-outline btn-sm" @onclick="PreviewDdl">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-                                Preview DDL
-                            </button>
-                            <button class="btn btn-primary btn-sm" @onclick="PublishVersion">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                                Publish
-                            </button>
-                        </Authorized>
-                    </AuthorizeView>
-                }
-                @if (_activeVersion?.Status == "Published")
-                {
-                    <AuthorizeView Roles="Admin,Approver" Context="versionAuth">
-                        <Authorized Context="vAuth">
-                            <button class="btn btn-primary btn-sm" @onclick="CreateDraftVersion">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                                New Draft
-                            </button>
-                        </Authorized>
-                    </AuthorizeView>
-                }
+            <div class="fc-detail-meta-item">
+                <span class="fc-detail-meta-label">Category</span>
+                <span class="fc-detail-meta-value">@_detail.StructuralCategory</span>
             </div>
-        </section>
+            <div class="fc-detail-meta-item">
+                <span class="fc-detail-meta-label">Version</span>
+                <span class="fc-detail-meta-value">v@(_activeVersion?.VersionNumber)</span>
+            </div>
+            <div class="fc-detail-meta-item">
+                <span class="fc-detail-meta-label">Fields</span>
+                <span class="fc-detail-meta-value">@(_activeVersion?.FieldCount ?? 0)</span>
+            </div>
+            <div class="fc-detail-meta-item">
+                <span class="fc-detail-meta-label">Formulas</span>
+                <span class="fc-detail-meta-value">@(_activeVersion?.FormulaCount ?? 0)</span>
+            </div>
+        </div>
 
         <!-- Tabbed Navigation -->
-        <div class="detail-tabs" role="tablist" aria-label="Template sections">
-            <button class="detail-tab @(_activeTab == "overview" ? "detail-tab-active" : "")"
+        <div class="fc-tabs" role="tablist" aria-label="Template sections">
+            <button class="fc-tab @(_activeTab == "overview" ? "fc-tab-active" : "")"
                     role="tab" aria-selected="@(_activeTab == "overview")" @onclick='() => _activeTab = "overview"'>
                 Overview
             </button>
-            <button class="detail-tab @(_activeTab == "fields" ? "detail-tab-active" : "")"
+            <button class="fc-tab @(_activeTab == "fields" ? "fc-tab-active" : "")"
                     role="tab" aria-selected="@(_activeTab == "fields")" @onclick='() => _activeTab = "fields"'>
                 Fields
-                <span class="detail-tab-badge">@(_activeVersion?.FieldCount ?? 0)</span>
+                <span class="fc-tab-badge">@(_activeVersion?.FieldCount ?? 0)</span>
             </button>
-            <button class="detail-tab @(_activeTab == "formulas" ? "detail-tab-active" : "")"
+            <button class="fc-tab @(_activeTab == "formulas" ? "fc-tab-active" : "")"
                     role="tab" aria-selected="@(_activeTab == "formulas")" @onclick='() => _activeTab = "formulas"'>
                 Formulas
-                <span class="detail-tab-badge">@(_activeVersion?.FormulaCount ?? 0)</span>
+                <span class="fc-tab-badge">@(_activeVersion?.FormulaCount ?? 0)</span>
             </button>
             @if (_activeVersion?.ItemCodes.Any() == true)
             {
-                <button class="detail-tab @(_activeTab == "itemcodes" ? "detail-tab-active" : "")"
+                <button class="fc-tab @(_activeTab == "itemcodes" ? "fc-tab-active" : "")"
                         role="tab" aria-selected="@(_activeTab == "itemcodes")" @onclick='() => _activeTab = "itemcodes"'>
                     Item Codes
-                    <span class="detail-tab-badge">@_activeVersion.ItemCodes.Count</span>
+                    <span class="fc-tab-badge">@_activeVersion.ItemCodes.Count</span>
                 </button>
             }
-            <button class="detail-tab @(_activeTab == "versions" ? "detail-tab-active" : "")"
+            <button class="fc-tab @(_activeTab == "versions" ? "fc-tab-active" : "")"
                     role="tab" aria-selected="@(_activeTab == "versions")" @onclick='() => _activeTab = "versions"'>
                 Versions
-                <span class="detail-tab-badge">@_detail.Versions.Count</span>
+                <span class="fc-tab-badge">@_detail.Versions.Count</span>
             </button>
-            <button class="detail-tab @(_activeTab == "settings" ? "detail-tab-active" : "")"
+            <button class="fc-tab @(_activeTab == "settings" ? "fc-tab-active" : "")"
                     role="tab" aria-selected="@(_activeTab == "settings")" @onclick='() => _activeTab = "settings"'>
                 Settings
             </button>
         </div>
 
         <!-- Tab: Overview -->
-        <div class="detail-tab-content @(_activeTab == "overview" ? "detail-tab-content-active" : "")" role="tabpanel">
-            <div class="detail-section">
-                <div class="detail-section-header">
+        <div class="fc-tab-content @(_activeTab == "overview" ? "fc-tab-content-active" : "")" role="tabpanel">
+            <div class="fc-section">
+                <div class="fc-section-header">
                     <h3>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
                         Template Overview
                     </h3>
                 </div>
-                <div class="detail-section-body">
-                    <div class="detail-info-grid">
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">Return Code</span>
-                            <span class="detail-info-value"><code>@_detail.ReturnCode</code></span>
+                <div class="fc-section-body">
+                    <div class="fc-detail-info-grid">
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">Return Code</span>
+                            <span class="fc-detail-info-value"><code>@_detail.ReturnCode</code></span>
                         </div>
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">Template Name</span>
-                            <span class="detail-info-value">@_detail.Name</span>
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">Template Name</span>
+                            <span class="fc-detail-info-value">@_detail.Name</span>
                         </div>
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">Frequency</span>
-                            <span class="detail-info-value">@_detail.Frequency</span>
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">Frequency</span>
+                            <span class="fc-detail-info-value">@_detail.Frequency</span>
                         </div>
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">Structural Category</span>
-                            <span class="detail-info-value">
-                                <span class="list-badge list-badge-@_detail.StructuralCategory.ToLowerInvariant()">@_detail.StructuralCategory</span>
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">Structural Category</span>
+                            <span class="fc-detail-info-value">
+                                <span class="fc-badge @CategoryBadge(_detail.StructuralCategory)">@_detail.StructuralCategory</span>
                             </span>
                         </div>
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">Physical Table</span>
-                            <span class="detail-info-value"><code>@_detail.PhysicalTableName</code></span>
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">Physical Table</span>
+                            <span class="fc-detail-info-value"><code>@_detail.PhysicalTableName</code></span>
                         </div>
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">Created</span>
-                            <span class="detail-info-value">@_detail.CreatedAt.ToString("d MMM yyyy")</span>
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">Created</span>
+                            <span class="fc-detail-info-value">@_detail.CreatedAt.ToString("d MMM yyyy")</span>
                         </div>
                         @if (_detail.Description != null)
                         {
-                            <div class="detail-info-item" style="grid-column: span 2;">
-                                <span class="detail-info-label">Description</span>
-                                <span class="detail-info-value">@_detail.Description</span>
+                            <div class="fc-detail-info-item fc-grid-span-2">
+                                <span class="fc-detail-info-label">Description</span>
+                                <span class="fc-detail-info-value">@_detail.Description</span>
                             </div>
                         }
                     </div>
@@ -233,54 +203,54 @@
 
             @if (_activeVersion != null)
             {
-                <div class="detail-section">
-                    <div class="detail-section-header">
+                <div class="fc-section">
+                    <div class="fc-section-header">
                         <h3>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
                             Active Version Summary
                         </h3>
-                        <span class="detail-status detail-status-@_activeVersion.Status.ToLowerInvariant()">
-                            <span class="detail-status-dot" aria-hidden="true"></span>
+                        <span class="fc-detail-status fc-detail-status-@_activeVersion.Status.ToLowerInvariant()">
+                            <span class="fc-detail-status-dot" aria-hidden="true"></span>
                             v@(_activeVersion.VersionNumber) — @_activeVersion.Status
                         </span>
                     </div>
-                    <div class="detail-section-body">
-                        <div class="detail-info-grid">
-                            <div class="detail-info-item">
-                                <span class="detail-info-label">Version</span>
-                                <span class="detail-info-value">v@(_activeVersion.VersionNumber)</span>
+                    <div class="fc-section-body">
+                        <div class="fc-detail-info-grid">
+                            <div class="fc-detail-info-item">
+                                <span class="fc-detail-info-label">Version</span>
+                                <span class="fc-detail-info-value">v@(_activeVersion.VersionNumber)</span>
                             </div>
-                            <div class="detail-info-item">
-                                <span class="detail-info-label">Status</span>
-                                <span class="detail-info-value">@_activeVersion.Status</span>
+                            <div class="fc-detail-info-item">
+                                <span class="fc-detail-info-label">Status</span>
+                                <span class="fc-detail-info-value">@_activeVersion.Status</span>
                             </div>
-                            <div class="detail-info-item">
-                                <span class="detail-info-label">Fields</span>
-                                <span class="detail-info-value">@_activeVersion.FieldCount</span>
+                            <div class="fc-detail-info-item">
+                                <span class="fc-detail-info-label">Fields</span>
+                                <span class="fc-detail-info-value">@_activeVersion.FieldCount</span>
                             </div>
-                            <div class="detail-info-item">
-                                <span class="detail-info-label">Formulas</span>
-                                <span class="detail-info-value">@_activeVersion.FormulaCount</span>
+                            <div class="fc-detail-info-item">
+                                <span class="fc-detail-info-label">Formulas</span>
+                                <span class="fc-detail-info-value">@_activeVersion.FormulaCount</span>
                             </div>
                             @if (_activeVersion.ApprovedBy != null)
                             {
-                                <div class="detail-info-item">
-                                    <span class="detail-info-label">Approved By</span>
-                                    <span class="detail-info-value">@_activeVersion.ApprovedBy</span>
+                                <div class="fc-detail-info-item">
+                                    <span class="fc-detail-info-label">Approved By</span>
+                                    <span class="fc-detail-info-value">@_activeVersion.ApprovedBy</span>
                                 </div>
                             }
                             @if (_activeVersion.PublishedAt.HasValue)
                             {
-                                <div class="detail-info-item">
-                                    <span class="detail-info-label">Published</span>
-                                    <span class="detail-info-value">@_activeVersion.PublishedAt.Value.ToString("d MMM yyyy, HH:mm")</span>
+                                <div class="fc-detail-info-item">
+                                    <span class="fc-detail-info-label">Published</span>
+                                    <span class="fc-detail-info-value">@_activeVersion.PublishedAt.Value.ToString("d MMM yyyy, HH:mm")</span>
                                 </div>
                             }
                             @if (_activeVersion.ChangeSummary != null)
                             {
-                                <div class="detail-info-item" style="grid-column: span 2;">
-                                    <span class="detail-info-label">Change Summary</span>
-                                    <span class="detail-info-value">@_activeVersion.ChangeSummary</span>
+                                <div class="fc-detail-info-item fc-grid-span-2">
+                                    <span class="fc-detail-info-label">Change Summary</span>
+                                    <span class="fc-detail-info-value">@_activeVersion.ChangeSummary</span>
                                 </div>
                             }
                         </div>
@@ -290,16 +260,16 @@
         </div>
 
         <!-- Tab: Fields -->
-        <div class="detail-tab-content @(_activeTab == "fields" ? "detail-tab-content-active" : "")" role="tabpanel">
-            <div class="detail-section">
-                <div class="detail-section-header">
+        <div class="fc-tab-content @(_activeTab == "fields" ? "fc-tab-content-active" : "")" role="tabpanel">
+            <div class="fc-section">
+                <div class="fc-section-header">
                     <h3>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
                         Template Fields (@(_activeVersion?.Fields.Count ?? 0))
                     </h3>
                     @if (_activeVersion?.Status == "Draft")
                     {
-                        <button class="btn btn-primary btn-sm" @onclick="ShowAddField">
+                        <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="ShowAddField">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                             Add Field
                         </button>
@@ -308,67 +278,67 @@
 
                 @if (_showAddField && _activeVersion?.Status == "Draft")
                 {
-                    <div class="detail-add-panel">
+                    <div class="fc-detail-add-panel">
                         <h3>Add New Field</h3>
-                        <div class="detail-add-grid">
-                            <div class="detail-float-field">
-                                <input class="detail-float-input" placeholder=" " @bind="_newField.FieldName" />
-                                <label class="detail-float-label">Field Name</label>
+                        <div class="fc-detail-add-grid">
+                            <div class="fc-detail-float-field">
+                                <input class="fc-detail-float-input" placeholder=" " @bind="_newField.FieldName" />
+                                <label class="fc-detail-float-label">Field Name</label>
                             </div>
-                            <div class="detail-float-field">
-                                <input class="detail-float-input" placeholder=" " @bind="_newField.DisplayName" />
-                                <label class="detail-float-label">Display Name</label>
+                            <div class="fc-detail-float-field">
+                                <input class="fc-detail-float-input" placeholder=" " @bind="_newField.DisplayName" />
+                                <label class="fc-detail-float-label">Display Name</label>
                             </div>
-                            <div class="detail-float-field">
-                                <input class="detail-float-input" placeholder=" " @bind="_newField.XmlElementName" />
-                                <label class="detail-float-label">XML Element</label>
+                            <div class="fc-detail-float-field">
+                                <input class="fc-detail-float-input" placeholder=" " @bind="_newField.XmlElementName" />
+                                <label class="fc-detail-float-label">XML Element</label>
                             </div>
-                            <div class="detail-float-field">
-                                <input class="detail-float-input" placeholder=" " @bind="_newField.LineCode" />
-                                <label class="detail-float-label">Line Code</label>
+                            <div class="fc-detail-float-field">
+                                <input class="fc-detail-float-input" placeholder=" " @bind="_newField.LineCode" />
+                                <label class="fc-detail-float-label">Line Code</label>
                             </div>
-                            <div class="detail-float-field">
-                                <select class="detail-float-input" @bind="_newFieldDataType">
+                            <div class="fc-detail-float-field">
+                                <select class="fc-detail-float-input" @bind="_newFieldDataType">
                                     @foreach (var dt in Enum.GetValues<FieldDataType>())
                                     {
                                         <option value="@dt">@dt</option>
                                     }
                                 </select>
-                                <label class="detail-float-label">Data Type</label>
+                                <label class="fc-detail-float-label">Data Type</label>
                             </div>
-                            <div class="detail-float-field">
-                                <input type="number" class="detail-float-input" placeholder=" " @bind="_newField.FieldOrder" />
-                                <label class="detail-float-label">Field Order</label>
+                            <div class="fc-detail-float-field">
+                                <input type="number" class="fc-detail-float-input" placeholder=" " @bind="_newField.FieldOrder" />
+                                <label class="fc-detail-float-label">Field Order</label>
                             </div>
-                            <div class="detail-float-field">
-                                <input class="detail-float-input" placeholder=" " @bind="_newField.SectionName" />
-                                <label class="detail-float-label">Section (optional)</label>
+                            <div class="fc-detail-float-field">
+                                <input class="fc-detail-float-input" placeholder=" " @bind="_newField.SectionName" />
+                                <label class="fc-detail-float-label">Section (optional)</label>
                             </div>
-                            <div class="detail-float-field">
-                                <select class="detail-float-input" @bind="_newFieldRequired">
+                            <div class="fc-detail-float-field">
+                                <select class="fc-detail-float-input" @bind="_newFieldRequired">
                                     <option value="false">No</option>
                                     <option value="true">Yes</option>
                                 </select>
-                                <label class="detail-float-label">Required</label>
+                                <label class="fc-detail-float-label">Required</label>
                             </div>
                         </div>
-                        <div class="detail-add-actions">
-                            <button class="btn btn-primary btn-sm" @onclick="AddField">
+                        <div class="fc-detail-add-actions">
+                            <button class="fc-btn fc-btn--primary fc-btn--sm" @onclick="AddField">
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
                                 Add Field
                             </button>
-                            <button class="btn btn-outline btn-sm" @onclick="() => _showAddField = false">Cancel</button>
+                            <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="() => _showAddField = false">Cancel</button>
                         </div>
                     </div>
                 }
 
                 @if (_activeVersion?.Fields.Any() == true)
                 {
-                    <div style="overflow-x:auto;">
-                        <table class="detail-field-table">
+                    <div class="fc-overflow-x">
+                        <table class="fc-detail-field-table">
                             <thead>
                                 <tr>
-                                    <th style="width:36px;" aria-label="Reorder"></th>
+                                    <th class="fc-th-reorder" aria-label="Reorder"></th>
                                     <th>#</th>
                                     <th>Field Name</th>
                                     <th>Display Name</th>
@@ -383,14 +353,14 @@
                                 @foreach (var f in _activeVersion.Fields)
                                 {
                                     <tr>
-                                        <td class="detail-field-drag" aria-label="Drag to reorder">
+                                        <td class="fc-detail-field-drag" aria-label="Drag to reorder">
                                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="8" y2="6.01"/><line x1="8" y1="12" x2="8" y2="12.01"/><line x1="8" y1="18" x2="8" y2="18.01"/><line x1="16" y1="6" x2="16" y2="6.01"/><line x1="16" y1="12" x2="16" y2="12.01"/><line x1="16" y1="18" x2="16" y2="18.01"/></svg>
                                         </td>
                                         <td>@f.FieldOrder</td>
                                         <td><code>@f.FieldName</code></td>
                                         <td>@f.DisplayName</td>
                                         <td>@f.LineCode</td>
-                                        <td><span class="list-badge list-badge-info">@f.DataType</span></td>
+                                        <td><span class="fc-badge fc-badge--info">@f.DataType</span></td>
                                         <td><code>@f.SqlType</code></td>
                                         <td>
                                             @if (f.IsRequired)
@@ -399,9 +369,9 @@
                                             }
                                         </td>
                                         <td>
-                                            <div style="display:flex;gap:4px;">
-                                                @if (f.IsKeyField) { <span class="list-badge list-badge-published">Key</span> }
-                                                @if (f.IsComputed) { <span class="list-badge list-badge-review">Computed</span> }
+                                            <div class="fc-flex-row--gap1">
+                                                @if (f.IsKeyField) { <span class="fc-badge fc-badge--success">Key</span> }
+                                                @if (f.IsComputed) { <span class="fc-badge fc-badge--review">Computed</span> }
                                             </div>
                                         </td>
                                     </tr>
@@ -412,33 +382,33 @@
                 }
                 else
                 {
-                    <div class="detail-empty">
+                    <div class="fc-detail-empty">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-                        <p class="detail-empty-title">No fields defined</p>
-                        <p class="detail-empty-text">Add fields to this template version to define the data structure.</p>
+                        <p class="fc-detail-empty-title">No fields defined</p>
+                        <p class="fc-detail-empty-text">Add fields to this template version to define the data structure.</p>
                     </div>
                 }
             </div>
         </div>
 
         <!-- Tab: Formulas -->
-        <div class="detail-tab-content @(_activeTab == "formulas" ? "detail-tab-content-active" : "")" role="tabpanel">
-            <div class="detail-section">
-                <div class="detail-section-header">
+        <div class="fc-tab-content @(_activeTab == "formulas" ? "fc-tab-content-active" : "")" role="tabpanel">
+            <div class="fc-section">
+                <div class="fc-section-header">
                     <h3>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
                         Intra-Sheet Formulas
                     </h3>
-                    <a href="/formulas" class="btn btn-outline btn-sm">
+                    <a href="/formulas" class="fc-btn fc-btn--outline fc-btn--sm">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                         Manage Formulas
                     </a>
                 </div>
-                <div class="detail-section-body">
+                <div class="fc-section-body">
                     @if (_formulas.Any())
                     {
-                        <div style="overflow-x:auto;">
-                            <table class="detail-field-table">
+                        <div class="fc-overflow-x">
+                            <table class="fc-detail-field-table">
                                 <thead>
                                     <tr>
                                         <th>Rule Code</th>
@@ -455,10 +425,10 @@
                                         <tr>
                                             <td><code>@f.RuleCode</code></td>
                                             <td>@f.RuleName</td>
-                                            <td><span class="list-badge list-badge-@f.FormulaType.ToString().ToLowerInvariant()">@f.FormulaType</span></td>
+                                            <td><span class="fc-badge @FormulaBadge(f.FormulaType.ToString())">@f.FormulaType</span></td>
                                             <td><code>@f.TargetFieldName</code></td>
                                             <td>
-                                                <span class="list-badge @(f.Severity == ValidationSeverity.Error ? "list-badge-error" : f.Severity == ValidationSeverity.Warning ? "list-badge-warning" : "list-badge-info")">
+                                                <span class="fc-badge @(f.Severity == ValidationSeverity.Error ? "fc-badge--danger" : f.Severity == ValidationSeverity.Warning ? "fc-badge--warning" : "fc-badge--info")">
                                                     @f.Severity
                                                 </span>
                                             </td>
@@ -480,10 +450,10 @@
                     }
                     else
                     {
-                        <div class="detail-empty">
+                        <div class="fc-detail-empty">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
-                            <p class="detail-empty-title">No formulas</p>
-                            <p class="detail-empty-text">Intra-sheet formulas can be configured from the Formulas management page.</p>
+                            <p class="fc-detail-empty-title">No formulas</p>
+                            <p class="fc-detail-empty-text">Intra-sheet formulas can be configured from the Formulas management page.</p>
                         </div>
                     }
                 </div>
@@ -491,16 +461,16 @@
 
             @if (_crossSheetRules.Any())
             {
-                <div class="detail-section">
-                    <div class="detail-section-header">
+                <div class="fc-section">
+                    <div class="fc-section-header">
                         <h3>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
                             Cross-Sheet Rules
                         </h3>
                     </div>
-                    <div class="detail-section-body">
-                        <div style="overflow-x:auto;">
-                            <table class="detail-field-table">
+                    <div class="fc-section-body">
+                        <div class="fc-overflow-x">
+                            <table class="fc-detail-field-table">
                                 <thead>
                                     <tr>
                                         <th>Rule Code</th>
@@ -516,7 +486,7 @@
                                             <td><code>@r.RuleCode</code></td>
                                             <td>@r.RuleName</td>
                                             <td>
-                                                <span class="list-badge @(r.Severity == ValidationSeverity.Error ? "list-badge-error" : r.Severity == ValidationSeverity.Warning ? "list-badge-warning" : "list-badge-info")">
+                                                <span class="fc-badge @(r.Severity == ValidationSeverity.Error ? "fc-badge--danger" : r.Severity == ValidationSeverity.Warning ? "fc-badge--warning" : "fc-badge--info")">
                                                     @r.Severity
                                                 </span>
                                             </td>
@@ -539,16 +509,16 @@
         <!-- Tab: Item Codes -->
         @if (_activeVersion?.ItemCodes.Any() == true)
         {
-            <div class="detail-tab-content @(_activeTab == "itemcodes" ? "detail-tab-content-active" : "")" role="tabpanel">
-                <div class="detail-section">
-                    <div class="detail-section-header">
+            <div class="fc-tab-content @(_activeTab == "itemcodes" ? "fc-tab-content-active" : "")" role="tabpanel">
+                <div class="fc-section">
+                    <div class="fc-section-header">
                         <h3>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
                             Item Codes (@_activeVersion.ItemCodes.Count)
                         </h3>
                     </div>
-                    <div style="overflow-x:auto;">
-                        <table class="detail-field-table">
+                    <div class="fc-overflow-x">
+                        <table class="fc-detail-field-table">
                             <thead>
                                 <tr>
                                     <th>Code</th>
@@ -565,7 +535,10 @@
                                         <td>@ic.ItemName</td>
                                         <td>@ic.SortOrder</td>
                                         <td>
-                                            @* ItemCodes don't have IsTotalRow in DTO, skip *@
+                                            @if (ic.IsTotalRow)
+                                            {
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="var(--cbn-success)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-label="Total row"><polyline points="20 6 9 17 4 12"/></svg>
+                                            }
                                         </td>
                                     </tr>
                                 }
@@ -577,23 +550,23 @@
         }
 
         <!-- Tab: Versions -->
-        <div class="detail-tab-content @(_activeTab == "versions" ? "detail-tab-content-active" : "")" role="tabpanel">
+        <div class="fc-tab-content @(_activeTab == "versions" ? "fc-tab-content-active" : "")" role="tabpanel">
             <!-- Version Selector -->
-            <div class="detail-section">
-                <div class="detail-section-header">
+            <div class="fc-section">
+                <div class="fc-section-header">
                     <h3>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                         Version Selector
                     </h3>
                 </div>
-                <div class="detail-section-body">
-                    <div style="display:flex;gap:var(--space-2);flex-wrap:wrap;">
+                <div class="fc-section-body">
+                    <div class="fc-flex-row--wrap">
                         @foreach (var v in _detail.Versions.OrderByDescending(v => v.VersionNumber))
                         {
-                            <button class="btn @(v.Id == _activeVersion?.Id ? "btn-primary" : "btn-outline") btn-sm"
+                            <button class="fc-btn @(v.Id == _activeVersion?.Id ? "fc-btn--primary" : "fc-btn--outline") fc-btn--sm"
                                     @onclick="() => SelectVersion(v)">
                                 v@(v.VersionNumber)
-                                <span class="detail-status detail-status-@v.Status.ToLowerInvariant()" style="font-size:0.65rem;padding:1px 8px;">
+                                <span class="fc-detail-status fc-detail-status-@v.Status.ToLowerInvariant() fc-badge--xxs">
                                     @v.Status
                                 </span>
                             </button>
@@ -605,43 +578,43 @@
             <!-- DDL Preview -->
             @if (_showDdlPreview && !string.IsNullOrEmpty(_ddlPreview))
             {
-                <div class="detail-section">
-                    <div class="detail-section-header">
+                <div class="fc-section">
+                    <div class="fc-section-header">
                         <h3>
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
                             DDL Preview
                         </h3>
-                        <button class="btn btn-outline btn-sm" @onclick="() => _showDdlPreview = false">Hide</button>
+                        <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="() => _showDdlPreview = false">Hide</button>
                     </div>
-                    <div class="detail-section-body">
-                        <pre class="detail-code-block">@_ddlPreview</pre>
+                    <div class="fc-section-body">
+                        <pre class="fc-detail-code-block">@_ddlPreview</pre>
                     </div>
                 </div>
             }
 
             <!-- Version Timeline -->
-            <div class="detail-section">
-                <div class="detail-section-header">
+            <div class="fc-section">
+                <div class="fc-section-header">
                     <h3>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v4l3 3"/><circle cx="12" cy="12" r="10"/></svg>
                         Version History
                     </h3>
                 </div>
-                <div class="detail-section-body">
-                    <div class="detail-timeline" role="list" aria-label="Version history">
+                <div class="fc-section-body">
+                    <div class="fc-detail-timeline" role="list" aria-label="Version history">
                         @foreach (var v in _detail.Versions.OrderByDescending(v => v.VersionNumber))
                         {
-                            <div class="detail-timeline-item" role="listitem">
-                                <div class="detail-timeline-dot detail-timeline-dot-@v.Status.ToLowerInvariant()" aria-hidden="true"></div>
-                                <div class="detail-timeline-content">
-                                    <div class="detail-timeline-header">
-                                        <span class="detail-timeline-version">Version @v.VersionNumber</span>
-                                        <span class="detail-status detail-status-@v.Status.ToLowerInvariant()" style="font-size:0.65rem;padding:1px 8px;">
-                                            <span class="detail-status-dot" aria-hidden="true"></span>
+                            <div class="fc-detail-timeline-item" role="listitem">
+                                <div class="fc-detail-timeline-dot fc-detail-timeline-dot-@v.Status.ToLowerInvariant()" aria-hidden="true"></div>
+                                <div class="fc-detail-timeline-content">
+                                    <div class="fc-detail-timeline-header">
+                                        <span class="fc-detail-timeline-version">Version @v.VersionNumber</span>
+                                        <span class="fc-detail-status fc-detail-status-@v.Status.ToLowerInvariant() fc-badge--xxs">
+                                            <span class="fc-detail-status-dot" aria-hidden="true"></span>
                                             @v.Status
                                         </span>
                                     </div>
-                                    <div class="detail-timeline-meta">
+                                    <div class="fc-detail-timeline-meta">
                                         <span>@v.FieldCount fields</span>
                                         <span>@v.FormulaCount formulas</span>
                                         @if (v.PublishedAt.HasValue)
@@ -655,7 +628,7 @@
                                     </div>
                                     @if (v.ChangeSummary != null)
                                     {
-                                        <p class="detail-timeline-summary">@v.ChangeSummary</p>
+                                        <p class="fc-detail-timeline-summary">@v.ChangeSummary</p>
                                     }
                                 </div>
                             </div>
@@ -666,32 +639,32 @@
         </div>
 
         <!-- Tab: Settings -->
-        <div class="detail-tab-content @(_activeTab == "settings" ? "detail-tab-content-active" : "")" role="tabpanel">
-            <div class="detail-section">
-                <div class="detail-section-header">
+        <div class="fc-tab-content @(_activeTab == "settings" ? "fc-tab-content-active" : "")" role="tabpanel">
+            <div class="fc-section">
+                <div class="fc-section-header">
                     <h3>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
                         Technical Configuration
                     </h3>
                 </div>
-                <div class="detail-section-body">
-                    <div class="detail-info-grid">
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">Physical Table</span>
-                            <span class="detail-info-value"><code>@_detail.PhysicalTableName</code></span>
+                <div class="fc-section-body">
+                    <div class="fc-detail-info-grid">
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">Physical Table</span>
+                            <span class="fc-detail-info-value"><code>@_detail.PhysicalTableName</code></span>
                         </div>
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">XML Root Element</span>
-                            <span class="detail-info-value"><code>@_detail.XmlRootElement</code></span>
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">XML Root Element</span>
+                            <span class="fc-detail-info-value"><code>@_detail.XmlRootElement</code></span>
                         </div>
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">XML Namespace</span>
-                            <span class="detail-info-value"><code>@_detail.XmlNamespace</code></span>
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">XML Namespace</span>
+                            <span class="fc-detail-info-value"><code>@_detail.XmlNamespace</code></span>
                         </div>
-                        <div class="detail-info-item">
-                            <span class="detail-info-label">XSD Schema</span>
-                            <span class="detail-info-value">
-                                <button class="btn btn-outline btn-sm" @onclick="ToggleXsd">
+                        <div class="fc-detail-info-item">
+                            <span class="fc-detail-info-label">XSD Schema</span>
+                            <span class="fc-detail-info-value">
+                                <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="ToggleXsd">
                                     @(_showXsd ? "Hide" : "Show") XSD
                                 </button>
                             </span>
@@ -700,8 +673,8 @@
 
                     @if (_showXsd && !string.IsNullOrEmpty(_xsdContent))
                     {
-                        <div style="margin-top:var(--space-4);">
-                            <pre class="detail-code-block">@_xsdContent</pre>
+                        <div class="fc-mt-4">
+                            <pre class="fc-detail-code-block">@_xsdContent</pre>
                         </div>
                     }
                 </div>
@@ -712,6 +685,7 @@
 
 @code {
     [Parameter] public string ReturnCode { get; set; } = "";
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _loading = true;
     private TemplateDetailDto? _detail;
@@ -736,11 +710,13 @@
     private AddFieldRequest _newField = new();
     private FieldDataType _newFieldDataType = FieldDataType.Money;
     private string _newFieldRequired = "false";
+    private string _currentUser = string.Empty;
 
-    private string CurrentUser => "system"; // TODO: get from auth state
+    private string CurrentUser => _currentUser;
 
     protected override async Task OnInitializedAsync()
     {
+        _currentUser = await ResolveCurrentUserAsync();
         await LoadTemplate();
     }
 
@@ -871,4 +847,29 @@
     {
         _errorMessage = msg;
     }
+
+    private async Task<string> ResolveCurrentUserAsync()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+
+    private static string CategoryBadge(string cat) => cat.ToLowerInvariant() switch
+    {
+        "fixedrow" => "fc-badge--purple",
+        "multirow" => "fc-badge--teal",
+        "itemcoded" => "fc-badge--pink",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string FormulaBadge(string type) => type.ToLowerInvariant() switch
+    {
+        "sum" => "fc-badge--success",
+        "difference" => "fc-badge--info",
+        "equals" => "fc-badge--purple",
+        "custom" => "fc-badge--warning",
+        "ratio" => "fc-badge--pink",
+        "required" => "fc-badge--danger",
+        _ => "fc-badge--info"
+    };
 }

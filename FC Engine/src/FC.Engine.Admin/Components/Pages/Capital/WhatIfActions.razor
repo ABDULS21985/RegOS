@@ -1,0 +1,206 @@
+@page "/platform/capital/actions"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject FC.Engine.Infrastructure.Services.CapitalActionCatalogService ActionCatalog
+@inject FC.Engine.Admin.Services.Capital.RwaOptimizationService RwaService
+@inject FC.Engine.Admin.Services.ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>What-If Capital Actions</PageTitle>
+
+<PageHeader Title="What-If Capital Actions"
+            Subtitle="Compare issuance, disposal, and portfolio action scenarios side by side."
+            BackUrl="/platform/capital"
+            CountBadge="@(!_loading ? _catalog?.Templates.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load action catalog" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
+        }
+        else if (_catalog is null || _catalog.Templates.Count == 0)
+        {
+            <EmptyState Context="data" Heading="No action templates" Description="The capital action catalog is empty. Materialise action templates via the Intelligence Hub first." />
+        }
+        else
+        {
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">Action Catalog</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="CapitalActionTemplateState"
+                               Items="@_catalog.Templates"
+                               PageSize="20"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="capital-actions"
+                               Clickable="true"
+                               OnRowClick="@(a => SelectAction(a))">
+                        <ChildContent>
+                            <DataColumn TItem="CapitalActionTemplateState" Title="Code" Width="110px" SortKey="@(x => x.Code)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.Code</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="CapitalActionTemplateState" Title="Action" SortKey="@(x => x.Title)">
+                                <CellTemplate>
+                                    <strong>@context.Title</strong>
+                                    <div class="fc-text-muted-sm">@context.Summary</div>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="CapitalActionTemplateState" Title="Lever" Width="90px" SortKey="@(x => x.PrimaryLever)">
+                                <CellTemplate>
+                                    <span class="fc-badge @LeverBadge(context.PrimaryLever)">@context.PrimaryLever</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="CapitalActionTemplateState" Title="Capital (bn)" Width="110px" SortKey="@(x => x.CapitalActionBn)">
+                                <CellTemplate>@context.CapitalActionBn.ToString("F1")</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="CapitalActionTemplateState" Title="RWA Opt %" Width="100px" SortKey="@(x => x.RwaOptimisationPercent)">
+                                <CellTemplate>@context.RwaOptimisationPercent.ToString("F1")%</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="CapitalActionTemplateState" Title="Earnings Δ" Width="100px" SortKey="@(x => x.QuarterlyRetainedEarningsDeltaBn)">
+                                <CellTemplate>@context.QuarterlyRetainedEarningsDeltaBn.ToString("F2")bn</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="CapitalActionTemplateState" Title="Annual Cost" Width="110px" SortKey="@(x => x.EstimatedAnnualCostPercent)">
+                                <CellTemplate>@context.EstimatedAnnualCostPercent.ToString("F1")%</CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+
+            @if (_selectedAction is not null && _simulation is not null)
+            {
+                <div class="fc-card fc-card--mb">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Simulation: @_selectedAction.Title</h2>
+                    </div>
+                    <div class="fc-card__body">
+                        <div class="fc-cap-kpi-strip">
+                            <div class="fc-cap-kpi">
+                                <div class="fc-cap-kpi-value">@_simulation.BaselineCarPercent.ToString("F1")%</div>
+                                <div class="fc-cap-kpi-label">Baseline CAR</div>
+                            </div>
+                            <div class="fc-cap-kpi">
+                                <div class="fc-cap-kpi-value fc-cap-kpi-value--green">@_simulation.ProjectedCarPercent.ToString("F1")%</div>
+                                <div class="fc-cap-kpi-label">Projected CAR</div>
+                            </div>
+                            <div class="fc-cap-kpi">
+                                <div class="fc-cap-kpi-value">@_simulation.RwaReductionBn.ToString("F2")bn</div>
+                                <div class="fc-cap-kpi-label">RWA Reduction</div>
+                            </div>
+                            <div class="fc-cap-kpi">
+                                <div class="fc-cap-kpi-value">@_simulation.CapitalInjectionBn.ToString("F2")bn</div>
+                                <div class="fc-cap-kpi-label">Capital Injection</div>
+                            </div>
+                        </div>
+
+                        <div class="fc-form-row" style="max-width:300px;margin-top:var(--space-4);">
+                            <label class="fc-form-label">Magnitude Multiplier</label>
+                            <input type="range" min="0.5" max="2.0" step="0.1" @bind="_magnitude" @bind:after="SimulateAsync" class="fc-input" />
+                            <span class="fc-text-muted">@_magnitude.ToString("F1")x</span>
+                        </div>
+
+                        <canvas id="whatIfProjectionChart" style="margin-top:var(--space-4);"></canvas>
+
+                        <div class="fc-cap-projection-table" style="margin-top:var(--space-4);">
+                            <table class="rg-table">
+                                <thead><tr><th>Quarter</th><th>RWA (bn)</th><th>Capital (bn)</th><th>CAR (%)</th></tr></thead>
+                                <tbody>
+                                    @foreach (var q in _simulation.QuarterProjections)
+                                    {
+                                        <tr>
+                                            <td>@q.Label</td>
+                                            <td>@q.RwaBn</td>
+                                            <td>@q.CapitalBn</td>
+                                            <td><strong>@q.CarPercent%</strong></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true, _chartsRendered;
+    private Exception? _loadException;
+    private CapitalActionCatalogState? _catalog;
+    private CapitalActionTemplateState? _selectedAction;
+    private FC.Engine.Admin.Services.Capital.RwaWhatIfResult? _simulation;
+    private decimal _magnitude = 1.0m;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_chartsRendered && _simulation is not null && _simulation.QuarterProjections.Count > 0)
+        {
+            _chartsRendered = true;
+            await RenderSimChartAsync();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            _catalog = await ActionCatalog.LoadAsync();
+        }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _loading = false; }
+    }
+
+    private async Task SelectAction(CapitalActionTemplateState action)
+    {
+        _selectedAction = action;
+        _magnitude = 1.0m;
+        await SimulateAsync();
+    }
+
+    private async Task SimulateAsync()
+    {
+        if (_selectedAction is null) return;
+        try
+        {
+            _chartsRendered = false;
+            _simulation = await RwaService.SimulateActionAsync(_selectedAction.Code, _magnitude);
+            StateHasChanged();
+        }
+        catch (Exception ex) { Toast.Error("Simulation failed: " + ex.Message); }
+    }
+
+    private async Task RenderSimChartAsync()
+    {
+        if (_simulation is null) return;
+        try
+        {
+            await JS.InvokeVoidAsync("fcCharts.renderLine", "whatIfProjectionChart", new
+            {
+                labels = _simulation.QuarterProjections.Select(q => q.Label).ToArray(),
+                datasets = new object[]
+                {
+                    new { label = "Projected CAR", data = _simulation.QuarterProjections.Select(q => (double)q.CarPercent).ToArray(), borderColor = "#006B3F", backgroundColor = "rgba(0,107,63,0.1)", fill = true },
+                    new { label = "Baseline CAR", data = _simulation.QuarterProjections.Select(_ => (double)_simulation.BaselineCarPercent).ToArray(), borderColor = "#9CA3AF", borderDash = new[] { 4, 4 }, fill = false }
+                }
+            });
+        }
+        catch { }
+    }
+
+    private static string LeverBadge(string lever) => lever switch
+    {
+        "RWA" => "fc-badge--info",
+        "Capital" => "fc-badge--success",
+        "Earnings" => "fc-badge--warning",
+        _ => "fc-badge--neutral"
+    };
+}

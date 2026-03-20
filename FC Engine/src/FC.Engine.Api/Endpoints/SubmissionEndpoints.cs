@@ -1,14 +1,21 @@
 using FC.Engine.Application.DTOs;
 using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using System.Security.Claims;
 
 namespace FC.Engine.Api.Endpoints;
 
 public static class SubmissionEndpoints
 {
-    public static void MapSubmissionEndpoints(this WebApplication app)
+    public static void MapSubmissionEndpoints(this IEndpointRouteBuilder routes, string versionSuffix = "")
     {
-        var group = app.MapGroup("/api/submissions").WithTags("Submissions");
+        var suffix = string.IsNullOrEmpty(versionSuffix) ? "" : $"_{versionSuffix}";
+        var group = routes.MapGroup("/submissions")
+            .WithTags("Submissions")
+            .RequireAuthorization("InstitutionApi");
 
         group.MapPost("/{returnCode}", async (
             string returnCode,
@@ -16,17 +23,52 @@ public static class SubmissionEndpoints
             int institutionId,
             int returnPeriodId,
             IngestionOrchestrator orchestrator,
+            MetadataDbContext db,
+            IInstitutionRepository institutionRepository,
+            ClaimsPrincipal principal,
+            ITenantContext tenantContext,
+            IFilingCalendarService filingCalendarService,
+            ILoggerFactory loggerFactory,
             CancellationToken ct) =>
         {
             if (request.ContentType == null || !request.ContentType.Contains("xml", StringComparison.OrdinalIgnoreCase))
                 return Results.BadRequest("Content-Type must be application/xml or text/xml");
 
+            if (institutionId <= 0)
+                return Results.BadRequest(new { error = "institutionId query parameter is required." });
+
+            if (returnPeriodId <= 0)
+                return Results.BadRequest(new { error = "returnPeriodId query parameter is required." });
+
+            if (!await CanAccessInstitutionAsync(institutionId, principal, tenantContext, institutionRepository, ct))
+            {
+                return Results.NotFound();
+            }
+
+            if (!await CanAccessReturnPeriodAsync(returnPeriodId, tenantContext, db, ct))
+            {
+                return Results.NotFound();
+            }
+
             var result = await orchestrator.Process(
                 request.Body, returnCode, institutionId, returnPeriodId, ct);
 
+            if (result.Status is "Accepted" or "AcceptedWithWarnings")
+            {
+                try
+                {
+                    await filingCalendarService.RecordSla(returnPeriodId, result.SubmissionId, ct);
+                }
+                catch (Exception ex)
+                {
+                    var logger = loggerFactory.CreateLogger("SubmissionEndpoints");
+                    logger.LogWarning(ex, "SLA tracking failed for submission {SubmissionId}", result.SubmissionId);
+                }
+            }
+
             return result.Status switch
             {
-                "Accepted" or "AcceptedWithWarnings" => Results.Ok(result),
+                "Accepted" or "AcceptedWithWarnings" => Results.Created($"/api/{(string.IsNullOrEmpty(versionSuffix) ? "v1" : versionSuffix)}/submissions/{result.SubmissionId}", result),
                 "Rejected" => Results.UnprocessableEntity(result),
                 _ => Results.Ok(result)
             };
@@ -34,16 +76,19 @@ public static class SubmissionEndpoints
         .Accepts<IFormFile>("application/xml")
         .Produces<SubmissionResultDto>()
         .Produces<SubmissionResultDto>(422)
-        .WithName("SubmitReturn")
+        .RequireAuthorization("CanCreateSubmission")
+        .WithName($"SubmitReturn{suffix}")
         .WithSummary("Submit an XML return for processing and validation");
 
         group.MapGet("/{id:int}", async (
             int id,
             ISubmissionRepository repo,
+            ClaimsPrincipal principal,
+            ITenantContext tenantContext,
             CancellationToken ct) =>
         {
             var submission = await repo.GetByIdWithReport(id, ct);
-            if (submission == null) return Results.NotFound();
+            if (submission == null || !CanAccessSubmission(submission, principal, tenantContext)) return Results.NotFound();
 
             return Results.Ok(new SubmissionResultDto
             {
@@ -71,14 +116,23 @@ public static class SubmissionEndpoints
             });
         })
         .Produces<SubmissionResultDto>()
-        .WithName("GetSubmission")
+        .RequireAuthorization("CanViewSubmissions")
+        .WithName($"GetSubmission{suffix}")
         .WithSummary("Get submission details with validation report");
 
         group.MapGet("/institution/{institutionId:int}", async (
             int institutionId,
             ISubmissionRepository repo,
+            IInstitutionRepository institutionRepository,
+            ClaimsPrincipal principal,
+            ITenantContext tenantContext,
             CancellationToken ct) =>
         {
+            if (!await CanAccessInstitutionAsync(institutionId, principal, tenantContext, institutionRepository, ct))
+            {
+                return Results.NotFound();
+            }
+
             var submissions = await repo.GetByInstitution(institutionId, ct);
             return Results.Ok(submissions.Select(s => new SubmissionResultDto
             {
@@ -88,7 +142,60 @@ public static class SubmissionEndpoints
                 ProcessingDurationMs = s.ProcessingDurationMs
             }));
         })
-        .WithName("GetInstitutionSubmissions")
+        .RequireAuthorization("CanViewSubmissions")
+        .WithName($"GetInstitutionSubmissions{suffix}")
         .WithSummary("Get all submissions for an institution");
+    }
+
+    private static bool CanAccessSubmission(
+        Domain.Entities.Submission submission,
+        ClaimsPrincipal principal,
+        ITenantContext tenantContext)
+    {
+        if (tenantContext.CurrentTenantId.HasValue && submission.TenantId != tenantContext.CurrentTenantId.Value)
+        {
+            return false;
+        }
+
+        var currentInstitutionId = ApiClaimResolvers.GetInstitutionId(principal);
+        return currentInstitutionId == 0 || submission.InstitutionId == currentInstitutionId;
+    }
+
+    private static async Task<bool> CanAccessInstitutionAsync(
+        int institutionId,
+        ClaimsPrincipal principal,
+        ITenantContext tenantContext,
+        IInstitutionRepository institutionRepository,
+        CancellationToken ct)
+    {
+        var currentInstitutionId = ApiClaimResolvers.GetInstitutionId(principal);
+        if (currentInstitutionId > 0 && currentInstitutionId != institutionId)
+        {
+            return false;
+        }
+
+        var institution = await institutionRepository.GetById(institutionId, ct);
+        if (institution is null)
+        {
+            return false;
+        }
+
+        return !tenantContext.CurrentTenantId.HasValue || institution.TenantId == tenantContext.CurrentTenantId.Value;
+    }
+
+    private static async Task<bool> CanAccessReturnPeriodAsync(
+        int returnPeriodId,
+        ITenantContext tenantContext,
+        MetadataDbContext db,
+        CancellationToken ct)
+    {
+        if (!tenantContext.CurrentTenantId.HasValue)
+        {
+            return false;
+        }
+
+        return await db.ReturnPeriods
+            .AsNoTracking()
+            .AnyAsync(x => x.Id == returnPeriodId && x.TenantId == tenantContext.CurrentTenantId.Value, ct);
     }
 }

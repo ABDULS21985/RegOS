@@ -1,0 +1,294 @@
+@page "/help/knowledge-base"
+@attribute [Microsoft.AspNetCore.Authorization.Authorize(Policy = "InstitutionUser")]
+@inject KnowledgeBaseService KnowledgeBaseService
+@inject IJSRuntime JS
+
+<PageTitle>Knowledge Base — Help Center — RegOS™ Portal</PageTitle>
+
+<HelpLayout>
+    <div class="help-article">
+        <!-- Article meta -->
+        <div class="fc-ha-meta">
+            <span class="fc-ha-meta-item">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                </svg>
+                @_articles.Count article@(_articles.Count != 1 ? "s" : "") found
+            </span>
+        </div>
+
+        <h2 class="help-article-title">Knowledge Base</h2>
+        <p class="help-article-intro">Search onboarding, filing, troubleshooting, and module-specific guidance.</p>
+
+        <!-- Search & Filters -->
+        <div class="fc-kb-filters">
+            <div class="fc-kb-search-wrap">
+                <svg class="fc-kb-search-icon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                <input class="fc-kb-search-input" @bind="_query" @bind:event="oninput"
+                       placeholder="Search articles..." aria-label="Search knowledge base articles" />
+            </div>
+            <select class="fc-kb-select" @bind="_category" aria-label="Filter by category">
+                <option value="">All categories</option>
+                @foreach (var category in _categories)
+                {
+                    <option value="@category">@FormatCategory(category)</option>
+                }
+            </select>
+            <select class="fc-kb-select" @bind="_moduleCode" aria-label="Filter by module">
+                <option value="">All modules</option>
+                @foreach (var module in _modules)
+                {
+                    <option value="@module">@module</option>
+                }
+            </select>
+            <button class="portal-btn portal-btn-primary portal-btn-sm fc-kb-search-btn" @onclick="Load" type="button" aria-label="Search knowledge base">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+                Search
+            </button>
+        </div>
+
+        <!-- Category chips -->
+        @if (_categories.Count > 0)
+        {
+            <div class="fc-kb-chips" role="toolbar" aria-label="Quick category filters">
+                <button class="fc-kb-chip @(string.IsNullOrEmpty(_category) ? "fc-kb-chip--active" : "")"
+                        @onclick="() => SelectCategory(string.Empty)" type="button">All</button>
+                @foreach (var cat in _categories)
+                {
+                    <button class="fc-kb-chip @(_category == cat ? "fc-kb-chip--active" : "")"
+                            @onclick="() => SelectCategory(cat)" type="button">@FormatCategory(cat)</button>
+                }
+            </div>
+        }
+
+        <!-- Results -->
+        @if (_loading)
+        {
+            <div class="fc-kb-articles" aria-busy="true" aria-label="Loading knowledge base articles">
+                @for (int i = 0; i < 3; i++)
+                {
+                    <div class="fc-kb-article-card fc-kb-article-card--skel" aria-hidden="true">
+                        <div class="fc-skel fc-skel--text" style="width: 60%; height: 1.1rem; margin-bottom: 0.5rem"></div>
+                        <div class="fc-skel fc-skel--text" style="width: 30%; height: 0.75rem; margin-bottom: 0.75rem"></div>
+                        <div class="fc-skel fc-skel--text" style="height: 0.875rem; margin-bottom: 0.375rem"></div>
+                        <div class="fc-skel fc-skel--text" style="width: 80%; height: 0.875rem"></div>
+                    </div>
+                }
+            </div>
+        }
+        else if (_articles.Count == 0)
+        {
+            <div class="portal-empty-state fc-kb-empty" style="padding: 2rem;">
+                <div class="portal-empty-state-icon" aria-hidden="true">
+                    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                    </svg>
+                </div>
+                <h3 class="portal-empty-state-title">No Articles Found</h3>
+                <p class="portal-empty-state-desc">No articles match the current filters. Try adjusting your search or category.</p>
+                <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="ClearFilters" type="button">Clear filters</button>
+            </div>
+        }
+        else
+        {
+            <div class="fc-kb-articles">
+                @foreach (var article in _articles)
+                {
+                    <article class="fc-kb-article-card">
+                        <div class="fc-kb-article-header">
+                            <div>
+                                <h3 class="fc-kb-article-title">@article.Title</h3>
+                                <div class="fc-kb-article-meta">
+                                    <span class="fc-kb-cat-badge fc-kb-cat--@article.Category">@FormatCategory(article.Category)</span>
+                                    @if (!string.IsNullOrWhiteSpace(article.ModuleCode))
+                                    {
+                                        <span class="fc-kb-module-badge">@article.ModuleCode</span>
+                                    }
+                                    <span class="fc-kb-meta-item">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                        @EstimateReadTime(article.Content) read
+                                    </span>
+                                    <span class="fc-kb-meta-item">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                                        @article.CreatedAt.ToString("MMM yyyy")
+                                    </span>
+                                </div>
+                            </div>
+                            <button class="fc-kb-expand-btn" @onclick="() => ToggleArticle(article.Id)"
+                                    aria-expanded="@(_expandedArticles.Contains(article.Id))"
+                                    aria-label="@(_expandedArticles.Contains(article.Id) ? "Collapse" : "Expand") article"
+                                    type="button">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                                     style="transition: transform 0.2s; transform: rotate(@(_expandedArticles.Contains(article.Id) ? "180deg" : "0deg"));" aria-hidden="true">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Content (expandable) -->
+                        <div class="fc-kb-article-body @(_expandedArticles.Contains(article.Id) ? "fc-kb-article-body--open" : "")">
+                            <p class="fc-kb-article-content">@article.Content</p>
+
+                            @if (!string.IsNullOrWhiteSpace(article.Tags))
+                            {
+                                var tags = ParseTags(article.Tags);
+                                if (tags.Count > 0)
+                                {
+                                    <div class="fc-kb-tags">
+                                        @foreach (var tag in tags)
+                                        {
+                                            <span class="fc-kb-tag">@tag</span>
+                                        }
+                                    </div>
+                                }
+                            }
+
+                            <!-- Related articles -->
+                            @{
+                                var related = GetRelated(article);
+                            }
+                            @if (related.Count > 0)
+                            {
+                                <div class="fc-kb-related">
+                                    <p class="fc-kb-related-label">Related articles</p>
+                                    @foreach (var r in related)
+                                    {
+                                        <a href="@r.Url" class="fc-kb-related-link">
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>
+                                            @r.Title
+                                        </a>
+                                    }
+                                </div>
+                            }
+
+                            <!-- Helpfulness rating per article -->
+                            <div class="fc-kb-rating">
+                                @if (_ratings.TryGetValue(article.Id, out var r2))
+                                {
+                                    <span class="fc-kb-rated">@(r2 ? "👍 Marked as helpful" : "👎 Feedback recorded")</span>
+                                }
+                                else
+                                {
+                                    <span class="fc-kb-rating-prompt">Helpful?</span>
+                                    <button class="fc-hr-btn fc-hr-btn--yes fc-hr-btn--sm" @onclick="() => RateArticle(article.Id, true)" type="button" aria-label="Yes, this article is helpful">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z"/><path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3"/></svg>
+                                        Yes
+                                    </button>
+                                    <button class="fc-hr-btn fc-hr-btn--no fc-hr-btn--sm" @onclick="() => RateArticle(article.Id, false)" type="button" aria-label="No, this article is not helpful">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 15v4a3 3 0 003 3l4-9V2H5.72a2 2 0 00-2 1.7l-1.38 9a2 2 0 002 2.3H10z"/><path d="M17 2h2.67A2.31 2.31 0 0122 4v7a2.31 2.31 0 01-2.33 2H17"/></svg>
+                                        No
+                                    </button>
+                                }
+                            </div>
+                        </div>
+                    </article>
+                }
+            </div>
+        }
+    </div>
+</HelpLayout>
+
+@code {
+    private string _query = string.Empty;
+    private string _moduleCode = string.Empty;
+    private string _category = string.Empty;
+    private List<string> _modules = new();
+    private List<string> _categories = new();
+    private List<KnowledgeBaseArticleView> _articles = new();
+    private HashSet<int> _expandedArticles = new();
+    private Dictionary<int, bool> _ratings = new();
+    private bool _loading = true;
+
+    private static readonly List<(string Title, string Url)> RelatedArticlesMap = new()
+    {
+        ("Submission Guide", "/help/submission-guide"),
+        ("Validation Error Guide", "/help/validation-errors"),
+        ("Getting Started", "/help/getting-started"),
+        ("FAQ — Submissions", "/help/faq#submission"),
+        ("FAQ — Validation", "/help/faq#validation"),
+        ("FAQ — Maker-Checker", "/help/faq#approvals"),
+        ("Contact Support", "/help/support"),
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        _modules = (await KnowledgeBaseService.GetModules()).ToList();
+        _categories = (await KnowledgeBaseService.GetCategories()).ToList();
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        _loading = true;
+        StateHasChanged();
+        _articles = (await KnowledgeBaseService.Search(_query, _moduleCode, _category)).ToList();
+        _loading = false;
+    }
+
+    private async Task SelectCategory(string cat)
+    {
+        _category = cat;
+        await Load();
+    }
+
+    private async Task ClearFilters()
+    {
+        _query = "";
+        _category = "";
+        _moduleCode = "";
+        await Load();
+    }
+
+    private void ToggleArticle(int id)
+    {
+        if (!_expandedArticles.Remove(id)) _expandedArticles.Add(id);
+    }
+
+    private async Task RateArticle(int id, bool helpful)
+    {
+        _ratings[id] = helpful;
+        try { await JS.InvokeVoidAsync("fcHelp.rateArticle", $"kb-{id}", helpful); } catch { }
+    }
+
+    private static string FormatCategory(string cat) => cat switch
+    {
+        "getting_started" => "Getting Started",
+        "module_guide" => "Module Guide",
+        "troubleshooting" => "Troubleshooting",
+        "faq" => "FAQ",
+        _ => System.Globalization.CultureInfo.CurrentCulture.TextInfo.ToTitleCase(cat.Replace('_', ' '))
+    };
+
+    private static string EstimateReadTime(string content)
+    {
+        var words = content.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+        var minutes = Math.Max(1, (int)Math.Ceiling(words / 200.0));
+        return $"{minutes} min";
+    }
+
+    private static List<string> ParseTags(string? tags)
+    {
+        if (string.IsNullOrWhiteSpace(tags)) return new();
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(tags) ?? new(); }
+        catch { return new(); }
+    }
+
+    private List<(string Title, string Url)> GetRelated(KnowledgeBaseArticleView article)
+    {
+        // Match related articles by category keywords
+        var cat = article.Category.ToLowerInvariant();
+        return RelatedArticlesMap
+            .Where(r =>
+                (cat.Contains("submission") && r.Title.Contains("Submission")) ||
+                (cat.Contains("validation") && r.Title.Contains("Validation")) ||
+                (cat.Contains("getting") && r.Title.Contains("Getting")) ||
+                (cat.Contains("faq") && r.Title.Contains("FAQ")) ||
+                r.Title == "Contact Support")
+            .Take(3)
+            .ToList();
+    }
+}

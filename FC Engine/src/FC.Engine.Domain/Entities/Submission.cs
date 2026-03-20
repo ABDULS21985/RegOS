@@ -5,16 +5,21 @@ namespace FC.Engine.Domain.Entities;
 public class Submission
 {
     public int Id { get; set; }
+
+    /// <summary>FK to Tenant for RLS.</summary>
+    public Guid TenantId { get; set; }
+
     public int InstitutionId { get; set; }
     public int ReturnPeriodId { get; set; }
     public string ReturnCode { get; set; } = string.Empty;
     public int? TemplateVersionId { get; set; }
     public SubmissionStatus Status { get; set; }
-    public DateTime SubmittedAt { get; set; }
+    public DateTime? SubmittedAt { get; set; }
     public string? RawXml { get; set; }
     public string? ParsedDataJson { get; set; }
     public int? ProcessingDurationMs { get; set; }
     public DateTime CreatedAt { get; set; }
+    public bool IsRetentionAnonymised { get; set; }
 
     // ── FI Portal Extensions ──
 
@@ -32,25 +37,74 @@ public class Submission
     /// <summary>Maker-checker approval record, if applicable.</summary>
     public SubmissionApproval? Approval { get; set; }
 
-    public static Submission Create(int institutionId, int returnPeriodId, string returnCode)
+    public static Submission Create(int institutionId, int returnPeriodId, string returnCode, Guid? tenantId = null)
     {
-        return new Submission
+        var submission = new Submission
         {
             InstitutionId = institutionId,
             ReturnPeriodId = returnPeriodId,
             ReturnCode = returnCode,
             Status = SubmissionStatus.Draft,
-            SubmittedAt = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow
         };
+
+        if (tenantId.HasValue)
+        {
+            submission.TenantId = tenantId.Value;
+        }
+
+        return submission;
     }
 
     public void SetTemplateVersion(int templateVersionId) => TemplateVersionId = templateVersionId;
+    /// <summary>Records the wall-clock moment the institution formally submitted this return.</summary>
+    public void MarkSubmitted() => SubmittedAt ??= DateTime.UtcNow;
     public void MarkParsing() => Status = SubmissionStatus.Parsing;
     public void MarkValidating() => Status = SubmissionStatus.Validating;
     public void MarkAccepted() => Status = SubmissionStatus.Accepted;
     public void MarkAcceptedWithWarnings() => Status = SubmissionStatus.AcceptedWithWarnings;
     public void MarkRejected() => Status = SubmissionStatus.Rejected;
+    public void MarkPendingApproval() => Status = SubmissionStatus.PendingApproval;
+    public void MarkApprovalRejected() => Status = SubmissionStatus.ApprovalRejected;
+    // ── Kanban status-transition guard ──
+    private static readonly IReadOnlyDictionary<SubmissionStatus, IReadOnlySet<SubmissionStatus>> _allowedTransitions =
+        new Dictionary<SubmissionStatus, IReadOnlySet<SubmissionStatus>>
+        {
+            [SubmissionStatus.Draft]           = new HashSet<SubmissionStatus> { SubmissionStatus.PendingApproval, SubmissionStatus.Parsing, SubmissionStatus.Rejected, SubmissionStatus.Historical },
+            [SubmissionStatus.Parsing]         = new HashSet<SubmissionStatus> { SubmissionStatus.Validating, SubmissionStatus.Rejected },
+            [SubmissionStatus.Validating]      = new HashSet<SubmissionStatus> { SubmissionStatus.Accepted, SubmissionStatus.AcceptedWithWarnings, SubmissionStatus.Rejected },
+            [SubmissionStatus.PendingApproval] = new HashSet<SubmissionStatus> { SubmissionStatus.Accepted, SubmissionStatus.AcceptedWithWarnings, SubmissionStatus.Rejected, SubmissionStatus.ApprovalRejected, SubmissionStatus.Draft, SubmissionStatus.Historical },
+            [SubmissionStatus.Accepted]        = new HashSet<SubmissionStatus> { SubmissionStatus.Historical, SubmissionStatus.SubmittedToRegulator },
+            [SubmissionStatus.AcceptedWithWarnings] = new HashSet<SubmissionStatus> { SubmissionStatus.Historical, SubmissionStatus.SubmittedToRegulator },
+            [SubmissionStatus.Rejected]        = new HashSet<SubmissionStatus> { SubmissionStatus.Draft },
+            [SubmissionStatus.ApprovalRejected] = new HashSet<SubmissionStatus> { SubmissionStatus.Draft },
+            [SubmissionStatus.SubmittedToRegulator] = new HashSet<SubmissionStatus> { SubmissionStatus.RegulatorAcknowledged, SubmissionStatus.RegulatorAccepted, SubmissionStatus.RegulatorQueriesRaised },
+            [SubmissionStatus.RegulatorAcknowledged] = new HashSet<SubmissionStatus> { SubmissionStatus.RegulatorAccepted, SubmissionStatus.RegulatorQueriesRaised },
+            [SubmissionStatus.RegulatorQueriesRaised] = new HashSet<SubmissionStatus> { SubmissionStatus.Draft, SubmissionStatus.SubmittedToRegulator },
+        };
+
+    /// <summary>
+    /// Attempts a manual status transition (e.g. from the Kanban board).
+    /// Returns <c>false</c> without mutating state if the transition is semantically invalid.
+    /// </summary>
+    public bool TryTransitionTo(SubmissionStatus target)
+    {
+        if (_allowedTransitions.TryGetValue(Status, out var allowed) && allowed.Contains(target))
+        {
+            Status = target;
+            return true;
+        }
+        return false;
+    }
+
     public void AttachValidationReport(ValidationReport report) => ValidationReport = report;
     public void StoreRawXml(string xml) => RawXml = xml;
+    public void StoreParsedDataJson(string json) => ParsedDataJson = json;
+
+    // ── Direct Regulatory Submission (RG-34) ──
+    public void MarkSubmittedToRegulator() => Status = SubmissionStatus.SubmittedToRegulator;
+    public void MarkRegulatorAcknowledged() => Status = SubmissionStatus.RegulatorAcknowledged;
+    public void MarkRegulatorAccepted() => Status = SubmissionStatus.RegulatorAccepted;
+    public void MarkRegulatorQueriesRaised() => Status = SubmissionStatus.RegulatorQueriesRaised;
+    public void MarkHistorical() => Status = SubmissionStatus.Historical;
 }

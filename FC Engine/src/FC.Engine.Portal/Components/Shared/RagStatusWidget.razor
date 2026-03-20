@@ -1,0 +1,45 @@
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@inject IFilingCalendarService CalendarService
+@inject ITenantContext TenantContext
+
+<div class="rag-dashboard">
+    <h3 class="rag-dashboard-title">Filing Status</h3>
+
+    @if (_loading)
+    {
+        <p class="portal-text-muted">Loading filing status...</p>
+    }
+    else if (_ragItems.Count == 0)
+    {
+        <p class="portal-text-muted">No active filing periods.</p>
+    }
+    else
+    {
+        <div class="rag-grid">
+            @foreach (var item in _ragItems)
+            {
+                <div class="rag-card @item.CssClass">
+                    <div class="rag-module">@item.ModuleName</div>
+                    <div class="rag-period">@item.PeriodLabel</div>
+                    <div class="rag-status">@item.StatusLabel</div>
+                    <div class="rag-deadline">Due: @item.Deadline.ToString("dd MMM yyyy")</div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<RagItem> _ragItems = new();
+    private bool _loading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (TenantContext.CurrentTenantId.HasValue)
+        {
+            _ragItems = await CalendarService.GetRagStatus(TenantContext.CurrentTenantId.Value);
+        }
+        _loading = false;
+    }
+}

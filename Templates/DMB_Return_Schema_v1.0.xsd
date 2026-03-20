@@ -1,0 +1,750 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════════
+  DMB REGULATORY RETURN - XML SCHEMA DEFINITION (XSD)
+  Deposit Money Banks Reporting Standards for Central Bank Supervision
+  ═══════════════════════════════════════════════════════════════════════════════
+  Version:       1.0
+  Date:          March 2026
+  Aligned With:  Basel III/IV, BCBS, COREP/FINREP, CBN, BOFIA 2020, NDIC,
+                 FATF, IFRS 9, ISO 20022, ISO 4217
+  Scope:         Capital Adequacy, Liquidity (LCR/NSFR), Credit Risk, Market
+                 Risk, Operational Risk, Large Exposures, Asset Quality,
+                 Financial Statements, AML/CFT, FX Position, Deposit Structure,
+                 Stress Testing, Governance
+  ═══════════════════════════════════════════════════════════════════════════════
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:dmb="urn:centralbank:dmb:reporting:v1"
+           targetNamespace="urn:centralbank:dmb:reporting:v1"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified"
+           version="1.0">
+
+  <!-- ═══════════════════════ ROOT ELEMENT ═══════════════════════ -->
+  <xs:element name="DMBReturn" type="dmb:DMBReturnType">
+    <xs:annotation>
+      <xs:documentation>
+        Root element for all Deposit Money Bank regulatory returns submitted
+        to the Central Bank. Supports 14 return types covering prudential,
+        financial, compliance, and governance reporting requirements.
+      </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+
+  <!-- ═══════════════════════ MAIN COMPLEX TYPE ═══════════════════════ -->
+  <xs:complexType name="DMBReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="dmb:HeaderType"/>
+      <xs:element name="CapitalAdequacy" type="dmb:CapitalAdequacyType" minOccurs="0"/>
+      <xs:element name="LiquidityCoverage" type="dmb:LiquidityCoverageType" minOccurs="0"/>
+      <xs:element name="StableFunding" type="dmb:StableFundingType" minOccurs="0"/>
+      <xs:element name="CreditRisk" type="dmb:CreditRiskType" minOccurs="0"/>
+      <xs:element name="MarketRisk" type="dmb:MarketRiskType" minOccurs="0"/>
+      <xs:element name="OperationalRisk" type="dmb:OperationalRiskType" minOccurs="0"/>
+      <xs:element name="LargeExposures" type="dmb:LargeExposuresType" minOccurs="0"/>
+      <xs:element name="AssetQuality" type="dmb:AssetQualityType" minOccurs="0"/>
+      <xs:element name="FinancialStatements" type="dmb:FinancialStatementsType" minOccurs="0"/>
+      <xs:element name="AMLCompliance" type="dmb:AMLComplianceType" minOccurs="0"/>
+      <xs:element name="FXPosition" type="dmb:FXPositionType" minOccurs="0"/>
+      <xs:element name="DepositStructure" type="dmb:DepositStructureType" minOccurs="0"/>
+      <xs:element name="StressTesting" type="dmb:StressTestingType" minOccurs="0"/>
+      <xs:element name="Governance" type="dmb:GovernanceType" minOccurs="0"/>
+      <xs:element name="Signature" type="dmb:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ HEADER ═══════════════════════ -->
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="BankLicenceNo" type="dmb:LicenceNoType"/>
+      <xs:element name="BankName" type="dmb:NameType"/>
+      <xs:element name="ReturnType" type="dmb:DMBReturnTypeEnum"/>
+      <xs:element name="LicenceCategory" type="dmb:LicenceCategoryEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="ConsolidatedSolo" type="dmb:ConsolidatedSoloEnum"/>
+      <xs:element name="AccountingStandard" type="dmb:AccountingStandardEnum" minOccurs="0"/>
+      <xs:element name="ContactPerson" type="dmb:NameType"/>
+      <xs:element name="ContactEmail" type="dmb:EmailType"/>
+      <xs:element name="ContactPhone" type="dmb:PhoneType"/>
+      <xs:element name="IsNilReturn" type="xs:boolean" default="false"/>
+      <xs:element name="Jurisdiction" type="dmb:CountryCodeType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ CAPITAL ADEQUACY (CAR) ═══════════════════════ -->
+  <xs:complexType name="CapitalAdequacyType">
+    <xs:sequence>
+      <xs:element name="CapitalComposition" type="dmb:CapitalCompositionType"/>
+      <xs:element name="RiskWeightedAssets" type="dmb:RiskWeightedAssetsType"/>
+      <xs:element name="CapitalRatios" type="dmb:CapitalRatiosType"/>
+      <xs:element name="BufferRequirements" type="dmb:BufferRequirementsType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CapitalCompositionType">
+    <xs:sequence>
+      <!-- CET1 -->
+      <xs:element name="PaidUpShareCapital" type="dmb:AmountType"/>
+      <xs:element name="SharePremium" type="dmb:AmountType"/>
+      <xs:element name="RetainedEarnings" type="dmb:AmountType"/>
+      <xs:element name="AOCI" type="dmb:AmountType"/>
+      <xs:element name="DisclosedReserves" type="dmb:AmountType"/>
+      <xs:element name="MinorityInterestCET1" type="dmb:AmountType"/>
+      <xs:element name="GrossCET1" type="dmb:AmountType"/>
+      <!-- CET1 Deductions -->
+      <xs:element name="DeductGoodwillIntangibles" type="dmb:AmountType"/>
+      <xs:element name="DeductDTA" type="dmb:AmountType"/>
+      <xs:element name="DeductCashFlowHedge" type="dmb:AmountType"/>
+      <xs:element name="DeductProvisionShortfall" type="dmb:AmountType"/>
+      <xs:element name="DeductPensionAssets" type="dmb:AmountType"/>
+      <xs:element name="DeductCrossHoldings" type="dmb:AmountType"/>
+      <xs:element name="DeductTreasuryStock" type="dmb:AmountType"/>
+      <xs:element name="DeductSignificantInvestments" type="dmb:AmountType"/>
+      <xs:element name="DeductIFRS9Transitional" type="dmb:AmountType"/>
+      <xs:element name="DeductOther" type="dmb:AmountType"/>
+      <xs:element name="NetCET1Capital" type="dmb:AmountType"/>
+      <!-- AT1 -->
+      <xs:element name="AT1Instruments" type="dmb:AmountType"/>
+      <xs:element name="AT1SharePremium" type="dmb:AmountType"/>
+      <xs:element name="AT1MinorityInterest" type="dmb:AmountType"/>
+      <xs:element name="AT1Deductions" type="dmb:AmountType"/>
+      <xs:element name="TotalAT1" type="dmb:AmountType"/>
+      <xs:element name="TotalTier1" type="dmb:AmountType"/>
+      <!-- Tier 2 -->
+      <xs:element name="SubordinatedDebt" type="dmb:AmountType"/>
+      <xs:element name="GeneralProvisions" type="dmb:AmountType"/>
+      <xs:element name="RevaluationReserves" type="dmb:AmountType"/>
+      <xs:element name="T2MinorityInterest" type="dmb:AmountType"/>
+      <xs:element name="T2Deductions" type="dmb:AmountType"/>
+      <xs:element name="TotalTier2" type="dmb:AmountType"/>
+      <xs:element name="TotalRegulatoryCapital" type="dmb:AmountType"/>
+    </xs:sequence>
+    <xs:attribute name="reportingCurrency" type="dmb:CurrencyCodeType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="RiskWeightedAssetsType">
+    <xs:sequence>
+      <xs:element name="CreditRiskOnBS" type="dmb:AmountType"/>
+      <xs:element name="CreditRiskOffBS" type="dmb:AmountType"/>
+      <xs:element name="CreditRiskCCR" type="dmb:AmountType"/>
+      <xs:element name="CreditRiskSecuritisation" type="dmb:AmountType"/>
+      <xs:element name="TotalCreditRiskRWA" type="dmb:AmountType"/>
+      <xs:element name="MarketRiskIR" type="dmb:AmountType"/>
+      <xs:element name="MarketRiskFX" type="dmb:AmountType"/>
+      <xs:element name="MarketRiskEquity" type="dmb:AmountType"/>
+      <xs:element name="MarketRiskCommodity" type="dmb:AmountType"/>
+      <xs:element name="TotalMarketRiskRWA" type="dmb:AmountType"/>
+      <xs:element name="OperationalRiskRWA" type="dmb:AmountType"/>
+      <xs:element name="TotalRWA" type="dmb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CapitalRatiosType">
+    <xs:sequence>
+      <xs:element name="CET1Ratio" type="dmb:RatioType"/>
+      <xs:element name="Tier1Ratio" type="dmb:RatioType"/>
+      <xs:element name="TotalCARatio" type="dmb:RatioType"/>
+      <xs:element name="LeverageRatio" type="dmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="BufferRequirementsType">
+    <xs:sequence>
+      <xs:element name="CapitalConservationBuffer" type="dmb:RatioType"/>
+      <xs:element name="CountercyclicalBuffer" type="dmb:RatioType"/>
+      <xs:element name="DSIBSurcharge" type="dmb:RatioType" minOccurs="0"/>
+      <xs:element name="CombinedBufferReq" type="dmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ LIQUIDITY COVERAGE (LCR) ═══════════════════════ -->
+  <xs:complexType name="LiquidityCoverageType">
+    <xs:sequence>
+      <xs:element name="HQLA">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Level1Total" type="dmb:AmountType"/>
+            <xs:element name="Level2ATotal" type="dmb:AmountType"/>
+            <xs:element name="Level2BTotal" type="dmb:AmountType"/>
+            <xs:element name="CompositionCapAdj" type="dmb:AmountType"/>
+            <xs:element name="TotalHQLA" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="CashOutflows">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="StableRetailDeposits" type="dmb:AmountType"/>
+            <xs:element name="LessStableRetailDeposits" type="dmb:AmountType"/>
+            <xs:element name="UnsecuredWholesaleOperational" type="dmb:AmountType"/>
+            <xs:element name="UnsecuredWholesaleNonOp" type="dmb:AmountType"/>
+            <xs:element name="SecuredFunding" type="dmb:AmountType"/>
+            <xs:element name="DerivativeOutflows" type="dmb:AmountType"/>
+            <xs:element name="CommittedFacilities" type="dmb:AmountType"/>
+            <xs:element name="OtherContractualObligations" type="dmb:AmountType"/>
+            <xs:element name="OtherContingent" type="dmb:AmountType"/>
+            <xs:element name="TotalCashOutflows" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="CashInflows">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="SecuredLending" type="dmb:AmountType"/>
+            <xs:element name="PerformingExposureInflows" type="dmb:AmountType"/>
+            <xs:element name="OtherCashInflows" type="dmb:AmountType"/>
+            <xs:element name="TotalCashInflows" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="NetCashOutflows" type="dmb:AmountType"/>
+      <xs:element name="LCRRatio" type="dmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ NET STABLE FUNDING (NSFR) ═══════════════════════ -->
+  <xs:complexType name="StableFundingType">
+    <xs:sequence>
+      <xs:element name="ASFComponent" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Description" type="xs:string"/>
+            <xs:element name="CarryingAmount" type="dmb:AmountType"/>
+            <xs:element name="ASFFactor" type="dmb:RatioType"/>
+            <xs:element name="WeightedAmount" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalASF" type="dmb:AmountType"/>
+      <xs:element name="RSFComponent" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Description" type="xs:string"/>
+            <xs:element name="CarryingAmount" type="dmb:AmountType"/>
+            <xs:element name="RSFFactor" type="dmb:RatioType"/>
+            <xs:element name="WeightedAmount" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalRSF" type="dmb:AmountType"/>
+      <xs:element name="NSFRRatio" type="dmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ CREDIT RISK (CRR) ═══════════════════════ -->
+  <xs:complexType name="CreditRiskType">
+    <xs:sequence>
+      <xs:element name="ExposureByClass" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="AssetClass" type="dmb:AssetClassEnum"/>
+            <xs:element name="GrossExposure" type="dmb:AmountType"/>
+            <xs:element name="CreditRiskMitigation" type="dmb:AmountType"/>
+            <xs:element name="RiskWeight" type="dmb:RatioType"/>
+            <xs:element name="NetExposure" type="dmb:AmountType"/>
+            <xs:element name="RWA" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="NPLBySector" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Sector" type="xs:string"/>
+            <xs:element name="PerformingLoans" type="dmb:AmountType"/>
+            <xs:element name="NPLAmount" type="dmb:AmountType"/>
+            <xs:element name="NPLRatio" type="dmb:RatioType"/>
+            <xs:element name="SpecificProvisions" type="dmb:AmountType"/>
+            <xs:element name="GeneralProvisions" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="LoanClassification">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Performing" type="dmb:ClassifiedLoanType"/>
+            <xs:element name="Watchlist" type="dmb:ClassifiedLoanType"/>
+            <xs:element name="Substandard" type="dmb:ClassifiedLoanType"/>
+            <xs:element name="Doubtful" type="dmb:ClassifiedLoanType"/>
+            <xs:element name="Lost" type="dmb:ClassifiedLoanType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ClassifiedLoanType">
+    <xs:sequence>
+      <xs:element name="NumberOfAccounts" type="xs:nonNegativeInteger"/>
+      <xs:element name="OutstandingBalance" type="dmb:AmountType"/>
+      <xs:element name="ProvisionRate" type="dmb:RatioType"/>
+      <xs:element name="ProvisionAmount" type="dmb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ MARKET RISK (MRR) ═══════════════════════ -->
+  <xs:complexType name="MarketRiskType">
+    <xs:sequence>
+      <xs:element name="InterestRateRisk">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="TimeBand" maxOccurs="unbounded">
+              <xs:complexType>
+                <xs:sequence>
+                  <xs:element name="BandLabel" type="xs:string"/>
+                  <xs:element name="LongPosition" type="dmb:AmountType"/>
+                  <xs:element name="ShortPosition" type="dmb:AmountType"/>
+                  <xs:element name="NetPosition" type="dmb:AmountType"/>
+                  <xs:element name="CapitalCharge" type="dmb:AmountType"/>
+                </xs:sequence>
+              </xs:complexType>
+            </xs:element>
+            <xs:element name="TotalIRCapitalCharge" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="FXRisk">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CurrencyPosition" maxOccurs="unbounded">
+              <xs:complexType>
+                <xs:sequence>
+                  <xs:element name="CurrencyCode" type="dmb:CurrencyCodeType"/>
+                  <xs:element name="LongPosition" type="dmb:AmountType"/>
+                  <xs:element name="ShortPosition" type="dmb:AmountType"/>
+                  <xs:element name="NetOpenPosition" type="dmb:AmountType"/>
+                </xs:sequence>
+              </xs:complexType>
+            </xs:element>
+            <xs:element name="TotalFXCapitalCharge" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="EquityRiskCapitalCharge" type="dmb:AmountType"/>
+      <xs:element name="CommodityRiskCapitalCharge" type="dmb:AmountType"/>
+      <xs:element name="TotalMarketRiskCapitalCharge" type="dmb:AmountType"/>
+      <xs:element name="MarketRiskRWA" type="dmb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ OPERATIONAL RISK (OPR) ═══════════════════════ -->
+  <xs:complexType name="OperationalRiskType">
+    <xs:sequence>
+      <xs:element name="Approach" type="dmb:OpRiskApproachEnum"/>
+      <xs:element name="BIAComputation" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="GrossIncomeYrT2" type="dmb:AmountType"/>
+            <xs:element name="GrossIncomeYrT1" type="dmb:AmountType"/>
+            <xs:element name="GrossIncomeYrT" type="dmb:AmountType"/>
+            <xs:element name="AverageGrossIncome" type="dmb:AmountType"/>
+            <xs:element name="AlphaFactor" type="dmb:RatioType" fixed="15"/>
+            <xs:element name="BIACapitalCharge" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TSABusinessLine" minOccurs="0" maxOccurs="8">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="BusinessLineName" type="xs:string"/>
+            <xs:element name="GrossIncome" type="dmb:AmountType"/>
+            <xs:element name="BetaFactor" type="dmb:RatioType"/>
+            <xs:element name="CapitalCharge" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="LossEvent" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="EventCategory" type="dmb:LossEventCategoryEnum"/>
+            <xs:element name="EventCount" type="xs:nonNegativeInteger"/>
+            <xs:element name="GrossLoss" type="dmb:AmountType"/>
+            <xs:element name="NetLoss" type="dmb:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalOpRiskCapitalCharge" type="dmb:AmountType"/>
+      <xs:element name="OpRiskRWA" type="dmb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ LARGE EXPOSURES (LEX) ═══════════════════════ -->
+  <xs:complexType name="LargeExposuresType">
+    <xs:sequence>
+      <xs:element name="ShareholdersFunds" type="dmb:AmountType"/>
+      <xs:element name="TopExposure" maxOccurs="20">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Rank" type="xs:positiveInteger"/>
+            <xs:element name="ObligorName" type="xs:string"/>
+            <xs:element name="TotalExposure" type="dmb:AmountType"/>
+            <xs:element name="OnBalanceSheet" type="dmb:AmountType"/>
+            <xs:element name="OffBalanceSheet" type="dmb:AmountType"/>
+            <xs:element name="ExposurePctSHF" type="dmb:RatioType"/>
+            <xs:element name="IsCompliant" type="xs:boolean"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="ConnectedLending" maxOccurs="unbounded" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="PartyName" type="xs:string"/>
+            <xs:element name="Relationship" type="xs:string"/>
+            <xs:element name="ExposureAmount" type="dmb:AmountType"/>
+            <xs:element name="ExposurePctSHF" type="dmb:RatioType"/>
+            <xs:element name="BoardApproval" type="xs:boolean"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ ASSET QUALITY (AQR) ═══════════════════════ -->
+  <xs:complexType name="AssetQualityType">
+    <xs:sequence>
+      <xs:element name="GrossLoans" type="dmb:AmountType"/>
+      <xs:element name="SpecificProvisions" type="dmb:AmountType"/>
+      <xs:element name="GeneralProvisions" type="dmb:AmountType"/>
+      <xs:element name="InterestInSuspense" type="dmb:AmountType"/>
+      <xs:element name="NetLoans" type="dmb:AmountType"/>
+      <xs:element name="GrossNPL" type="dmb:AmountType"/>
+      <xs:element name="NPLRatio" type="dmb:RatioType"/>
+      <xs:element name="ProvisionCoverageRatio" type="dmb:RatioType"/>
+      <xs:element name="CostOfRisk" type="dmb:RatioType"/>
+      <xs:element name="LoansWrittenOff" type="dmb:AmountType"/>
+      <xs:element name="Recoveries" type="dmb:AmountType"/>
+      <xs:element name="ECLStaging">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Stage1GrossAmount" type="dmb:AmountType"/>
+            <xs:element name="Stage1ECL" type="dmb:AmountType"/>
+            <xs:element name="Stage2GrossAmount" type="dmb:AmountType"/>
+            <xs:element name="Stage2ECL" type="dmb:AmountType"/>
+            <xs:element name="Stage3GrossAmount" type="dmb:AmountType"/>
+            <xs:element name="Stage3ECL" type="dmb:AmountType"/>
+            <xs:element name="POCIGrossAmount" type="dmb:AmountType" minOccurs="0"/>
+            <xs:element name="POCIECL" type="dmb:AmountType" minOccurs="0"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ FINANCIAL STATEMENTS (FIN) ═══════════════════════ -->
+  <xs:complexType name="FinancialStatementsType">
+    <xs:sequence>
+      <xs:element name="BalanceSheet" type="dmb:BalanceSheetType"/>
+      <xs:element name="IncomeStatement" type="dmb:IncomeStatementType"/>
+      <xs:element name="KeyRatios" type="dmb:KeyRatiosType"/>
+    </xs:sequence>
+    <xs:attribute name="reportingCurrency" type="dmb:CurrencyCodeType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="BalanceSheetType">
+    <xs:sequence>
+      <xs:element name="CashCBBalances" type="dmb:AmountType"/>
+      <xs:element name="DueFromBanks" type="dmb:AmountType"/>
+      <xs:element name="TradingSecurities" type="dmb:AmountType"/>
+      <xs:element name="DerivativeAssets" type="dmb:AmountType"/>
+      <xs:element name="InvestmentsFVTPL" type="dmb:AmountType"/>
+      <xs:element name="InvestmentsFVOCI" type="dmb:AmountType"/>
+      <xs:element name="InvestmentsAmortisedCost" type="dmb:AmountType"/>
+      <xs:element name="LoansToCustomers" type="dmb:AmountType"/>
+      <xs:element name="LoansToBanks" type="dmb:AmountType"/>
+      <xs:element name="RestrictedDeposits" type="dmb:AmountType"/>
+      <xs:element name="PPE" type="dmb:AmountType"/>
+      <xs:element name="IntangibleAssets" type="dmb:AmountType"/>
+      <xs:element name="OtherAssets" type="dmb:AmountType"/>
+      <xs:element name="TotalAssets" type="dmb:AmountType"/>
+      <xs:element name="CustomerDepositsDemand" type="dmb:AmountType"/>
+      <xs:element name="CustomerDepositsSavings" type="dmb:AmountType"/>
+      <xs:element name="CustomerDepositsTerm" type="dmb:AmountType"/>
+      <xs:element name="CustomerDepositsDomiciliary" type="dmb:AmountType"/>
+      <xs:element name="DueToBanks" type="dmb:AmountType"/>
+      <xs:element name="DebtSecuritiesIssued" type="dmb:AmountType"/>
+      <xs:element name="CBBorrowings" type="dmb:AmountType"/>
+      <xs:element name="OtherLiabilities" type="dmb:AmountType"/>
+      <xs:element name="TotalLiabilities" type="dmb:AmountType"/>
+      <xs:element name="PaidUpCapital" type="dmb:AmountType"/>
+      <xs:element name="SharePremium" type="dmb:AmountType"/>
+      <xs:element name="RetainedEarnings" type="dmb:AmountType"/>
+      <xs:element name="Reserves" type="dmb:AmountType"/>
+      <xs:element name="NCI" type="dmb:AmountType" minOccurs="0"/>
+      <xs:element name="TotalEquity" type="dmb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="IncomeStatementType">
+    <xs:sequence>
+      <xs:element name="InterestIncome" type="dmb:AmountType"/>
+      <xs:element name="InterestExpense" type="dmb:AmountType"/>
+      <xs:element name="NetInterestIncome" type="dmb:AmountType"/>
+      <xs:element name="ImpairmentCharge" type="dmb:AmountType"/>
+      <xs:element name="NIIAfterImpairment" type="dmb:AmountType"/>
+      <xs:element name="FeeCommissionIncome" type="dmb:AmountType"/>
+      <xs:element name="NetTradingIncome" type="dmb:AmountType"/>
+      <xs:element name="OtherOperatingIncome" type="dmb:AmountType"/>
+      <xs:element name="TotalNonInterestIncome" type="dmb:AmountType"/>
+      <xs:element name="TotalOperatingIncome" type="dmb:AmountType"/>
+      <xs:element name="PersonnelExpenses" type="dmb:AmountType"/>
+      <xs:element name="DepreciationAmortisation" type="dmb:AmountType"/>
+      <xs:element name="NDICPremium" type="dmb:AmountType" minOccurs="0"/>
+      <xs:element name="AMCONLevy" type="dmb:AmountType" minOccurs="0"/>
+      <xs:element name="OtherOpex" type="dmb:AmountType"/>
+      <xs:element name="TotalOpex" type="dmb:AmountType"/>
+      <xs:element name="ProfitBeforeTax" type="dmb:AmountType"/>
+      <xs:element name="TaxExpense" type="dmb:AmountType"/>
+      <xs:element name="ProfitAfterTax" type="dmb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="KeyRatiosType">
+    <xs:sequence>
+      <xs:element name="ROA" type="dmb:RatioType"/>
+      <xs:element name="ROE" type="dmb:RatioType"/>
+      <xs:element name="NIM" type="dmb:RatioType"/>
+      <xs:element name="CostToIncomeRatio" type="dmb:RatioType"/>
+      <xs:element name="LoanToDepositRatio" type="dmb:RatioType"/>
+      <xs:element name="LiquidityRatio" type="dmb:RatioType"/>
+      <xs:element name="CARatio" type="dmb:RatioType"/>
+      <xs:element name="NPLRatio" type="dmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ AML/CFT (AML) ═══════════════════════ -->
+  <xs:complexType name="AMLComplianceType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="InternalAlerts" type="xs:nonNegativeInteger"/>
+      <xs:element name="FalsePositiveRate" type="dmb:RatioType"/>
+      <xs:element name="PEPAccountsIdentified" type="xs:nonNegativeInteger"/>
+      <xs:element name="SanctionsHits" type="xs:nonNegativeInteger"/>
+      <xs:element name="CustomersDeRisked" type="xs:nonNegativeInteger"/>
+      <xs:element name="StaffTrained" type="xs:nonNegativeInteger"/>
+      <xs:element name="TrainingCompletionRate" type="dmb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ FX POSITION (FXP) ═══════════════════════ -->
+  <xs:complexType name="FXPositionType">
+    <xs:sequence>
+      <xs:element name="ShareholdersFunds" type="dmb:AmountType"/>
+      <xs:element name="CurrencyNOP" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CurrencyCode" type="dmb:CurrencyCodeType"/>
+            <xs:element name="Assets" type="dmb:AmountType"/>
+            <xs:element name="Liabilities" type="dmb:AmountType"/>
+            <xs:element name="OffBalanceSheetNet" type="dmb:AmountType"/>
+            <xs:element name="NetOpenPosition" type="dmb:AmountType"/>
+            <xs:element name="NOPPctSHF" type="dmb:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="AggregateNOP" type="dmb:AmountType"/>
+      <xs:element name="AggregateNOPPctSHF" type="dmb:RatioType"/>
+      <xs:element name="IsCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ DEPOSIT STRUCTURE (DSR) ═══════════════════════ -->
+  <xs:complexType name="DepositStructureType">
+    <xs:sequence>
+      <xs:element name="DepositByType" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="DepositType" type="xs:string"/>
+            <xs:element name="Balance" type="dmb:AmountType"/>
+            <xs:element name="PctOfTotal" type="dmb:RatioType"/>
+            <xs:element name="AvgInterestRate" type="dmb:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalDeposits" type="dmb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ STRESS TESTING (STR) ═══════════════════════ -->
+  <xs:complexType name="StressTestingType">
+    <xs:sequence>
+      <xs:element name="ScenarioParameter" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="ParameterName" type="xs:string"/>
+            <xs:element name="Baseline" type="xs:decimal"/>
+            <xs:element name="Adverse" type="xs:decimal"/>
+            <xs:element name="SeverelyAdverse" type="xs:decimal"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="CapitalImpact">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="PreStressCET1Ratio" type="dmb:RatioType"/>
+            <xs:element name="BaselineCET1Ratio" type="dmb:RatioType"/>
+            <xs:element name="AdverseCET1Ratio" type="dmb:RatioType"/>
+            <xs:element name="SeverelyAdverseCET1Ratio" type="dmb:RatioType"/>
+            <xs:element name="PreStressCAR" type="dmb:RatioType"/>
+            <xs:element name="BaselineCAR" type="dmb:RatioType"/>
+            <xs:element name="AdverseCAR" type="dmb:RatioType"/>
+            <xs:element name="SeverelyAdverseCAR" type="dmb:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ GOVERNANCE (GOV) ═══════════════════════ -->
+  <xs:complexType name="GovernanceType">
+    <xs:sequence>
+      <xs:element name="Director" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="Nationality" type="dmb:CountryCodeType"/>
+            <xs:element name="ExecutiveNonExec" type="xs:string"/>
+            <xs:element name="IsIndependent" type="xs:boolean"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="Committee" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CommitteeName" type="xs:string"/>
+            <xs:element name="Chairperson" type="xs:string"/>
+            <xs:element name="MemberCount" type="xs:positiveInteger"/>
+            <xs:element name="MeetingsPerYear" type="xs:nonNegativeInteger"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="SignificantShareholder" maxOccurs="unbounded" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="ShareholderName" type="xs:string"/>
+            <xs:element name="Nationality" type="dmb:CountryCodeType"/>
+            <xs:element name="ShareholdingPct" type="dmb:RatioType"/>
+            <xs:element name="CBNApproval" type="xs:boolean"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ SIGNATURE ═══════════════════════ -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy" type="dmb:SignatoryType"/>
+      <xs:element name="CFOSignOff" type="dmb:SignatoryType"/>
+      <xs:element name="HeadRiskSignOff" type="dmb:SignatoryType" minOccurs="0"/>
+      <xs:element name="MDCEOSignOff" type="dmb:SignatoryType"/>
+      <xs:element name="CertificationStatement" type="xs:string"
+        fixed="I/We certify that the information provided in this return is true, accurate, and complete to the best of my/our knowledge and belief, and in compliance with applicable prudential regulations."/>
+      <xs:element name="DigitalSignature" type="xs:base64Binary" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="SignatoryType">
+    <xs:sequence>
+      <xs:element name="Name" type="xs:string"/>
+      <xs:element name="Designation" type="xs:string"/>
+      <xs:element name="Date" type="xs:date"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════ SIMPLE TYPES & ENUMERATIONS ═══════════════════════ -->
+
+  <xs:simpleType name="LicenceNoType">
+    <xs:restriction base="xs:string"><xs:maxLength value="20"/><xs:minLength value="1"/></xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="NameType">
+    <xs:restriction base="xs:string"><xs:maxLength value="200"/><xs:minLength value="1"/></xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="EmailType">
+    <xs:restriction base="xs:string"><xs:pattern value="[^@\s]+@[^@\s]+\.[^@\s]+"/></xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PhoneType">
+    <xs:restriction base="xs:string"><xs:pattern value="\+?[\d\s\-()]+"/><xs:maxLength value="20"/></xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="DMBReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="CAR"/><xs:enumeration value="LCR"/><xs:enumeration value="NSFR"/>
+      <xs:enumeration value="CRR"/><xs:enumeration value="MRR"/><xs:enumeration value="OPR"/>
+      <xs:enumeration value="LEX"/><xs:enumeration value="AQR"/><xs:enumeration value="FIN"/>
+      <xs:enumeration value="AML"/><xs:enumeration value="FXP"/><xs:enumeration value="DSR"/>
+      <xs:enumeration value="STR"/><xs:enumeration value="GOV"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="LicenceCategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="International"/><xs:enumeration value="National"/>
+      <xs:enumeration value="Regional"/><xs:enumeration value="Merchant"/>
+      <xs:enumeration value="NonInterest"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ConsolidatedSoloEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Solo"/><xs:enumeration value="Consolidated"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="AccountingStandardEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="IFRS"/><xs:enumeration value="NGAAP"/><xs:enumeration value="USGAAP"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="AssetClassEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Sovereign"/><xs:enumeration value="CentralBank"/>
+      <xs:enumeration value="PSE"/><xs:enumeration value="MDB"/>
+      <xs:enumeration value="Banks"/><xs:enumeration value="Corporates"/>
+      <xs:enumeration value="RegulatoryRetail"/><xs:enumeration value="ResidentialMortgage"/>
+      <xs:enumeration value="CommercialRealEstate"/><xs:enumeration value="PastDue"/>
+      <xs:enumeration value="HigherRisk"/><xs:enumeration value="OtherAssets"/>
+      <xs:enumeration value="OffBalanceSheet"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="OpRiskApproachEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="BIA"/><xs:enumeration value="TSA"/><xs:enumeration value="AMA"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="LossEventCategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="InternalFraud"/><xs:enumeration value="ExternalFraud"/>
+      <xs:enumeration value="EmploymentPractices"/><xs:enumeration value="ClientsProducts"/>
+      <xs:enumeration value="PhysicalAssetDamage"/><xs:enumeration value="BusinessDisruption"/>
+      <xs:enumeration value="ExecutionDelivery"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CurrencyCodeType">
+    <xs:restriction base="xs:string"><xs:pattern value="[A-Z]{3}"/></xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CountryCodeType">
+    <xs:restriction base="xs:string"><xs:pattern value="[A-Z]{3}"/></xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="AmountType">
+    <xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="RatioType">
+    <xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

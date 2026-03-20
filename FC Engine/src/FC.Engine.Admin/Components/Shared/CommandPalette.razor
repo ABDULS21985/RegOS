@@ -1,0 +1,362 @@
+@using FC.Engine.Domain.Abstractions
+@inject CommandPaletteService PaletteService
+@inject NavigationManager Navigation
+@inject ITenantContext TenantContext
+@inject IEntitlementService EntitlementSvc
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (_visible)
+{
+    <div class="cmd-palette-backdrop @(_animateIn ? "cmd-palette-backdrop-active" : "")"
+         @onclick="Close"
+         role="presentation"
+         aria-hidden="true">
+    </div>
+
+    <div id="cmd-palette-dialog"
+         class="cmd-palette @(_animateIn ? "cmd-palette-active" : "")"
+         role="dialog"
+         aria-modal="true"
+         aria-label="Command palette"
+         @onclick:stopPropagation="true"
+         @onkeydown="HandleKeyDown">
+
+        <!-- Search bar -->
+        <div class="cmd-palette-search">
+            <svg class="cmd-palette-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+            <input id="cmd-palette-input"
+                   type="text"
+                   class="cmd-palette-search-input"
+                   placeholder="Type a command or search..."
+                   @bind="_query"
+                   @bind:event="oninput"
+                   @bind:after="OnSearchChanged"
+                   autocomplete="off"
+                   spellcheck="false" />
+            <kbd class="cmd-palette-kbd">ESC</kbd>
+        </div>
+
+        <div class="cmd-palette-body">
+            <!-- Results panel -->
+            <div class="cmd-palette-results" role="listbox" aria-label="Search results">
+                @if (_groups.Count == 0 && !string.IsNullOrWhiteSpace(_query))
+                {
+                    <div class="cmd-palette-empty">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="32" height="32" aria-hidden="true">
+                            <circle cx="11" cy="11" r="8"/>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                            <line x1="8" y1="8" x2="14" y2="14"/>
+                            <line x1="14" y1="8" x2="8" y2="14"/>
+                        </svg>
+                        <p>No results for "<strong>@_query</strong>"</p>
+                    </div>
+                }
+                else
+                {
+                    @foreach (var group in _groups)
+                    {
+                        <div class="cmd-palette-category">@group.Title</div>
+                        @foreach (var item in group.Items)
+                        {
+                            var idx = GetFlatIndex(group, item);
+                            var isSelected = idx == _selectedIndex;
+                            <div id="cmd-item-@idx"
+                                 class="cmd-palette-item @(isSelected ? "cmd-palette-item-selected" : "")"
+                                 role="option"
+                                 aria-selected="@isSelected"
+                                 @onclick="() => SelectItem(item)"
+                                 @onmouseenter="() => _selectedIndex = idx">
+                                <div class="cmd-palette-item-icon" aria-hidden="true">
+                                    @if (item.Category == CommandCategory.Recent)
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <polyline points="12 6 12 12 16 14"/>
+                                        </svg>
+                                    }
+                                    else if (item.Category == CommandCategory.Action)
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                                            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+                                        </svg>
+                                    }
+                                    else
+                                    {
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+                                            @((MarkupString)(item.IconPath ?? ""))
+                                        </svg>
+                                    }
+                                </div>
+                                <div class="cmd-palette-item-text">
+                                    <span class="cmd-palette-item-label">@item.Label</span>
+                                    @if (!string.IsNullOrEmpty(item.Url))
+                                    {
+                                        <span class="cmd-palette-item-url">@item.Url</span>
+                                    }
+                                </div>
+                                @if (item.Category == CommandCategory.Action)
+                                {
+                                    <span class="cmd-palette-item-badge">Action</span>
+                                }
+                            </div>
+                        }
+                    }
+                }
+            </div>
+
+            <!-- Preview panel -->
+            @if (_selectedItem is not null)
+            {
+                <div class="cmd-palette-preview">
+                    <div class="cmd-palette-preview-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="28" height="28">
+                            @((MarkupString)(_selectedItem.IconPath ?? ""))
+                        </svg>
+                    </div>
+                    <h3 class="cmd-palette-preview-title">@_selectedItem.Label</h3>
+                    @if (!string.IsNullOrEmpty(_selectedItem.Description))
+                    {
+                        <p class="cmd-palette-preview-desc">@_selectedItem.Description</p>
+                    }
+                    <div class="cmd-palette-preview-meta">
+                        <div class="cmd-palette-preview-row">
+                            <span class="cmd-palette-preview-key">Category</span>
+                            <span class="cmd-palette-preview-val">@_selectedItem.Category</span>
+                        </div>
+                        @if (!string.IsNullOrEmpty(_selectedItem.Url))
+                        {
+                            <div class="cmd-palette-preview-row">
+                                <span class="cmd-palette-preview-key">Path</span>
+                                <code class="cmd-palette-preview-val">@_selectedItem.Url</code>
+                            </div>
+                        }
+                    </div>
+                    <div class="cmd-palette-preview-action">
+                        <span>Press</span>
+                        <kbd class="cmd-palette-kbd">Enter</kbd>
+                        <span>to open</span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Screen reader result count (polite live region) -->
+        <div class="fc-sr-only" aria-live="polite" aria-atomic="true">
+            @if (!string.IsNullOrWhiteSpace(_query))
+            {
+                @($"{_totalCount} result{(_totalCount != 1 ? "s" : "")} for {_query}")
+            }
+        </div>
+
+        <!-- Footer -->
+        <div class="cmd-palette-footer">
+            <div class="cmd-palette-footer-hints">
+                <span><kbd class="cmd-palette-kbd cmd-palette-kbd-sm">&uarr;&darr;</kbd> Navigate</span>
+                <span><kbd class="cmd-palette-kbd cmd-palette-kbd-sm">&crarr;</kbd> Select</span>
+                <span><kbd class="cmd-palette-kbd cmd-palette-kbd-sm">Esc</kbd> Close</span>
+            </div>
+            <span class="cmd-palette-footer-count">@_totalCount item@(_totalCount != 1 ? "s" : "")</span>
+        </div>
+    </div>
+}
+
+@code {
+    private bool _visible;
+    private bool _animateIn;
+    private string _query = "";
+    private int _selectedIndex;
+    private int _totalCount;
+    private List<CommandGroup> _groups = [];
+    private CommandItem? _selectedItem;
+    private Timer? _debounceTimer;
+    private DotNetObjectReference<CommandPalette>? _dotnetRef;
+    private bool _jsInitialized;
+
+    protected override void OnInitialized()
+    {
+        PaletteService.OnToggled += HandleToggled;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_jsInitialized)
+        {
+            _dotnetRef = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("commandPalette.init", _dotnetRef);
+            _jsInitialized = true;
+
+            // Register commands based on user context
+            var isPlatformAdmin = TenantContext.IsPlatformAdmin;
+            var hasModules = isPlatformAdmin;
+            if (!isPlatformAdmin && TenantContext.CurrentTenantId is { } tenantId)
+            {
+                try
+                {
+                    var ent = await EntitlementSvc.ResolveEntitlements(tenantId);
+                    hasModules = ent.ActiveModules.Count > 0;
+                }
+                catch { /* fall through */ }
+            }
+            PaletteService.RegisterCommands(isPlatformAdmin, hasModules);
+        }
+    }
+
+    [JSInvokable]
+    public void Toggle()
+    {
+        if (_visible)
+            _ = Close();
+        else
+            _ = Open();
+    }
+
+    private async Task Open()
+    {
+        _query = "";
+        _selectedIndex = 0;
+        _groups = PaletteService.Search(null);
+        _totalCount = _groups.Sum(g => g.Items.Count);
+        UpdateSelectedItem();
+
+        _visible = true;
+        StateHasChanged();
+
+        await Task.Yield();
+        _animateIn = true;
+        StateHasChanged();
+
+        await JS.InvokeVoidAsync("FCAccessibility.trapFocus", "cmd-palette-dialog");
+        await JS.InvokeVoidAsync("commandPalette.focusInput", "cmd-palette-input");
+    }
+
+    private async Task Close()
+    {
+        _animateIn = false;
+        StateHasChanged();
+
+        try { await JS.InvokeVoidAsync("FCAccessibility.releaseFocus", "cmd-palette-dialog"); }
+        catch (JSDisconnectedException) { }
+
+        await Task.Delay(200);
+        _visible = false;
+        _query = "";
+        StateHasChanged();
+    }
+
+    private void HandleToggled()
+    {
+        if (PaletteService.IsOpen && !_visible)
+            _ = Open();
+        else if (!PaletteService.IsOpen && _visible)
+            _ = Close();
+    }
+
+    private void OnSearchChanged()
+    {
+        _debounceTimer?.Dispose();
+        _debounceTimer = new Timer(_ =>
+        {
+            InvokeAsync(() =>
+            {
+                _groups = PaletteService.Search(_query);
+                _totalCount = _groups.Sum(g => g.Items.Count);
+                _selectedIndex = 0;
+                UpdateSelectedItem();
+                StateHasChanged();
+            });
+        }, null, 150, Timeout.Infinite);
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "Escape":
+                await Close();
+                break;
+
+            case "ArrowDown":
+                if (_totalCount > 0)
+                {
+                    _selectedIndex = (_selectedIndex + 1) % _totalCount;
+                    UpdateSelectedItem();
+                    await JS.InvokeVoidAsync("commandPalette.scrollIntoView", $"cmd-item-{_selectedIndex}");
+                }
+                break;
+
+            case "ArrowUp":
+                if (_totalCount > 0)
+                {
+                    _selectedIndex = (_selectedIndex - 1 + _totalCount) % _totalCount;
+                    UpdateSelectedItem();
+                    await JS.InvokeVoidAsync("commandPalette.scrollIntoView", $"cmd-item-{_selectedIndex}");
+                }
+                break;
+
+            case "Enter":
+                if (_selectedItem is not null)
+                    await SelectItem(_selectedItem);
+                break;
+        }
+    }
+
+    private async Task SelectItem(CommandItem item)
+    {
+        PaletteService.AddRecentSearch(item);
+
+        await Close();
+
+        if (!string.IsNullOrEmpty(item.Url))
+            Navigation.NavigateTo(item.Url);
+    }
+
+    private int GetFlatIndex(CommandGroup targetGroup, CommandItem targetItem)
+    {
+        var idx = 0;
+        foreach (var g in _groups)
+        {
+            foreach (var item in g.Items)
+            {
+                if (ReferenceEquals(g, targetGroup) && ReferenceEquals(item, targetItem))
+                    return idx;
+                idx++;
+            }
+        }
+        return 0;
+    }
+
+    private void UpdateSelectedItem()
+    {
+        var flatIdx = 0;
+        _selectedItem = null;
+        foreach (var group in _groups)
+        {
+            foreach (var item in group.Items)
+            {
+                if (flatIdx == _selectedIndex)
+                {
+                    _selectedItem = item;
+                    return;
+                }
+                flatIdx++;
+            }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        PaletteService.OnToggled -= HandleToggled;
+        _debounceTimer?.Dispose();
+
+        if (_jsInitialized)
+        {
+            try { await JS.InvokeVoidAsync("commandPalette.dispose"); }
+            catch (JSDisconnectedException) { }
+        }
+        _dotnetRef?.Dispose();
+    }
+}

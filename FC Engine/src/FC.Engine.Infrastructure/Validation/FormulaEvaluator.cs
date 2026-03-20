@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.DataRecord;
 using FC.Engine.Domain.Entities;
@@ -7,12 +8,17 @@ using FC.Engine.Domain.Metadata;
 
 namespace FC.Engine.Infrastructure.Validation;
 
-public class FormulaEvaluator : IFormulaEvaluator
+public partial class FormulaEvaluator : IFormulaEvaluator
 {
     private readonly ITemplateMetadataCache _cache;
     private readonly ExpressionParser _expressionParser = new();
+    private readonly Dictionary<string, Func<Dictionary<string, decimal>, decimal>> _customFunctions;
 
-    public FormulaEvaluator(ITemplateMetadataCache cache) => _cache = cache;
+    public FormulaEvaluator(ITemplateMetadataCache cache)
+    {
+        _cache = cache;
+        _customFunctions = BuildCustomFunctions();
+    }
 
     public async Task<IReadOnlyList<ValidationError>> Evaluate(ReturnDataRecord record, CancellationToken ct = default)
     {
@@ -205,6 +211,33 @@ public class FormulaEvaluator : IFormulaEvaluator
     {
         if (string.IsNullOrWhiteSpace(formula.CustomExpression)) return null;
 
+        var customCall = TryParseCustomFunctionCall(formula.CustomExpression);
+        if (customCall != null)
+        {
+            var computed = EvaluateCustomFunction(customCall.Value.FunctionName, customCall.Value.Arguments, row);
+            var targetValue = row.GetDecimal(formula.TargetFieldName) ?? 0m;
+
+            var passed = customCall.Value.FunctionName.Equals("RATE_BAND_CHECK", StringComparison.OrdinalIgnoreCase)
+                ? computed >= 1m
+                : WithinTolerance(targetValue, computed, formula);
+
+            if (!passed)
+            {
+                var expected = customCall.Value.FunctionName.Equals("RATE_BAND_CHECK", StringComparison.OrdinalIgnoreCase)
+                    ? "within allowed band"
+                    : computed.ToString();
+
+                return CreateError(
+                    formula,
+                    expected,
+                    targetValue.ToString(),
+                    formula.ErrorMessage
+                    ?? $"Custom function {customCall.Value.FunctionName} failed");
+            }
+
+            return null;
+        }
+
         // Build variable map from row values
         var variables = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
         foreach (var kvp in row.AllFields)
@@ -227,6 +260,211 @@ public class FormulaEvaluator : IFormulaEvaluator
                 formula.ErrorMessage ?? $"Custom formula failed: {formula.CustomExpression}");
         }
         return null;
+    }
+
+    private decimal EvaluateCustomFunction(
+        string functionName,
+        IReadOnlyList<string> argumentTokens,
+        ReturnDataRow row)
+    {
+        if (!_customFunctions.TryGetValue(functionName, out var evaluator))
+        {
+            throw new InvalidOperationException($"Unknown custom function: {functionName}");
+        }
+
+        var args = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+        var positional = 1;
+        foreach (var token in argumentTokens)
+        {
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                continue;
+            }
+
+            var trimmed = token.Trim();
+            if (trimmed.Contains('='))
+            {
+                var split = trimmed.Split('=', 2, StringSplitOptions.TrimEntries);
+                var key = split[0];
+                var valueToken = split[1];
+                args[key] = ResolveTokenValue(valueToken, row);
+            }
+            else
+            {
+                var value = ResolveTokenValue(trimmed, row);
+                args[$"arg{positional}"] = value;
+                args[trimmed] = value;
+                positional++;
+            }
+        }
+
+        return evaluator(args);
+    }
+
+    private static decimal ResolveTokenValue(string token, ReturnDataRow row)
+    {
+        if (decimal.TryParse(token, out var numeric))
+        {
+            return numeric;
+        }
+
+        return row.GetDecimal(token) ?? 0m;
+    }
+
+    private static (string FunctionName, List<string> Arguments)? TryParseCustomFunctionCall(string expression)
+    {
+        var match = CustomFunctionRegex().Match(expression.Trim());
+        if (!match.Success)
+        {
+            return null;
+        }
+
+        var name = match.Groups["name"].Value.Trim();
+        var argsText = match.Groups["args"].Value.Trim();
+        var args = string.IsNullOrWhiteSpace(argsText)
+            ? new List<string>()
+            : argsText.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries).ToList();
+
+        return (name, args);
+    }
+
+    private static Dictionary<string, Func<Dictionary<string, decimal>, decimal>> BuildCustomFunctions()
+    {
+        return new Dictionary<string, Func<Dictionary<string, decimal>, decimal>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["CAR"] = args =>
+            {
+                var tier1 = Arg(args, "tier1", "arg1");
+                var tier2 = Arg(args, "tier2", "arg2");
+                var rwa = Arg(args, "rwa", "arg3");
+                return rwa == 0 ? 0 : Math.Round((tier1 + tier2) / rwa * 100m, 2);
+            },
+            ["NPL_RATIO"] = args =>
+            {
+                var stage3 = Arg(args, "stage3", "npl_amount", "arg1");
+                var totalLoans = Arg(args, "total_loans", "arg2");
+                return totalLoans == 0 ? 0 : Math.Round(stage3 / totalLoans * 100m, 2);
+            },
+            ["LCR"] = args =>
+            {
+                var hqla = Arg(args, "hqla", "arg1");
+                var outflow = Arg(args, "net_outflow_30d", "arg2");
+                return outflow == 0 ? 0 : Math.Round(hqla / outflow * 100m, 2);
+            },
+            ["NSFR"] = args =>
+            {
+                var asf = Arg(args, "available_stable_funding", "arg1");
+                var rsf = Arg(args, "required_stable_funding", "arg2");
+                return rsf == 0 ? 0 : Math.Round(asf / rsf * 100m, 2);
+            },
+            ["ECL"] = args =>
+            {
+                var pd = Arg(args, "pd", "arg1");
+                var lgd = Arg(args, "lgd", "arg2");
+                var ead = Arg(args, "ead", "arg3");
+                return Math.Round(pd * lgd * ead, 2);
+            },
+            ["OSS_RATIO"] = args =>
+            {
+                var operatingRevenue = Arg(args, "operating_revenue", "arg1");
+                var totalExpenses = Arg(args, "total_expenses", "arg2");
+                return totalExpenses == 0 ? 0 : Math.Round(operatingRevenue / totalExpenses * 100m, 2);
+            },
+            ["PAR_RATIO"] = args =>
+            {
+                var parAmount = Arg(args, "par_amount", "arg1");
+                var grossPortfolio = Arg(args, "gross_portfolio", "arg2");
+                return grossPortfolio == 0 ? 0 : Math.Round(parAmount / grossPortfolio * 100m, 2);
+            },
+            ["SOLVENCY_MARGIN"] = args =>
+            {
+                var assets = Arg(args, "admitted_assets", "arg1");
+                var liabilities = Arg(args, "total_liabilities", "arg2");
+                return Math.Round(assets - liabilities, 2);
+            },
+            ["COMBINED_RATIO"] = args =>
+            {
+                var claims = Arg(args, "claims_ratio", "arg1");
+                var expenses = Arg(args, "expense_ratio", "arg2");
+                return Math.Round(claims + expenses, 2);
+            },
+            ["RATE_BAND_CHECK"] = args =>
+            {
+                var actual = Arg(args, "actual_rate", "arg1");
+                var reference = Arg(args, "reference_rate", "arg2");
+                var bandPercent = Arg(args, "band_percent", "arg3", defaultValue: 10m);
+                var lowerBound = reference * (1 - bandPercent / 100m);
+                var upperBound = reference * (1 + bandPercent / 100m);
+                return actual >= lowerBound && actual <= upperBound ? 1m : 0m;
+            },
+            ["NDIC_DPAS_RAW"] = args =>
+            {
+                var insurableDeposits = Arg(args, "insurable_deposits", "arg1");
+                var assessmentRate = Arg(args, "assessment_rate", "arg2");
+                return Math.Round(insurableDeposits * assessmentRate, 2);
+            },
+            ["NDIC_DPAS_PREMIUM"] = args =>
+            {
+                var insurableDeposits = Arg(args, "insurable_deposits", "arg1");
+                var assessmentRate = Arg(args, "assessment_rate", "arg2");
+                var minimumPremium = Arg(args, "minimum_premium", "arg3");
+                var rawPremium = insurableDeposits * assessmentRate;
+                return Math.Round(Math.Max(rawPremium, minimumPremium), 2);
+            },
+            ["BDC_MIN_CAPITAL_REQUIRED"] = args =>
+            {
+                var categoryCode = Arg(args, "licence_category_code", "arg1");
+                var categoryAMin = Arg(args, "category_a_minimum_capital", "arg2", defaultValue: 35000000m);
+                var categoryBMin = Arg(args, "category_b_minimum_capital", "arg3", defaultValue: 2000000m);
+
+                return categoryCode switch
+                {
+                    <= 1m => categoryAMin,
+                    2m => categoryBMin,
+                    _ => categoryAMin
+                };
+            },
+            ["MFB_MIN_CAPITAL_REQUIRED"] = args =>
+            {
+                var categoryCode = Arg(args, "mfb_category_code", "arg1");
+                var unitMin = Arg(args, "unit_minimum_capital", "arg2", defaultValue: 50000000m);
+                var stateMin = Arg(args, "state_minimum_capital", "arg3", defaultValue: 200000000m);
+                var nationalMin = Arg(args, "national_minimum_capital", "arg4", defaultValue: 5000000000m);
+
+                return categoryCode switch
+                {
+                    <= 1m => unitMin,
+                    2m => stateMin,
+                    3m => nationalMin,
+                    _ => unitMin
+                };
+            }
+        };
+    }
+
+    private static decimal Arg(
+        IReadOnlyDictionary<string, decimal> args,
+        string primary,
+        string? fallback1 = null,
+        string? fallback2 = null,
+        decimal defaultValue = 0m)
+    {
+        if (args.TryGetValue(primary, out var value))
+        {
+            return value;
+        }
+
+        if (fallback1 != null && args.TryGetValue(fallback1, out value))
+        {
+            return value;
+        }
+
+        if (fallback2 != null && args.TryGetValue(fallback2, out value))
+        {
+            return value;
+        }
+
+        return defaultValue;
     }
 
     private static ValidationError? EvaluateRequired(IntraSheetFormula formula, ReturnDataRow row, List<string> operandFields)
@@ -280,4 +518,7 @@ public class FormulaEvaluator : IFormulaEvaluator
             ActualValue = actual
         };
     }
+
+    [GeneratedRegex(@"^FUNC:(?<name>[A-Za-z_][A-Za-z0-9_]*)\((?<args>.*)\)$", RegexOptions.Compiled)]
+    private static partial Regex CustomFunctionRegex();
 }

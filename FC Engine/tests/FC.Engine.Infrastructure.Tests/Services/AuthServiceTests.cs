@@ -4,6 +4,7 @@ using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FluentAssertions;
 using Moq;
+using System.Security.Claims;
 using Xunit;
 
 namespace FC.Engine.Infrastructure.Tests.Services;
@@ -13,6 +14,8 @@ public class AuthServiceTests
     private readonly Mock<IPortalUserRepository> _userRepoMock;
     private readonly Mock<ILoginAttemptRepository> _loginAttemptRepoMock;
     private readonly Mock<IPasswordResetTokenRepository> _resetTokenRepoMock;
+    private readonly Mock<IEntitlementService> _entitlementServiceMock;
+    private readonly Mock<IPermissionService> _permissionServiceMock;
     private readonly AuthService _sut;
 
     public AuthServiceTests()
@@ -20,15 +23,22 @@ public class AuthServiceTests
         _userRepoMock = new Mock<IPortalUserRepository>();
         _loginAttemptRepoMock = new Mock<ILoginAttemptRepository>();
         _resetTokenRepoMock = new Mock<IPasswordResetTokenRepository>();
+        _entitlementServiceMock = new Mock<IEntitlementService>();
+        _permissionServiceMock = new Mock<IPermissionService>();
 
         _loginAttemptRepoMock
             .Setup(r => r.Create(It.IsAny<LoginAttempt>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
+        _permissionServiceMock
+            .Setup(s => s.GetPermissions(It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<string>());
 
         _sut = new AuthService(
             _userRepoMock.Object,
             _loginAttemptRepoMock.Object,
-            _resetTokenRepoMock.Object);
+            _resetTokenRepoMock.Object,
+            _entitlementServiceMock.Object,
+            _permissionServiceMock.Object);
     }
 
     private PortalUser CreateTestUser(string username = "testuser", string password = "SecureP@ss1!",
@@ -353,7 +363,7 @@ public class AuthServiceTests
             .Callback<PortalUser, CancellationToken>((u, _) => captured = u)
             .ReturnsAsync((PortalUser u, CancellationToken _) => u);
 
-        var result = await _sut.CreateUser("newuser", "New User", "new@fcengine.local", "NewPass1!", PortalRole.Approver);
+        var result = await _sut.CreateUser("newuser", "New User", "new@fcengine.local", "NewPass1!Secure", PortalRole.Approver);
 
         captured.Should().NotBeNull();
         captured!.Username.Should().Be("newuser");
@@ -361,7 +371,7 @@ public class AuthServiceTests
         captured.Email.Should().Be("new@fcengine.local");
         captured.Role.Should().Be(PortalRole.Approver);
         captured.IsActive.Should().BeTrue();
-        captured.PasswordHash.Should().NotBe("NewPass1!");
+        captured.PasswordHash.Should().NotBe("NewPass1!Secure");
         captured.PasswordHash.Should().Contain(":");
         captured.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromSeconds(5));
     }
@@ -373,7 +383,7 @@ public class AuthServiceTests
             .Setup(r => r.UsernameExists("existing", It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
-        var act = () => _sut.CreateUser("existing", "Name", "e@e.com", "P@ss1!", PortalRole.Viewer);
+        var act = () => _sut.CreateUser("existing", "Name", "e@e.com", "P@ss1!Secure12", PortalRole.Viewer);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*'existing'*");
@@ -432,7 +442,7 @@ public class AuthServiceTests
         _userRepoMock.Setup(r => r.GetById(10, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        await _sut.ChangePassword(10, "NewPass1!");
+        await _sut.ChangePassword(10, "NewPass1!Secure");
 
         user.PasswordHash.Should().NotBe(oldHash);
         user.PasswordHash.Should().Contain(":");
@@ -453,7 +463,7 @@ public class AuthServiceTests
         _userRepoMock.Setup(r => r.GetById(10, It.IsAny<CancellationToken>())).ReturnsAsync(user);
         _userRepoMock.Setup(r => r.Update(It.IsAny<PortalUser>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
 
-        await _sut.ChangePassword(10, "NewPass1!");
+        await _sut.ChangePassword(10, "NewPass1!Secure");
 
         user.FailedLoginAttempts.Should().Be(0);
         user.LockoutEnd.Should().BeNull();
@@ -464,7 +474,7 @@ public class AuthServiceTests
     {
         _userRepoMock.Setup(r => r.GetById(999, It.IsAny<CancellationToken>())).ReturnsAsync((PortalUser?)null);
 
-        var act = () => _sut.ChangePassword(999, "NewPass1!");
+        var act = () => _sut.ChangePassword(999, "NewPass1!Secure");
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*User not found*");
     }
@@ -849,7 +859,7 @@ public class AuthServiceTests
     public async Task FullLifecycle_CreateUser_Login_Lockout_ResetPassword_LoginAgain()
     {
         // Step 1: Create user
-        var password = "Initial1!";
+        var password = "Initial1!Secure";
         PortalUser? createdUser = null;
 
         _userRepoMock.Setup(r => r.UsernameExists("lifecycle", It.IsAny<CancellationToken>())).ReturnsAsync(false);
@@ -909,5 +919,20 @@ public class AuthServiceTests
         var (oldPwdResult, oldPwdErr) = await _sut.ValidateLogin("lifecycle", password);
         oldPwdResult.Should().BeNull();
         oldPwdErr.Should().Be("invalid");
+    }
+
+    [Fact]
+    public void Existing_Cookie_Auth_Still_Works_After_JWT_Addition()
+    {
+        var tenantId = Guid.NewGuid();
+        var user = CreateTestUser(role: PortalRole.Admin);
+        user.TenantId = tenantId;
+
+        var principal = _sut.BuildClaimsPrincipal(user);
+
+        principal.Identity.Should().NotBeNull();
+        principal.Identity!.AuthenticationType.Should().Be("FC.Admin.Auth");
+        principal.FindFirst(ClaimTypes.NameIdentifier)!.Value.Should().Be(user.Id.ToString());
+        principal.FindFirst("TenantId")!.Value.Should().Be(tenantId.ToString());
     }
 }

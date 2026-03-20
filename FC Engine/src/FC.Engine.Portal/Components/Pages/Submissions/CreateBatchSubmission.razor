@@ -1,0 +1,498 @@
+@page "/submissions/batches/new"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Security
+@inject SubmissionService SubmissionSvc
+@inject SubmissionBatchPortalService BatchPortalService
+@inject AuthenticationStateProvider AuthState
+@inject NavigationManager Navigation
+
+<PageTitle>Create Batch Submission — RegOS™ Portal</PageTitle>
+
+<PortalPageHeader
+    Breadcrumb="@_breadcrumbs"
+    Title="Create Batch Submission"
+    Subtitle="Select accepted returns and send them to a regulator in one controlled batch.">
+    <PrimaryAction>
+        <a href="@BackHref" class="portal-btn portal-btn-outline portal-btn-sm">Back</a>
+    </PrimaryAction>
+</PortalPageHeader>
+
+<div class="portal-page">
+    @if (_loading)
+    {
+        <div aria-busy="true" aria-label="Loading batch submission setup">
+            <div class="portal-grid portal-grid-3" style="margin-bottom:1rem;">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="portal-card"><div class="portal-card-body">
+                        <div class="portal-skeleton portal-skeleton-block" style="height:18px;margin-bottom:0.75rem;"></div>
+                        <div class="portal-skeleton portal-skeleton-block" style="height:32px;"></div>
+                    </div></div>
+                }
+            </div>
+            <div class="portal-card"><div class="portal-card-body">
+                @for (var i = 0; i < 6; i++)
+                {
+                    <div class="portal-skeleton portal-skeleton-block" style="height:54px;margin-bottom:0.75rem;"></div>
+                }
+            </div></div>
+        </div>
+    }
+    else if (!_canDirectSubmit)
+    {
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <h3 class="portal-empty-state-title">Access Restricted</h3>
+            <p class="portal-empty-state-desc">Your account can’t initiate direct regulator batches.</p>
+            <a href="/submissions/batches" class="portal-btn portal-btn-primary">Back to Batch Submissions</a>
+        </div>
+    }
+    else
+    {
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <div class="portal-alert portal-alert-danger" role="alert" style="margin-bottom:1rem;">@_error</div>
+        }
+        else if (_regulators.Count == 0)
+        {
+            <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                    <circle cx="12" cy="12" r="10"/>
+                    <line x1="12" y1="8" x2="12" y2="12"/>
+                    <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                <h3 class="portal-empty-state-title">No active regulator channels</h3>
+                <p class="portal-empty-state-desc">A platform administrator must configure at least one active regulator channel before batch delivery can start.</p>
+                <a href="/submissions/batches" class="portal-btn portal-btn-primary">Back to Batch Submissions</a>
+            </div>
+        }
+        else
+        {
+
+            @if (_ignoredPreselectedIds.Count > 0)
+            {
+                <div class="portal-alert portal-alert-info" style="margin-bottom:1rem;">
+                    Some preselected submissions were skipped because they are not accepted yet or are already linked to the chosen regulator.
+                </div>
+            }
+
+            <div class="portal-grid portal-grid-3" style="margin-bottom:1rem;">
+                <div class="portal-card">
+                    <div class="portal-card-body">
+                        <div class="portal-stat-label">Regulator</div>
+                        <select class="portal-form-select" style="margin-top:0.75rem;" @bind="_selectedRegulator" @bind:after="OnRegulatorChanged">
+                            @foreach (var regulator in _regulators)
+                            {
+                                <option value="@regulator.RegulatorCode">@regulator.RegulatorCode — @regulator.RegulatorName</option>
+                            }
+                        </select>
+                        @if (SelectedRegulator is not null)
+                        {
+                            <div style="margin-top:0.75rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                @SelectedRegulator.PortalName · @SelectedRegulator.IntegrationMethod
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="portal-card">
+                    <div class="portal-card-body">
+                        <div class="portal-stat-label">Selected Returns</div>
+                        <div class="portal-stat-value">@_selectedIds.Count</div>
+                        <div style="margin-top:0.5rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                            Only accepted portal submissions can be routed into a regulator batch.
+                        </div>
+                    </div>
+                </div>
+                <div class="portal-card">
+                    <div class="portal-card-body">
+                        <div class="portal-stat-label">Already Batched</div>
+                        <div class="portal-stat-value">@_existingBatchStates.Count</div>
+                        <div style="margin-top:0.5rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                            These returns are locked to an existing @(_selectedRegulator.Length == 0 ? "regulator" : _selectedRegulator) batch and can’t be re-added.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="portal-toolbar" role="search" aria-label="Filter eligible submissions" style="margin-bottom:1rem;">
+                <div class="portal-toolbar-row">
+                    <div class="portal-toolbar-search">
+                        <div class="portal-input-wrapper">
+                            <span class="portal-input-icon" aria-hidden="true">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                                </svg>
+                            </span>
+                            <input type="text"
+                                   class="portal-form-input portal-form-input-icon"
+                                   placeholder="Search accepted submissions..."
+                                   @bind="_searchQuery"
+                                   @bind:event="oninput"
+                                   @bind:after="ApplyFilter" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @if (_eligibleSubmissions.Count == 0)
+            {
+                <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                    <h3 class="portal-empty-state-title">No accepted returns ready for batching</h3>
+                    <p class="portal-empty-state-desc">Submit and validate returns first, then they will appear here for regulator dispatch.</p>
+                    <a href="/submissions" class="portal-btn portal-btn-primary">Go to Submissions</a>
+                </div>
+            }
+            else
+            {
+                <div class="portal-card portal-card-flush">
+                    <div class="portal-table-container">
+                        <table class="portal-table" aria-label="Eligible submissions for regulator batch">
+                            <thead>
+                                <tr>
+                                    <th class="portal-th-cb" scope="col">
+                                        <input type="checkbox"
+                                               class="portal-cb"
+                                               checked="@AllAvailableSelected"
+                                               aria-label="Select all currently available submissions"
+                                               @onchange="ToggleSelectAll" />
+                                    </th>
+                                    <th>Return Code</th>
+                                    <th>Return Name</th>
+                                    <th>Period</th>
+                                    <th>Status</th>
+                                    <th>Last Submitted</th>
+                                    <th>Regulator State</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var submission in _filteredSubmissions)
+                                {
+                                    var existingState = GetExistingState(submission.Id);
+                                    var isDisabled = existingState is not null;
+                                    <tr style="@(isDisabled ? "opacity:0.72;" : null)">
+                                        <td class="portal-td-cb">
+                                            <input type="checkbox"
+                                                   class="portal-cb"
+                                                   disabled="@isDisabled"
+                                                   checked="@_selectedIds.Contains(submission.Id)"
+                                                   aria-label="Select submission @submission.ReturnCode for batching"
+                                                   @onchange="() => ToggleSelection(submission.Id)" />
+                                        </td>
+                                        <td><span class="portal-table-primary">@submission.ReturnCode</span></td>
+                                        <td>@submission.TemplateName</td>
+                                        <td>@submission.PeriodLabel</td>
+                                        <td>
+                                            <span class="portal-badge @(submission.Status == "Accepted" ? "portal-badge-success" : "portal-badge-warning")">
+                                                @submission.Status
+                                            </span>
+                                        </td>
+                                        <td>@(submission.SubmittedAt?.ToString("dd MMM yyyy HH:mm") ?? "—")</td>
+                                        <td>
+                                            @if (existingState is null)
+                                            {
+                                                <span class="portal-badge portal-badge-success">Ready</span>
+                                            }
+                                            else
+                                            {
+                                                <div style="display:flex;flex-direction:column;gap:0.35rem;">
+                                                    <span class="portal-badge portal-badge-neutral">@existingState.BatchStatus</span>
+                                                    <a href="/submissions/batches/@existingState.BatchId" class="portal-link" style="font-size:0.8rem;">
+                                                        @existingState.BatchReference
+                                                    </a>
+                                                </div>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="portal-card" style="margin-top:1rem;">
+                    <div class="portal-card-body" style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;">
+                        <div>
+                            <div style="font-weight:700;">@_selectedIds.Count submission@(_selectedIds.Count == 1 ? "" : "s") selected for @(_selectedRegulator.Length == 0 ? "dispatch" : _selectedRegulator)</div>
+                            <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                                The batch will be signed, packaged, and routed through the configured regulator channel.
+                            </div>
+                        </div>
+                        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+                            <a href="@BackHref" class="portal-btn portal-btn-outline">Cancel</a>
+                            <button class="portal-btn portal-btn-primary"
+                                    disabled="@(_submitting || _selectedIds.Count == 0 || string.IsNullOrWhiteSpace(_selectedRegulator))"
+                                    @onclick="CreateBatchAsync">
+                                @if (_submitting)
+                                {
+                                    <span class="portal-btn-spinner" aria-hidden="true"></span>
+                                    <span>Creating…</span>
+                                }
+                                else
+                                {
+                                    <span>Create Batch</span>
+                                }
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+        }
+    }
+</div>
+
+@code {
+    [SupplyParameterFromQuery(Name = "ids")] public string? Ids { get; set; }
+    [SupplyParameterFromQuery(Name = "back")] public string? Back { get; set; }
+
+    private bool _loading = true;
+    private bool _submitting;
+    private string? _error;
+    private int _institutionId;
+    private int _userId;
+    private bool _canDirectSubmit;
+    private string _selectedRegulator = string.Empty;
+    private string _searchQuery = string.Empty;
+    private bool _preselectionApplied;
+    private readonly HashSet<int> _selectedIds = [];
+    private readonly HashSet<int> _preselectedIds = [];
+    private List<int> _ignoredPreselectedIds = [];
+    private List<SubmissionListItem> _eligibleSubmissions = [];
+    private List<SubmissionListItem> _filteredSubmissions = [];
+    private List<RegulatoryChannelOption> _regulators = [];
+    private Dictionary<int, SubmissionBatchEligibilityState> _existingBatchStates = [];
+
+    private List<BreadcrumbItem> _breadcrumbs => new()
+    {
+        new("Dashboard", "/"),
+        new("Submissions", "/submissions"),
+        new("Batch Submissions", "/submissions/batches"),
+        new("Create Batch", IsCurrent: true)
+    };
+
+    private string BackHref => string.IsNullOrWhiteSpace(Back) ? "/submissions/batches" : Back;
+    private RegulatoryChannelOption? SelectedRegulator => _regulators.FirstOrDefault(regulator =>
+        string.Equals(regulator.RegulatorCode, _selectedRegulator, StringComparison.OrdinalIgnoreCase));
+    private bool AllAvailableSelected => _filteredSubmissions
+        .Where(submission => GetExistingState(submission.Id) is null)
+        .Any()
+        && _filteredSubmissions
+            .Where(submission => GetExistingState(submission.Id) is null)
+            .All(submission => _selectedIds.Contains(submission.Id));
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var user = auth.User;
+
+            _ = int.TryParse(user.FindFirst("InstitutionId")?.Value, out _institutionId);
+            _ = int.TryParse(user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out _userId);
+            _canDirectSubmit = user.HasClaim("perm", PermissionCatalog.SubmissionDirectSubmit);
+
+            ParsePreselectedIds();
+
+            if (_institutionId <= 0)
+            {
+                _error = "Institution context unavailable.";
+                return;
+            }
+
+            _regulators = await BatchPortalService.GetAvailableRegulatorsAsync();
+            if (string.IsNullOrWhiteSpace(_selectedRegulator) && _regulators.Count > 0)
+            {
+                _selectedRegulator = _regulators[0].RegulatorCode;
+            }
+
+            var submissions = await SubmissionSvc.GetSubmissionsForInstitution(_institutionId);
+            _eligibleSubmissions = submissions
+                .Where(IsEligibleForBatch)
+                .OrderByDescending(submission => submission.SubmittedAt)
+                .ToList();
+
+            await RefreshExistingBatchStatesAsync();
+            ApplyFilter();
+            ApplyPreselectedIds();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static bool IsEligibleForBatch(SubmissionListItem submission) =>
+        submission.Status is "Accepted" or "AcceptedWithWarnings";
+
+    private void ParsePreselectedIds()
+    {
+        if (string.IsNullOrWhiteSpace(Ids))
+        {
+            return;
+        }
+
+        foreach (var rawId in Ids.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (int.TryParse(rawId, out var parsedId) && parsedId > 0)
+            {
+                _preselectedIds.Add(parsedId);
+            }
+        }
+    }
+
+    private async Task OnRegulatorChanged()
+    {
+        _preselectionApplied = false;
+        await RefreshExistingBatchStatesAsync();
+        ApplyFilter();
+        ApplyPreselectedIds();
+    }
+
+    private async Task RefreshExistingBatchStatesAsync()
+    {
+        _existingBatchStates = await BatchPortalService.GetExistingBatchStatesAsync(
+            _institutionId,
+            _selectedRegulator,
+            _eligibleSubmissions.Select(submission => submission.Id).ToArray());
+
+        _selectedIds.RemoveWhere(submissionId => _existingBatchStates.ContainsKey(submissionId));
+    }
+
+    private void ApplyFilter()
+    {
+        var filtered = _eligibleSubmissions.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            var term = _searchQuery.Trim();
+            filtered = filtered.Where(submission =>
+                submission.ReturnCode.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || submission.TemplateName.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || submission.PeriodLabel.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || submission.Id.ToString().Contains(term, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _filteredSubmissions = filtered.ToList();
+    }
+
+    private void ApplyPreselectedIds()
+    {
+        if (_preselectionApplied || _preselectedIds.Count == 0)
+        {
+            return;
+        }
+
+        _ignoredPreselectedIds = [];
+        foreach (var submissionId in _preselectedIds)
+        {
+            if (!_eligibleSubmissions.Any(submission => submission.Id == submissionId) || _existingBatchStates.ContainsKey(submissionId))
+            {
+                _ignoredPreselectedIds.Add(submissionId);
+                continue;
+            }
+
+            _selectedIds.Add(submissionId);
+        }
+
+        _preselectionApplied = true;
+    }
+
+    private SubmissionBatchEligibilityState? GetExistingState(int submissionId) =>
+        _existingBatchStates.TryGetValue(submissionId, out var existingState) ? existingState : null;
+
+    private void ToggleSelection(int submissionId)
+    {
+        if (_selectedIds.Contains(submissionId))
+        {
+            _selectedIds.Remove(submissionId);
+        }
+        else if (!_existingBatchStates.ContainsKey(submissionId))
+        {
+            _selectedIds.Add(submissionId);
+        }
+    }
+
+    private void ToggleSelectAll(ChangeEventArgs _)
+    {
+        var availableIds = _filteredSubmissions
+            .Where(submission => GetExistingState(submission.Id) is null)
+            .Select(submission => submission.Id)
+            .ToList();
+
+        if (availableIds.All(id => _selectedIds.Contains(id)))
+        {
+            foreach (var id in availableIds)
+            {
+                _selectedIds.Remove(id);
+            }
+        }
+        else
+        {
+            foreach (var id in availableIds)
+            {
+                _selectedIds.Add(id);
+            }
+        }
+    }
+
+    private async Task CreateBatchAsync()
+    {
+        if (_submitting)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_selectedRegulator))
+        {
+            _error = "Select a regulator before creating a batch.";
+            return;
+        }
+
+        if (_selectedIds.Count == 0)
+        {
+            _error = "Select at least one accepted submission to continue.";
+            return;
+        }
+
+        _submitting = true;
+        _error = null;
+
+        try
+        {
+            var result = await BatchPortalService.CreateBatchAsync(
+                _institutionId,
+                _userId,
+                _selectedRegulator,
+                _selectedIds.OrderBy(id => id).ToList());
+
+            if (!result.Success)
+            {
+                _error = string.IsNullOrWhiteSpace(result.ErrorMessage)
+                    ? "The regulator batch could not be created."
+                    : result.ErrorMessage;
+                return;
+            }
+
+            Navigation.NavigateTo($"/submissions/batches/{result.BatchId}");
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _submitting = false;
+        }
+    }
+}

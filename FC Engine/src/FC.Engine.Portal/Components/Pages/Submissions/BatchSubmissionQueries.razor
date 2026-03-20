@@ -1,0 +1,215 @@
+@page "/submissions/batches/queries"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Security
+@inject SubmissionBatchPortalService BatchPortalService
+@inject AuthenticationStateProvider AuthState
+
+<PageTitle>Open Batch Queries — RegOS™ Portal</PageTitle>
+
+<PortalPageHeader
+    Breadcrumb="@_breadcrumbs"
+    Title="Open Regulator Queries"
+    Subtitle="Outstanding regulator questions raised against direct batch submissions.">
+    <PrimaryAction>
+        <a href="/submissions/batches" class="portal-btn portal-btn-outline portal-btn-sm">Back to Batches</a>
+    </PrimaryAction>
+</PortalPageHeader>
+
+<div class="portal-page">
+    @if (_loading)
+    {
+        <div aria-busy="true" aria-label="Loading open regulator queries">
+            <div class="portal-grid portal-grid-3" style="margin-bottom:1rem;">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="portal-card"><div class="portal-card-body">
+                        <div class="portal-skeleton portal-skeleton-block" style="height:18px;margin-bottom:0.75rem;"></div>
+                        <div class="portal-skeleton portal-skeleton-block" style="height:28px;"></div>
+                    </div></div>
+                }
+            </div>
+            <div class="portal-card"><div class="portal-card-body">
+                @for (var i = 0; i < 5; i++)
+                {
+                    <div class="portal-skeleton portal-skeleton-block" style="height:72px;margin-bottom:0.75rem;"></div>
+                }
+            </div></div>
+        </div>
+    }
+    else if (!_canViewDirectStatus)
+    {
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <h3 class="portal-empty-state-title">Access Restricted</h3>
+            <p class="portal-empty-state-desc">Your account can’t view regulator query work items.</p>
+            <a href="/submissions" class="portal-btn portal-btn-primary">Back to Submissions</a>
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <h3 class="portal-empty-state-title">Couldn't load open queries</h3>
+            <p class="portal-empty-state-desc">@_error</p>
+            <a href="/submissions/batches" class="portal-btn portal-btn-primary">Back to Batch Submissions</a>
+        </div>
+    }
+    else if (_queries.Count == 0)
+    {
+        <div class="portal-card portal-empty-state" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            <h3 class="portal-empty-state-title">No open regulator queries</h3>
+            <p class="portal-empty-state-desc">All direct-submission queries are resolved or there are none outstanding.</p>
+            <a href="/submissions/batches" class="portal-btn portal-btn-primary">Back to Batch Submissions</a>
+        </div>
+    }
+    else
+    {
+        <div class="portal-grid portal-grid-3" style="margin-bottom:1rem;">
+            <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">Open Queries</div><div class="portal-stat-value">@_queries.Count</div></div></div>
+            <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">Critical / High</div><div class="portal-stat-value">@_queries.Count(q => q.Priority is "CRITICAL" or "HIGH")</div></div></div>
+            <div class="portal-card"><div class="portal-card-body"><div class="portal-stat-label">Due Soon</div><div class="portal-stat-value">@_queries.Count(q => q.DueDate.HasValue && q.DueDate.Value <= DateOnly.FromDateTime(DateTime.UtcNow.AddDays(3)))</div></div></div>
+        </div>
+
+        <div class="portal-card">
+            <div class="portal-card-body" style="display:grid;gap:0.85rem;">
+                @foreach (var query in _queries.OrderBy(q => PriorityOrder(q.Priority)).ThenBy(q => q.DueDate ?? DateOnly.MaxValue).ThenByDescending(q => q.ReceivedAt))
+                {
+                    <div style="border:1px solid var(--portal-border,#e2e8f0);border-radius:14px;padding:1rem;background:#fff;">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;">
+                            <div>
+                                <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+                                    <span class="portal-badge portal-badge-neutral">@query.RegulatorCode</span>
+                                    <span style="font-weight:700;">@query.QueryReference</span>
+                                    <span class="portal-badge @GetPriorityBadgeClass(query.Priority)">@query.Priority</span>
+                                </div>
+                                <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.9rem;">
+                                    Batch @query.BatchReference · @query.QueryType · Received @query.ReceivedAt.ToString("dd MMM yyyy HH:mm")
+                                </div>
+                                @if (!string.IsNullOrWhiteSpace(query.AssignedToName))
+                                {
+                                    <div style="margin-top:0.35rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                        Assigned to @query.AssignedToName
+                                    </div>
+                                }
+                            </div>
+                            <div style="text-align:right;">
+                                <div class="portal-badge @GetStatusBadgeClass(query.Status)">@query.Status</div>
+                                @if (query.DueDate.HasValue)
+                                {
+                                    <div style="margin-top:0.4rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                        Due @query.DueDate.Value.ToString("dd MMM yyyy")
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                        <p style="margin:0.85rem 0 0;color:var(--portal-text,#0f172a);">@query.QueryText</p>
+                        @if (query.ResponseCount > 0)
+                        {
+                            <div style="margin-top:0.6rem;color:var(--portal-text-muted,#64748b);font-size:0.85rem;">
+                                @query.ResponseCount response@(query.ResponseCount == 1 ? "" : "s") logged
+                                @if (query.LastResponseAt.HasValue)
+                                {
+                                    <text> · last @query.LastResponseAt.Value.ToString("dd MMM yyyy HH:mm")</text>
+                                }
+                            </div>
+                        }
+                        <div style="display:flex;justify-content:flex-end;gap:0.75rem;flex-wrap:wrap;margin-top:0.85rem;">
+                            <a href="/submissions/batches/@query.BatchId" class="portal-btn portal-btn-outline portal-btn-sm">View Batch</a>
+                            <a href="/submissions/batches/queries/@query.QueryId" class="portal-btn portal-btn-primary portal-btn-sm">
+                                @(_canDirectSubmit ? "Work Query" : "View Query")
+                            </a>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private string? _error;
+    private int _institutionId;
+    private bool _canDirectSubmit;
+    private bool _canViewDirectStatus;
+    private List<RegulatoryQueryListItem> _queries = [];
+    private readonly List<BreadcrumbItem> _breadcrumbs =
+    [
+        new("Dashboard", "/"),
+        new("Submissions", "/submissions"),
+        new("Batch Submissions", "/submissions/batches"),
+        new("Open Queries", IsCurrent: true)
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var auth = await AuthState.GetAuthenticationStateAsync();
+            var user = auth.User;
+
+            _ = int.TryParse(
+                user.FindFirst("InstitutionId")?.Value,
+                out _institutionId);
+            _canDirectSubmit = user.HasClaim("perm", PermissionCatalog.SubmissionDirectSubmit);
+            _canViewDirectStatus = user.HasClaim("perm", PermissionCatalog.SubmissionDirectStatus)
+                || _canDirectSubmit;
+
+            if (_institutionId <= 0)
+            {
+                _error = "Institution context unavailable.";
+                return;
+            }
+
+            if (_canViewDirectStatus)
+            {
+                _queries = await BatchPortalService.GetOpenQueriesAsync(_institutionId, null, 1, 250);
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private static int PriorityOrder(string priority) => priority.ToUpperInvariant() switch
+    {
+        "CRITICAL" => 0,
+        "HIGH" => 1,
+        "NORMAL" => 2,
+        _ => 3
+    };
+
+    private static string GetPriorityBadgeClass(string priority) => priority.ToUpperInvariant() switch
+    {
+        "CRITICAL" => "portal-badge-red",
+        "HIGH" => "portal-badge-orange",
+        "NORMAL" => "portal-badge-amber",
+        _ => "portal-badge-gray"
+    };
+
+    private static string GetStatusBadgeClass(string status) => status.ToUpperInvariant() switch
+    {
+        "OPEN" => "portal-badge-orange",
+        "IN_PROGRESS" => "portal-badge-amber",
+        "RESPONDED" => "portal-badge-blue",
+        "CLOSED" => "portal-badge-green",
+        _ => "portal-badge-gray"
+    };
+}

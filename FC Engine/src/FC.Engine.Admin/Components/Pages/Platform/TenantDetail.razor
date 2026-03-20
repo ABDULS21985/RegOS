@@ -1,0 +1,1227 @@
+@page "/platform/tenants/{TenantId:guid}"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using FC.Engine.Admin.Services
+@using FC.Engine.Admin.Utilities
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Infrastructure.Services
+@using Microsoft.AspNetCore.Components.Authorization
+@inject PlatformAdminService PlatformService
+@inject TenantManagementService TenantService
+@inject NavigationManager Navigation
+@inject ToastService Toast
+@inject DialogService Dialog
+
+<PageTitle>Tenant Detail</PageTitle>
+
+<PageHeader Title="@(_data?.TenantName ?? "Tenant Detail")"
+            BackUrl="/platform/tenants">
+    <PrimaryAction>
+        @if (_data is not null)
+        {
+            <button class="fc-btn fc-btn--primary" @onclick="Impersonate" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                Impersonate
+            </button>
+        }
+    </PrimaryAction>
+    <SecondaryActions>
+        @if (_data is not null)
+        {
+            @if (_data.Status == TenantStatus.PendingActivation)
+            {
+                <button class="fc-btn fc-btn--success fc-btn--sm" @onclick="ActivateTenantAction" disabled="@_savingStatus" type="button">
+                    @if (_savingStatus) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Activate
+                </button>
+            }
+            else if (_data.Status == TenantStatus.Active)
+            {
+                <button class="fc-btn fc-btn--danger fc-btn--sm" @onclick="SuspendTenantAction" disabled="@_savingStatus" type="button">
+                    @if (_savingStatus) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Suspend
+                </button>
+                <button class="fc-btn fc-btn--ghost fc-btn--sm" @onclick="DeactivateTenantAction" disabled="@_savingStatus" type="button">
+                    Deactivate
+                </button>
+            }
+            else if (_data.Status == TenantStatus.Suspended)
+            {
+                <button class="fc-btn fc-btn--success fc-btn--sm" @onclick="ReactivateTenantAction" disabled="@_savingStatus" type="button">
+                    @if (_savingStatus) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Reactivate
+                </button>
+                <button class="fc-btn fc-btn--ghost fc-btn--sm" @onclick="DeactivateTenantAction" disabled="@_savingStatus" type="button">
+                    Deactivate
+                </button>
+            }
+        }
+    </SecondaryActions>
+</PageHeader>
+
+<div class="fc-page">
+
+    @if (_loading)
+    {
+
+        <!-- Skeleton Tabs -->
+        <div class="fc-tabs">
+            @for (var i = 0; i < 7; i++)
+            {
+                <div class="fc-skel" style="--skel-w:80px;--skel-h:32px"></div>
+            }
+        </div>
+
+        <!-- Skeleton Content Cards -->
+        <div class="fc-grid fc-grid-3">
+            @for (var i = 0; i < 3; i++)
+            {
+                <div class="fc-card">
+                    <div class="fc-card__body">
+                        <div class="fc-skel fc-skel-text" style="--skel-w:100%;--skel-h:14px"></div>
+                        <div class="fc-skel fc-skel-text" style="--skel-w:70%;--skel-h:14px"></div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="fc-alert fc-alert--inline fc-alert--error fc-mb-4">@_error</div>
+        <div class="fc-empty">
+            <div class="fc-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <h3 class="fc-empty-title">Failed to load tenant</h3>
+            <p class="fc-empty-text">An error occurred while retrieving the tenant data.</p>
+            <div class="fc-empty-actions">
+                <button class="fc-btn fc-btn--primary" @onclick="LoadAsync" type="button">Retry</button>
+                <button class="fc-btn fc-btn--outline" @onclick="Back" type="button">Back to Tenants</button>
+            </div>
+        </div>
+    }
+    else if (_data is null)
+    {
+        <!-- Empty State -->
+        <div class="fc-empty">
+            <div class="fc-empty-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            </div>
+            <h3 class="fc-empty-title">Tenant not found</h3>
+            <p class="fc-empty-text">The requested tenant could not be located. It may have been removed or the ID is invalid.</p>
+            <button class="fc-btn fc-btn--outline" @onclick="Back" type="button">Back to Tenants</button>
+        </div>
+    }
+    else
+    {
+        <!-- Tabs -->
+        <div class="fc-tabs">
+            <button class="fc-tab @(_tab == "overview" ? "fc-tab-active" : "")" @onclick='() => SetTab("overview")'>Overview</button>
+            <button class="fc-tab @(_tab == "licences" ? "fc-tab-active" : "")" @onclick='() => SetTab("licences")'>Licences</button>
+            <button class="fc-tab @(_tab == "subscription" ? "fc-tab-active" : "")" @onclick='() => SetTab("subscription")'>Subscription</button>
+            <button class="fc-tab @(_tab == "users" ? "fc-tab-active" : "")" @onclick='() => SetTab("users")'>Users</button>
+            <button class="fc-tab @(_tab == "entities" ? "fc-tab-active" : "")" @onclick='() => SetTab("entities")'>Entities</button>
+            <button class="fc-tab @(_tab == "filings" ? "fc-tab-active" : "")" @onclick='() => SetTab("filings")'>Filings</button>
+            <button class="fc-tab @(_tab == "audit" ? "fc-tab-active" : "")" @onclick='() => SetTab("audit")'>Audit</button>
+            <button class="fc-tab @(_tab == "support" ? "fc-tab-active" : "")" @onclick='() => SetTab("support")'>Support</button>
+        </div>
+
+        <!-- Overview Tab -->
+        @if (_tab == "overview")
+        {
+            <div class="fc-grid fc-grid-3 fc-mb-4">
+                <div class="fc-card">
+                    <div class="fc-card__body">
+                        <div class="fc-kv"><span>Status</span><strong>
+                            <span class="fc-badge @GetTenantStatusBadge(_data.Status)">@_data.Status</span>
+                        </strong></div>
+                        <div class="fc-kv"><span>Created</span><strong>@_data.CreatedAt.ToString("dd MMM yyyy")</strong></div>
+                    </div>
+                </div>
+                <div class="fc-card">
+                    <div class="fc-card__body">
+                        <div class="fc-kv"><span>Timezone</span><strong>@_data.Timezone</strong></div>
+                        <div class="fc-kv"><span>Currency</span><strong>@_data.DefaultCurrency</strong></div>
+                    </div>
+                </div>
+                <div class="fc-card">
+                    <div class="fc-card__body">
+                        <div class="fc-kv"><span>Users</span><strong>@_data.Usage.UsersUsed / @_data.Usage.UsersLimit</strong></div>
+                        <div class="fc-kv"><span>Modules</span><strong>@_data.Usage.ModulesUsed / @_data.Usage.ModulesLimit</strong></div>
+                        <div class="fc-kv"><span>Licences</span><strong>@ActiveTenantLicences.Count / @_licenceOptions.Count</strong></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Contact</h2></div>
+                <div class="fc-card__body">
+                    <div class="fc-kv"><span>Email</span><strong>@(_data.ContactEmail ?? "-")</strong></div>
+                    <div class="fc-kv"><span>Phone</span><strong>@(_data.ContactPhone ?? "-")</strong></div>
+                    <div class="fc-kv"><span>Address</span><strong>@(_data.Address ?? "-")</strong></div>
+                </div>
+            </div>
+
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Billing Summary</h2></div>
+                <div class="fc-card__body">
+                    <div class="fc-kv"><span>Plan</span><strong>@_data.Billing.PlanName (@_data.Billing.PlanCode)</strong></div>
+                    <div class="fc-kv"><span>Billing Frequency</span><strong>@(_data.Billing.BillingFrequency is { Length: > 0 } f ? f : "-")</strong></div>
+                    <div class="fc-kv"><span>Next Invoice</span><strong>@(_data.Billing.NextInvoiceDate == default ? "-" : _data.Billing.NextInvoiceDate.ToString("dd MMM yyyy"))</strong></div>
+                    <div class="fc-kv"><span>Outstanding Balance</span>
+                        <strong class="@(_data.Billing.OutstandingBalance > 0 ? "fc-text-danger" : "")">
+                            @_data.Billing.Currency @_data.Billing.OutstandingBalance.ToString("N2")
+                        </strong>
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (_tab == "licences")
+        {
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header">
+                    <div>
+                        <h2 class="fc-card__title">Tenant Licences</h2>
+                        <p class="fc-text-muted-sm">Assign or remove licence profiles. Included module entitlements are reconciled automatically after each change.</p>
+                    </div>
+                </div>
+                <div class="fc-card__body">
+                    <div class="fc-grid fc-grid-3 fc-mb-4">
+                        <div class="fc-form-row">
+                            <label>Licence Type</label>
+                            <select class="fc-input" @bind="SelectedLicenceTypeId" disabled="@(_assigningLicence || _previewingImpact || AvailableLicenceOptions.Count == 0)">
+                                <option value="">Select a licence type</option>
+                                @foreach (var licence in AvailableLicenceOptions)
+                                {
+                                    <option value="@licence.Id">@licence.Code - @licence.Name</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="fc-form-row">
+                            <label>Registration Number</label>
+                            <input class="fc-input" @bind="_registrationNumber" placeholder="Optional registration reference" disabled="@(_assigningLicence || _previewingImpact)" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label>Actions</label>
+                            <div class="fc-inline-actions">
+                                <button class="fc-btn fc-btn--outline"
+                                        type="button"
+                                        disabled="@(_assigningLicence || _previewingImpact || !_selectedLicenceTypeId.HasValue)"
+                                        @onclick="PreviewAssignLicenceImpact">
+                                    @if (_previewingImpact && _previewOperation == "Assign")
+                                    {
+                                        <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span>
+                                    }
+                                    Preview Impact
+                                </button>
+                                <button class="fc-btn fc-btn--primary"
+                                        type="button"
+                                        disabled="@(_assigningLicence || _previewingImpact || !_selectedLicenceTypeId.HasValue)"
+                                        @onclick="AssignLicence">
+                                    @if (_assigningLicence)
+                                    {
+                                        <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span>
+                                    }
+                                    Assign Licence
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="fc-grid fc-grid-3 fc-mb-4">
+                        <div class="fc-kv"><span>Active</span><strong>@ActiveTenantLicences.Count</strong></div>
+                        <div class="fc-kv"><span>Inactive History</span><strong>@InactiveTenantLicences.Count</strong></div>
+                        <div class="fc-kv"><span>Eligible Types</span><strong>@AvailableLicenceOptions.Count</strong></div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_licenceImpactMessage))
+                    {
+                        <div class="fc-alert fc-alert--inline fc-alert--info">@_licenceImpactMessage</div>
+                    }
+
+                    @if (_licencePreview is not null)
+                    {
+                        <div class="fc-card fc-card--subtle fc-mt-4">
+                            <div class="fc-card__header">
+                                <div>
+                                    <h3 class="fc-card__title">@_licencePreview.Operation Licence Impact Preview</h3>
+                                    <p class="fc-text-muted-sm">@_licencePreview.LicenceCode - @_licencePreview.LicenceName</p>
+                                </div>
+                                <button class="fc-btn fc-btn--xs fc-btn--outline" type="button" @onclick="ClearLicencePreview">Clear Preview</button>
+                            </div>
+                            <div class="fc-card__body">
+                                <div class="fc-grid fc-grid-4 fc-mb-4">
+                                    <div class="fc-kv"><span>Activate</span><strong>@_licencePreview.ModulesToActivate</strong></div>
+                                    <div class="fc-kv"><span>Reactivate</span><strong>@_licencePreview.ModulesToReactivate</strong></div>
+                                    <div class="fc-kv"><span>Reprice</span><strong>@_licencePreview.ModulesToReprice</strong></div>
+                                    <div class="fc-kv"><span>Deactivate</span><strong>@_licencePreview.ModulesToDeactivate</strong></div>
+                                </div>
+
+                                @if (_licencePreview.Modules.Count == 0)
+                                {
+                                    <div class="fc-alert fc-alert--inline fc-alert--success">No module changes are expected from this licence update.</div>
+                                }
+                                else
+                                {
+                                    <table class="fc-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Module</th>
+                                                <th>Action</th>
+                                                <th>Monthly</th>
+                                                <th>Annual</th>
+                                                <th>Reason</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach (var module in _licencePreview.Modules)
+                                            {
+                                                <tr>
+                                                    <td><code>@module.ModuleCode</code> @module.ModuleName</td>
+                                                    <td><span class="fc-badge @PreviewActionBadgeClass(module.Action)">@module.Action</span></td>
+                                                    <td>@module.PriceMonthly.ToString("N2")</td>
+                                                    <td>@module.PriceAnnual.ToString("N2")</td>
+                                                    <td>@module.Reason</td>
+                                                </tr>
+                                            }
+                                        </tbody>
+                                    </table>
+                                }
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Licence Register</h2></div>
+                <div class="fc-card__body fc-card-body--flush">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Name</th>
+                                <th>Regulator</th>
+                                <th>Status</th>
+                                <th>Registration</th>
+                                <th>Effective</th>
+                                <th>Expiry</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_tenantLicences.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="8" class="fc-text-muted">No licence assignments recorded for this tenant.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var tenantLicence in _tenantLicences)
+                                {
+                                    var licenceTypeId = tenantLicence.LicenceTypeId;
+                                    <tr>
+                                        <td><code>@(tenantLicence.LicenceType?.Code ?? $"LT-{licenceTypeId}")</code></td>
+                                        <td>@(tenantLicence.LicenceType?.Name ?? "-")</td>
+                                        <td>@(tenantLicence.LicenceType?.Regulator ?? "-")</td>
+                                        <td>
+                                            <span class="fc-badge @(tenantLicence.IsActive ? "fc-badge--success" : "fc-badge--neutral")">
+                                                @(tenantLicence.IsActive ? "Active" : "Inactive")
+                                            </span>
+                                        </td>
+                                        <td>@(string.IsNullOrWhiteSpace(tenantLicence.RegistrationNumber) ? "-" : tenantLicence.RegistrationNumber)</td>
+                                        <td>@tenantLicence.EffectiveDate.ToString("dd MMM yyyy")</td>
+                                        <td>@(tenantLicence.ExpiryDate?.ToString("dd MMM yyyy") ?? "-")</td>
+                                        <td>
+                                            @if (tenantLicence.IsActive)
+                                            {
+                                                <div class="fc-inline-actions">
+                                                    <button class="fc-btn fc-btn--xs fc-btn--outline"
+                                                            type="button"
+                                                            disabled="@(_previewingImpact || _savingLicenceTypeIds.Contains(licenceTypeId))"
+                                                            @onclick="() => PreviewRemoveLicenceImpact(licenceTypeId)">
+                                                        @if (_previewingImpact && _previewLicenceTypeId == licenceTypeId && _previewOperation == "Remove")
+                                                        {
+                                                            <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span>
+                                                        }
+                                                        Preview Remove
+                                                    </button>
+                                                    <button class="fc-btn fc-btn--xs fc-btn--danger"
+                                                            type="button"
+                                                            disabled="@(_previewingImpact || _savingLicenceTypeIds.Contains(licenceTypeId))"
+                                                            @onclick="() => RemoveLicence(licenceTypeId)">
+                                                        @if (_savingLicenceTypeIds.Contains(licenceTypeId))
+                                                        {
+                                                            <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span>
+                                                        }
+                                                        Remove
+                                                    </button>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <span class="fc-text-muted-sm">Historical</span>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- Subscription Tab -->
+        @if (_tab == "subscription")
+        {
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header">
+                    <div>
+                        <h2 class="fc-card__title">Current Module Entitlements</h2>
+                        <p class="fc-text-muted-sm">Live view of active module access, base-plan coverage, licence eligibility, and reconciliation gaps for the tenant's current subscription.</p>
+                    </div>
+                    <button class="fc-btn fc-btn--outline"
+                            type="button"
+                            disabled="@_reconcilingModules"
+                            @onclick="ReconcileModules">
+                        @if (_reconcilingModules)
+                        {
+                            <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span>
+                        }
+                        Run Reconciliation
+                    </button>
+                </div>
+                <div class="fc-card__body">
+                    <div class="fc-grid fc-grid-4 fc-mb-4">
+                        <div class="fc-kv"><span>Active Modules</span><strong>@_data.CurrentModuleEntitlements.Count(x => x.IsActive)</strong></div>
+                        <div class="fc-kv"><span>Included In Base</span><strong>@_data.CurrentModuleEntitlements.Count(x => x.IsIncludedInBase)</strong></div>
+                        <div class="fc-kv"><span>Licence Eligible</span><strong>@_data.CurrentModuleEntitlements.Count(x => x.IsLicenceEligible)</strong></div>
+                        <div class="fc-kv"><span>Needs Reconciliation</span><strong>@_data.CurrentModuleEntitlements.Count(x => x.Status == "Pending Reconciliation")</strong></div>
+                    </div>
+
+                    <div class="fc-grid fc-grid-2 fc-mb-4">
+                        <div class="fc-kv">
+                            <span>Last Reconciled</span>
+                            <strong>@(_data.LastReconciledAt?.ToString("dd MMM yyyy HH:mm 'UTC'") ?? "Never")</strong>
+                        </div>
+                        <div class="fc-kv">
+                            <span>Entitlement Events</span>
+                            <strong>@_data.EntitlementActivity.Count</strong>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrWhiteSpace(_moduleReconciliationMessage))
+                    {
+                        <div class="fc-alert fc-alert--inline fc-alert--info">@_moduleReconciliationMessage</div>
+                    }
+                </div>
+                <div class="fc-card__body fc-card-body--flush">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Module</th>
+                                <th>Status</th>
+                                <th>Pricing</th>
+                                <th>Licence Coverage</th>
+                                <th>Activated</th>
+                                <th>Next Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_data.CurrentModuleEntitlements.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="6" class="fc-text-muted">No module entitlement data is available for the current subscription.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var row in _data.CurrentModuleEntitlements)
+                                {
+                                    <tr>
+                                        <td>
+                                            <div><code>@row.ModuleCode</code></div>
+                                            <div class="fc-text-muted-sm">@row.ModuleName</div>
+                                        </td>
+                                        <td>
+                                            <div class="fc-mb-1">
+                                                <span class="fc-badge @ModuleStatusBadgeClass(row.Status)">@row.Status</span>
+                                            </div>
+                                            <div class="fc-text-muted-sm">
+                                                @(row.IsIncludedInBase ? "Included in base" : "Not included in base")
+                                                ·
+                                                @(row.IsLicenceEligible ? "Licence eligible" : "No active licence coverage")
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <div>@row.PricingMode</div>
+                                            <div class="fc-text-muted-sm">M: @row.MonthlyPrice.ToString("N2") · A: @row.AnnualPrice.ToString("N2")</div>
+                                        </td>
+                                        <td>@row.Coverage</td>
+                                        <td>
+                                            <div>@(row.ActivatedAt?.ToString("dd MMM yyyy") ?? "-")</div>
+                                            <div class="fc-text-muted-sm">Off: @(row.DeactivatedAt?.ToString("dd MMM yyyy") ?? "-")</div>
+                                        </td>
+                                        <td>@row.NextAction</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header">
+                    <div>
+                        <h2 class="fc-card__title">Entitlement Activity</h2>
+                        <p class="fc-text-muted-sm">Recent licence assignment, removal, and reconciliation activity for this tenant.</p>
+                    </div>
+                </div>
+                <div class="fc-card__body fc-card-body--flush">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Action</th>
+                                <th>Performed By</th>
+                                <th>When</th>
+                                <th>Summary</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (_data.EntitlementActivity.Count == 0)
+                            {
+                                <tr>
+                                    <td colspan="4" class="fc-text-muted">No entitlement activity has been recorded for this tenant yet.</td>
+                                </tr>
+                            }
+                            else
+                            {
+                                @foreach (var row in _data.EntitlementActivity)
+                                {
+                                    <tr>
+                                        <td><span class="fc-badge fc-badge--neutral">@row.Action</span></td>
+                                        <td>@row.PerformedBy</td>
+                                        <td>@row.PerformedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                        <td>@row.Summary</td>
+                                    </tr>
+                                }
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">Subscription History</h2></div>
+                <div class="fc-card__body fc-card-body--flush">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Plan</th>
+                                <th>Status</th>
+                                <th>Billing</th>
+                                <th>Period</th>
+                                <th>Modules</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _data.SubscriptionHistory)
+                            {
+                                <tr>
+                                    <td>@row.PlanName (@row.PlanCode)</td>
+                                    <td>
+                                        <span class="fc-badge @(row.Status == "Active" ? "fc-badge--success" : row.Status == "Cancelled" ? "fc-badge--danger" : "fc-badge--neutral")">
+                                            @row.Status
+                                        </span>
+                                    </td>
+                                    <td>@row.BillingFrequency</td>
+                                    <td>@row.CurrentPeriodStart.ToString("dd MMM yyyy") - @row.CurrentPeriodEnd.ToString("dd MMM yyyy")</td>
+                                    <td>@string.Join(", ", row.Modules)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="fc-grid fc-grid-2">
+                <div class="fc-card">
+                    <div class="fc-card__header"><h2 class="fc-card__title">Invoices</h2></div>
+                    <div class="fc-card__body fc-card-body--flush-420">
+                        <table class="fc-table">
+                            <thead>
+                                <tr>
+                                    <th>Invoice</th>
+                                    <th>Status</th>
+                                    <th>Amount</th>
+                                    <th>Due</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _data.Invoices)
+                                {
+                                    <tr>
+                                        <td>@row.InvoiceNumber</td>
+                                        <td>
+                                            <span class="fc-badge @(row.Status == "Paid" ? "fc-badge--success" : row.Status == "Overdue" ? "fc-badge--danger" : "fc-badge--warning")">
+                                                @row.Status
+                                            </span>
+                                        </td>
+                                        <td>@row.Currency @row.TotalAmount.ToString("N2")</td>
+                                        <td>@(row.DueDate?.ToString("yyyy-MM-dd") ?? "-")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="fc-card">
+                    <div class="fc-card__header"><h2 class="fc-card__title">Payments</h2></div>
+                    <div class="fc-card__body fc-card-body--flush-420">
+                        <table class="fc-table">
+                            <thead>
+                                <tr>
+                                    <th>Payment</th>
+                                    <th>InvoiceId</th>
+                                    <th>Status</th>
+                                    <th>Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var row in _data.Payments)
+                                {
+                                    <tr>
+                                        <td>#@row.PaymentId</td>
+                                        <td>#@row.InvoiceId</td>
+                                        <td>
+                                            <span class="fc-badge @(row.Status == "Confirmed" ? "fc-badge--success" : row.Status == "Failed" || row.Status == "Cancelled" ? "fc-badge--danger" : "fc-badge--warning")">
+                                                @row.Status
+                                            </span>
+                                        </td>
+                                        <td>@row.Currency @row.Amount.ToString("N2")</td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <!-- Users Tab -->
+        @if (_tab == "users")
+        {
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Users</h2></div>
+                <div class="fc-card__body fc-card-body--flush">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>Email</th>
+                                <th>Role</th>
+                                <th>MFA</th>
+                                <th>Last Login</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in _data.Users)
+                            {
+                                <tr>
+                                    <td>@user.DisplayName</td>
+                                    <td>@user.Email</td>
+                                    <td><span class="fc-badge fc-badge--neutral">@user.Role</span></td>
+                                    <td>
+                                        @if (user.MfaEnabled)
+                                        {
+                                            <span class="fc-badge fc-badge--success">Enabled</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="fc-badge fc-badge--warning">Disabled</span>
+                                        }
+                                    </td>
+                                    <td>@(user.LastLoginAt?.ToString("dd MMM yyyy HH:mm") ?? "Never")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- Entities Tab -->
+        @if (_tab == "entities")
+        {
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Entities</h2></div>
+                <div class="fc-card__body fc-card-body--flush">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Name</th>
+                                <th>Type</th>
+                                <th>Parent</th>
+                                <th>Branches</th>
+                                <th>Status</th>
+                                <th>Contact</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _data.Entities)
+                            {
+                                <tr>
+                                    <td><code>@row.InstitutionCode</code></td>
+                                    <td>@row.InstitutionName</td>
+                                    <td><span class="fc-badge fc-badge--neutral">@row.EntityType</span></td>
+                                    <td>@(row.ParentInstitutionName ?? "-")</td>
+                                    <td>@row.BranchCount</td>
+                                    <td>
+                                        @if (row.IsActive)
+                                        {
+                                            <span class="fc-badge fc-badge--success">Active</span>
+                                        }
+                                        else
+                                        {
+                                            <span class="fc-badge fc-badge--danger">Inactive</span>
+                                        }
+                                    </td>
+                                    <td>@(row.ContactEmail ?? "-")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- Filings Tab -->
+        @if (_tab == "filings")
+        {
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Filing Matrix</h2></div>
+                <div class="fc-card__body fc-card-body--flush">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Module</th>
+                                <th>Period</th>
+                                <th>Deadline</th>
+                                <th>RAG</th>
+                                <th>Submission</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _data.FilingMatrix)
+                            {
+                                <tr>
+                                    <td>@row.ModuleName</td>
+                                    <td>@row.PeriodLabel</td>
+                                    <td>@row.Deadline.ToString("dd MMM yyyy")</td>
+                                    <td>
+                                        <span class="fc-badge @GetPeriodStatusBadge(row.RagStatus)">
+                                            @row.RagStatus
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="fc-badge @GetSubmissionStatusBadge(row.SubmissionStatus)">
+                                            @row.SubmissionStatus
+                                        </span>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- Audit Tab -->
+        @if (_tab == "audit")
+        {
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Audit Log</h2></div>
+                <div class="fc-card__body fc-card-body--flush-560">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>When</th>
+                                <th>Action</th>
+                                <th>Entity</th>
+                                <th>Actor</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _data.AuditEntries)
+                            {
+                                <tr>
+                                    <td>@row.PerformedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                    <td>@row.Action</td>
+                                    <td>@row.EntityType @(row.EntityRef is not null ? row.EntityRef : $"#{row.EntityId}")</td>
+                                    <td>@row.PerformedBy</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <!-- Support Tab -->
+        @if (_tab == "support")
+        {
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Support Tickets</h2></div>
+                <div class="fc-card__body fc-card-body--flush">
+                    <table class="fc-table">
+                        <thead>
+                            <tr>
+                                <th>Ticket</th>
+                                <th>Title</th>
+                                <th>Priority</th>
+                                <th>Status</th>
+                                <th>SLA Due</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var row in _data.SupportTickets)
+                            {
+                                <tr>
+                                    <td>#@row.TicketId</td>
+                                    <td>@row.Title</td>
+                                    <td>
+                                        <span class="fc-badge @(row.Priority == "High" || row.Priority == "Critical" ? "fc-badge--danger" : row.Priority == "Medium" ? "fc-badge--warning" : "fc-badge--neutral")">
+                                            @row.Priority
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="fc-badge @(row.Status == "Resolved" || row.Status == "Closed" ? "fc-badge--success" : row.Status == "Open" ? "fc-badge--warning" : "fc-badge--neutral")">
+                                            @row.Status
+                                        </span>
+                                    </td>
+                                    <td>@row.SlaDueAt.ToString("dd MMM yyyy HH:mm")</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public Guid TenantId { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private PlatformTenantDetailData? _data;
+    private List<TenantLicenceType> _tenantLicences = new();
+    private List<LicenceType> _licenceOptions = new();
+    private bool _loading = true;
+    private bool _savingStatus;
+    private bool _assigningLicence;
+    private bool _reconcilingModules;
+    private string? _error;
+    private string? _licenceImpactMessage;
+    private string? _moduleReconciliationMessage;
+    private int? _selectedLicenceTypeId;
+    private TenantLicenceImpactPreview? _licencePreview;
+    private bool _previewingImpact;
+    private int? _previewLicenceTypeId;
+    private string? _previewOperation;
+    private string? _registrationNumber;
+    private string _tab = "overview";
+    private HashSet<int> _savingLicenceTypeIds = new();
+
+    private int? SelectedLicenceTypeId
+    {
+        get => _selectedLicenceTypeId;
+        set
+        {
+            if (_selectedLicenceTypeId == value)
+            {
+                return;
+            }
+
+            _selectedLicenceTypeId = value;
+            _licencePreview = null;
+        }
+    }
+
+    private List<TenantLicenceType> ActiveTenantLicences => _tenantLicences
+        .Where(x => x.IsActive)
+        .OrderBy(x => x.LicenceType?.DisplayOrder ?? int.MaxValue)
+        .ThenBy(x => x.LicenceType?.Code)
+        .ToList();
+
+    private List<TenantLicenceType> InactiveTenantLicences => _tenantLicences
+        .Where(x => !x.IsActive)
+        .OrderByDescending(x => x.ExpiryDate)
+        .ThenBy(x => x.LicenceType?.Code)
+        .ToList();
+
+    private List<LicenceType> AvailableLicenceOptions => _licenceOptions
+        .Where(option => ActiveTenantLicences.All(active => active.LicenceTypeId != option.Id))
+        .OrderBy(option => option.DisplayOrder)
+        .ThenBy(option => option.Code)
+        .ToList();
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _error = null;
+
+        try
+        {
+            _data = await PlatformService.GetTenantDetail(TenantId);
+            _tenantLicences = await TenantService.GetTenantLicencesAsync(TenantId);
+            _licenceOptions = await TenantService.GetAllLicenceTypesAsync();
+            _licencePreview = null;
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void SetTab(string tab) => _tab = tab;
+
+    private string TabClass(string tab)
+        => _tab == tab ? "fc-btn--primary" : "fc-btn--outline";
+
+    private void Back() => Navigation.NavigateTo("/platform/tenants");
+
+    private void Impersonate()
+        => Navigation.NavigateTo($"/platform/impersonate?tenantId={TenantId}", forceLoad: true);
+
+    private async Task<string> GetActor()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        return UserIdentityResolver.ResolveActor(state?.User);
+    }
+
+    private async Task ActivateTenantAction()
+    {
+        _savingStatus = true;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.ActivateTenant(TenantId, actor);
+            await LoadAsync();
+            Toast.Success($"{_data?.TenantName} activated.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to activate tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SuspendTenantAction()
+    {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Suspend Tenant",
+            Message = $"Suspend {_data?.TenantName}? All portal users will lose access until the tenant is reactivated.",
+            ConfirmText = "Suspend",
+            IsDestructive = true
+        });
+        if (!confirmed) return;
+
+        _savingStatus = true;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.SuspendTenant(TenantId, actor);
+            await LoadAsync();
+            Toast.Warning($"{_data?.TenantName} suspended.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to suspend tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReactivateTenantAction()
+    {
+        _savingStatus = true;
+        try
+        {
+            var actor = await GetActor();
+            await PlatformService.ActivateTenant(TenantId, actor);
+            await LoadAsync();
+            Toast.Success($"{_data?.TenantName} reactivated.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to reactivate tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task DeactivateTenantAction()
+    {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Deactivate Tenant",
+            Message = $"Permanently deactivate {_data?.TenantName}? This will revoke all entitlements and cannot be undone without re-provisioning.",
+            ConfirmText = "Deactivate",
+            IsDestructive = true
+        });
+        if (!confirmed) return;
+
+        _savingStatus = true;
+        try
+        {
+            var actor = await GetActor();
+            await TenantService.DeactivateTenantAsync(TenantId, actor);
+            await LoadAsync();
+            Toast.Info($"{_data?.TenantName} deactivated.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to deactivate tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private void ClearLicencePreview()
+    {
+        _licencePreview = null;
+        _previewLicenceTypeId = null;
+        _previewOperation = null;
+    }
+
+    private async Task PreviewAssignLicenceImpact()
+    {
+        if (!_selectedLicenceTypeId.HasValue)
+        {
+            return;
+        }
+
+        _previewingImpact = true;
+        _previewLicenceTypeId = _selectedLicenceTypeId;
+        _previewOperation = "Assign";
+
+        try
+        {
+            _moduleReconciliationMessage = null;
+            _licencePreview = await TenantService.PreviewAssignLicenceAsync(TenantId, _selectedLicenceTypeId.Value);
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to preview licence impact: {ex.Message}");
+        }
+        finally
+        {
+            _previewingImpact = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task AssignLicence()
+    {
+        if (!_selectedLicenceTypeId.HasValue)
+        {
+            return;
+        }
+
+        _assigningLicence = true;
+        try
+        {
+            _moduleReconciliationMessage = null;
+            var assigned = await TenantService.AssignLicenceAsync(
+                TenantId,
+                _selectedLicenceTypeId.Value,
+                string.IsNullOrWhiteSpace(_registrationNumber) ? null : _registrationNumber.Trim());
+
+            await LoadAsync();
+            _selectedLicenceTypeId = null;
+            _registrationNumber = null;
+            ClearLicencePreview();
+            _licenceImpactMessage = BuildLicenceImpactMessage("Assigned", assigned);
+            Toast.Success($"{assigned.TenantLicence.LicenceType?.Name ?? "Licence"} assigned and entitlements reconciled.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to assign licence: {ex.Message}");
+        }
+        finally
+        {
+            _assigningLicence = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task PreviewRemoveLicenceImpact(int licenceTypeId)
+    {
+        _previewingImpact = true;
+        _previewLicenceTypeId = licenceTypeId;
+        _previewOperation = "Remove";
+
+        try
+        {
+            _moduleReconciliationMessage = null;
+            _licencePreview = await TenantService.PreviewRemoveLicenceAsync(TenantId, licenceTypeId);
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to preview licence impact: {ex.Message}");
+        }
+        finally
+        {
+            _previewingImpact = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveLicence(int licenceTypeId)
+    {
+        _savingLicenceTypeIds.Add(licenceTypeId);
+        try
+        {
+            _moduleReconciliationMessage = null;
+            var licenceName = _tenantLicences
+                .FirstOrDefault(x => x.LicenceTypeId == licenceTypeId && x.IsActive)?
+                .LicenceType?.Name ?? "Licence";
+
+            var result = await TenantService.RemoveLicenceAsync(TenantId, licenceTypeId);
+            await LoadAsync();
+            ClearLicencePreview();
+            _licenceImpactMessage = BuildLicenceImpactMessage("Removed", result);
+            Toast.Success($"{licenceName} removed and entitlements reconciled.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to remove licence: {ex.Message}");
+        }
+        finally
+        {
+            _savingLicenceTypeIds.Remove(licenceTypeId);
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReconcileModules()
+    {
+        _reconcilingModules = true;
+        try
+        {
+            var result = await TenantService.ReconcileTenantModulesAsync(TenantId);
+            await LoadAsync();
+            _moduleReconciliationMessage = BuildModuleReconciliationMessage(result);
+            Toast.Success("Tenant module entitlements reconciled.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to reconcile tenant modules: {ex.Message}");
+        }
+        finally
+        {
+            _reconcilingModules = false;
+            StateHasChanged();
+        }
+    }
+
+    private static string BuildLicenceImpactMessage(string verb, TenantLicenceChangeResult result)
+    {
+        var licenceName = result.TenantLicence.LicenceType?.Name
+                          ?? result.TenantLicence.LicenceType?.Code
+                          ?? "licence";
+        var reconciliation = result.Reconciliation;
+
+        return $"{verb} {licenceName}. "
+             + $"{reconciliation.ModulesCreated} module(s) activated, "
+             + $"{reconciliation.ModulesReactivated} reactivated, "
+             + $"{reconciliation.ModulesUpdated} repriced, "
+             + $"{reconciliation.ModulesDeactivated} deactivated.";
+    }
+
+    private static string BuildModuleReconciliationMessage(SubscriptionModuleEntitlementBootstrapResult reconciliation)
+    {
+        return $"{reconciliation.ModulesCreated} module(s) activated, "
+             + $"{reconciliation.ModulesReactivated} reactivated, "
+             + $"{reconciliation.ModulesUpdated} repriced, "
+             + $"{reconciliation.ModulesDeactivated} deactivated across {reconciliation.TenantsTouched} tenant(s).";
+    }
+
+    private static string PreviewActionBadgeClass(string action) => action switch
+    {
+        "Activate" => "fc-badge--success",
+        "Reactivate" => "fc-badge--success",
+        "Reprice" => "fc-badge--warning",
+        "Deactivate" => "fc-badge--danger",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string ModuleStatusBadgeClass(string status) => status switch
+    {
+        "Active" => "fc-badge--success",
+        "Pending Reconciliation" => "fc-badge--warning",
+        "Eligible" => "fc-badge--neutral",
+        "Inactive" => "fc-badge--danger",
+        "Unavailable" => "fc-badge--neutral",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string GetTenantStatusBadge(TenantStatus status) => status switch
+    {
+        TenantStatus.Active => "fc-badge--success",
+        TenantStatus.PendingActivation => "fc-badge--warning",
+        TenantStatus.Suspended => "fc-badge--danger",
+        TenantStatus.Deactivated => "fc-badge--neutral",
+        TenantStatus.Archived => "fc-badge--neutral",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string GetSubmissionStatusBadge(string status) => status switch
+    {
+        "Accepted" or "AcceptedWithWarnings" or "SubmittedToRegulator"
+            or "RegulatorAccepted" or "RegulatorAcknowledged" => "fc-badge--success",
+        "Rejected" or "ApprovalRejected" => "fc-badge--danger",
+        "PendingApproval" or "Parsing" or "Validating" => "fc-badge--warning",
+        "RegulatorQueriesRaised" => "fc-badge--warning",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string GetPeriodStatusBadge(string status) => status switch
+    {
+        "Overdue" => "fc-badge--danger",
+        "DueSoon" => "fc-badge--warning",
+        "Open" => "fc-badge--neutral",
+        "Upcoming" => "fc-badge--neutral",
+        "Completed" or "Closed" => "fc-badge--success",
+        _ => "fc-badge--neutral"
+    };
+}

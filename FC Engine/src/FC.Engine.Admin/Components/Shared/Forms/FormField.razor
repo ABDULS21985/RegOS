@@ -1,0 +1,110 @@
+@inject IJSRuntime JS
+
+@{
+    var stateClass = ValidationState switch
+    {
+        FieldValidation.Valid   => "fc-ff--valid",
+        FieldValidation.Invalid => "fc-ff--invalid",
+        _                       => ""
+    };
+}
+
+<CascadingValue Value="@this" IsFixed="false">
+<div class="fc-ff @stateClass @CssClass">
+    @if (!string.IsNullOrEmpty(Label))
+    {
+        <label class="fc-ff__label @(IsRequired ? "fc-ff__label--required" : "")"
+               for="@InputId">
+            @Label
+            @if (IsRequired)
+            {
+                <span class="fc-sr-only">(required)</span>
+            }
+            @if (ValidationState == FieldValidation.Valid)
+            {
+                <svg class="fc-ff__check" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                     width="13" height="13">
+                    <polyline points="20 6 9 17 4 12" />
+                </svg>
+            }
+        </label>
+    }
+
+    <div class="fc-ff__body">
+        @ChildContent
+    </div>
+
+    @if (!string.IsNullOrEmpty(HintText))
+    {
+        <span id="@HintId" class="fc-ff__hint">@HintText</span>
+    }
+
+    @if (ValidationState == FieldValidation.Invalid && !string.IsNullOrEmpty(ErrorMessage))
+    {
+        <span id="@ErrorId" class="fc-ff__error" role="alert">
+            <svg class="fc-ff__error-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+                 width="14" height="14">
+                <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span>@ErrorMessage</span>
+        </span>
+    }
+</div>
+</CascadingValue>
+
+@code {
+    private readonly string _autoErrorId = $"fc-ff-err-{Guid.NewGuid():N}";
+    private readonly string _autoHintId  = $"fc-ff-hint-{Guid.NewGuid():N}";
+
+    private FieldValidation _prevState;
+
+    /// <summary>
+    /// Optional stable base id. When set: ErrorId = "{FieldId}-err", HintId = "{FieldId}-hint".
+    /// Enables predictable aria-describedby values in parent markup.
+    /// </summary>
+    [Parameter] public string? FieldId { get; set; }
+
+    /// <summary>Stable error element id. Reference in aria-describedby on the inner input.</summary>
+    public string ErrorId => string.IsNullOrEmpty(FieldId) ? _autoErrorId : $"{FieldId}-err";
+
+    /// <summary>Stable hint element id. Reference in aria-describedby on the inner input.</summary>
+    public string HintId  => string.IsNullOrEmpty(FieldId) ? _autoHintId  : $"{FieldId}-hint";
+
+    /// <summary>
+    /// Combined aria-describedby value — includes HintId (when hint exists) and/or ErrorId (when invalid).
+    /// </summary>
+    public string? AriaDescribedBy
+    {
+        get
+        {
+            var parts = new System.Collections.Generic.List<string>(2);
+            if (!string.IsNullOrEmpty(HintText)) parts.Add(HintId);
+            if (ValidationState == FieldValidation.Invalid && !string.IsNullOrEmpty(ErrorMessage)) parts.Add(ErrorId);
+            return parts.Count > 0 ? string.Join(" ", parts) : null;
+        }
+    }
+
+    [Parameter] public string? InputId { get; set; }
+    [Parameter] public string? Label { get; set; }
+    [Parameter] public string? HintText { get; set; }
+    [Parameter] public string? ErrorMessage { get; set; }
+    [Parameter] public bool IsRequired { get; set; }
+    [Parameter] public FieldValidation ValidationState { get; set; } = FieldValidation.None;
+    [Parameter] public string? CssClass { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_prevState != FieldValidation.Invalid && ValidationState == FieldValidation.Invalid)
+        {
+            try { await JS.InvokeVoidAsync("FCForms.slideInError", ErrorId); }
+            catch (JSDisconnectedException) { }
+        }
+        _prevState = ValidationState;
+    }
+
+    public enum FieldValidation { None, Valid, Invalid, Validating }
+}

@@ -1,3 +1,4 @@
+using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 
 namespace FC.Engine.Domain.Metadata;
@@ -5,6 +6,13 @@ namespace FC.Engine.Domain.Metadata;
 public class ReturnTemplate
 {
     public int Id { get; set; }
+
+    /// <summary>FK to Tenant for RLS. Null for global/system templates.</summary>
+    public Guid? TenantId { get; set; }
+
+    /// <summary>FK to Module. Links this template to a regulatory module.</summary>
+    public int? ModuleId { get; set; }
+
     public string ReturnCode { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
@@ -21,6 +29,9 @@ public class ReturnTemplate
     public DateTime UpdatedAt { get; set; }
     public string UpdatedBy { get; set; } = string.Empty;
 
+    // Navigation
+    public Module? Module { get; set; }
+
     private readonly List<TemplateVersion> _versions = new();
     public IReadOnlyList<TemplateVersion> Versions => _versions.AsReadOnly();
 
@@ -32,6 +43,7 @@ public class ReturnTemplate
         var nextVersionNumber = _versions.Any() ? _versions.Max(v => v.VersionNumber) + 1 : 1;
         var version = new TemplateVersion
         {
+            TenantId = TenantId,
             TemplateId = Id,
             VersionNumber = nextVersionNumber,
             Status = TemplateStatus.Draft,

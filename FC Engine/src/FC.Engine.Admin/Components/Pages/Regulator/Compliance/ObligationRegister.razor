@@ -1,0 +1,298 @@
+@page "/regulator/compliance/obligations"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@using FC.Engine.Admin.Services.Compliance
+@inject FC.Engine.Admin.Services.Compliance.ComplianceGraphService GraphService
+@inject FC.Engine.Admin.Services.ToastService Toast
+
+<PageTitle>Obligation Register</PageTitle>
+
+<PageHeader Title="Obligation Register"
+            Subtitle="Track institution filing obligations by regulator, module, licence, and status."
+            BackUrl="/regulator"
+            CountBadge="@(!_loading ? _filteredObligations?.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load obligation data" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <div class="rg-comp-kpi-strip">
+                @for (var i = 0; i < 5; i++)
+                {
+                    <div class="rg-comp-kpi"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="88px" /></div>
+                }
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
+        }
+        else if (_data is null)
+        {
+            <EmptyState Context="data" Heading="No obligation data" Description="Materialise the knowledge graph via the Intelligence Hub to view obligations." />
+        }
+        else
+        {
+            var overdue = _data.InstitutionObligations.Count(o => o.Status == "Overdue");
+            var dueSoon = _data.InstitutionObligations.Count(o => o.Status == "Due Soon");
+            var filed = _data.InstitutionObligations.Count(o => o.Status == "Filed");
+            var inProgress = _data.InstitutionObligations.Count(o => o.Status is "In Progress" or "Pending Approval");
+            var attention = _data.InstitutionObligations.Count(o => o.Status == "Attention Required");
+
+            <div class="rg-comp-kpi-strip">
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@_data.InstitutionObligations.Count</div>
+                    <div class="rg-comp-kpi-label">Total Obligations</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value rg-comp-kpi-value--green">@filed</div>
+                    <div class="rg-comp-kpi-label">Filed</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value">@inProgress</div>
+                    <div class="rg-comp-kpi-label">In Progress</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value rg-comp-kpi-value--amber">@(dueSoon + attention)</div>
+                    <div class="rg-comp-kpi-label">Due Soon / Attention</div>
+                </div>
+                <div class="rg-comp-kpi">
+                    <div class="rg-comp-kpi-value rg-comp-kpi-value--red">@overdue</div>
+                    <div class="rg-comp-kpi-label">Overdue</div>
+                </div>
+            </div>
+
+            @* Filter Bar *@
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__body">
+                    <div class="rg-comp-filter-bar">
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Institution</label>
+                            <select class="fc-input" @bind="_filterInstitution" @bind:after="ApplyFilters">
+                                <option value="">All Institutions</option>
+                                @foreach (var inst in _data.InstitutionOptions.OrderBy(x => x.InstitutionName))
+                                {
+                                    <option value="@inst.InstitutionName">@inst.InstitutionName (@inst.ActiveObligations obligations)</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Regulator</label>
+                            <select class="fc-input" @bind="_filterRegulator" @bind:after="ApplyFilters">
+                                <option value="">All Regulators</option>
+                                @foreach (var reg in _regulators)
+                                {
+                                    <option value="@reg">@reg</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Module</label>
+                            <select class="fc-input" @bind="_filterModule" @bind:after="ApplyFilters">
+                                <option value="">All Modules</option>
+                                @foreach (var mod in _modules)
+                                {
+                                    <option value="@mod">@mod</option>
+                                }
+                            </select>
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Status</label>
+                            <select class="fc-input" @bind="_filterStatus" @bind:after="ApplyFilters">
+                                <option value="">All Statuses</option>
+                                <option value="Filed">Filed</option>
+                                <option value="Pending Approval">Pending Approval</option>
+                                <option value="In Progress">In Progress</option>
+                                <option value="Due Soon">Due Soon</option>
+                                <option value="Attention Required">Attention Required</option>
+                                <option value="Overdue">Overdue</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            @* Licence-Level Obligations *@
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header"><h2 class="fc-card__title">Licence Obligation Matrix</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="KnowledgeGraphObligationRow"
+                               Items="@_data.LicenceObligations"
+                               PageSize="10"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="licence-obligations">
+                        <ChildContent>
+                            <DataColumn TItem="KnowledgeGraphObligationRow" Title="Licence Type" SortKey="@(x => x.LicenceType)">
+                                <CellTemplate><strong>@context.LicenceType</strong></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphObligationRow" Title="Regulator" Width="100px" SortKey="@(x => x.RegulatorCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.RegulatorCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphObligationRow" Title="Module" Width="130px" SortKey="@(x => x.ModuleCode)">
+                                <CellTemplate>@context.ModuleCode</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphObligationRow" Title="Return" Width="120px" SortKey="@(x => x.ReturnCode)">
+                                <CellTemplate>@context.ReturnCode</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphObligationRow" Title="Frequency" Width="100px" SortKey="@(x => x.Frequency)">
+                                <CellTemplate>@context.Frequency</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphObligationRow" Title="Affected Tenants" Width="120px" SortKey="@(x => x.AffectedTenants)">
+                                <CellTemplate>@context.AffectedTenants</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphObligationRow" Title="Next Deadline" Width="130px" SortKey="@(x => x.NextDeadline)">
+                                <CellTemplate>@context.NextDeadline.ToString("dd MMM yyyy")</CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+
+            @* Institution Obligations (Filtered) *@
+            <div class="fc-card">
+                <div class="fc-card__header">
+                    <h2 class="fc-card__title">Institution Obligations</h2>
+                    <span class="fc-badge fc-badge--neutral" style="margin-left:var(--space-2);">@(_filteredObligations?.Count ?? 0) results</span>
+                </div>
+                <div class="fc-card__body">
+                    <DataTable TItem="KnowledgeGraphInstitutionObligationRow"
+                               Items="@_filteredObligations"
+                               PageSize="20"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="institution-obligations">
+                        <ChildContent>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Institution" SortKey="@(x => x.InstitutionName)">
+                                <CellTemplate>
+                                    <strong>@context.InstitutionName</strong>
+                                    <div class="fc-text-muted-sm">@context.LicenceType</div>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Regulator" Width="90px" SortKey="@(x => x.RegulatorCode)">
+                                <CellTemplate><span class="fc-badge fc-badge--neutral">@context.RegulatorCode</span></CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Module" Width="120px" SortKey="@(x => x.ModuleCode)">
+                                <CellTemplate>@context.ModuleCode</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Return" Width="110px" SortKey="@(x => x.ReturnCode)">
+                                <CellTemplate>@context.ReturnCode</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Frequency" Width="90px" SortKey="@(x => x.Frequency)">
+                                <CellTemplate>@context.Frequency</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Period" Width="100px" SortKey="@(x => x.PeriodLabel)">
+                                <CellTemplate>@context.PeriodLabel</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Status" Width="140px" SortKey="@(x => x.Status)">
+                                <CellTemplate>
+                                    <span class="fc-badge @StatusBadge(context.Status)">@context.Status</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Last Submitted" Width="120px" SortKey="@(x => x.LastSubmittedAt)">
+                                <CellTemplate>
+                                    @if (context.LastSubmittedAt.HasValue)
+                                    {
+                                        @context.LastSubmittedAt.Value.ToString("dd MMM yyyy")
+                                    }
+                                    else
+                                    {
+                                        <span class="fc-text-muted">—</span>
+                                    }
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="KnowledgeGraphInstitutionObligationRow" Title="Next Deadline" Width="120px" SortKey="@(x => x.NextDeadline)">
+                                <CellTemplate>
+                                    @{
+                                        var daysLeft = (context.NextDeadline - DateTime.UtcNow).Days;
+                                    }
+                                    <span class="@(daysLeft < 0 ? "rg-comp-kpi-value--red" : daysLeft < 14 ? "rg-comp-kpi-value--amber" : "")">
+                                        @context.NextDeadline.ToString("dd MMM yyyy")
+                                    </span>
+                                </CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true;
+    private Exception? _loadException;
+    private ObligationRegisterData? _data;
+    private List<KnowledgeGraphInstitutionObligationRow> _filteredObligations = [];
+    private List<string> _regulators = [];
+    private List<string> _modules = [];
+
+    private string _filterInstitution = "";
+    private string _filterRegulator = "";
+    private string _filterModule = "";
+    private string _filterStatus = "";
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            _data = await GraphService.GetObligationRegisterAsync();
+            if (_data is not null)
+            {
+                _regulators = _data.InstitutionObligations
+                    .Select(o => o.RegulatorCode)
+                    .Where(r => !string.IsNullOrWhiteSpace(r))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(r => r)
+                    .ToList();
+
+                _modules = _data.InstitutionObligations
+                    .Select(o => o.ModuleCode)
+                    .Where(m => !string.IsNullOrWhiteSpace(m))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .OrderBy(m => m)
+                    .ToList();
+
+                ApplyFilters();
+            }
+        }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _loading = false; }
+    }
+
+    private void ApplyFilters()
+    {
+        if (_data is null) return;
+
+        var q = _data.InstitutionObligations.AsEnumerable();
+
+        if (!string.IsNullOrWhiteSpace(_filterInstitution))
+            q = q.Where(o => o.InstitutionName == _filterInstitution);
+
+        if (!string.IsNullOrWhiteSpace(_filterRegulator))
+            q = q.Where(o => o.RegulatorCode.Equals(_filterRegulator, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(_filterModule))
+            q = q.Where(o => o.ModuleCode.Equals(_filterModule, StringComparison.OrdinalIgnoreCase));
+
+        if (!string.IsNullOrWhiteSpace(_filterStatus))
+            q = q.Where(o => o.Status == _filterStatus);
+
+        _filteredObligations = q.ToList();
+    }
+
+    private static string StatusBadge(string status) => status switch
+    {
+        "Filed" => "fc-badge--success",
+        "Pending Approval" => "fc-badge--info",
+        "In Progress" => "fc-badge--info",
+        "Due Soon" => "fc-badge--warning",
+        "Attention Required" => "fc-badge--warning",
+        "Overdue" => "fc-badge--danger",
+        _ => "fc-badge--neutral"
+    };
+}

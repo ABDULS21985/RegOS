@@ -1,0 +1,306 @@
+@page "/partner/sub-tenants"
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Domain.Enums
+@attribute [Authorize(Roles = "Admin")]
+@inject FC.Engine.Portal.Services.PartnerPortalService PartnerService
+@inject ITenantContext TenantContext
+
+<PageTitle>Sub-Tenant Management</PageTitle>
+
+<PortalPageHeader Title="Sub-Tenant Management"
+                  Subtitle="Create and manage client institutions under this partner tenant."
+                  Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Partner", "/partner"), new("Sub-Tenants", IsCurrent: true) })" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="portal-alert portal-alert-success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
+
+@if (_loading)
+{
+    <div aria-busy="true" aria-label="Loading sub-tenant management">
+        <div class="portal-grid portal-grid-2" style="margin-bottom:1rem;">
+            <div class="portal-card"><div class="portal-card-body">
+                <div class="fc-skel fc-skel--text" style="width:40%;margin-bottom:0.75rem;"></div>
+                @for (int i = 0; i < 4; i++)
+                {
+                    <div style="display:flex;gap:0.75rem;margin-bottom:0.5rem;">
+                        <div class="fc-skel fc-skel--text" style="width:30%;"></div>
+                        <div class="fc-skel fc-skel--text" style="width:60%;"></div>
+                    </div>
+                }
+            </div></div>
+            <div class="portal-card"><div class="portal-card-body">
+                <div class="fc-skel fc-skel--text" style="width:35%;margin-bottom:0.75rem;"></div>
+                @for (int i = 0; i < 4; i++)
+                {
+                    <div style="display:flex;gap:0.75rem;margin-bottom:0.5rem;">
+                        <div class="fc-skel fc-skel--text" style="width:30%;"></div>
+                        <div class="fc-skel fc-skel--text" style="width:60%;"></div>
+                    </div>
+                }
+            </div></div>
+        </div>
+        <div class="portal-card"><div class="portal-card-body">
+            <div class="fc-skel fc-skel--text" style="width:25%;margin-bottom:0.75rem;"></div>
+            <div class="fc-skel fc-skel--block" style="height:100px;"></div>
+        </div></div>
+    </div>
+}
+else if (!_isPartner)
+{
+    <div class="portal-card"><div class="portal-card-body">This tenant is not configured as a white-label partner.</div></div>
+}
+else
+{
+    <div class="portal-grid portal-grid-2">
+        <section class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Partner Configuration</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-form-row">
+                    <label>Partner Tier</label>
+                    <select @bind="_configRequest.PartnerTier" class="portal-input">
+                        @foreach (var tier in Enum.GetValues<FC.Engine.Domain.Enums.PartnerTier>())
+                        {
+                            <option value="@tier">@tier</option>
+                        }
+                    </select>
+                </div>
+                <div class="portal-form-row">
+                    <label>Billing Model</label>
+                    <select @bind="_configRequest.BillingModel" class="portal-input">
+                        @foreach (var mode in Enum.GetValues<PartnerBillingModel>())
+                        {
+                            <option value="@mode">@mode</option>
+                        }
+                    </select>
+                </div>
+                <div class="portal-form-row">
+                    <label>Commission Rate (Direct)</label>
+                    <input class="portal-input" type="number" step="0.0001" @bind="_configRequest.CommissionRate" />
+                </div>
+                <div class="portal-form-row">
+                    <label>Wholesale Discount (Reseller)</label>
+                    <input class="portal-input" type="number" step="0.0001" @bind="_configRequest.WholesaleDiscount" />
+                </div>
+                <div class="portal-form-row">
+                    <label>Max Sub-Tenants</label>
+                    <input class="portal-input" type="number" min="1" @bind="_configRequest.MaxSubTenants" />
+                </div>
+                <div class="portal-form-row">
+                    <label>Agreement Version</label>
+                    <input class="portal-input" @bind="_configRequest.AgreementVersion" />
+                </div>
+                <button class="portal-btn portal-btn-primary" @onclick="SaveConfig">Save Configuration</button>
+            </div>
+        </section>
+
+        <section class="portal-card">
+            <div class="portal-card-header"><h2 class="portal-card-title">Create Sub-Tenant</h2></div>
+            <div class="portal-card-body">
+                <div class="portal-form-row"><label>Tenant Name</label><input class="portal-input" @bind="_create.TenantName" /></div>
+                <div class="portal-form-row"><label>Tenant Slug</label><input class="portal-input" @bind="_create.TenantSlug" /></div>
+                <div class="portal-form-row"><label>Contact Email</label><input class="portal-input" @bind="_create.ContactEmail" /></div>
+                <div class="portal-form-row"><label>Subscription Plan</label><input class="portal-input" @bind="_create.SubscriptionPlanCode" /></div>
+                <div class="portal-form-row"><label>Licence Codes (comma separated)</label><input class="portal-input" @bind="_licenceCodes" /></div>
+                <div class="portal-form-row"><label>Admin Email</label><input class="portal-input" @bind="_create.AdminEmail" /></div>
+                <div class="portal-form-row"><label>Admin Full Name</label><input class="portal-input" @bind="_create.AdminFullName" /></div>
+                <div class="portal-form-row"><label>Institution Code</label><input class="portal-input" @bind="_create.InstitutionCode" /></div>
+                <div class="portal-form-row"><label>Institution Name</label><input class="portal-input" @bind="_create.InstitutionName" /></div>
+                <button class="portal-btn portal-btn-primary" @onclick="CreateSubTenantAsync" disabled="@_busy">Create Sub-Tenant</button>
+            </div>
+        </section>
+    </div>
+
+    <section class="portal-card">
+        <div class="portal-card-header"><h2 class="portal-card-title">Client Portfolio</h2></div>
+        <div class="portal-card-body">
+            @if (_subTenants.Count == 0)
+            {
+                <p>No sub-tenants created yet.</p>
+            }
+            else
+            {
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Tenant</th>
+                            <th>Status</th>
+                            <th>Plan</th>
+                            <th>Active Users</th>
+                            <th>Returns (MTD)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var tenant in _subTenants)
+                        {
+                            <tr>
+                                <td>
+                                    <div><a href="@($"/partner/sub-tenants/{tenant.TenantId}")">@tenant.TenantName</a></div>
+                                    <small>@tenant.TenantSlug</small>
+                                </td>
+                                <td>@tenant.Status</td>
+                                <td>@(tenant.PlanName ?? tenant.PlanCode ?? "-")</td>
+                                <td>@tenant.ActiveUsers</td>
+                                <td>@tenant.ReturnsSubmittedThisMonth</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private bool _loading = true;
+    private bool _busy;
+    private bool _isPartner;
+    private string? _message;
+    private string? _error;
+
+    private UpdatePartnerConfigRequest _configRequest = new()
+    {
+        PartnerTier = FC.Engine.Domain.Enums.PartnerTier.Silver,
+        BillingModel = PartnerBillingModel.Direct,
+        MaxSubTenants = 10,
+        AgreementVersion = "v1",
+        AgreementSignedAt = DateTime.UtcNow
+    };
+
+    private SubTenantCreateRequest _create = new()
+    {
+        SubscriptionPlanCode = "STARTER"
+    };
+
+    private string _licenceCodes = string.Empty;
+    private List<PartnerSubTenantSummary> _subTenants = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            if (!TenantContext.CurrentTenantId.HasValue)
+            {
+                _error = "Tenant context is not available.";
+                return;
+            }
+
+            var tenantId = TenantContext.CurrentTenantId.Value;
+            _isPartner = await PartnerService.IsPartnerTenant(tenantId);
+            if (!_isPartner)
+            {
+                return;
+            }
+
+            var cfg = await PartnerService.GetPartnerConfig(tenantId);
+            if (cfg is not null)
+            {
+                _configRequest = new UpdatePartnerConfigRequest
+                {
+                    PartnerTier = cfg.PartnerTier,
+                    BillingModel = cfg.BillingModel,
+                    CommissionRate = cfg.CommissionRate,
+                    WholesaleDiscount = cfg.WholesaleDiscount,
+                    MaxSubTenants = cfg.MaxSubTenants,
+                    AgreementSignedAt = cfg.AgreementSignedAt,
+                    AgreementVersion = cfg.AgreementVersion
+                };
+            }
+
+            _subTenants = await PartnerService.GetSubTenants(tenantId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task SaveConfig()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+        try
+        {
+            _configRequest.AgreementSignedAt ??= DateTime.UtcNow;
+            await PartnerService.UpdatePartnerConfig(TenantContext.CurrentTenantId.Value, _configRequest);
+            _message = "Partner configuration updated.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CreateSubTenantAsync()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+        try
+        {
+            _create.LicenceTypeCodes = _licenceCodes
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(x => x.ToUpperInvariant())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var result = await PartnerService.CreateSubTenant(TenantContext.CurrentTenantId.Value, _create);
+            if (!result.Success)
+            {
+                _error = result.Errors.Count > 0
+                    ? string.Join(" ", result.Errors)
+                    : "Failed to create sub-tenant.";
+                return;
+            }
+
+            _message = $"Sub-tenant created. Temporary admin password: {result.AdminTemporaryPassword}";
+            _create = new SubTenantCreateRequest { SubscriptionPlanCode = "STARTER" };
+            _licenceCodes = string.Empty;
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -1,0 +1,248 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PAYMENT SERVICE PROVIDER / FINTECH REGULATORY RETURN - XML SCHEMA DEFINITION
+  CBN Payments System Management Department | PSB | PSSP | PTSP | MMO | Switching
+  Version: 1.0 | March 2026
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:psp="urn:cbn:psp:reporting:v1"
+           targetNamespace="urn:cbn:psp:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+
+  <xs:element name="PSPReturn" type="psp:PSPReturnType"/>
+
+  <xs:complexType name="PSPReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="psp:HeaderType"/>
+      <xs:element name="TransactionVolumes" type="psp:TransactionVolumesType" minOccurs="0"/>
+      <xs:element name="FraudDisputes" type="psp:FraudDisputesType" minOccurs="0"/>
+      <xs:element name="AgentNetwork" type="psp:AgentNetworkType" minOccurs="0"/>
+      <xs:element name="WalletAccounts" type="psp:WalletAccountsType" minOccurs="0"/>
+      <xs:element name="FinancialStatements" type="psp:FinancialStatementsType" minOccurs="0"/>
+      <xs:element name="FinancialInclusion" type="psp:FinancialInclusionType" minOccurs="0"/>
+      <xs:element name="ITRiskSecurity" type="psp:ITRiskSecurityType" minOccurs="0"/>
+      <xs:element name="AMLCompliance" type="psp:AMLComplianceType" minOccurs="0"/>
+      <xs:element name="Governance" type="psp:GovernanceType" minOccurs="0"/>
+      <xs:element name="OpenBanking" type="psp:OpenBankingType" minOccurs="0"/>
+      <xs:element name="Signature" type="psp:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="CBNLicenceNo"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="20"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="PSPName"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="200"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReturnType" type="psp:ReturnTypeEnum"/>
+      <xs:element name="LicenceCategory" type="psp:LicenceCategoryEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="ContactPerson" type="xs:string"/>
+      <xs:element name="ContactEmail" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- TRANSACTION VOLUMES -->
+  <xs:complexType name="TransactionVolumesType">
+    <xs:sequence>
+      <xs:element name="ChannelTransaction" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="ChannelName" type="xs:string"/>
+            <xs:element name="TransactionCount" type="xs:nonNegativeInteger"/>
+            <xs:element name="TransactionValue" type="psp:AmountType"/>
+            <xs:element name="SuccessRate" type="psp:RatioType"/>
+            <xs:element name="AvgTicketSize" type="psp:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalTransactions" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalValue" type="psp:AmountType"/>
+      <xs:element name="OverallSuccessRate" type="psp:RatioType"/>
+      <xs:element name="FailedTransactions" type="xs:nonNegativeInteger"/>
+      <xs:element name="PendingSettlement" type="psp:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FRAUD & DISPUTES -->
+  <xs:complexType name="FraudDisputesType">
+    <xs:sequence>
+      <xs:element name="FraudIncident" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FraudCategory" type="xs:string"/>
+            <xs:element name="IncidentCount" type="xs:nonNegativeInteger"/>
+            <xs:element name="ValueLost" type="psp:AmountType"/>
+            <xs:element name="ValueRecovered" type="psp:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalFraudIncidents" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalFraudLoss" type="psp:AmountType"/>
+      <xs:element name="FraudToTransactionRatio" type="psp:RatioType"/>
+      <xs:element name="DisputesReceived" type="xs:nonNegativeInteger"/>
+      <xs:element name="DisputesResolved" type="xs:nonNegativeInteger"/>
+      <xs:element name="ChargebackRatio" type="psp:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AGENT NETWORK -->
+  <xs:complexType name="AgentNetworkType">
+    <xs:sequence>
+      <xs:element name="TotalAgents" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveAgents" type="xs:nonNegativeInteger"/>
+      <xs:element name="UrbanAgents" type="xs:nonNegativeInteger"/>
+      <xs:element name="RuralAgents" type="xs:nonNegativeInteger"/>
+      <xs:element name="RuralAgentPct" type="psp:RatioType"/>
+      <xs:element name="AgentTransactionVolume" type="xs:nonNegativeInteger"/>
+      <xs:element name="AgentTransactionValue" type="psp:AmountType"/>
+      <xs:element name="StatesCovered" type="xs:nonNegativeInteger"/>
+      <xs:element name="AgentFraudCases" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- WALLET / ACCOUNTS -->
+  <xs:complexType name="WalletAccountsType">
+    <xs:sequence>
+      <xs:element name="TierAccount" maxOccurs="3">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="KYCTier" type="psp:KYCTierEnum"/>
+            <xs:element name="TotalAccounts" type="xs:nonNegativeInteger"/>
+            <xs:element name="ActiveAccounts" type="xs:nonNegativeInteger"/>
+            <xs:element name="TotalBalance" type="psp:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalWallets" type="xs:nonNegativeInteger"/>
+      <xs:element name="NewAccountsMonth" type="xs:nonNegativeInteger"/>
+      <xs:element name="DormantAccounts" type="xs:nonNegativeInteger"/>
+      <xs:element name="KYCCompletionRate" type="psp:RatioType"/>
+      <xs:element name="FemalePct" type="psp:RatioType"/>
+      <xs:element name="RuralPct" type="psp:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL STATEMENTS -->
+  <xs:complexType name="FinancialStatementsType">
+    <xs:sequence>
+      <xs:element name="TotalRevenue" type="psp:AmountType"/>
+      <xs:element name="TransactionFeeIncome" type="psp:AmountType"/>
+      <xs:element name="TotalExpenses" type="psp:AmountType"/>
+      <xs:element name="ProfitBeforeTax" type="psp:AmountType"/>
+      <xs:element name="ProfitAfterTax" type="psp:AmountType"/>
+      <xs:element name="ShareholdersEquity" type="psp:AmountType"/>
+      <xs:element name="CapitalAdequate" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL INCLUSION -->
+  <xs:complexType name="FinancialInclusionType">
+    <xs:sequence>
+      <xs:element name="TotalCustomers" type="xs:nonNegativeInteger"/>
+      <xs:element name="PreviouslyUnbankedPct" type="psp:RatioType"/>
+      <xs:element name="FemalePct" type="psp:RatioType"/>
+      <xs:element name="RuralPct" type="psp:RatioType"/>
+      <xs:element name="YouthPct" type="psp:RatioType"/>
+      <xs:element name="AccessPointsUnderserved" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- IT RISK & SECURITY -->
+  <xs:complexType name="ITRiskSecurityType">
+    <xs:sequence>
+      <xs:element name="PlatformUptime" type="psp:RatioType"/>
+      <xs:element name="CyberIncidents" type="xs:nonNegativeInteger"/>
+      <xs:element name="DataBreaches" type="xs:nonNegativeInteger"/>
+      <xs:element name="PCIDSSStatus" type="psp:PCIDSSStatusEnum"/>
+      <xs:element name="ISO27001Certified" type="xs:boolean"/>
+      <xs:element name="DRTestConducted" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AML -->
+  <xs:complexType name="AMLComplianceType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="BVNVerificationRate" type="psp:RatioType"/>
+      <xs:element name="NINVerificationRate" type="psp:RatioType"/>
+      <xs:element name="AccountsFrozen" type="xs:nonNegativeInteger"/>
+      <xs:element name="StaffTrainedPct" type="psp:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- GOVERNANCE -->
+  <xs:complexType name="GovernanceType">
+    <xs:sequence>
+      <xs:element name="Director" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="Role" type="xs:string"/>
+            <xs:element name="FitAndProper" type="xs:boolean"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="LicenceCategory" type="psp:LicenceCategoryEnum"/>
+      <xs:element name="LicenceExpiryDate" type="xs:date" minOccurs="0"/>
+      <xs:element name="RenewalCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- OPEN BANKING -->
+  <xs:complexType name="OpenBankingType">
+    <xs:sequence>
+      <xs:element name="TotalAPIsPublished" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveAPIConsumers" type="xs:nonNegativeInteger"/>
+      <xs:element name="APICallsProcessed" type="xs:nonNegativeInteger"/>
+      <xs:element name="APISuccessRate" type="psp:RatioType"/>
+      <xs:element name="CustomerConsentsActive" type="xs:nonNegativeInteger"/>
+      <xs:element name="SecurityIncidentsViaAPI" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SIGNATURE -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="MDSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that the information provided is true, accurate, and complete to the best of our knowledge and in compliance with CBN guidelines for Payment Service Providers."/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENUMERATIONS -->
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="TXN"/><xs:enumeration value="FRD"/><xs:enumeration value="AGT"/>
+      <xs:enumeration value="WAL"/><xs:enumeration value="FIN"/><xs:enumeration value="FII"/>
+      <xs:enumeration value="ITR"/><xs:enumeration value="AML"/><xs:enumeration value="GOV"/>
+      <xs:enumeration value="OBK"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="LicenceCategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="PSB"/><xs:enumeration value="PSSP"/><xs:enumeration value="PTSP"/>
+      <xs:enumeration value="MMO"/><xs:enumeration value="SuperAgent"/><xs:enumeration value="Switching"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="KYCTierEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Tier1"/><xs:enumeration value="Tier2"/><xs:enumeration value="Tier3"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="PCIDSSStatusEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Certified"/><xs:enumeration value="InProgress"/>
+      <xs:enumeration value="NonCompliant"/><xs:enumeration value="NA"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

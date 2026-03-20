@@ -10,6 +10,9 @@ public class InstitutionUser
 {
     public int Id { get; set; }
 
+    /// <summary>FK to Tenant for RLS.</summary>
+    public Guid TenantId { get; set; }
+
     /// <summary>FK to Institution.</summary>
     public int InstitutionId { get; set; }
 
@@ -17,6 +20,8 @@ public class InstitutionUser
     public string Username { get; set; } = string.Empty;
 
     public string Email { get; set; } = string.Empty;
+
+    public string? PhoneNumber { get; set; }
 
     public string DisplayName { get; set; } = string.Empty;
 
@@ -29,11 +34,16 @@ public class InstitutionUser
     /// <summary>Force password change on first login.</summary>
     public bool MustChangePassword { get; set; } = true;
 
+    /// <summary>Preferred UI language for localised field labels/help text.</summary>
+    public string PreferredLanguage { get; set; } = "en";
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? LastLoginAt { get; set; }
 
     public string? LastLoginIp { get; set; }
+    public DateTime? DeletedAt { get; set; }
+    public string? DeletionReason { get; set; }
 
     public int FailedLoginAttempts { get; set; }
 

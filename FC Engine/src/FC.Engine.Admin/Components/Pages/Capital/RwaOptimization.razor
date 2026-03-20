@@ -1,0 +1,216 @@
+@page "/platform/capital/rwa"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject FC.Engine.Admin.Services.Capital.RwaOptimizationService RwaService
+@inject FC.Engine.Admin.Services.ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>RWA Optimisation</PageTitle>
+
+<PageHeader Title="RWA Optimisation"
+            Subtitle="Analyse risk-weighted asset composition and identify optimisation opportunities."
+            BackUrl="/platform/capital">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load RWA data" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <div class="fc-cap-kpi-strip">
+                @for (var i = 0; i < 4; i++)
+                {
+                    <div class="fc-cap-kpi"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="88px" /></div>
+                }
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" />
+        }
+        else if (_composition.TotalRwaBn == 0)
+        {
+            <EmptyState Context="data" Heading="No capital scenario found" Description="Save a capital planning scenario first to analyse RWA composition." />
+        }
+        else
+        {
+            <div class="fc-cap-kpi-strip">
+                <div class="fc-cap-kpi">
+                    <div class="fc-cap-kpi-value">@_composition.TotalRwaBn.ToString("F1")bn</div>
+                    <div class="fc-cap-kpi-label">Total RWA</div>
+                </div>
+                <div class="fc-cap-kpi">
+                    <div class="fc-cap-kpi-value">@_composition.CreditRiskPct.ToString("F0")%</div>
+                    <div class="fc-cap-kpi-label">Credit Risk</div>
+                </div>
+                <div class="fc-cap-kpi">
+                    <div class="fc-cap-kpi-value">@_composition.MarketRiskPct.ToString("F0")%</div>
+                    <div class="fc-cap-kpi-label">Market Risk</div>
+                </div>
+                <div class="fc-cap-kpi">
+                    <div class="fc-cap-kpi-value">@_composition.OperationalRiskPct.ToString("F0")%</div>
+                    <div class="fc-cap-kpi-label">Operational Risk</div>
+                </div>
+            </div>
+
+            <div class="rg-grid rg-grid-2">
+                <div class="fc-card">
+                    <div class="fc-card__header"><h2 class="fc-card__title">RWA Composition</h2></div>
+                    <div class="fc-card__body">
+                        <canvas id="rwaCompositionChart"></canvas>
+                    </div>
+                </div>
+                <div class="fc-card">
+                    <div class="fc-card__header"><h2 class="fc-card__title">Optimisation Potential</h2></div>
+                    <div class="fc-card__body">
+                        <canvas id="rwaOptimisationChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="fc-card fc-card--mb">
+                <div class="fc-card__header">
+                    <h2 class="fc-card__title">Impact Summary</h2>
+                </div>
+                <div class="fc-card__body">
+                    <div class="fc-cap-kpi-strip fc-cap-kpi-strip--compact">
+                        <div class="fc-cap-kpi">
+                            <div class="fc-cap-kpi-value">@_composition.CurrentCarPercent.ToString("F1")%</div>
+                            <div class="fc-cap-kpi-label">Current CAR</div>
+                        </div>
+                        <div class="fc-cap-kpi">
+                            <div class="fc-cap-kpi-value fc-cap-kpi-value--green">@_composition.OptimizedCarPercent.ToString("F1")%</div>
+                            <div class="fc-cap-kpi-label">Optimised CAR</div>
+                        </div>
+                        <div class="fc-cap-kpi">
+                            <div class="fc-cap-kpi-value">@_composition.TotalOptimizationPotentialPct.ToString("F1")%</div>
+                            <div class="fc-cap-kpi-label">RWA Reduction</div>
+                        </div>
+                        <div class="fc-cap-kpi">
+                            <div class="fc-cap-kpi-value">+@(((int)((_composition.OptimizedCarPercent - _composition.CurrentCarPercent) * 100)))bps</div>
+                            <div class="fc-cap-kpi-label">CAR Improvement</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="fc-card">
+                <div class="fc-card__header"><h2 class="fc-card__title">Optimisation Actions</h2></div>
+                <div class="fc-card__body">
+                    <DataTable TItem="FC.Engine.Admin.Services.Capital.RwaOptimizationSuggestion"
+                               Items="@_suggestions"
+                               PageSize="10"
+                               Sortable="true"
+                               ShowExport="true"
+                               ExportFileName="rwa-optimisation"
+                               EmptyTitle="No optimisation actions"
+                               EmptyText="No RWA-targeting actions found in the capital action catalog.">
+                        <ChildContent>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Capital.RwaOptimizationSuggestion"
+                                        Title="Action" SortKey="@(x => x.Title)">
+                                <CellTemplate>
+                                    <strong>@context.Title</strong>
+                                    <div class="fc-text-muted-sm">@context.Summary</div>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Capital.RwaOptimizationSuggestion"
+                                        Title="Lever" Width="100px" SortKey="@(x => x.PrimaryLever)">
+                                <CellTemplate>
+                                    <span class="fc-badge fc-badge--neutral">@context.PrimaryLever</span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Capital.RwaOptimizationSuggestion"
+                                        Title="RWA Reduction" Width="130px" SortKey="@(x => x.RwaReductionPct)">
+                                <CellTemplate>@context.RwaReductionPct.ToString("F1")% (@(context.RwaReductionBn)bn)</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Capital.RwaOptimizationSuggestion"
+                                        Title="CAR Impact" Width="110px" SortKey="@(x => x.CarImprovementBps)">
+                                <CellTemplate>
+                                    <span class="@(context.CarImprovementBps > 0 ? "fc-cap-kpi-value--green" : "")">
+                                        +@(context.CarImprovementBps)bps
+                                    </span>
+                                </CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Capital.RwaOptimizationSuggestion"
+                                        Title="Annual Cost" Width="110px" SortKey="@(x => x.EstimatedAnnualCostPct)">
+                                <CellTemplate>@context.EstimatedAnnualCostPct.ToString("F1")%</CellTemplate>
+                            </DataColumn>
+                            <DataColumn TItem="FC.Engine.Admin.Services.Capital.RwaOptimizationSuggestion"
+                                        Title="Projected CAR" Width="120px" SortKey="@(x => x.ProjectedCarPercent)">
+                                <CellTemplate>
+                                    <strong>@context.ProjectedCarPercent.ToString("F1")%</strong>
+                                </CellTemplate>
+                            </DataColumn>
+                        </ChildContent>
+                    </DataTable>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private Exception? _loadException;
+    private FC.Engine.Admin.Services.Capital.RwaCompositionData _composition = FC.Engine.Admin.Services.Capital.RwaCompositionData.Empty;
+    private List<FC.Engine.Admin.Services.Capital.RwaOptimizationSuggestion> _suggestions = [];
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loading && !_chartsRendered && _composition.TotalRwaBn > 0)
+        {
+            _chartsRendered = true;
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        _chartsRendered = false;
+        try
+        {
+            _composition = await RwaService.GetCompositionAsync();
+            _suggestions = await RwaService.GetSuggestionsAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task RenderChartsAsync()
+    {
+        try
+        {
+            // Composition doughnut chart
+            await JS.InvokeVoidAsync("fcCharts.renderDoughnut", "rwaCompositionChart", new
+            {
+                labels = new[] { "Credit Risk", "Market Risk", "Operational Risk" },
+                data = new[] { (double)_composition.CreditRiskBn, (double)_composition.MarketRiskBn, (double)_composition.OperationalRiskBn },
+                colors = new[] { "#0284c7", "#d97706", "#7c3aed" }
+            });
+
+            // Optimisation waterfall chart
+            await JS.InvokeVoidAsync("fcCharts.renderBar", "rwaOptimisationChart", new
+            {
+                labels = new[] { "Credit", "Market", "Operational" },
+                datasets = new object[]
+                {
+                    new { label = "Current RWA", data = new[] { (double)_composition.CreditRiskBn, (double)_composition.MarketRiskBn, (double)_composition.OperationalRiskBn }, backgroundColor = "rgba(2,132,199,0.3)" },
+                    new { label = "Optimisation Potential", data = new[] { (double)_composition.CreditOptimizationPotentialBn, (double)_composition.MarketOptimizationPotentialBn, (double)_composition.OperationalOptimizationPotentialBn }, backgroundColor = "rgba(5,150,105,0.7)" }
+                }
+            });
+        }
+        catch
+        {
+            // Chart rendering is non-critical
+        }
+    }
+}

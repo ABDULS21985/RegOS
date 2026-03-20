@@ -39,11 +39,19 @@ public class CrossSheetRuleConfiguration : IEntityTypeConfiguration<CrossSheetRu
         builder.Property(r => r.RuleCode).HasMaxLength(50).IsRequired();
         builder.Property(r => r.RuleName).HasMaxLength(255).IsRequired();
         builder.Property(r => r.Description).HasMaxLength(1000);
+        builder.Property(r => r.SourceTemplateCode).HasMaxLength(50);
+        builder.Property(r => r.SourceFieldCode).HasMaxLength(50);
+        builder.Property(r => r.TargetTemplateCode).HasMaxLength(50);
+        builder.Property(r => r.TargetFieldCode).HasMaxLength(50);
+        builder.Property(r => r.Operator).HasMaxLength(30);
+        builder.Property(r => r.ToleranceAmount).HasColumnType("decimal(20,2)");
+        builder.Property(r => r.TolerancePercent).HasColumnType("decimal(10,4)");
         builder.Property(r => r.Severity).HasMaxLength(10).IsRequired()
             .HasConversion<string>();
         builder.Property(r => r.CreatedBy).HasMaxLength(100).IsRequired();
 
         builder.HasIndex(r => r.RuleCode).IsUnique();
+        builder.HasIndex(r => r.TenantId);
 
         builder.HasMany(r => r.Operands)
             .WithOne()
@@ -52,6 +60,21 @@ public class CrossSheetRuleConfiguration : IEntityTypeConfiguration<CrossSheetRu
         builder.HasOne(r => r.Expression)
             .WithOne()
             .HasForeignKey<CrossSheetRuleExpression>(e => e.RuleId);
+
+        builder.HasOne(r => r.Module)
+            .WithMany(m => m.CrossSheetRules)
+            .HasForeignKey(r => r.ModuleId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(r => r.SourceModule)
+            .WithMany(m => m.SourceCrossSheetRules)
+            .HasForeignKey(r => r.SourceModuleId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(r => r.TargetModule)
+            .WithMany(m => m.TargetCrossSheetRules)
+            .HasForeignKey(r => r.TargetModuleId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
 
@@ -103,5 +126,6 @@ public class BusinessRuleConfiguration : IEntityTypeConfiguration<BusinessRule>
         builder.Property(r => r.CreatedBy).HasMaxLength(100).IsRequired();
 
         builder.HasIndex(r => r.RuleCode).IsUnique();
+        builder.HasIndex(r => r.TenantId);
     }
 }

@@ -5,6 +5,7 @@ namespace FC.Engine.Domain.Metadata;
 public class TemplateVersion
 {
     public int Id { get; set; }
+    public Guid? TenantId { get; set; }
     public int TemplateId { get; set; }
     public int VersionNumber { get; set; }
     public TemplateStatus Status { get; set; }
@@ -24,6 +25,9 @@ public class TemplateVersion
 
     private readonly List<TemplateItemCode> _itemCodes = new();
     public IReadOnlyList<TemplateItemCode> ItemCodes => _itemCodes.AsReadOnly();
+
+    private readonly List<TemplateSection> _sections = new();
+    public IReadOnlyList<TemplateSection> Sections => _sections.AsReadOnly();
 
     private readonly List<IntraSheetFormula> _intraSheetFormulas = new();
     public IReadOnlyList<IntraSheetFormula> IntraSheetFormulas => _intraSheetFormulas.AsReadOnly();
@@ -92,5 +96,17 @@ public class TemplateVersion
     {
         _intraSheetFormulas.Clear();
         _intraSheetFormulas.AddRange(formulas);
+    }
+
+    public void AddSection(TemplateSection section)
+    {
+        section.TemplateVersionId = Id;
+        _sections.Add(section);
+    }
+
+    public void SetSections(IEnumerable<TemplateSection> sections)
+    {
+        _sections.Clear();
+        _sections.AddRange(sections);
     }
 }

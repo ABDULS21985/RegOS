@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  NIGERIAN FINANCIAL INTELLIGENCE UNIT (NFIU) RETURNS - XML SCHEMA DEFINITION
+  NFIU Act 2018 | MLPPA 2022 | TPPA 2022 | goAML Alignment
+  Version: 1.0 | March 2026
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:nfiu="urn:nfiu:reporting:v1"
+           targetNamespace="urn:nfiu:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+
+  <xs:element name="NFIUReturn" type="nfiu:NFIUReturnType"/>
+
+  <xs:complexType name="NFIUReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="nfiu:HeaderType"/>
+      <xs:element name="STR" type="nfiu:STRType" minOccurs="0"/>
+      <xs:element name="CTR" type="nfiu:CTRType" minOccurs="0"/>
+      <xs:element name="FTR" type="nfiu:FTRType" minOccurs="0"/>
+      <xs:element name="NIL" type="nfiu:NILType" minOccurs="0"/>
+      <xs:element name="PEPReport" type="nfiu:PEPReportType" minOccurs="0"/>
+      <xs:element name="SAR" type="nfiu:SARType" minOccurs="0"/>
+      <xs:element name="TFS" type="nfiu:TFSType" minOccurs="0"/>
+      <xs:element name="ComplianceSummary" type="nfiu:ComplianceSummaryType" minOccurs="0"/>
+      <xs:element name="RiskAssessment" type="nfiu:RiskAssessmentType" minOccurs="0"/>
+      <xs:element name="EnforcementResponse" type="nfiu:EnforcementResponseType" minOccurs="0"/>
+      <xs:element name="Signature" type="nfiu:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <!-- HEADER -->
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="NFIUEntityID"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="20"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReportingEntityName"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="200"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReturnType" type="nfiu:ReturnTypeEnum"/>
+      <xs:element name="RECategory" type="nfiu:RECategoryEnum"/>
+      <xs:element name="SubmissionType" type="nfiu:SubmissionTypeEnum"/>
+      <xs:element name="RegulatoryAuthority" type="xs:string"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="MLROName" type="xs:string"/>
+      <xs:element name="MLROEmail" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- STR -->
+  <xs:complexType name="STRType">
+    <xs:sequence>
+      <xs:element name="LocalID" type="xs:string"/>
+      <xs:element name="TransactionDate" type="xs:date"/>
+      <xs:element name="SuspicionDate" type="xs:date"/>
+      <xs:element name="ScrutinyHours" type="xs:nonNegativeInteger"/>
+      <xs:element name="Amount" type="nfiu:AmountType"/>
+      <xs:element name="Currency" type="nfiu:CurrencyType"/>
+      <xs:element name="TransactionType" type="xs:string"/>
+      <xs:element name="TransactionDirection" type="xs:string"/>
+      <xs:element name="Channel" type="xs:string"/>
+      <xs:element name="Subject" type="nfiu:SubjectType"/>
+      <xs:element name="Counterparty" type="nfiu:SubjectType" minOccurs="0"/>
+      <xs:element name="Indicator" type="nfiu:IndicatorEnum" maxOccurs="unbounded"/>
+      <xs:element name="Narrative"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="10000"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ActionTaken" type="xs:string"/>
+      <xs:element name="RelatedReports" type="xs:string" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CTR -->
+  <xs:complexType name="CTRType">
+    <xs:sequence>
+      <xs:element name="LocalID" type="xs:string"/>
+      <xs:element name="TransactionDate" type="xs:date"/>
+      <xs:element name="TransactionType" type="xs:string"/>
+      <xs:element name="AmountLocal" type="nfiu:AmountType"/>
+      <xs:element name="AmountForeign" type="nfiu:AmountType" minOccurs="0"/>
+      <xs:element name="Currency" type="nfiu:CurrencyType"/>
+      <xs:element name="AccountNumber" type="xs:string"/>
+      <xs:element name="AccountType" type="nfiu:AccountTypeEnum"/>
+      <xs:element name="Branch" type="xs:string"/>
+      <xs:element name="StaffID" type="xs:string"/>
+      <xs:element name="IsMultipleTransaction" type="xs:boolean"/>
+      <xs:element name="TotalDailyCash" type="nfiu:AmountType" minOccurs="0"/>
+      <xs:element name="PersonConducting" type="nfiu:SubjectType"/>
+      <xs:element name="AccountHolder" type="nfiu:SubjectType"/>
+      <xs:element name="SourceOfFunds" type="xs:string"/>
+      <xs:element name="Purpose" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FTR -->
+  <xs:complexType name="FTRType">
+    <xs:sequence>
+      <xs:element name="LocalID" type="xs:string"/>
+      <xs:element name="TransactionDate" type="xs:date"/>
+      <xs:element name="FTRType" type="xs:string"/>
+      <xs:element name="AmountForeign" type="nfiu:AmountType"/>
+      <xs:element name="CurrencyForeign" type="nfiu:CurrencyType"/>
+      <xs:element name="AmountNGN" type="nfiu:AmountType"/>
+      <xs:element name="FXRate" type="xs:decimal"/>
+      <xs:element name="Purpose" type="xs:string"/>
+      <xs:element name="Originator" type="nfiu:PartyType"/>
+      <xs:element name="Beneficiary" type="nfiu:PartyType"/>
+      <xs:element name="CorrespondentBank" type="xs:string" minOccurs="0"/>
+      <xs:element name="SWIFTReference" type="xs:string" minOccurs="0"/>
+      <xs:element name="FormReference" type="xs:string" minOccurs="0"/>
+      <xs:element name="HighRiskCountry" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- NIL -->
+  <xs:complexType name="NILType">
+    <xs:sequence>
+      <xs:element name="ReportingMonth" type="xs:string"/>
+      <xs:element name="NoSTR" type="xs:boolean"/>
+      <xs:element name="NoCTR" type="xs:boolean"/>
+      <xs:element name="NoFTR" type="xs:boolean"/>
+      <xs:element name="TMSOperational" type="xs:boolean"/>
+      <xs:element name="AlertsGenerated" type="xs:nonNegativeInteger"/>
+      <xs:element name="AlertsInvestigated" type="xs:nonNegativeInteger"/>
+      <xs:element name="ReasonForNil" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- PEP REPORT -->
+  <xs:complexType name="PEPReportType">
+    <xs:sequence>
+      <xs:element name="TotalPEPAccounts" type="xs:nonNegativeInteger"/>
+      <xs:element name="DomesticPEPs" type="xs:nonNegativeInteger"/>
+      <xs:element name="ForeignPEPs" type="xs:nonNegativeInteger"/>
+      <xs:element name="FamilyMembers" type="xs:nonNegativeInteger"/>
+      <xs:element name="CloseAssociates" type="xs:nonNegativeInteger"/>
+      <xs:element name="EDDConductedPct" type="nfiu:RatioType"/>
+      <xs:element name="PEPRecord" minOccurs="0" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="PEPName" type="xs:string"/>
+            <xs:element name="PEPCategory" type="xs:string"/>
+            <xs:element name="Position" type="xs:string"/>
+            <xs:element name="RelationshipType" type="xs:string"/>
+            <xs:element name="AccountBalance" type="nfiu:AmountType"/>
+            <xs:element name="RiskRating" type="nfiu:RiskRatingEnum"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SAR -->
+  <xs:complexType name="SARType">
+    <xs:sequence>
+      <xs:element name="LocalID" type="xs:string"/>
+      <xs:element name="ActivityDate" type="xs:date"/>
+      <xs:element name="Indicator" type="nfiu:IndicatorEnum" maxOccurs="unbounded"/>
+      <xs:element name="Subject" type="nfiu:SubjectType" minOccurs="0"/>
+      <xs:element name="Narrative"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="10000"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ActionTaken" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- TFS -->
+  <xs:complexType name="TFSType">
+    <xs:sequence>
+      <xs:element name="TotalScreened" type="xs:nonNegativeInteger"/>
+      <xs:element name="ScreeningHits" type="xs:nonNegativeInteger"/>
+      <xs:element name="TruePositives" type="xs:nonNegativeInteger"/>
+      <xs:element name="AccountsFrozen" type="xs:nonNegativeInteger"/>
+      <xs:element name="FrozenAssetsValue" type="nfiu:AmountType"/>
+      <xs:element name="TransactionsBlocked" type="xs:nonNegativeInteger"/>
+      <xs:element name="ReportsFiledNFIU" type="xs:nonNegativeInteger"/>
+      <xs:element name="PFScreeningConducted" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- COMPLIANCE SUMMARY -->
+  <xs:complexType name="ComplianceSummaryType">
+    <xs:sequence>
+      <xs:element name="TMSAlerts" type="xs:nonNegativeInteger"/>
+      <xs:element name="AlertsInvestigated" type="xs:nonNegativeInteger"/>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="FTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="FalsePositiveRate" type="nfiu:RatioType"/>
+      <xs:element name="KYCCompletionRate" type="nfiu:RatioType"/>
+      <xs:element name="BVNVerificationRate" type="nfiu:RatioType"/>
+      <xs:element name="StaffTrainedPct" type="nfiu:RatioType"/>
+      <xs:element name="InternalAuditConducted" type="xs:boolean"/>
+      <xs:element name="BoardAMLReport" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- RISK ASSESSMENT -->
+  <xs:complexType name="RiskAssessmentType">
+    <xs:sequence>
+      <xs:element name="RiskFactor" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FactorName" type="xs:string"/>
+            <xs:element name="InherentRisk" type="nfiu:RiskRatingEnum"/>
+            <xs:element name="ControlEffectiveness" type="xs:string"/>
+            <xs:element name="ResidualRisk" type="nfiu:RiskRatingEnum"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="OverallResidualRisk" type="nfiu:RiskRatingEnum"/>
+      <xs:element name="BoardApproved" type="xs:boolean"/>
+      <xs:element name="NRAAligned" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENFORCEMENT RESPONSE -->
+  <xs:complexType name="EnforcementResponseType">
+    <xs:sequence>
+      <xs:element name="NFIURequestsReceived" type="xs:nonNegativeInteger"/>
+      <xs:element name="NFIURequestsResponded" type="xs:nonNegativeInteger"/>
+      <xs:element name="CourtOrders" type="xs:nonNegativeInteger"/>
+      <xs:element name="AccountsFrozen" type="xs:nonNegativeInteger"/>
+      <xs:element name="FrozenValue" type="nfiu:AmountType"/>
+      <xs:element name="AssetTracingResponses" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SHARED COMPLEX TYPES -->
+  <xs:complexType name="SubjectType">
+    <xs:sequence>
+      <xs:element name="SubjectType" type="xs:string"/>
+      <xs:element name="FullName" type="xs:string"/>
+      <xs:element name="DOB" type="xs:date" minOccurs="0"/>
+      <xs:element name="Nationality" type="xs:string" minOccurs="0"/>
+      <xs:element name="BVN" type="xs:string" minOccurs="0"/>
+      <xs:element name="NIN" type="xs:string" minOccurs="0"/>
+      <xs:element name="IDType" type="nfiu:IDTypeEnum" minOccurs="0"/>
+      <xs:element name="IDNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="Address" type="xs:string" minOccurs="0"/>
+      <xs:element name="Phone" type="xs:string" minOccurs="0"/>
+      <xs:element name="AccountNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="IsPEP" type="xs:boolean"/>
+      <xs:element name="RiskRating" type="nfiu:RiskRatingEnum" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="PartyType">
+    <xs:sequence>
+      <xs:element name="Name" type="xs:string"/>
+      <xs:element name="Country" type="xs:string"/>
+      <xs:element name="Bank" type="xs:string"/>
+      <xs:element name="SWIFT" type="xs:string" minOccurs="0"/>
+      <xs:element name="AccountNumber" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SIGNATURE -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="MLROSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that this report is filed in compliance with the NFIU Act 2018, the Money Laundering (Prevention and Prohibition) Act 2022, and the Terrorism (Prevention and Prohibition) Act 2022. The information provided is true, accurate, and complete to the best of our knowledge."/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENUMERATIONS -->
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="STR"/><xs:enumeration value="CTR"/><xs:enumeration value="FTR"/>
+      <xs:enumeration value="NIL"/><xs:enumeration value="PEP"/><xs:enumeration value="SAR"/>
+      <xs:enumeration value="TFS"/><xs:enumeration value="CMP"/><xs:enumeration value="RBA"/>
+      <xs:enumeration value="ENF"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="RECategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="FI"/><xs:enumeration value="DNFBP"/><xs:enumeration value="BDC"/>
+      <xs:enumeration value="NPO"/><xs:enumeration value="VASP"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="SubmissionTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="New"/><xs:enumeration value="Amendment"/><xs:enumeration value="Cancellation"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="IndicatorEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="STRUCT"/><xs:enumeration value="LAYER"/><xs:enumeration value="ROUNDTRIP"/>
+      <xs:enumeration value="THIRDPARTY"/><xs:enumeration value="SHELL"/><xs:enumeration value="INCONSISTENT"/>
+      <xs:enumeration value="DORMANT"/><xs:enumeration value="CROSSBORDER"/><xs:enumeration value="PEP"/>
+      <xs:enumeration value="CRYPTO"/><xs:enumeration value="TBML"/><xs:enumeration value="TF"/>
+      <xs:enumeration value="PF"/><xs:enumeration value="INSIDER"/><xs:enumeration value="FRAUD"/>
+      <xs:enumeration value="TAX"/><xs:enumeration value="CORRUPTION"/><xs:enumeration value="OTHER"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="AccountTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="SA"/><xs:enumeration value="CA"/><xs:enumeration value="DA"/>
+      <xs:enumeration value="WA"/><xs:enumeration value="CO"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="IDTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="BVN"/><xs:enumeration value="NIN"/><xs:enumeration value="PP"/>
+      <xs:enumeration value="DL"/><xs:enumeration value="VC"/><xs:enumeration value="TIN"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="RiskRatingEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Low"/><xs:enumeration value="Medium"/>
+      <xs:enumeration value="High"/><xs:enumeration value="VeryHigh"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="CurrencyType"><xs:restriction base="xs:string"><xs:length value="3"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

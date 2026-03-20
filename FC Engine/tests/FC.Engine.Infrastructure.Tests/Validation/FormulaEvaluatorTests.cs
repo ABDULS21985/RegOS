@@ -390,6 +390,567 @@ public class FormulaEvaluatorTests
         errors.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task Dmb_Lcr_Minimum_Threshold_Fails_When_Below_100()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["total_hqla"] = 90m,
+            ["net_cash_outflow_30d"] = 100m,
+            ["lcr_ratio"] = 90m,
+            ["lcr_minimum"] = 100m
+        });
+
+        var ratioFormula = new IntraSheetFormula
+        {
+            RuleCode = "LCR-RATIO-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "lcr_ratio",
+            OperandFields = "[\"total_hqla\",\"net_cash_outflow_30d\"]",
+            CustomExpression = "FUNC:LCR(total_hqla,net_cash_outflow_30d)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true,
+            SortOrder = 1
+        };
+
+        var thresholdFormula = new IntraSheetFormula
+        {
+            RuleCode = "LCR-THRESH-001",
+            FormulaType = FormulaType.GreaterThanOrEqual,
+            TargetFieldName = "lcr_ratio",
+            OperandFields = "[\"lcr_minimum\"]",
+            Severity = ValidationSeverity.Error,
+            IsActive = true,
+            SortOrder = 2
+        };
+
+        SetupCache("MFCR 300", category: StructuralCategory.FixedRow);
+        SetupCacheWithFormulas("MFCR 300", [ratioFormula, thresholdFormula]);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().Contain(e => e.RuleId == "LCR-THRESH-001");
+    }
+
+    [Fact]
+    public async Task Dmb_Nsfr_Minimum_Threshold_Fails_When_Below_100()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["asf_total"] = 95m,
+            ["rsf_total"] = 100m,
+            ["nsfr_ratio"] = 95m,
+            ["nsfr_minimum"] = 100m
+        });
+
+        var ratioFormula = new IntraSheetFormula
+        {
+            RuleCode = "NSFR-RATIO-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "nsfr_ratio",
+            OperandFields = "[\"asf_total\",\"rsf_total\"]",
+            CustomExpression = "FUNC:NSFR(asf_total,rsf_total)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true,
+            SortOrder = 1
+        };
+
+        var thresholdFormula = new IntraSheetFormula
+        {
+            RuleCode = "NSFR-THRESH-001",
+            FormulaType = FormulaType.GreaterThanOrEqual,
+            TargetFieldName = "nsfr_ratio",
+            OperandFields = "[\"nsfr_minimum\"]",
+            Severity = ValidationSeverity.Error,
+            IsActive = true,
+            SortOrder = 2
+        };
+
+        SetupCache("MFCR 300", category: StructuralCategory.FixedRow);
+        SetupCacheWithFormulas("MFCR 300", [ratioFormula, thresholdFormula]);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().Contain(e => e.RuleId == "NSFR-THRESH-001");
+    }
+
+    [Fact]
+    public async Task Psp_Transaction_Channel_Total_Validates()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["ussd_txn_count"] = 10m,
+            ["card_txn_count"] = 20m,
+            ["mobile_txn_count"] = 30m,
+            ["web_txn_count"] = 40m,
+            ["pos_txn_count"] = 50m,
+            ["atm_txn_count"] = 60m,
+            ["total_txn_count"] = 210m
+        });
+
+        var formula = CreateSumFormula(
+            "total_txn_count",
+            ["ussd_txn_count", "card_txn_count", "mobile_txn_count", "web_txn_count", "pos_txn_count", "atm_txn_count"]);
+
+        SetupCache("MFCR 300", formula);
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Pmb_Nhf_Rate_At_Or_Below_6_Passes()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["nhf_avg_rate"] = 6m,
+            ["nhf_rate_cap"] = 6m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "PMB-NHF-001",
+            FormulaType = FormulaType.LessThanOrEqual,
+            TargetFieldName = "nhf_avg_rate",
+            OperandFields = "[\"nhf_rate_cap\"]",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_NSFR_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["available_stable_funding"] = 120m,
+            ["required_stable_funding"] = 100m,
+            ["nsfr"] = 120m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "NSFR-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "nsfr",
+            OperandFields = "[\"available_stable_funding\",\"required_stable_funding\"]",
+            CustomExpression = "FUNC:NSFR(available_stable_funding,required_stable_funding)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_PAR_Ratio_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["par_amount"] = 8m,
+            ["gross_portfolio"] = 200m,
+            ["par_ratio"] = 4m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "PAR-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "par_ratio",
+            OperandFields = "[\"par_amount\",\"gross_portfolio\"]",
+            CustomExpression = "FUNC:PAR_RATIO(par_amount,gross_portfolio)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_SolvencyMargin_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["admitted_assets"] = 500m,
+            ["total_liabilities"] = 380m,
+            ["solvency_margin"] = 120m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "SOLV-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "solvency_margin",
+            OperandFields = "[\"admitted_assets\",\"total_liabilities\"]",
+            CustomExpression = "FUNC:SOLVENCY_MARGIN(admitted_assets,total_liabilities)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_CombinedRatio_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["claims_ratio"] = 62m,
+            ["expense_ratio"] = 28m,
+            ["combined_ratio"] = 90m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "COMB-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "combined_ratio",
+            OperandFields = "[\"claims_ratio\",\"expense_ratio\"]",
+            CustomExpression = "FUNC:COMBINED_RATIO(claims_ratio,expense_ratio)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_RateBandCheck_WithinBand_ShouldPass()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["actual_rate"] = 1540m,
+            ["usd_rate_avg"] = 1540m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "RATE-OK-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "usd_rate_avg",
+            OperandFields = "[\"actual_rate\"]",
+            CustomExpression = "FUNC:RATE_BAND_CHECK(actual_rate,reference_rate=1500,band_percent=10)",
+            Severity = ValidationSeverity.Warning,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_NdicDpasPremium_Uses_Minimum_Floor()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["insurable_deposits"] = 1_000m,
+            ["assessment_rate"] = 0.01m,
+            ["minimum_premium"] = 20m,
+            ["premium_assessment"] = 20m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "NDIC-DPAS-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "premium_assessment",
+            OperandFields = "[\"insurable_deposits\",\"assessment_rate\",\"minimum_premium\"]",
+            CustomExpression = "FUNC:NDIC_DPAS_PREMIUM(insurable_deposits,assessment_rate,minimum_premium)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_NdicDpasPremium_Uses_Raw_When_Higher_Than_Minimum()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["insurable_deposits"] = 10_000m,
+            ["assessment_rate"] = 0.01m,
+            ["minimum_premium"] = 20m,
+            ["premium_assessment"] = 100m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "NDIC-DPAS-002",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "premium_assessment",
+            OperandFields = "[\"insurable_deposits\",\"assessment_rate\",\"minimum_premium\"]",
+            CustomExpression = "FUNC:NDIC_DPAS_PREMIUM(insurable_deposits,assessment_rate,minimum_premium)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_BdcMinCapitalRequired_CategoryA_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["licence_category_code"] = 1m,
+            ["category_a_minimum_capital"] = 35_000_000m,
+            ["category_b_minimum_capital"] = 2_000_000m,
+            ["calculated_minimum_capital_requirement"] = 35_000_000m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "BDC-CAP-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "calculated_minimum_capital_requirement",
+            OperandFields = "[\"licence_category_code\",\"category_a_minimum_capital\",\"category_b_minimum_capital\"]",
+            CustomExpression = "FUNC:BDC_MIN_CAPITAL_REQUIRED(licence_category_code,category_a_minimum_capital,category_b_minimum_capital)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_MfbMinCapitalRequired_National_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["mfb_category_code"] = 3m,
+            ["unit_minimum_capital"] = 50_000_000m,
+            ["state_minimum_capital"] = 200_000_000m,
+            ["national_minimum_capital"] = 5_000_000_000m,
+            ["calculated_minimum_capital_requirement"] = 5_000_000_000m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "MFB-CAP-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "calculated_minimum_capital_requirement",
+            OperandFields = "[\"mfb_category_code\",\"unit_minimum_capital\",\"state_minimum_capital\",\"national_minimum_capital\"]",
+            CustomExpression = "FUNC:MFB_MIN_CAPITAL_REQUIRED(mfb_category_code,unit_minimum_capital,state_minimum_capital,national_minimum_capital)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Existing_FormulaEvaluator_Functions_Unchanged()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["a"] = 40m,
+            ["b"] = 60m,
+            ["total"] = 100m
+        });
+
+        SetupCache("MFCR 300", CreateSumFormula("total", ["a", "b"]));
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_CAR_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["tier1"] = 8_000_000_000m,
+            ["tier2"] = 2_000_000_000m,
+            ["rwa"] = 50_000_000_000m,
+            ["car"] = 20m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "CAR-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "car",
+            OperandFields = "[\"tier1\",\"tier2\",\"rwa\"]",
+            CustomExpression = "FUNC:CAR(tier1,tier2,rwa)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_NPL_Ratio_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["stage3"] = 5_000_000_000m,
+            ["total_loans"] = 100_000_000_000m,
+            ["npl_ratio"] = 5m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "NPL-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "npl_ratio",
+            OperandFields = "[\"stage3\",\"total_loans\"]",
+            CustomExpression = "FUNC:NPL_RATIO(stage3,total_loans)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_LCR_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["hqla"] = 30_000_000_000m,
+            ["net_outflow_30d"] = 25_000_000_000m,
+            ["lcr"] = 120m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "LCR-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "lcr",
+            OperandFields = "[\"hqla\",\"net_outflow_30d\"]",
+            CustomExpression = "FUNC:LCR(hqla,net_outflow_30d)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_ECL_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["pd"] = 0.05m,
+            ["lgd"] = 0.45m,
+            ["ead"] = 1_000_000_000m,
+            ["ecl"] = 22_500_000m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "ECL-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "ecl",
+            OperandFields = "[\"pd\",\"lgd\",\"ead\"]",
+            CustomExpression = "FUNC:ECL(pd,lgd,ead)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_OSS_Ratio_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["operating_revenue"] = 110m,
+            ["total_expenses"] = 100m,
+            ["oss"] = 110m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "OSS-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "oss",
+            OperandFields = "[\"operating_revenue\",\"total_expenses\"]",
+            CustomExpression = "FUNC:OSS_RATIO(operating_revenue,total_expenses)",
+            Severity = ValidationSeverity.Error,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_RateBandCheck_OutsideBand_ShouldFail()
+    {
+        var record = CreateFixedRowRecord(new Dictionary<string, object?>
+        {
+            ["actual_rate"] = 2000m,
+            ["usd_rate_avg"] = 2000m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "RATE-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "usd_rate_avg",
+            OperandFields = "[\"actual_rate\"]",
+            CustomExpression = "FUNC:RATE_BAND_CHECK(actual_rate,reference_rate=1500,band_percent=10)",
+            Severity = ValidationSeverity.Warning,
+            IsActive = true
+        };
+        SetupCache("MFCR 300", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().ContainSingle();
+        errors[0].RuleId.Should().Be("RATE-001");
+    }
+
     private ReturnDataRecord CreateFixedRowRecord(Dictionary<string, object?> fields)
     {
         var record = new ReturnDataRecord("MFCR 300", 1, StructuralCategory.FixedRow);
@@ -423,6 +984,39 @@ public class FormulaEvaluatorTests
         var formulas = formula != null
             ? new List<IntraSheetFormula> { formula }.AsReadOnly()
             : new List<IntraSheetFormula>().AsReadOnly();
+
+        var cached = new CachedTemplate
+        {
+            TemplateId = 1,
+            ReturnCode = returnCode,
+            Name = returnCode,
+            StructuralCategory = category.ToString(),
+            PhysicalTableName = returnCode.ToLowerInvariant().Replace(" ", "_"),
+            XmlRootElement = returnCode.Replace(" ", ""),
+            XmlNamespace = $"urn:cbn:dfis:fc:{returnCode.Replace(" ", "").ToLowerInvariant()}",
+            CurrentVersion = new CachedTemplateVersion
+            {
+                Id = 1,
+                VersionNumber = 1,
+                Fields = fields,
+                ItemCodes = new List<TemplateItemCode>().AsReadOnly(),
+                IntraSheetFormulas = formulas
+            }
+        };
+
+        _cacheMock.Setup(c => c.GetPublishedTemplate(returnCode, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(cached);
+    }
+
+    private void SetupCacheWithFormulas(
+        string returnCode,
+        IReadOnlyList<IntraSheetFormula> formulas,
+        StructuralCategory category = StructuralCategory.FixedRow)
+    {
+        var fields = new List<TemplateField>
+        {
+            new() { FieldName = "cash_notes", FieldOrder = 1, DataType = FieldDataType.Money }
+        }.AsReadOnly();
 
         var cached = new CachedTemplate
         {

@@ -1,0 +1,801 @@
+@page "/platform/health"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using FC.Engine.Admin.Services
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject PlatformAdminService PlatformService
+@inject ChartJsInterop Charts
+@inject HealthAlertService AlertService
+@implements IDisposable
+
+<PageTitle>Platform Health</PageTitle>
+
+<PageHeader Title="Platform Health"
+            Subtitle="Latency, error rate, sessions, queue depth, database, and cache telemetry.">
+    <SecondaryActions>
+        @if (!_loading)
+        {
+            <div class="fc-ph-range-pills">
+                @foreach (var range in _ranges)
+                {
+                    <button class="fc-ph-range-pill @(_rangeMinutes == range.Minutes ? "fc-ph-range-pill--active" : "")"
+                            @onclick="() => SetRange(range.Minutes)">@range.Label</button>
+                }
+            </div>
+        }
+    </SecondaryActions>
+</PageHeader>
+
+<div class="fc-page">
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <div class="fc-alert fc-alert--inline fc-alert--error">@_error</div>
+    }
+
+    @if (_loading)
+    {
+        <div class="fc-grid fc-grid-4 fc-mb-4">
+            @for (var i = 0; i < 4; i++)
+            {
+                <div class="fc-card">
+                    <div class="fc-card__body">
+                        <div class="fc-skel fc-skel-text" style="--skel-w:80px;--skel-mb:0.5rem"></div>
+                        <div class="fc-skel fc-skel-text" style="--skel-w:60px;--skel-h:1.5rem"></div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="fc-grid fc-grid-3 fc-mb-4">
+            @for (var i = 0; i < 3; i++)
+            {
+                <div class="fc-card">
+                    <div class="fc-card__body">
+                        <div class="fc-skel fc-skel-text" style="--skel-w:120px;--skel-mb:0.75rem"></div>
+                        <div class="fc-skel fc-skel-text" style="--skel-w:90px;--skel-mb:0.5rem"></div>
+                        <div class="fc-skel fc-skel-text" style="--skel-w:100px"></div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="fc-grid fc-grid-3">
+            @for (var i = 0; i < 6; i++)
+            {
+                <div class="fc-card">
+                    <div class="fc-card__header">
+                        <div class="fc-skel fc-skel-text" style="--skel-w:160px"></div>
+                    </div>
+                    <div class="fc-card__body fc-chart-height">
+                        <div class="fc-skel fc-skel-block" style="--skel-w:100%;--skel-h:100%"></div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    else if (_data is not null)
+    {
+        var degradedProbeCount = _data.ServiceProbes.Count(x => x.Status == ServiceStatus.Degraded);
+        var downProbeCount = _data.ServiceProbes.Count(x => x.Status == ServiceStatus.Down);
+
+        <div class="rg-premium-flow">
+            <section class="rg-premium-banner @ResolveHealthBannerTone()" aria-label="Platform health posture">
+                <div class="rg-premium-banner__grid">
+                    <div>
+                        <div class="rg-premium-banner__eyebrow">Operations posture</div>
+                        <h2 class="rg-premium-banner__headline">@BannerHeadline</h2>
+                        <p class="rg-premium-banner__detail">@BuildHealthBannerDetail()</p>
+                    </div>
+                    <div class="rg-premium-banner__meta">
+                        <div class="rg-premium-banner__meta-label">Last checked</div>
+                        <div class="rg-premium-banner__meta-value">@_lastUpdated.ToString("HH:mm:ss")</div>
+                        <div class="rg-premium-banner__meta-copy">@CurrentRangeLabel view · @AlertService.Alerts.Count active alerts</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rg-premium-hero" aria-labelledby="platform-health-hero-title">
+                <div class="rg-premium-hero__grid">
+                    <div>
+                        <div class="rg-premium-hero__eyebrow">Control plane</div>
+                        <h1 id="platform-health-hero-title" class="rg-premium-hero__title">Operate the platform from live service posture, not isolated charts.</h1>
+                        <p class="rg-premium-hero__subtitle">
+                            This dashboard combines latency, queue pressure, dependency probes, and alert state so operators can identify
+                            where the platform is degrading before customer workflows start to feel it.
+                        </p>
+                        <div class="rg-premium-badge-row">
+                            <span class="rg-premium-chip @(_data.AvailabilityPercent >= 99.9m ? "rg-premium-chip--success" : _data.AvailabilityPercent >= 99m ? "rg-premium-chip--warning" : "rg-premium-chip--danger")">@_data.AvailabilityPercent.ToString("0.##")% availability</span>
+                            <span class="rg-premium-chip rg-premium-chip--info">@_data.TotalRequestsToday requests today</span>
+                            <span class="rg-premium-chip @(_data.QueueDepth >= 500 ? "rg-premium-chip--danger" : _data.QueueDepth >= 100 ? "rg-premium-chip--warning" : "rg-premium-chip--success")">@_data.QueueDepth queue depth</span>
+                            <span class="rg-premium-chip @(AlertService.Alerts.Count == 0 ? "rg-premium-chip--success" : "rg-premium-chip--warning")">@AlertService.Alerts.Count active alerts</span>
+                        </div>
+                    </div>
+                    <div class="rg-premium-hero__aside">
+                        <div class="rg-premium-note">
+                            <div class="rg-premium-note__label">System uptime</div>
+                            <div class="rg-premium-note__value">@FormatUptime(_data.SystemUptimeSince)</div>
+                            <div class="rg-premium-note__copy">Platform has been continuously available since @_data.SystemUptimeSince.ToString("dd MMM yyyy HH:mm") UTC.</div>
+                        </div>
+                        <div class="rg-premium-note">
+                            <div class="rg-premium-note__label">Peak traffic hour</div>
+                            <div class="rg-premium-note__value">@_data.PeakHourUtc.ToString("00"):00 UTC</div>
+                            <div class="rg-premium-note__copy">Requests are currently peaking around @_data.PeakHourUtc.ToString("00"):00 UTC on today's load profile.</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rg-premium-stat-grid" aria-label="Platform health summary metrics">
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Availability</div>
+                    <div class="rg-premium-stat__value @(_data.AvailabilityPercent >= 99.9m ? "rg-premium-stat__value--success" : _data.AvailabilityPercent >= 99m ? "rg-premium-stat__value--warning" : "rg-premium-stat__value--danger")">@_data.AvailabilityPercent.ToString("0.##")%</div>
+                    <div class="rg-premium-stat__note">Reported operational availability across the current service estate.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Active sessions</div>
+                    <div class="rg-premium-stat__value rg-premium-stat__value--info">@_data.ActiveSessions</div>
+                    <div class="rg-premium-stat__note">Concurrent operator and tenant sessions currently active across the platform.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Queue pressure</div>
+                    <div class="rg-premium-stat__value @(_data.QueueDepth >= 500 ? "rg-premium-stat__value--danger" : _data.QueueDepth >= 100 ? "rg-premium-stat__value--warning" : "rg-premium-stat__value--success")">@_data.QueueDepth</div>
+                    <div class="rg-premium-stat__note">Combined workload across notification, export, import, and RabbitMQ queues.</div>
+                </article>
+                <article class="rg-premium-stat">
+                    <div class="rg-premium-stat__label">Degraded services</div>
+                    <div class="rg-premium-stat__value @(downProbeCount > 0 ? "rg-premium-stat__value--danger" : degradedProbeCount > 0 ? "rg-premium-stat__value--warning" : "rg-premium-stat__value--success")">@(degradedProbeCount + downProbeCount)</div>
+                    <div class="rg-premium-stat__note">Dependencies currently degraded or down based on the latest service probes.</div>
+                </article>
+            </section>
+
+            <!-- KPI Cards -->
+            <div class="fc-grid fc-grid-4 fc-mb-4">
+                <div class="fc-card fc-kpi-card fc-kpi-card--@GetLatencyLevel(_data.ApiLatencyP50Ms, 200, 500)">
+                    <div class="fc-card__body">
+                        <div class="fc-stat-label">Latency p50</div>
+                        <div class="fc-kpi-row">
+                            <div class="fc-stat-value">@_data.ApiLatencyP50Ms.ToString("0") ms</div>
+                            <span class="fc-kpi-trend fc-kpi-trend--@GetTrendClass(_data.ApiLatencyP50Ms, _snapshot?.ApiLatencyP50Ms, higherIsBad: true)">
+                                @GetTrendArrow(_data.ApiLatencyP50Ms, _snapshot?.ApiLatencyP50Ms)
+                            </span>
+                        </div>
+                        <div class="fc-kpi-delta">@GetDelta(_data.ApiLatencyP50Ms, _snapshot?.ApiLatencyP50Ms, "ms")</div>
+                    </div>
+                </div>
+
+                <div class="fc-card fc-kpi-card fc-kpi-card--@GetLatencyLevel(_data.ApiLatencyP95Ms, 400, 800)">
+                    <div class="fc-card__body">
+                        <div class="fc-stat-label">Latency p95</div>
+                        <div class="fc-kpi-row">
+                            <div class="fc-stat-value">@_data.ApiLatencyP95Ms.ToString("0") ms</div>
+                            <span class="fc-kpi-trend fc-kpi-trend--@GetTrendClass(_data.ApiLatencyP95Ms, _snapshot?.ApiLatencyP95Ms, higherIsBad: true)">
+                                @GetTrendArrow(_data.ApiLatencyP95Ms, _snapshot?.ApiLatencyP95Ms)
+                            </span>
+                        </div>
+                        <div class="fc-kpi-delta">@GetDelta(_data.ApiLatencyP95Ms, _snapshot?.ApiLatencyP95Ms, "ms")</div>
+                    </div>
+                </div>
+
+                <div class="fc-card fc-kpi-card fc-kpi-card--@GetLatencyLevel(_data.ApiLatencyP99Ms, 500, 1000)">
+                    <div class="fc-card__body">
+                        <div class="fc-stat-label">Latency p99</div>
+                        <div class="fc-kpi-row">
+                            <div class="fc-stat-value">@_data.ApiLatencyP99Ms.ToString("0") ms</div>
+                            <span class="fc-kpi-trend fc-kpi-trend--@GetTrendClass(_data.ApiLatencyP99Ms, _snapshot?.ApiLatencyP99Ms, higherIsBad: true)">
+                                @GetTrendArrow(_data.ApiLatencyP99Ms, _snapshot?.ApiLatencyP99Ms)
+                            </span>
+                        </div>
+                        <div class="fc-kpi-delta">@GetDelta(_data.ApiLatencyP99Ms, _snapshot?.ApiLatencyP99Ms, "ms")</div>
+                    </div>
+                </div>
+
+                <div class="fc-card fc-kpi-card fc-kpi-card--@GetErrorLevel(_data.ErrorRatePercent)">
+                    <div class="fc-card__body">
+                        <div class="fc-stat-label">Error Rate</div>
+                        <div class="fc-kpi-row">
+                            <div class="fc-stat-value">@_data.ErrorRatePercent.ToString("0.##")%</div>
+                            <span class="fc-kpi-trend fc-kpi-trend--@GetTrendClass(_data.ErrorRatePercent, _snapshot?.ErrorRatePercent, higherIsBad: true)">
+                                @GetTrendArrow(_data.ErrorRatePercent, _snapshot?.ErrorRatePercent)
+                            </span>
+                        </div>
+                        <div class="fc-kpi-delta">@GetDelta(_data.ErrorRatePercent, _snapshot?.ErrorRatePercent, "%")</div>
+                    </div>
+                </div>
+            </div>
+
+            <section class="rg-premium-content-grid">
+                <div class="rg-premium-main">
+                    <!-- Infrastructure Metrics -->
+                    <div class="fc-grid fc-grid-3 fc-mb-4">
+                        <div class="fc-card">
+                            <div class="fc-card__body">
+                                <div class="fc-kv"><span>Active Sessions</span><strong>@_data.ActiveSessions</strong></div>
+                                <div class="fc-kv"><span>Queue Depth</span><strong>@_data.QueueDepth</strong></div>
+                                <div class="fc-kv"><span>RabbitMQ Pending</span><strong>@_data.RabbitMqPending</strong></div>
+                            </div>
+                        </div>
+                        <div class="fc-card">
+                            <div class="fc-card__body">
+                                <div class="fc-kv"><span>DB Query Duration</span><strong>@_data.DatabaseQueryDurationMs ms</strong></div>
+                                <div class="fc-kv"><span>DB Pool Utilisation</span><strong>@_data.DatabasePoolUtilisationPercent.ToString("0.##")%</strong></div>
+                            </div>
+                        </div>
+                        <div class="fc-card">
+                            <div class="fc-card__body">
+                                <div class="fc-kv"><span>Redis Hit Ratio</span><strong>@_data.RedisCacheHitRatioPercent.ToString("0.##")%</strong></div>
+                                <div class="fc-kv"><span>Redis Memory</span><strong>@_data.RedisMemoryUsageMb.ToString("0.##") MB</strong></div>
+                                <div class="fc-kv"><span>Queue N / E / I</span><strong>@_data.QueuedNotifications / @_data.QueuedExports / @_data.QueuedImports</strong></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <aside class="rg-premium-side">
+                    <section class="rg-premium-panel">
+                        <div class="rg-premium-panel__header">
+                            <div>
+                                <div class="rg-premium-panel__eyebrow">Dependency rail</div>
+                                <h2 class="rg-premium-panel__title">Service probe status</h2>
+                                <p class="rg-premium-panel__subtitle">Latest probe outcomes for the underlying platform dependencies.</p>
+                            </div>
+                        </div>
+                        <div class="rg-premium-panel__body">
+                            @if (_data.ServiceProbes.Count == 0)
+                            {
+                                <div class="rg-premium-empty">No dependency probe results are available yet.</div>
+                            }
+                            else
+                            {
+                                <div class="rg-premium-list">
+                                    @foreach (var probe in _data.ServiceProbes.OrderBy(p => ProbePriority(p.Status)).ThenByDescending(p => p.ResponseMs).Take(5))
+                                    {
+                                        <article class="rg-premium-list__item">
+                                            <div class="rg-premium-list__top">
+                                                <div class="rg-premium-list__heading">@probe.Name</div>
+                                                <div class="rg-premium-list__value">@probe.ResponseMs ms</div>
+                                            </div>
+                                            <div class="rg-premium-list__meta">@probe.UptimePercent.ToString("0.##")% uptime · checked @probe.LastChecked.ToString("HH:mm:ss")</div>
+                                            <div class="rg-premium-list__tags">
+                                                <span class="rg-premium-chip @ProbeStatusChipClass(probe.Status)">@probe.Status</span>
+                                            </div>
+                                        </article>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </section>
+
+                    <section class="rg-premium-panel">
+                        <div class="rg-premium-panel__header">
+                            <div>
+                                <div class="rg-premium-panel__eyebrow">Queue rail</div>
+                                <h2 class="rg-premium-panel__title">Workload composition</h2>
+                                <p class="rg-premium-panel__subtitle">Immediate view of the backlog currently consuming platform capacity.</p>
+                            </div>
+                        </div>
+                        <div class="rg-premium-panel__body">
+                            <div class="rg-premium-list">
+                                <article class="rg-premium-list__item">
+                                    <div class="rg-premium-list__top">
+                                        <div class="rg-premium-list__heading">Notifications</div>
+                                        <div class="rg-premium-list__value">@_data.QueuedNotifications</div>
+                                    </div>
+                                    <div class="rg-premium-list__meta">Outbound alerting and notification workload.</div>
+                                </article>
+                                <article class="rg-premium-list__item">
+                                    <div class="rg-premium-list__top">
+                                        <div class="rg-premium-list__heading">Exports</div>
+                                        <div class="rg-premium-list__value">@_data.QueuedExports</div>
+                                    </div>
+                                    <div class="rg-premium-list__meta">Pending document, report, and extract generation tasks.</div>
+                                </article>
+                                <article class="rg-premium-list__item">
+                                    <div class="rg-premium-list__top">
+                                        <div class="rg-premium-list__heading">Imports</div>
+                                        <div class="rg-premium-list__value">@_data.QueuedImports</div>
+                                    </div>
+                                    <div class="rg-premium-list__meta">Inbound file and data ingestion backlog.</div>
+                                </article>
+                            </div>
+                        </div>
+                    </section>
+                </aside>
+            </section>
+
+            <!-- 6-Chart Suite -->
+            <div class="fc-grid fc-grid-3 fc-mb-4">
+
+                <div class="fc-card">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Latency over Time</h2>
+                        <span class="fc-chart-chip">@SampleCount samples &middot; 30s interval</span>
+                    </div>
+                    <div class="fc-card__body fc-chart-height"><canvas id="hc-latency"></canvas></div>
+                </div>
+
+                <div class="fc-card">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Error Rate Trend</h2>
+                        <span class="fc-chart-chip">@SampleCount samples &middot; 30s interval</span>
+                    </div>
+                    <div class="fc-card__body fc-chart-height"><canvas id="hc-error-rate"></canvas></div>
+                </div>
+
+                <div class="fc-card">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Throughput / RPS</h2>
+                        <span class="fc-chart-chip">@SampleCount samples &middot; 30s interval</span>
+                    </div>
+                    <div class="fc-card__body fc-chart-height"><canvas id="hc-throughput"></canvas></div>
+                </div>
+
+                <div class="fc-card">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Queue Depth Breakdown</h2>
+                        <span class="fc-chart-chip">@SampleCount samples &middot; 30s interval</span>
+                    </div>
+                    <div class="fc-card__body fc-chart-height"><canvas id="hc-queue"></canvas></div>
+                </div>
+
+                <div class="fc-card">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">DB Query Duration</h2>
+                        <span class="fc-chart-chip">@SampleCount samples &middot; 30s interval</span>
+                    </div>
+                    <div class="fc-card__body fc-chart-height"><canvas id="hc-db-query"></canvas></div>
+                </div>
+
+                <div class="fc-card">
+                    <div class="fc-card__header">
+                        <h2 class="fc-card__title">Active Sessions</h2>
+                        <span class="fc-chart-chip">@SampleCount samples &middot; 30s interval</span>
+                    </div>
+                    <div class="fc-card__body fc-chart-height"><canvas id="hc-sessions"></canvas></div>
+                </div>
+
+            </div>
+
+            <!-- Auto-refresh indicator -->
+            <div class="fc-refresh-row">
+                <span class="fc-badge fc-badge--success">Auto-refresh</span>
+                <span class="fc-refresh-label">Every 30 seconds &middot; Last update: @_lastUpdated.ToString("dd MMM yyyy HH:mm:ss")</span>
+            </div>
+        </div>
+    }
+
+</div>
+
+<!-- ── Live Alert Feed ───────────────────────────────────── -->
+<div class="fc-alert-feed @(_alertFeedExpanded ? "" : "fc-alert-feed--collapsed")">
+    <button class="fc-alert-feed__header" @onclick="ToggleAlertFeed" aria-expanded="@_alertFeedExpanded">
+        <svg class="fc-alert-feed__icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span class="fc-alert-feed__title">Alert Feed</span>
+        @if (AlertService.UnreadCount > 0)
+        {
+            <span class="fc-alert-feed__unread" aria-label="@AlertService.UnreadCount unread alerts">@AlertService.UnreadCount</span>
+        }
+        <svg class="fc-alert-feed__chevron" width="14" height="14" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="18 15 12 9 6 15"/>
+        </svg>
+    </button>
+
+    <div class="fc-alert-feed__body">
+        @if (AlertService.Alerts.Count > 0)
+        {
+            <div class="fc-alert-feed__actions">
+                <button class="fc-alert-feed__clear" @onclick="ClearAlerts">Clear all</button>
+            </div>
+        }
+
+        @if (AlertService.Alerts.Count == 0)
+        {
+            <div class="fc-alert-feed__empty">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#d1d5db"
+                     stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                     style="display:block;margin:0 auto 0.5rem">
+                    <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                    <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                </svg>
+                No alerts — all metrics within thresholds
+            </div>
+        }
+        else
+        {
+            @foreach (var alert in AlertService.Alerts)
+            {
+                var rowClass = alert.IsNew ? "fc-alert-feed__row fc-alert-new" : "fc-alert-feed__row";
+                var severityClass = alert.Severity == HealthAlertSeverity.Critical
+                    ? "fc-alert-feed__severity fc-alert-feed__severity--critical"
+                    : "fc-alert-feed__severity fc-alert-feed__severity--warning";
+                <div class="@rowClass">
+                    <span class="@severityClass">@alert.Severity</span>
+                    <span class="fc-alert-feed__metric">@alert.Metric</span>
+                    <span class="fc-alert-feed__message">@alert.Message</span>
+                    <span class="fc-alert-feed__time">@FormatAge(alert.Timestamp)</span>
+                </div>
+            }
+        }
+    </div>
+</div>
+
+@code {
+    private record RangeOption(string Label, int Minutes);
+
+    // One sample every 30 s; keep up to 24 h of history in memory
+    private const int MaxSamples = 2880;
+
+    private static readonly RangeOption[] _ranges =
+    {
+        new("15m", 15),
+        new("1h",  60),
+        new("6h",  360),
+        new("24h", 1440),
+    };
+
+    // ── In-memory time-series (appended from each real 30-second poll) ──────
+    private readonly Queue<decimal>  _qLatencyP50  = new();
+    private readonly Queue<decimal>  _qLatencyP95  = new();
+    private readonly Queue<decimal>  _qLatencyP99  = new();
+    private readonly Queue<decimal>  _qErrorRate   = new();
+    private readonly Queue<decimal>  _qThroughput  = new();
+    private readonly Queue<decimal>  _qQueuedNotif = new();
+    private readonly Queue<decimal>  _qQueuedExp   = new();
+    private readonly Queue<decimal>  _qQueuedImp   = new();
+    private readonly Queue<decimal>  _qDbQuery     = new();
+    private readonly Queue<decimal>  _qSessions    = new();
+    private readonly Queue<DateTime> _qTimestamps  = new();
+
+    // Used to compute RPS from TotalRequestsToday delta between polls
+    private long? _prevTotalRequests;
+
+    // ── Page state ───────────────────────────────────────────────────────────
+    private PlatformHealthData? _data;
+    private PlatformHealthData? _snapshot;
+    private bool _loading = true;
+    private string? _error;
+    private bool _chartDirty;
+    private Timer? _refreshTimer;
+    private DateTime _lastUpdated = DateTime.UtcNow;
+    private int _rangeMinutes = 15;
+    private bool _alertFeedExpanded = true;
+
+    // ── Derived ──────────────────────────────────────────────────────────────
+    private int SampleCount => Math.Min(_qTimestamps.Count, SamplesForRange(_rangeMinutes));
+
+    private static int SamplesForRange(int minutes) => (minutes * 60) / 30;
+
+    private string BannerLevel => _data is null ? "green" : new[]
+    {
+        GetLatencyLevel(_data.ApiLatencyP50Ms, 200, 500),
+        GetLatencyLevel(_data.ApiLatencyP95Ms, 400, 800),
+        GetLatencyLevel(_data.ApiLatencyP99Ms, 500, 1000),
+        GetErrorLevel(_data.ErrorRatePercent)
+    }.Aggregate(WorstLevel);
+
+    private string BannerHeadline => BannerLevel switch
+    {
+        "red"   => "Incident Detected",
+        "amber" => "Degraded Performance",
+        _       => "All Systems Operational"
+    };
+
+    private string CurrentRangeLabel => _ranges.FirstOrDefault(x => x.Minutes == _rangeMinutes)?.Label ?? $"{_rangeMinutes}m";
+
+    private string ResolveHealthBannerTone() => BannerLevel switch
+    {
+        "red" => "rg-premium-banner--danger",
+        "amber" => "rg-premium-banner--warning",
+        _ => "rg-premium-banner--success"
+    };
+
+    private string BuildHealthBannerDetail()
+    {
+        if (_data is null)
+        {
+            return "Platform telemetry has not been collected yet.";
+        }
+
+        var degradedCount = _data.ServiceProbes.Count(x => x.Status == ServiceStatus.Degraded);
+        var downCount = _data.ServiceProbes.Count(x => x.Status == ServiceStatus.Down);
+        return $"p99 latency is {_data.ApiLatencyP99Ms:0} ms with {_data.ErrorRatePercent:0.##}% error rate. " +
+               $"{degradedCount + downCount} service probes are not fully healthy and queue depth is {_data.QueueDepth}.";
+    }
+
+    // ── Threshold helpers ────────────────────────────────────────────────────
+    private static string GetLatencyLevel(decimal ms, decimal amber, decimal red) =>
+        ms >= red ? "red" : ms >= amber ? "amber" : "green";
+
+    private static string GetErrorLevel(decimal pct) =>
+        pct >= 5 ? "red" : pct >= 1 ? "amber" : "green";
+
+    private static string WorstLevel(string a, string b) =>
+        a == "red" || b == "red" ? "red" :
+        a == "amber" || b == "amber" ? "amber" : "green";
+
+    // ── Trend helpers ────────────────────────────────────────────────────────
+    private static string GetTrendArrow(decimal current, decimal? prev)
+    {
+        if (prev is null) return "→";
+        return current > prev.Value ? "↑" : current < prev.Value ? "↓" : "→";
+    }
+
+    private static string GetTrendClass(decimal current, decimal? prev, bool higherIsBad)
+    {
+        if (prev is null) return "neutral";
+        if (current > prev.Value) return higherIsBad ? "up-bad" : "down-good";
+        if (current < prev.Value) return higherIsBad ? "down-good" : "up-bad";
+        return "neutral";
+    }
+
+    private static string GetDelta(decimal current, decimal? prev, string unit)
+    {
+        if (prev is null) return "—";
+        var delta = current - prev.Value;
+        if (delta == 0) return "no change";
+        return (delta > 0 ? "+" : "") + delta.ToString("0.##") + "\u202f" + unit;
+    }
+
+    private static int ProbePriority(ServiceStatus status) => status switch
+    {
+        ServiceStatus.Down => 0,
+        ServiceStatus.Degraded => 1,
+        _ => 2
+    };
+
+    private static string ProbeStatusChipClass(ServiceStatus status) => status switch
+    {
+        ServiceStatus.Down => "rg-premium-chip--danger",
+        ServiceStatus.Degraded => "rg-premium-chip--warning",
+        _ => "rg-premium-chip--success"
+    };
+
+    private static string FormatUptime(DateTime since)
+    {
+        var elapsed = DateTime.UtcNow - since;
+        if (elapsed.TotalDays >= 1)
+        {
+            return $"{(int)elapsed.TotalDays}d {(int)elapsed.Hours}h";
+        }
+
+        if (elapsed.TotalHours >= 1)
+        {
+            return $"{(int)elapsed.TotalHours}h {(int)elapsed.Minutes}m";
+        }
+
+        return $"{Math.Max(0, (int)elapsed.TotalMinutes)}m";
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+    protected override async Task OnInitializedAsync()
+    {
+        AlertService.OnChange += OnAlertChanged;
+        await LoadAsync();
+
+        _refreshTimer = new Timer(async _ =>
+        {
+            await InvokeAsync(async () =>
+            {
+                await LoadAsync(silent: true);
+                StateHasChanged();
+            });
+        }, null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is null || !_chartDirty) return;
+        _chartDirty = false;
+        await RenderAllCharts();
+    }
+
+    // ── Range selector ───────────────────────────────────────────────────────
+    private void SetRange(int minutes)
+    {
+        _rangeMinutes = minutes;
+        _chartDirty = true;
+        StateHasChanged();
+    }
+
+    // ── Data loading + queue accumulation ───────────────────────────────────
+    private async Task LoadAsync(bool silent = false)
+    {
+        if (!silent) { _loading = true; _error = null; }
+
+        try
+        {
+            _snapshot = _data;
+            _data = await PlatformService.GetPlatformHealth();
+            _lastUpdated = DateTime.UtcNow;
+
+            // RPS = delta of TotalRequestsToday over the 30 s poll interval
+            decimal rps = 0;
+            if (_prevTotalRequests.HasValue && _data.TotalRequestsToday >= _prevTotalRequests.Value)
+                rps = Math.Round((_data.TotalRequestsToday - _prevTotalRequests.Value) / 30m, 1);
+            _prevTotalRequests = _data.TotalRequestsToday;
+
+            // Append real observations to time-series queues
+            Enqueue(_qTimestamps,  _lastUpdated);
+            Enqueue(_qLatencyP50,  _data.ApiLatencyP50Ms);
+            Enqueue(_qLatencyP95,  _data.ApiLatencyP95Ms);
+            Enqueue(_qLatencyP99,  _data.ApiLatencyP99Ms);
+            Enqueue(_qErrorRate,   _data.ErrorRatePercent);
+            Enqueue(_qThroughput,  rps);
+            Enqueue(_qQueuedNotif, _data.QueuedNotifications);
+            Enqueue(_qQueuedExp,   _data.QueuedExports);
+            Enqueue(_qQueuedImp,   _data.QueuedImports);
+            Enqueue(_qDbQuery,     (decimal)_data.DatabaseQueryDurationMs);
+            Enqueue(_qSessions,    _data.ActiveSessions);
+
+            _chartDirty = true;
+            CheckThresholds(_data);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            if (!silent) _loading = false;
+        }
+    }
+
+    private static void Enqueue<T>(Queue<T> queue, T value)
+    {
+        queue.Enqueue(value);
+        while (queue.Count > MaxSamples) queue.Dequeue();
+    }
+
+    // ── Chart helpers ────────────────────────────────────────────────────────
+    private List<string> BuildLabels()
+    {
+        var n = SamplesForRange(_rangeMinutes);
+        var ts = _qTimestamps.ToArray();
+        var take = Math.Min(ts.Length, n);
+        return ts.Skip(ts.Length - take).Select(t => t.ToString("HH:mm")).ToList();
+    }
+
+    private List<decimal> Slice(Queue<decimal> queue)
+    {
+        var n = SamplesForRange(_rangeMinutes);
+        var arr = queue.ToArray();
+        var take = Math.Min(arr.Length, n);
+        return arr.Skip(arr.Length - take).ToList();
+    }
+
+    private async Task RenderAllCharts()
+    {
+        if (_data is null || _qTimestamps.Count == 0) return;
+
+        var labels = BuildLabels();
+
+        // 1. Latency over time — 3-line p50/p95/p99, no area fill (teal/amber/red)
+        await Charts.InitChart("hc-latency", new
+        {
+            type = "line",
+            labels,
+            datasets = new object[]
+            {
+                new { label = "p50", data = Slice(_qLatencyP50), color = "#0f766e", fill = false },
+                new { label = "p95", data = Slice(_qLatencyP95), color = "#d97706", fill = false },
+                new { label = "p99", data = Slice(_qLatencyP99), color = "#dc2626", fill = false },
+            },
+            yLabel = "ms",
+        });
+
+        // 2. Error rate trend — area, red gradient fill
+        await Charts.InitChart("hc-error-rate", new
+        {
+            type = "line",
+            labels,
+            datasets = new object[]
+            {
+                new { label = "5xx Error %", data = Slice(_qErrorRate), color = "#dc2626" },
+            },
+            yLabel = "%",
+            legend = false,
+        });
+
+        // 3. Throughput / RPS — bar, green
+        //    Derived from TotalRequestsToday delta ÷ 30 s per poll interval
+        await Charts.InitChart("hc-throughput", new
+        {
+            type = "bar",
+            labels,
+            datasets = new object[]
+            {
+                new { label = "Requests/s", data = Slice(_qThroughput), color = "#006B3F" },
+            },
+            yLabel = "req/s",
+            legend = false,
+        });
+
+        // 4. Queue depth breakdown — stacked bar (Notifications / Exports / Imports)
+        await Charts.InitChart("hc-queue", new
+        {
+            type = "bar",
+            labels,
+            stacked = true,
+            datasets = new object[]
+            {
+                new { label = "Notifications", data = Slice(_qQueuedNotif), color = "#0ea5e9" },
+                new { label = "Exports",       data = Slice(_qQueuedExp),   color = "#C8A415" },
+                new { label = "Imports",       data = Slice(_qQueuedImp),   color = "#7c3aed" },
+            },
+        });
+
+        // 5. DB query duration — line, no fill
+        await Charts.InitChart("hc-db-query", new
+        {
+            type = "line",
+            labels,
+            datasets = new object[]
+            {
+                new { label = "Query ms", data = Slice(_qDbQuery), color = "#0ea5e9", fill = false },
+            },
+            yLabel = "ms",
+            legend = false,
+        });
+
+        // 6. Active sessions — area, green gradient fill
+        await Charts.InitChart("hc-sessions", new
+        {
+            type = "line",
+            labels,
+            datasets = new object[]
+            {
+                new { label = "Active Sessions", data = Slice(_qSessions), color = "#006B3F" },
+            },
+            legend = false,
+        });
+    }
+
+    // ── Alert threshold checks ───────────────────────────────────────────────
+    private void CheckThresholds(PlatformHealthData data)
+    {
+        if (data.ApiLatencyP99Ms > 1000)
+            AlertService.Raise("API Latency p99", $"API latency critical — p99 {data.ApiLatencyP99Ms:0} ms exceeds 1000 ms threshold", HealthAlertSeverity.Critical);
+        else if (data.ApiLatencyP99Ms > 500)
+            AlertService.Raise("API Latency p99", $"API latency elevated — p99 {data.ApiLatencyP99Ms:0} ms exceeds 500 ms threshold", HealthAlertSeverity.Warning);
+
+        if (data.ErrorRatePercent > 5)
+            AlertService.Raise("Error Rate", $"Error rate critical — {data.ErrorRatePercent:0.##}% exceeds 5% threshold", HealthAlertSeverity.Critical);
+        else if (data.ErrorRatePercent > 1)
+            AlertService.Raise("Error Rate", $"Error rate elevated — {data.ErrorRatePercent:0.##}% exceeds 1% threshold", HealthAlertSeverity.Warning);
+
+        if (data.QueueDepth > 500)
+            AlertService.Raise("Queue Depth", $"Queue depth critical — {data.QueueDepth} messages exceeds 500 threshold", HealthAlertSeverity.Critical);
+        else if (data.QueueDepth > 100)
+            AlertService.Raise("Queue Depth", $"Queue depth elevated — {data.QueueDepth} messages exceeds 100 threshold", HealthAlertSeverity.Warning);
+    }
+
+    private void ToggleAlertFeed()
+    {
+        _alertFeedExpanded = !_alertFeedExpanded;
+        if (_alertFeedExpanded) AlertService.MarkAllRead();
+    }
+
+    private void ClearAlerts() => AlertService.ClearAll();
+
+    private void OnAlertChanged() => InvokeAsync(StateHasChanged);
+
+    private static string FormatAge(DateTime ts)
+    {
+        var elapsed = DateTime.UtcNow - ts;
+        if (elapsed.TotalSeconds < 60) return "just now";
+        if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
+        if (elapsed.TotalHours < 24)   return $"{(int)elapsed.TotalHours}h ago";
+        return $"{(int)elapsed.TotalDays}d ago";
+    }
+
+    public void Dispose()
+    {
+        AlertService.OnChange -= OnAlertChanged;
+        _refreshTimer?.Dispose();
+    }
+}

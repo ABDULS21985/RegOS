@@ -5,9 +5,10 @@ namespace FC.Engine.Api.Endpoints;
 
 public static class SchemaEndpoints
 {
-    public static void MapSchemaEndpoints(this WebApplication app)
+    public static void MapSchemaEndpoints(this IEndpointRouteBuilder routes, string versionSuffix = "")
     {
-        var group = app.MapGroup("/api/schemas").WithTags("Schemas");
+        var suffix = string.IsNullOrEmpty(versionSuffix) ? "" : $"_{versionSuffix}";
+        var group = routes.MapGroup("/schemas").WithTags("Schemas");
 
         group.MapGet("/{returnCode}/xsd", async (
             string returnCode,
@@ -18,7 +19,8 @@ public static class SchemaEndpoints
             return Results.Content(xml, "application/xml");
         })
         .Produces<string>(contentType: "application/xml")
-        .WithName("GetXsdSchema")
+        .RequireAuthorization("CanReadTemplates")
+        .WithName($"GetXsdSchema{suffix}")
         .WithSummary("Get the XSD schema for a return template");
 
         group.MapPost("/seed", async (
@@ -37,7 +39,8 @@ public static class SchemaEndpoints
                 details = result
             });
         })
-        .WithName("SeedTemplates")
+        .RequireAuthorization("PlatformAdmin")
+        .WithName($"SeedTemplates{suffix}")
         .WithSummary("Seed templates from schema.sql file (run once)");
 
         group.MapPost("/seed-formulas", async (
@@ -58,7 +61,8 @@ public static class SchemaEndpoints
                 formulaResult.Errors
             });
         })
-        .WithName("SeedFormulas")
+        .RequireAuthorization("PlatformAdmin")
+        .WithName($"SeedFormulas{suffix}")
         .WithSummary("Seed intra-sheet formulas and cross-sheet rules");
 
         group.MapGet("/published", async (
@@ -72,11 +76,12 @@ public static class SchemaEndpoints
                 t.Name,
                 t.StructuralCategory,
                 t.PhysicalTableName,
-                FieldCount = t.CurrentVersion.Fields.Count,
-                FormulaCount = t.CurrentVersion.IntraSheetFormulas.Count
+                FieldCount = t.CurrentVersion?.Fields.Count ?? 0,
+                FormulaCount = t.CurrentVersion?.IntraSheetFormulas.Count ?? 0
             }));
         })
-        .WithName("GetPublishedTemplates")
+        .RequireAuthorization("CanReadTemplates")
+        .WithName($"GetPublishedTemplates{suffix}")
         .WithSummary("Get all published templates from cache");
     }
 }

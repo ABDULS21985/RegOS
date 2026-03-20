@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
+using System.Security.Claims;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Models;
 using Microsoft.AspNetCore.Cryptography.KeyDerivation;
 
 namespace FC.Engine.Application.Services;
@@ -11,6 +13,9 @@ public class AuthService
     private readonly IPortalUserRepository _userRepo;
     private readonly ILoginAttemptRepository _loginAttemptRepo;
     private readonly IPasswordResetTokenRepository _resetTokenRepo;
+    private readonly IEntitlementService _entitlementService;
+    private readonly IPermissionService _permissionService;
+    private readonly IConsentService? _consentService;
 
     // Lockout policy
     private const int MaxFailedAttempts = 5;
@@ -23,11 +28,17 @@ public class AuthService
     public AuthService(
         IPortalUserRepository userRepo,
         ILoginAttemptRepository loginAttemptRepo,
-        IPasswordResetTokenRepository resetTokenRepo)
+        IPasswordResetTokenRepository resetTokenRepo,
+        IEntitlementService entitlementService,
+        IPermissionService permissionService,
+        IConsentService? consentService = null)
     {
         _userRepo = userRepo;
         _loginAttemptRepo = loginAttemptRepo;
         _resetTokenRepo = resetTokenRepo;
+        _entitlementService = entitlementService;
+        _permissionService = permissionService;
+        _consentService = consentService;
     }
 
     /// <summary>
@@ -35,28 +46,32 @@ public class AuthService
     /// Returns (User, ErrorCode) where ErrorCode is null on success.
     /// </summary>
     public async Task<(PortalUser? User, string? ErrorCode)> ValidateLogin(
-        string username, string password, string? ipAddress = null, CancellationToken ct = default)
+        string username,
+        string password,
+        string? ipAddress = null,
+        string? userAgent = null,
+        CancellationToken ct = default)
     {
         var user = await _userRepo.GetByUsername(username, ct);
 
         // User not found — record attempt but don't reveal user doesn't exist
         if (user is null)
         {
-            await RecordAttempt(username, ipAddress, false, "user_not_found", ct);
+            await RecordAttempt(username, ipAddress, userAgent, false, "user_not_found", null, null, ct);
             return (null, "invalid");
         }
 
         // Account inactive
         if (!user.IsActive)
         {
-            await RecordAttempt(username, ipAddress, false, "inactive", ct);
+            await RecordAttempt(username, ipAddress, userAgent, false, "inactive", user.Id, "PortalUser", ct);
             return (null, "denied");
         }
 
         // Check lockout
         if (user.LockoutEnd.HasValue && user.LockoutEnd.Value > DateTime.UtcNow)
         {
-            await RecordAttempt(username, ipAddress, false, "locked", ct);
+            await RecordAttempt(username, ipAddress, userAgent, false, "locked", user.Id, "PortalUser", ct);
             return (null, "locked");
         }
 
@@ -71,7 +86,7 @@ public class AuthService
             }
 
             await _userRepo.Update(user, ct);
-            await RecordAttempt(username, ipAddress, false, "bad_password", ct);
+            await RecordAttempt(username, ipAddress, userAgent, false, "bad_password", user.Id, "PortalUser", ct);
 
             return user.FailedLoginAttempts >= MaxFailedAttempts
                 ? (null, "locked")
@@ -83,7 +98,7 @@ public class AuthService
         user.LockoutEnd = null;
         user.LastLoginAt = DateTime.UtcNow;
         await _userRepo.Update(user, ct);
-        await RecordAttempt(username, ipAddress, true, null, ct);
+        await RecordAttempt(username, ipAddress, userAgent, true, null, user.Id, "PortalUser", ct);
 
         return (user, null);
     }
@@ -155,8 +170,11 @@ public class AuthService
 
     public async Task<PortalUser> CreateUser(
         string username, string displayName, string email,
-        string password, PortalRole role, CancellationToken ct = default)
+        string password, PortalRole role, Guid? tenantId = null, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(password) || password.Length < 12)
+            throw new ArgumentException("Password must be at least 12 characters.");
+
         if (await _userRepo.UsernameExists(username, ct))
             throw new InvalidOperationException($"Username '{username}' already exists");
 
@@ -167,15 +185,39 @@ public class AuthService
             Email = email,
             PasswordHash = HashPassword(password),
             Role = role,
+            TenantId = tenantId,
             IsActive = true,
             CreatedAt = DateTime.UtcNow
         };
 
-        return await _userRepo.Create(user, ct);
+        var created = await _userRepo.Create(user, ct);
+
+        if (_consentService is not null && created.TenantId.HasValue)
+        {
+            var capture = new ConsentCaptureRequest
+            {
+                TenantId = created.TenantId.Value,
+                UserId = created.Id,
+                UserType = "PortalUser",
+                ConsentGiven = true,
+                ConsentMethod = "registration"
+            };
+
+            capture.ConsentType = ConsentType.Registration;
+            await _consentService.RecordConsent(capture, ct);
+
+            capture.ConsentType = ConsentType.DataProcessing;
+            await _consentService.RecordConsent(capture, ct);
+        }
+
+        return created;
     }
 
     public async Task ChangePassword(int userId, string newPassword, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < 12)
+            throw new ArgumentException("Password must be at least 12 characters.");
+
         var user = await _userRepo.GetById(userId, ct)
             ?? throw new InvalidOperationException("User not found");
 
@@ -183,6 +225,99 @@ public class AuthService
         user.FailedLoginAttempts = 0;
         user.LockoutEnd = null;
         await _userRepo.Update(user, ct);
+    }
+
+    /// <summary>
+    /// Entity-based overload. Prefer this over the bare <c>int userId</c> overload to keep the
+    /// call site decoupled from the concrete PK type of <see cref="PortalUser"/>.
+    /// </summary>
+    public Task ChangePassword(PortalUser user, string newPassword, CancellationToken ct = default)
+        => ChangePassword(user.Id, newPassword, ct);
+
+    public ClaimsPrincipal BuildClaimsPrincipal(PortalUser user)
+    {
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Name, user.Username),
+            new("DisplayName", user.DisplayName),
+            new(ClaimTypes.Email, user.Email),
+            new(ClaimTypes.Role, user.Role.ToString())
+        };
+
+        if (user.TenantId.HasValue)
+        {
+            claims.Add(new Claim("TenantId", user.TenantId.Value.ToString()));
+        }
+        else
+        {
+            claims.Add(new Claim("IsPlatformAdmin", "true"));
+            claims.Add(new Claim(ClaimTypes.Role, "PlatformAdmin"));
+        }
+
+        var identity = new ClaimsIdentity(claims, "FC.Admin.Auth");
+        return new ClaimsPrincipal(identity);
+    }
+
+    public async Task<ClaimsPrincipal> BuildClaimsPrincipalWithPermissions(PortalUser user, CancellationToken ct = default)
+    {
+        var principal = BuildClaimsPrincipal(user);
+        var identity = principal.Identity as ClaimsIdentity;
+        if (identity is null)
+        {
+            return principal;
+        }
+
+        var roleName = user.TenantId.HasValue ? user.Role.ToString() : "PlatformAdmin";
+        var permissions = await _permissionService.GetPermissions(user.TenantId, roleName, ct);
+        foreach (var permission in permissions.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            identity.AddClaim(new Claim("perm", permission));
+        }
+
+        if (user.TenantId.HasValue)
+        {
+            var entitlement = await _entitlementService.ResolveEntitlements(user.TenantId.Value, ct);
+            foreach (var module in entitlement.ActiveModules.Select(x => x.ModuleCode).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                identity.AddClaim(new Claim("mod", module));
+            }
+        }
+
+        return principal;
+    }
+
+    public async Task<AuthenticatedUser> BuildAuthenticatedUser(PortalUser user, CancellationToken ct = default)
+    {
+        if (!user.TenantId.HasValue)
+        {
+            return new AuthenticatedUser
+            {
+                UserId = user.Id,
+                UserType = "PortalUser",
+                TenantId = Guid.Empty,
+                Email = user.Email,
+                FullName = user.DisplayName,
+                Role = "PlatformAdmin",
+                Permissions = (await _permissionService.GetPermissions(null, "PlatformAdmin", ct)).ToList(),
+                EntitledModules = new List<string>()
+            };
+        }
+
+        var permissions = await _permissionService.GetPermissions(user.TenantId, user.Role.ToString(), ct);
+        var entitlement = await _entitlementService.ResolveEntitlements(user.TenantId.Value, ct);
+
+        return new AuthenticatedUser
+        {
+            UserId = user.Id,
+            UserType = "PortalUser",
+            TenantId = user.TenantId.Value,
+            Email = user.Email,
+            FullName = user.DisplayName,
+            Role = user.Role.ToString(),
+            Permissions = permissions.ToList(),
+            EntitledModules = entitlement.ActiveModules.Select(m => m.ModuleCode).ToList()
+        };
     }
 
     public static string HashPassword(string password)
@@ -217,12 +352,23 @@ public class AuthService
         return CryptographicOperations.FixedTimeEquals(actualHash, expectedHash);
     }
 
-    private async Task RecordAttempt(string username, string? ipAddress, bool succeeded, string? reason, CancellationToken ct)
+    private async Task RecordAttempt(
+        string username,
+        string? ipAddress,
+        string? userAgent,
+        bool succeeded,
+        string? reason,
+        int? userId,
+        string? userType,
+        CancellationToken ct)
     {
         await _loginAttemptRepo.Create(new LoginAttempt
         {
+            UserId = userId,
+            UserType = userType,
             Username = username,
             IpAddress = ipAddress,
+            UserAgent = userAgent,
             Succeeded = succeeded,
             FailureReason = reason,
             AttemptedAt = DateTime.UtcNow

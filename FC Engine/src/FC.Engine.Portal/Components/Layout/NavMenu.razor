@@ -1,13 +1,60 @@
 @using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.ValueObjects
+@inject FC.Engine.Portal.Services.ApprovalService ApprovalSvc
+@inject FC.Engine.Portal.Services.DashboardService DashboardSvc
+@inject IEntitlementService EntitlementSvc
+@inject ITenantContext TenantContext
+@inject ITenantBrandingService BrandingService
+@inject FC.Engine.Portal.Services.PartnerPortalService PartnerPortalService
+@inject PortalSubmissionLaunchService SubmissionLaunchService
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IDisposable
 
 <AuthorizeView>
     <Authorized Context="navAuth">
         <nav class="portal-nav" aria-label="Portal navigation">
+            <div class="portal-nav-tenant-logo-wrap">
+                <img src="@_branding.LogoSmallUrl" alt="@_branding.CompanyName" class="portal-nav-tenant-logo" />
+            </div>
+
+            <!-- RECENT PAGES -->
+            @if (_recentPages.Count > 0)
+            {
+                <div class="portal-nav-recent">
+                    <span class="portal-nav-recent-label">Recent</span>
+                    <ul class="portal-nav-recent-list">
+                        @foreach (var page in _recentPages)
+                        {
+                            var pageRef = page;
+                            <li class="portal-nav-recent-item">
+                                <a href="@pageRef.Href" class="portal-nav-recent-link">
+                                    <svg class="portal-nav-recent-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                                        <polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 00-4-4H4"/>
+                                    </svg>
+                                    @pageRef.Label
+                                </a>
+                                <button class="portal-nav-recent-remove" @onclick="() => RemoveRecentPageAsync(pageRef.Href)" aria-label="Remove @pageRef.Label from recent">×</button>
+                            </li>
+                        }
+                    </ul>
+                </div>
+            }
 
             <!-- SUBMISSIONS -->
             <div class="portal-nav-group">
-                <h3 class="portal-nav-group-label">Submissions</h3>
-                <ul class="portal-nav-group-items">
+                <button class="portal-nav-group-label portal-nav-group-toggle"
+                        @onclick='() => ToggleSectionAsync("Submissions")'
+                        aria-expanded="@(!_collapsedSections.Contains("Submissions"))">
+                    <span>Submissions</span>
+                    <svg class="portal-nav-collapse-icon @(_collapsedSections.Contains("Submissions") ? "is-collapsed" : "")"
+                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+                <ul class="portal-nav-group-items @(_collapsedSections.Contains("Submissions") ? "portal-nav-group-items--collapsed" : "")">
                     <li>
                         <NavLink href="/" Match="NavLinkMatch.All" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -20,24 +67,155 @@
                         </NavLink>
                     </li>
                     <li>
-                        <NavLink href="/submit" class="portal-nav-item">
+                        <NavLink href="/dashboard/compliance" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
-                                <polyline points="17 8 12 3 7 8"/>
-                                <line x1="12" y1="3" x2="12" y2="15"/>
+                                <path d="M3 3h18v18H3z"/>
+                                <path d="M9 9h6v6H9z"/>
                             </svg>
-                            <span class="portal-nav-label">Submit Return</span>
+                            <span class="portal-nav-label">Compliance Summary</span>
                         </NavLink>
                     </li>
                     <li>
-                        <NavLink href="/submissions" class="portal-nav-item">
+                        <NavLink href="/dashboard/health" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
-                                <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
-                                <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+                                <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
                             </svg>
-                            <span class="portal-nav-label">My Submissions</span>
+                            <span class="portal-nav-label">Health Score</span>
                         </NavLink>
                     </li>
+                    <li>
+                        <NavLink href="/analytics/anomalies" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <path d="M12 3l8 4v5c0 5-3.5 8.5-8 9-4.5-.5-8-4-8-9V7l8-4z"/>
+                                <path d="M12 8v5"/>
+                                <circle cx="12" cy="16" r="1"/>
+                            </svg>
+                            <span class="portal-nav-label">Anomaly Review</span>
+                        </NavLink>
+                    </li>
+                    <li>
+                        <NavLink href="/analytics/foresight" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <path d="M3 12s3-6 9-6 9 6 9 6-3 6-9 6-9-6-9-6z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                            <span class="portal-nav-label">ForeSight</span>
+                        </NavLink>
+                    </li>
+                    <li>
+                        <NavLink href="/analytics/chat" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                <path d="M8 9h8"/>
+                                <path d="M8 13h5"/>
+                            </svg>
+                            <span class="portal-nav-label">ComplianceIQ</span>
+                        </NavLink>
+                    </li>
+                    <li>
+                        <NavLink href="/dashboard/consolidation" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/><circle cx="8" cy="6" r="1"/><circle cx="16" cy="12" r="1"/><circle cx="12" cy="18" r="1"/>
+                            </svg>
+                            <span class="portal-nav-label">Consolidation</span>
+                        </NavLink>
+                    </li>
+                    <AuthorizeView Roles="Admin">
+                        <Authorized>
+                            <li>
+                                <NavLink href="/dashboard/admin" class="portal-nav-item">
+                                    <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                        <line x1="12" y1="20" x2="12" y2="10"/>
+                                        <line x1="18" y1="20" x2="18" y2="4"/>
+                                        <line x1="6" y1="20" x2="6" y2="14"/>
+                                    </svg>
+                                    <span class="portal-nav-label">Admin Dashboard</span>
+                                </NavLink>
+                            </li>
+                        </Authorized>
+                    </AuthorizeView>
+                    @if (HasAnyModuleAccess())
+                    {
+                        <li>
+                            <NavLink href="@_primarySubmitHref" class="portal-nav-item portal-nav-primary-submit">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+                                    <polyline points="17 8 12 3 7 8"/>
+                                    <line x1="12" y1="3" x2="12" y2="15"/>
+                                </svg>
+                                <span class="portal-nav-label">Submit Return</span>
+                            </NavLink>
+                        </li>
+                        <li>
+                            <NavLink href="@_primaryBulkSubmitHref" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
+                                    <path d="M15 2H9a1 1 0 00-1 1v2a1 1 0 001 1h6a1 1 0 001-1V3a1 1 0 00-1-1z"/>
+                                    <line x1="12" y1="11" x2="12" y2="17"/>
+                                    <line x1="9" y1="14" x2="15" y2="14"/>
+                                </svg>
+                                <span class="portal-nav-label">Bulk Upload</span>
+                            </NavLink>
+                        </li>
+                        <AuthorizeView Roles="Admin">
+                            <Authorized>
+                                <li>
+                                    <NavLink href="/migration" class="portal-nav-item">
+                                        <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                            <path d="M3 3h18v4H3z"/><path d="M5 7v14h14V7"/><path d="M8 12h8"/><path d="M8 16h6"/>
+                                        </svg>
+                                        <span class="portal-nav-label">Historical Migration</span>
+                                    </NavLink>
+                                </li>
+                                <li>
+                                    <NavLink href="/migration/tracker" class="portal-nav-item">
+                                        <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+                                        </svg>
+                                        <span class="portal-nav-label">Migration Tracker</span>
+                                    </NavLink>
+                                </li>
+                            </Authorized>
+                        </AuthorizeView>
+                        <li>
+                            <NavLink href="/submissions" Match="NavLinkMatch.All" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+                                    <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/>
+                                </svg>
+                                <span class="portal-nav-label">My Submissions</span>
+                                @if (_navBadges.OverdueCount > 0)
+                                {
+                                    <span class="portal-nav-badge" title="@_navBadges.OverdueCount overdue submission(s)">@(_navBadges.OverdueCount > 9 ? "9+" : _navBadges.OverdueCount)</span>
+                                }
+                            </NavLink>
+                        </li>
+                        <li>
+                            <NavLink href="/submissions/batches" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                </svg>
+                                <span class="portal-nav-label">Batch Submissions</span>
+                            </NavLink>
+                        </li>
+                        @if (isCheckerOrAdmin)
+                        {
+                            <li>
+                                <NavLink href="/approvals" class="portal-nav-item">
+                                    <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                        <path d="M9 11l3 3L22 4"/>
+                                        <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>
+                                    </svg>
+                                    <span class="portal-nav-label">Pending Approvals</span>
+                                    @if (_navBadges.PendingApprovalCount > 0)
+                                    {
+                                        <span class="portal-nav-badge" title="@_navBadges.PendingApprovalCount pending approval(s)">@(_navBadges.PendingApprovalCount > 9 ? "9+" : _navBadges.PendingApprovalCount)</span>
+                                    }
+                                </NavLink>
+                            </li>
+                        }
+                    }
                     <li>
                         <NavLink href="/calendar" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -47,15 +225,222 @@
                                 <line x1="3" y1="10" x2="21" y2="10"/>
                             </svg>
                             <span class="portal-nav-label">Reporting Calendar</span>
+                            @if (_navBadges.CalendarDue7Days > 0)
+                            {
+                                <span class="portal-nav-badge portal-nav-badge--warning" title="@_navBadges.CalendarDue7Days return(s) due within 7 days">@_navBadges.CalendarDue7Days</span>
+                            }
                         </NavLink>
                     </li>
                 </ul>
             </div>
 
+            <!-- VALIDATION -->
+            @if (HasAnyModuleAccess())
+            {
+                <div class="portal-nav-group">
+                    <button class="portal-nav-group-label portal-nav-group-toggle"
+                            @onclick='() => ToggleSectionAsync("Validation")'
+                            aria-expanded="@(!_collapsedSections.Contains("Validation"))">
+                        <span>Validation</span>
+                        <svg class="portal-nav-collapse-icon @(_collapsedSections.Contains("Validation") ? "is-collapsed" : "")"
+                             viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                            <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                    </button>
+                    <ul class="portal-nav-group-items @(_collapsedSections.Contains("Validation") ? "portal-nav-group-items--collapsed" : "")">
+                        <li>
+                            <NavLink href="/validation/hub" class="portal-nav-item" Match="NavLinkMatch.Prefix">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="10"/>
+                                    <path d="M9 12l2 2 4-4"/>
+                                    <path d="M12 2v2M12 20v2M2 12h2M20 12h2"/>
+                                </svg>
+                                <span class="portal-nav-label">Validation Hub</span>
+                            </NavLink>
+                        </li>
+                        <li>
+                            <NavLink href="/validation/cross-sheet" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
+                                    <path d="M15 2H9a1 1 0 00-1 1v2a1 1 0 001 1h6a1 1 0 001-1V3a1 1 0 00-1-1z"/>
+                                    <path d="M9 14l2 2 4-4"/>
+                                </svg>
+                                <span class="portal-nav-label">Cross-Sheet Rules</span>
+                            </NavLink>
+                        </li>
+                        <li>
+                            <NavLink href="/validate" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                                    <polyline points="22 4 12 14.01 9 11.01"/>
+                                </svg>
+                                <span class="portal-nav-label">Quick Validate</span>
+                            </NavLink>
+                        </li>
+                    </ul>
+                </div>
+            }
+
+            <!-- REPORTS -->
+            <div class="portal-nav-group">
+                <button class="portal-nav-group-label portal-nav-group-toggle"
+                        @onclick='() => ToggleSectionAsync("Reports")'
+                        aria-expanded="@(!_collapsedSections.Contains("Reports"))">
+                    <span>Reports</span>
+                    <svg class="portal-nav-collapse-icon @(_collapsedSections.Contains("Reports") ? "is-collapsed" : "")"
+                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+                <ul class="portal-nav-group-items @(_collapsedSections.Contains("Reports") ? "portal-nav-group-items--collapsed" : "")">
+                    <li>
+                        <NavLink href="/reports/compliance" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="16" y1="13" x2="8" y2="13"/>
+                                <line x1="16" y1="17" x2="8" y2="17"/>
+                            </svg>
+                            <span class="portal-nav-label">Compliance Report</span>
+                        </NavLink>
+                    </li>
+                    @if (isCheckerOrAdmin)
+                    {
+                        <li>
+                            <NavLink href="/reports/audit" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                                </svg>
+                                <span class="portal-nav-label">Audit Trail</span>
+                            </NavLink>
+                        </li>
+                    }
+                    <li>
+                        <NavLink href="/reports/builder" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="3" y1="9" x2="21" y2="9"/>
+                            </svg>
+                            <span class="portal-nav-label">Report Builder</span>
+                        </NavLink>
+                    </li>
+                    <li>
+                        <NavLink href="/reports/saved" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+                            </svg>
+                            <span class="portal-nav-label">Saved Reports</span>
+                        </NavLink>
+                    </li>
+                    <AuthorizeView Roles="Admin">
+                        <Authorized>
+                            <li>
+                                <NavLink href="/reports/board-pack" class="portal-nav-item">
+                                    <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                                    </svg>
+                                    <span class="portal-nav-label">Board Pack</span>
+                                </NavLink>
+                            </li>
+                        </Authorized>
+                    </AuthorizeView>
+                </ul>
+            </div>
+
             <!-- RESOURCES -->
             <div class="portal-nav-group">
-                <h3 class="portal-nav-group-label">Resources</h3>
-                <ul class="portal-nav-group-items">
+                <button class="portal-nav-group-label portal-nav-group-toggle"
+                        @onclick='() => ToggleSectionAsync("Resources")'
+                        aria-expanded="@(!_collapsedSections.Contains("Resources"))">
+                    <span>Resources</span>
+                    <svg class="portal-nav-collapse-icon @(_collapsedSections.Contains("Resources") ? "is-collapsed" : "")"
+                         viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12" aria-hidden="true">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+                <ul class="portal-nav-group-items @(_collapsedSections.Contains("Resources") ? "portal-nav-group-items--collapsed" : "")">
+                    <li>
+                        <NavLink href="/modules" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <rect x="2" y="2" width="8" height="8" rx="1"/>
+                                <rect x="14" y="2" width="8" height="8" rx="1"/>
+                                <rect x="2" y="14" width="8" height="8" rx="1"/>
+                                <rect x="14" y="14" width="8" height="8" rx="1"/>
+                            </svg>
+                            <span class="portal-nav-label">Modules</span>
+                        </NavLink>
+                    </li>
+                    @if (HasModule("CAPITAL_SUPERVISION"))
+                    {
+                        <li>
+                            <NavLink href="@GetModuleWorkspaceHref("CAPITAL_SUPERVISION")" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M4 19h16"/><path d="M6 16V8"/><path d="M12 16V5"/><path d="M18 16v-3"/>
+                                </svg>
+                                <span class="portal-nav-label">Capital Supervision</span>
+                            </NavLink>
+                        </li>
+                    }
+                    @if (HasModule("OPS_RESILIENCE"))
+                    {
+                        <li>
+                            <NavLink href="@GetModuleWorkspaceHref("OPS_RESILIENCE")" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M12 3l7 4v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V7l7-4z"/>
+                                </svg>
+                                <span class="portal-nav-label">Operational Resilience</span>
+                            </NavLink>
+                        </li>
+                    }
+                    @if (HasModule("MODEL_RISK"))
+                    {
+                        <li>
+                            <NavLink href="@GetModuleWorkspaceHref("MODEL_RISK")" class="portal-nav-item">
+                                <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                    <path d="M9 2h6"/><path d="M12 14V6"/><path d="M7 14l5 8 5-8"/><circle cx="12" cy="14" r="2"/>
+                                </svg>
+                                <span class="portal-nav-label">Model Risk</span>
+                            </NavLink>
+                        </li>
+                    }
+                    <li>
+                        <NavLink href="/subscription/my-plan" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <rect x="2" y="6" width="20" height="12" rx="2"/>
+                                <line x1="2" y1="10" x2="22" y2="10"/>
+                            </svg>
+                            <span class="portal-nav-label">My Plan</span>
+                        </NavLink>
+                    </li>
+                    <li>
+                        <NavLink href="/subscription/modules" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <rect x="3" y="3" width="7" height="7"/>
+                                <rect x="14" y="3" width="7" height="7"/>
+                                <rect x="3" y="14" width="7" height="7"/>
+                                <rect x="14" y="14" width="7" height="7"/>
+                            </svg>
+                            <span class="portal-nav-label">Subscription Modules</span>
+                        </NavLink>
+                    </li>
+                    <li>
+                        <NavLink href="/subscription/invoices" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+                                <polyline points="14 2 14 8 20 8"/>
+                                <line x1="8" y1="13" x2="16" y2="13"/>
+                            </svg>
+                            <span class="portal-nav-label">Invoices</span>
+                        </NavLink>
+                    </li>
+                    <li>
+                        <NavLink href="/subscription/payments" class="portal-nav-item">
+                            <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                <line x1="12" y1="1" x2="12" y2="23"/>
+                                <path d="M17 5H9.5a3.5 3.5 0 000 7H14.5a3.5 3.5 0 010 7H6"/>
+                            </svg>
+                            <span class="portal-nav-label">Payment History</span>
+                        </NavLink>
+                    </li>
                     <li>
                         <NavLink href="/templates" class="portal-nav-item">
                             <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
@@ -90,6 +475,51 @@
                     </li>
                 </ul>
             </div>
+
+            <!-- PARTNER — Partner tenants, Admin only -->
+            @if (_isPartnerTenant)
+            {
+                <AuthorizeView Roles="Admin">
+                    <Authorized>
+                        <div class="portal-nav-group">
+                            <h3 class="portal-nav-group-label">Partner</h3>
+                            <ul class="portal-nav-group-items">
+                                <li>
+                                    <NavLink href="/partner/dashboard" class="portal-nav-item">
+                                        <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                            <line x1="12" y1="20" x2="12" y2="10"/>
+                                            <line x1="18" y1="20" x2="18" y2="4"/>
+                                            <line x1="6" y1="20" x2="6" y2="14"/>
+                                        </svg>
+                                        <span class="portal-nav-label">Partner Dashboard</span>
+                                    </NavLink>
+                                </li>
+                                <li>
+                                    <NavLink href="/partner/sub-tenants" class="portal-nav-item">
+                                        <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                            <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+                                            <circle cx="9" cy="7" r="4"/>
+                                            <path d="M23 11h-6"/>
+                                            <path d="M20 8v6"/>
+                                        </svg>
+                                        <span class="portal-nav-label">Sub-Tenants</span>
+                                    </NavLink>
+                                </li>
+                                <li>
+                                    <NavLink href="/partner/support" class="portal-nav-item">
+                                        <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                            <circle cx="12" cy="12" r="10"/>
+                                            <path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/>
+                                            <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                        </svg>
+                                        <span class="portal-nav-label">Support Escalation</span>
+                                    </NavLink>
+                                </li>
+                            </ul>
+                        </div>
+                    </Authorized>
+                </AuthorizeView>
+            }
 
             <!-- ACCOUNT — Institution Admin only -->
             <AuthorizeView Roles="Admin">
@@ -126,11 +556,324 @@
                                     <span class="portal-nav-label">Settings</span>
                                 </NavLink>
                             </li>
+                            <li>
+                                <NavLink href="/settings/branding" class="portal-nav-item">
+                                    <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                        <path d="M12 3l2.5 5.5L20 9l-4 4 1 6-5-3-5 3 1-6-4-4 5.5-.5L12 3z"/>
+                                    </svg>
+                                    <span class="portal-nav-label">Branding</span>
+                                </NavLink>
+                            </li>
+                            <li>
+                                <NavLink href="/settings/notifications" class="portal-nav-item">
+                                    <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                        <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                                        <path d="M13.73 21a2 2 0 01-3.46 0"/>
+                                    </svg>
+                                    <span class="portal-nav-label">Notifications</span>
+                                </NavLink>
+                            </li>
+                            <li>
+                                <NavLink href="/settings/webhooks" class="portal-nav-item">
+                                    <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                    </svg>
+                                    <span class="portal-nav-label">Webhooks</span>
+                                </NavLink>
+                            </li>
+                            <li>
+                                <NavLink href="/onboarding/sandbox" class="portal-nav-item">
+                                    <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                        <path d="M8 8h8v8H8z"/>
+                                    </svg>
+                                    <span class="portal-nav-label">Training Sandbox</span>
+                                </NavLink>
+                            </li>
+                            <li>
+                                <NavLink href="/onboarding/tour/maker" class="portal-nav-item">
+                                    <svg class="portal-nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18" aria-hidden="true">
+                                        <circle cx="12" cy="12" r="10"/>
+                                        <path d="M12 16v-4"/><path d="M12 8h.01"/>
+                                    </svg>
+                                    <span class="portal-nav-label">Guided Tours</span>
+                                </NavLink>
+                            </li>
                         </ul>
                     </div>
                 </Authorized>
             </AuthorizeView>
 
+            <!-- QUICK SUBMIT — pinned above user panel -->
+            @if (HasAnyModuleAccess())
+            {
+                <div class="portal-quick-submit-wrap">
+                    <button class="portal-quick-submit-btn"
+                            @onclick="ToggleQuickSubmit"
+                            aria-expanded="@_quickSubmitOpen"
+                            aria-haspopup="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true">
+                            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        New Submission
+                    </button>
+                    @if (_quickSubmitOpen)
+                    {
+                        <div class="portal-quick-submit-dropdown" role="menu">
+                            @if (_navBadges.RecentReturnActions.Count > 0)
+                            {
+                                <div class="portal-quick-submit-section-label">Recently used</div>
+                                @foreach (var item in _navBadges.RecentReturnActions)
+                                {
+                                    var quickAction = item;
+                                    <a href="@quickAction.Href" class="portal-quick-submit-item" role="menuitem" @onclick="CloseQuickSubmit">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                                            <circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                                        </svg>
+                                        <span>@quickAction.ReturnCode</span>
+                                        @if (!string.IsNullOrWhiteSpace(quickAction.ModuleName))
+                                        {
+                                            <span class="portal-text-muted" style="margin-left:auto;font-size:11px;">@quickAction.ModuleName</span>
+                                        }
+                                    </a>
+                                }
+                                <div class="portal-quick-submit-divider"></div>
+                            }
+                            <a href="@_primarySubmitHref" class="portal-quick-submit-item portal-quick-submit-item--browse" role="menuitem" @onclick="CloseQuickSubmit">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                                    <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+                                </svg>
+                                Browse All Returns
+                            </a>
+                            <a href="@_primaryBulkSubmitHref" class="portal-quick-submit-item" role="menuitem" @onclick="CloseQuickSubmit">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+                                    <path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/>
+                                    <path d="M15 2H9a1 1 0 00-1 1v2a1 1 0 001 1h6a1 1 0 001-1V3a1 1 0 00-1-1z"/>
+                                    <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
+                                </svg>
+                                Bulk Upload
+                            </a>
+                        </div>
+                    }
+                </div>
+            }
+
         </nav>
     </Authorized>
 </AuthorizeView>
+
+@code {
+    [CascadingParameter]
+    private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool isCheckerOrAdmin;
+    private bool _isPartnerTenant;
+    private HashSet<string> _activeModules = new(StringComparer.OrdinalIgnoreCase);
+    private BrandingConfig _branding = BrandingConfig.WithDefaults();
+
+    private NavBadgeCounts _navBadges = NavBadgeCounts.Empty;
+    private int _institutionId;
+    private Timer? _refreshTimer;
+
+    private HashSet<string> _collapsedSections = new(StringComparer.OrdinalIgnoreCase);
+    private List<(string Href, string Label)> _recentPages = new();
+    private bool _quickSubmitOpen;
+    private bool _afterRenderInit;
+    private string _primarySubmitHref = "/submit";
+    private string _primaryBulkSubmitHref = "/submit/bulk";
+
+    // ── Lifecycle ────────────────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var state = await AuthState!;
+            var role = state.User.FindFirst(ClaimTypes.Role)?.Value ?? "";
+            isCheckerOrAdmin = role == "Checker" || role == "Admin";
+
+            var instIdStr = state.User.FindFirst("InstitutionId")?.Value;
+            if (int.TryParse(instIdStr, out var institutionId) && institutionId > 0)
+            {
+                _institutionId = institutionId;
+                _navBadges = await DashboardSvc.GetNavBadgeCountsAsync(institutionId);
+            }
+
+            var tenantId = TenantContext.CurrentTenantId;
+            if (tenantId.HasValue)
+            {
+                _branding = await BrandingService.GetBrandingConfig(tenantId.Value);
+                _isPartnerTenant = await PartnerPortalService.IsPartnerTenant(tenantId.Value);
+                var entitlement = await EntitlementSvc.ResolveEntitlements(tenantId.Value);
+                _activeModules = entitlement.ActiveModules
+                    .Select(m => m.ModuleCode)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                _primarySubmitHref = (await SubmissionLaunchService.ResolvePrimarySubmitAsync(tenantId.Value)).Href;
+                _primaryBulkSubmitHref = (await SubmissionLaunchService.ResolvePrimaryBulkSubmitAsync(tenantId.Value)).Href;
+            }
+
+            // 5-minute auto-refresh timer
+            _refreshTimer = new Timer(async _ =>
+            {
+                if (_institutionId > 0)
+                {
+                    _navBadges = await DashboardSvc.GetNavBadgeCountsAsync(_institutionId);
+                    await InvokeAsync(StateHasChanged);
+                }
+            }, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+        }
+        catch
+        {
+            // Keep nav safe-by-default when entitlement / badge lookup fails.
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || _afterRenderInit) return;
+        _afterRenderInit = true;
+
+        try
+        {
+            // Load persisted section collapse state from localStorage
+            var collapsed = await JS.InvokeAsync<string[]>("portalNavGetCollapsed");
+            if (collapsed?.Length > 0)
+            {
+                _collapsedSections = new HashSet<string>(collapsed, StringComparer.OrdinalIgnoreCase);
+            }
+
+            // Load recent pages history from localStorage
+            var pages = await JS.InvokeAsync<RecentPageDto[]>("portalNavGetRecentPages");
+            if (pages?.Length > 0)
+            {
+                _recentPages = pages.Select(p => (p.Href, p.Label)).ToList();
+            }
+
+            // Track current page and subscribe to future navigations
+            await TrackCurrentPageAsync(Navigation.Uri);
+            Navigation.LocationChanged += OnLocationChanged;
+
+            StateHasChanged();
+        }
+        catch
+        {
+            // Non-fatal — recent pages / collapse state just won't persist.
+        }
+    }
+
+    // ── Navigation tracking ──────────────────────────────────────────────────
+
+    private async void OnLocationChanged(object? sender, LocationChangedEventArgs e)
+    {
+        _quickSubmitOpen = false;
+        await TrackCurrentPageAsync(e.Location);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task TrackCurrentPageAsync(string uri)
+    {
+        try
+        {
+            var path = new Uri(uri).AbsolutePath;
+            var label = GetPageLabel(path);
+            if (string.IsNullOrEmpty(label)) return;
+
+            await JS.InvokeVoidAsync("portalNavAddRecentPage", path, label);
+
+            // Refresh in-memory list
+            var pages = await JS.InvokeAsync<RecentPageDto[]>("portalNavGetRecentPages");
+            _recentPages = pages?.Select(p => (p.Href, p.Label)).ToList() ?? _recentPages;
+        }
+        catch { /* non-fatal */ }
+    }
+
+    private static string GetPageLabel(string path) => path.TrimStart('/').ToLowerInvariant() switch
+    {
+        "" or "/" => "",   // Don't track dashboard root
+        "dashboard/compliance" => "Compliance Summary",
+        "dashboard/health" => "Health Score",
+        "analytics/foresight" => "ForeSight",
+        "analytics/foresight/filing-risks" => "ForeSight Filing Risks",
+        "analytics/foresight/capital-forecast" => "ForeSight Capital Forecast",
+        "analytics/foresight/compliance-trend" => "ForeSight Compliance Trend",
+        "analytics/chat" => "ComplianceIQ",
+        "analytics/chat/history" => "ComplianceIQ Query History",
+        "dashboard/admin" => "Admin Dashboard",
+        "dashboard/consolidation" => "Consolidation",
+        "submit" => "Submit Return",
+        "submit/bulk" => "Bulk Upload",
+        "submissions" => "My Submissions",
+        "approvals" => "Pending Approvals",
+        "calendar" => "Reporting Calendar",
+        "validation/hub" => "Validation Hub",
+        "validation/cross-sheet" => "Cross-Sheet Rules",
+        "validate" => "Quick Validate",
+        "reports/compliance" => "Compliance Report",
+        "reports/audit" => "Audit Trail",
+        "reports/builder" => "Report Builder",
+        "reports/saved" => "Saved Reports",
+        "reports/board-pack" => "Board Pack",
+        "modules" => "Modules",
+        "templates" => "Template Browser",
+        "help" => "Help Center",
+        "institution" => "My Institution",
+        "institution/team" => "Team Members",
+        _ => ""
+    };
+
+    // ── Section collapse ─────────────────────────────────────────────────────
+
+    private async Task ToggleSectionAsync(string section)
+    {
+        if (_collapsedSections.Contains(section))
+            _collapsedSections.Remove(section);
+        else
+            _collapsedSections.Add(section);
+
+        try
+        {
+            await JS.InvokeVoidAsync("portalNavSetCollapsed", section, _collapsedSections.Contains(section));
+        }
+        catch { /* non-fatal */ }
+    }
+
+    // ── Recent pages ─────────────────────────────────────────────────────────
+
+    private async Task RemoveRecentPageAsync(string href)
+    {
+        _recentPages.RemoveAll(p => p.Href == href);
+        try
+        {
+            await JS.InvokeVoidAsync("portalNavRemovePage", href);
+        }
+        catch { /* non-fatal */ }
+    }
+
+    // ── Quick Submit ─────────────────────────────────────────────────────────
+
+    private void ToggleQuickSubmit() => _quickSubmitOpen = !_quickSubmitOpen;
+    private void CloseQuickSubmit() => _quickSubmitOpen = false;
+
+    // ── Module access ────────────────────────────────────────────────────────
+
+    private bool HasAnyModuleAccess() => _activeModules.Count > 0;
+    private bool HasModule(string moduleCode) => _activeModules.Contains(moduleCode);
+    private static string GetModuleWorkspaceHref(string moduleCode) => PortalModuleWorkspaceCatalog.GetWorkspaceHref(moduleCode);
+
+    // ── IDisposable ──────────────────────────────────────────────────────────
+
+    public void Dispose()
+    {
+        _refreshTimer?.Dispose();
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+
+    // ── JS interop DTOs ──────────────────────────────────────────────────────
+
+    private class RecentPageDto
+    {
+        public string Href { get; set; } = "";
+        public string Label { get; set; } = "";
+    }
+}

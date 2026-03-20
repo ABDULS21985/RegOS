@@ -12,13 +12,19 @@ public class CalendarService
 {
     private readonly ITemplateMetadataCache _templateCache;
     private readonly ISubmissionRepository _submissionRepo;
+    private readonly IEntitlementService _entitlementService;
+    private readonly ITenantContext _tenantContext;
 
     public CalendarService(
         ITemplateMetadataCache templateCache,
-        ISubmissionRepository submissionRepo)
+        ISubmissionRepository submissionRepo,
+        IEntitlementService entitlementService,
+        ITenantContext tenantContext)
     {
         _templateCache = templateCache;
         _submissionRepo = submissionRepo;
+        _entitlementService = entitlementService;
+        _tenantContext = tenantContext;
     }
 
     /// <summary>
@@ -32,8 +38,8 @@ public class CalendarService
         string? frequencyFilter = null,
         CancellationToken ct = default)
     {
-        // Step 1: Get all published templates
-        var allTemplates = await _templateCache.GetAllPublishedTemplates(ct);
+        // Step 1: Get entitled published templates for the current tenant
+        var allTemplates = await GetScopedTemplatesAsync(ct);
 
         // Apply frequency filter if provided
         IEnumerable<CachedTemplate> filteredTemplates = allTemplates;
@@ -48,7 +54,7 @@ public class CalendarService
 
         // Build lookup: (returnCode, periodKey) → most recent submission
         var submissionLookup = submissions
-            .GroupBy(s => $"{s.ReturnCode}|{GetPeriodKey(s)}")
+            .GroupBy(s => $"{s.ReturnCode}|{FilingCalendarHelpers.GetPeriodKey(s)}")
             .ToDictionary(
                 g => g.Key,
                 g => g.OrderByDescending(s => s.CreatedAt).First(),
@@ -60,26 +66,31 @@ public class CalendarService
 
         foreach (var template in filteredTemplates)
         {
-            var dueDates = GetDueDatesForRange(template.Frequency, rangeStart, rangeEnd);
+            var dueDates = FilingCalendarHelpers.GetDueDatesForRange(template.Frequency, rangeStart, rangeEnd);
 
             foreach (var dueDate in dueDates)
             {
                 var periodKey = $"{template.ReturnCode}|{dueDate:yyyy-MM}";
                 submissionLookup.TryGetValue(periodKey, out var existingSub);
 
-                var status = DetermineStatus(existingSub, dueDate);
+                var status = FilingCalendarHelpers.DetermineStatus(existingSub, dueDate);
 
                 entries.Add(new CalendarEntry
                 {
                     ReturnCode = template.ReturnCode,
                     TemplateName = template.Name,
+                    ModuleCode = template.ModuleCode,
+                    ModuleName = PortalSubmissionLinkBuilder.ResolveModuleName(template.ModuleCode),
                     Frequency = template.Frequency.ToString(),
                     DueDate = dueDate,
                     PeriodLabel = FormatPeriodLabel(dueDate, template.Frequency),
                     PeriodValue = dueDate.ToString("yyyy-MM"),
                     Status = status,
                     SubmissionId = existingSub?.Id,
-                    DaysUntilDue = (dueDate.Date - DateTime.UtcNow.Date).Days
+                    DaysUntilDue = (dueDate.Date - DateTime.UtcNow.Date).Days,
+                    StartHref = PortalSubmissionLinkBuilder.BuildSubmitHref(template.ReturnCode, template.ModuleCode),
+                    WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(template.ModuleCode),
+                    DeadlineDescription = FormatDeadlineDescription(dueDate, template.Frequency)
                 });
             }
         }
@@ -112,113 +123,47 @@ public class CalendarService
         };
     }
 
-    // ── Due Date Computation ─────────────────────────────────────
-
-    private static List<DateTime> GetDueDatesForRange(
-        ReturnFrequency frequency,
-        DateTime rangeStart,
-        DateTime rangeEnd)
+    private async Task<IReadOnlyList<CachedTemplate>> GetScopedTemplatesAsync(CancellationToken ct)
     {
-        var dates = new List<DateTime>();
-
-        if (frequency == ReturnFrequency.Monthly)
+        if (_tenantContext.CurrentTenantId is not { } tenantId)
         {
-            var current = new DateTime(rangeStart.Year, rangeStart.Month, 1);
-            while (current <= rangeEnd)
-            {
-                var dueDate = new DateTime(current.Year, current.Month, DateTime.DaysInMonth(current.Year, current.Month));
-                if (dueDate >= rangeStart && dueDate <= rangeEnd)
-                    dates.Add(dueDate);
-                current = current.AddMonths(1);
-            }
-        }
-        else if (frequency == ReturnFrequency.Quarterly)
-        {
-            var quarterEndMonths = new[] { 3, 6, 9, 12 };
-            var current = new DateTime(rangeStart.Year, 1, 1);
-            while (current.Year <= rangeEnd.Year)
-            {
-                foreach (var month in quarterEndMonths)
-                {
-                    var dueDate = new DateTime(current.Year, month, DateTime.DaysInMonth(current.Year, month));
-                    if (dueDate >= rangeStart && dueDate <= rangeEnd)
-                        dates.Add(dueDate);
-                }
-                current = current.AddYears(1);
-            }
-        }
-        else if (frequency == ReturnFrequency.SemiAnnual)
-        {
-            var semiEndMonths = new[] { 6, 12 };
-            var current = new DateTime(rangeStart.Year, 1, 1);
-            while (current.Year <= rangeEnd.Year)
-            {
-                foreach (var month in semiEndMonths)
-                {
-                    var dueDate = new DateTime(current.Year, month, DateTime.DaysInMonth(current.Year, month));
-                    if (dueDate >= rangeStart && dueDate <= rangeEnd)
-                        dates.Add(dueDate);
-                }
-                current = current.AddYears(1);
-            }
-        }
-        else // Computed or other
-        {
-            // Default to monthly
-            var current = new DateTime(rangeStart.Year, rangeStart.Month, 1);
-            while (current <= rangeEnd)
-            {
-                var dueDate = new DateTime(current.Year, current.Month, DateTime.DaysInMonth(current.Year, current.Month));
-                if (dueDate >= rangeStart && dueDate <= rangeEnd)
-                    dates.Add(dueDate);
-                current = current.AddMonths(1);
-            }
+            return await _templateCache.GetAllPublishedTemplates(ct);
         }
 
-        return dates;
+        var entitlement = await _entitlementService.ResolveEntitlements(tenantId, ct);
+        var activeModuleIds = entitlement.ActiveModules
+            .Select(x => x.ModuleId)
+            .Distinct()
+            .ToHashSet();
+        var activeModuleCodes = entitlement.ActiveModules
+            .Select(x => x.ModuleCode)
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (activeModuleIds.Count == 0 && activeModuleCodes.Count == 0)
+        {
+            return Array.Empty<CachedTemplate>();
+        }
+
+        var templates = await _templateCache.GetAllPublishedTemplates(tenantId, ct);
+        return templates
+            .Where(template =>
+                (template.ModuleId.HasValue && activeModuleIds.Contains(template.ModuleId.Value))
+                || (!string.IsNullOrWhiteSpace(template.ModuleCode) && activeModuleCodes.Contains(template.ModuleCode)))
+            .ToList();
     }
 
-    // ── Status Determination ─────────────────────────────────────
+    // ── Delegates to shared helpers (see FilingCalendarHelpers.cs) ──
 
-    private static CalendarEntryStatus DetermineStatus(Submission? submission, DateTime dueDate)
-    {
-        if (submission is null)
-        {
-            return dueDate.Date < DateTime.UtcNow.Date
-                ? CalendarEntryStatus.Overdue
-                : CalendarEntryStatus.NotStarted;
-        }
+    internal static List<DateTime> GetDueDatesForRange(
+        ReturnFrequency frequency, DateTime rangeStart, DateTime rangeEnd)
+        => FilingCalendarHelpers.GetDueDatesForRange(frequency, rangeStart, rangeEnd);
 
-        if (submission.Status == SubmissionStatus.Accepted
-            || submission.Status == SubmissionStatus.AcceptedWithWarnings)
-        {
-            return CalendarEntryStatus.Submitted;
-        }
+    internal static CalendarEntryStatus DetermineStatus(Submission? submission, DateTime dueDate)
+        => FilingCalendarHelpers.DetermineStatus(submission, dueDate);
 
-        if (submission.Status == SubmissionStatus.Rejected
-            || submission.Status == SubmissionStatus.ApprovalRejected)
-        {
-            return CalendarEntryStatus.Rejected;
-        }
-
-        // Draft, Parsing, Validating, PendingApproval
-        return CalendarEntryStatus.Draft;
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────
-
-    /// <summary>
-    /// Extract a period key string from a submission for lookup matching.
-    /// Uses ReturnPeriod navigation (Year, Month) to produce "yyyy-MM".
-    /// </summary>
-    private static string GetPeriodKey(Submission s)
-    {
-        if (s.ReturnPeriod is not null)
-            return $"{s.ReturnPeriod.Year}-{s.ReturnPeriod.Month:D2}";
-
-        // Fallback: use submission date
-        return s.SubmittedAt.ToString("yyyy-MM");
-    }
+    internal static string GetPeriodKey(Submission s)
+        => FilingCalendarHelpers.GetPeriodKey(s);
 
     private static string FormatPeriodLabel(DateTime dueDate, ReturnFrequency frequency)
     {
@@ -231,4 +176,17 @@ public class CalendarService
         // Monthly or Computed
         return dueDate.ToString("MMMM yyyy");
     }
+
+    /// <summary>
+    /// Produces a human-readable deadline description for display in the calendar hover card,
+    /// e.g. "Month-end", "Quarter-end", "5th BD".
+    /// </summary>
+    private static string FormatDeadlineDescription(DateTime dueDate, ReturnFrequency frequency)
+        => frequency switch
+        {
+            ReturnFrequency.Quarterly  => "Quarter-end",
+            ReturnFrequency.SemiAnnual => "Semi-annual end",
+            _                          => BusinessDayHelper.DescribeDeadline(dueDate)
+        };
+
 }

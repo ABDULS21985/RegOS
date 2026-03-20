@@ -1,0 +1,906 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ═══════════════════════════════════════════════════════════════════════════════
+  BDC REGULATORY RETURN - XML SCHEMA DEFINITION (XSD)
+  Bureau De Change Reporting Standards for Central Bank Supervision
+  ═══════════════════════════════════════════════════════════════════════════════
+  Version:       1.0
+  Date:          March 2026
+  Aligned With:  FATF 40 Recommendations, BCBS Principles, ISO 20022, ISO 4217
+  Jurisdictions: Nigeria (CBN), UAE (CBUAE), Kenya (CBK), UK (FCA), South Africa (SARB)
+  ═══════════════════════════════════════════════════════════════════════════════
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:bdc="urn:centralbank:bdc:reporting:v1"
+           targetNamespace="urn:centralbank:bdc:reporting:v1"
+           elementFormDefault="qualified"
+           attributeFormDefault="unqualified"
+           version="1.0">
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- ROOT ELEMENT                                           -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:element name="BDCReturn" type="bdc:BDCReturnType">
+    <xs:annotation>
+      <xs:documentation>
+        Root element for all Bureau De Change regulatory returns submitted 
+        to the Central Bank. Supports multiple return types: DTR (Daily 
+        Transaction Return), WPR (Weekly Position Report), MFR (Monthly 
+        Financial Return), QCR (Quarterly Compliance Return), AAR (Annual 
+        Audit Return), STR (Suspicious Transaction Report), CTR (Currency 
+        Transaction Report).
+      </xs:documentation>
+    </xs:annotation>
+  </xs:element>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- MAIN COMPLEX TYPE                                      -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="BDCReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="bdc:HeaderType"/>
+      <xs:element name="Transactions" type="bdc:TransactionsType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Used in DTR (Daily Transaction Return) submissions.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="WeeklyPosition" type="bdc:WeeklyPositionType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Used in WPR (Weekly Position Report) submissions.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="FinancialPosition" type="bdc:FinancialPositionType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Used in MFR (Monthly Financial Return) submissions.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="ComplianceReturn" type="bdc:ComplianceReturnType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Used in QCR (Quarterly Compliance Return) submissions.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="AnnualReturn" type="bdc:AnnualReturnType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Used in AAR (Annual Audit Return) submissions.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="SuspiciousReport" type="bdc:SuspiciousReportType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Used in STR (Suspicious Transaction Report) filings to FIU/NFIU.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="ThresholdReport" type="bdc:ThresholdReportType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Used in CTR (Currency Transaction Report) filings.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="DailySummary" type="bdc:DailySummaryType" minOccurs="0">
+        <xs:annotation>
+          <xs:documentation>Aggregate daily summary statistics. Required for DTR submissions.</xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="Signature" type="bdc:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- HEADER TYPE                                            -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="HeaderType">
+    <xs:annotation>
+      <xs:documentation>
+        Identifies the reporting entity, return type, and submission metadata.
+        Required for all return types.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="BDCLicenceNo" type="bdc:LicenceNumberType"/>
+      <xs:element name="BDCName">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="200"/>
+            <xs:minLength value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="ReturnType" type="bdc:ReturnTypeEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="TierCategory" type="bdc:TierCategoryEnum"/>
+      <xs:element name="BranchCode" minOccurs="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="10"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="HeadOfficeLocation" minOccurs="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="200"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="ContactPerson">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="100"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="ContactEmail">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:pattern value="[^@\s]+@[^@\s]+\.[^@\s]+"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="ContactPhone">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:pattern value="\+?[\d\s\-()]+"/>
+            <xs:maxLength value="20"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="IsNilReturn" type="xs:boolean" default="false">
+        <xs:annotation>
+          <xs:documentation>
+            Set to true if no transactions occurred during the reporting period.
+            Nil returns are mandatory in most jurisdictions.
+          </xs:documentation>
+        </xs:annotation>
+      </xs:element>
+      <xs:element name="Jurisdiction" type="bdc:CountryCodeType" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- TRANSACTIONS TYPE (DTR)                                -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="TransactionsType">
+    <xs:sequence>
+      <xs:element name="Transaction" type="bdc:TransactionType" maxOccurs="unbounded"/>
+    </xs:sequence>
+    <xs:attribute name="totalCount" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="TransactionType">
+    <xs:sequence>
+      <xs:element name="TxnRef">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="30"/>
+            <xs:pattern value="[A-Za-z0-9\-]+"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="TxnDateTime" type="xs:dateTime"/>
+      <xs:element name="TxnType" type="bdc:TransactionTypeEnum"/>
+      <xs:element name="CurrencyPair" type="bdc:CurrencyPairType"/>
+      <xs:element name="ForeignAmount" type="bdc:PositiveAmountType"/>
+      <xs:element name="LocalAmount" type="bdc:PositiveAmountType"/>
+      <xs:element name="ExchangeRate" type="bdc:ExchangeRateType"/>
+      <xs:element name="CBRefRate" type="bdc:ExchangeRateType" minOccurs="0"/>
+      <xs:element name="SpreadPct" minOccurs="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:decimal">
+            <xs:fractionDigits value="2"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="Customer" type="bdc:CustomerType"/>
+      <xs:element name="PurposeCode" type="bdc:PurposeCodeEnum"/>
+      <xs:element name="PurposeDescription" minOccurs="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="200"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="PaymentMethod" type="bdc:PaymentMethodEnum"/>
+      <xs:element name="SourceOfFunds">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="200"/>
+            <xs:minLength value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="ThresholdFlag" type="xs:boolean"/>
+      <xs:element name="StaffId">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="20"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="PassportEndorsement" minOccurs="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="30"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="Remarks" minOccurs="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="500"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+    </xs:sequence>
+    <xs:attribute name="sequenceNo" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- CUSTOMER TYPE                                          -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="CustomerType">
+    <xs:annotation>
+      <xs:documentation>
+        Customer identification block. Aligned with FATF Recommendation 10
+        (Customer Due Diligence) and jurisdictional KYC requirements.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="CustomerType" type="bdc:CustomerTypeEnum"/>
+      <xs:element name="CustomerIdType" type="bdc:CustomerIdTypeEnum"/>
+      <xs:element name="CustomerIdNo">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="30"/>
+            <xs:minLength value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="CustomerName">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="100"/>
+            <xs:minLength value="1"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="NationalityResidency" type="bdc:CountryCodeType"/>
+      <xs:element name="DateOfBirth" type="xs:date" minOccurs="0"/>
+      <xs:element name="Address" minOccurs="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="300"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="PhoneNumber" minOccurs="0">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="20"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="IsPEP" type="xs:boolean" default="false" minOccurs="0"/>
+      <xs:element name="RiskRating" type="bdc:RiskRatingEnum" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- WEEKLY POSITION TYPE (WPR)                             -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="WeeklyPositionType">
+    <xs:sequence>
+      <xs:element name="WeekEndingDate" type="xs:date"/>
+      <xs:element name="CurrencyPosition" type="bdc:CurrencyPositionType" maxOccurs="unbounded"/>
+      <xs:element name="SalesByPurpose" type="bdc:SalesByPurposeType" maxOccurs="unbounded"/>
+      <xs:element name="RateSummary" type="bdc:RateSummaryType" maxOccurs="unbounded"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CurrencyPositionType">
+    <xs:sequence>
+      <xs:element name="CurrencyCode" type="bdc:CurrencyCodeType"/>
+      <xs:element name="OpeningBalance" type="bdc:AmountType"/>
+      <xs:element name="PurchasesFromDealers" type="bdc:AmountType"/>
+      <xs:element name="PurchasesFromIMTOs" type="bdc:AmountType"/>
+      <xs:element name="PurchasesFromCustomers" type="bdc:AmountType"/>
+      <xs:element name="PurchasesFromOtherBDCs" type="bdc:AmountType"/>
+      <xs:element name="OtherSources" type="bdc:AmountType"/>
+      <xs:element name="TotalPurchases" type="bdc:AmountType"/>
+      <xs:element name="TotalSales" type="bdc:AmountType"/>
+      <xs:element name="ClosingBalance" type="bdc:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="SalesByPurposeType">
+    <xs:sequence>
+      <xs:element name="CurrencyCode" type="bdc:CurrencyCodeType"/>
+      <xs:element name="BTA" type="bdc:AmountType"/>
+      <xs:element name="PTA" type="bdc:AmountType"/>
+      <xs:element name="MedicalExpenses" type="bdc:AmountType"/>
+      <xs:element name="EducationFees" type="bdc:AmountType"/>
+      <xs:element name="MerchandiseTrade" type="bdc:AmountType"/>
+      <xs:element name="Services" type="bdc:AmountType"/>
+      <xs:element name="OtherPurposes" type="bdc:AmountType"/>
+      <xs:element name="TotalSales" type="bdc:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="RateSummaryType">
+    <xs:sequence>
+      <xs:element name="CurrencyCode" type="bdc:CurrencyCodeType"/>
+      <xs:element name="AverageBuyRate" type="bdc:ExchangeRateType"/>
+      <xs:element name="AverageSellRate" type="bdc:ExchangeRateType"/>
+      <xs:element name="SpreadPct" type="xs:decimal"/>
+      <xs:element name="CBRefRate" type="bdc:ExchangeRateType"/>
+      <xs:element name="VariancePct" type="xs:decimal"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- FINANCIAL POSITION TYPE (MFR)                          -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="FinancialPositionType">
+    <xs:sequence>
+      <xs:element name="ReportingMonth" type="xs:gYearMonth"/>
+      <xs:element name="BalanceSheet" type="bdc:BalanceSheetType"/>
+      <xs:element name="IncomeStatement" type="bdc:IncomeStatementType"/>
+      <xs:element name="CapitalAdequacy" type="bdc:CapitalAdequacyType"/>
+      <xs:element name="ForeignCurrencyHoldings" type="bdc:ForeignCurrencyHoldingsType"/>
+      <xs:element name="OperationalMetrics" type="bdc:OperationalMetricsType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="BalanceSheetType">
+    <xs:sequence>
+      <!-- Assets -->
+      <xs:element name="CashLocalCurrency" type="bdc:AmountType"/>
+      <xs:element name="CashForeignCurrency" type="bdc:AmountType"/>
+      <xs:element name="DomiciliaryAccountBalances" type="bdc:AmountType"/>
+      <xs:element name="ReceivablesFromDealers" type="bdc:AmountType"/>
+      <xs:element name="PrepaidExpenses" type="bdc:AmountType"/>
+      <xs:element name="PropertyPlantEquipment" type="bdc:AmountType"/>
+      <xs:element name="IntangibleAssets" type="bdc:AmountType"/>
+      <xs:element name="OtherAssets" type="bdc:AmountType"/>
+      <xs:element name="TotalAssets" type="bdc:AmountType"/>
+      <!-- Liabilities -->
+      <xs:element name="PayablesToCustomers" type="bdc:AmountType"/>
+      <xs:element name="PayablesToDealers" type="bdc:AmountType"/>
+      <xs:element name="TaxLiabilities" type="bdc:AmountType"/>
+      <xs:element name="OtherLiabilities" type="bdc:AmountType"/>
+      <xs:element name="TotalLiabilities" type="bdc:AmountType"/>
+      <!-- Equity -->
+      <xs:element name="PaidUpShareCapital" type="bdc:AmountType"/>
+      <xs:element name="RetainedEarnings" type="bdc:AmountType"/>
+      <xs:element name="OtherReserves" type="bdc:AmountType"/>
+      <xs:element name="TotalEquity" type="bdc:AmountType"/>
+    </xs:sequence>
+    <xs:attribute name="reportingCurrency" type="bdc:CurrencyCodeType" use="required"/>
+  </xs:complexType>
+
+  <xs:complexType name="IncomeStatementType">
+    <xs:sequence>
+      <xs:element name="GrossRevenueFromSpreads" type="bdc:AmountType"/>
+      <xs:element name="CommissionIncome" type="bdc:AmountType"/>
+      <xs:element name="OtherOperatingIncome" type="bdc:AmountType"/>
+      <xs:element name="TotalRevenue" type="bdc:AmountType"/>
+      <xs:element name="StaffCosts" type="bdc:AmountType"/>
+      <xs:element name="RentPremisesCosts" type="bdc:AmountType"/>
+      <xs:element name="TechnologyITCosts" type="bdc:AmountType"/>
+      <xs:element name="ComplianceAuditCosts" type="bdc:AmountType"/>
+      <xs:element name="DepreciationAmortisation" type="bdc:AmountType"/>
+      <xs:element name="OtherOperatingExpenses" type="bdc:AmountType"/>
+      <xs:element name="TotalOperatingExpenses" type="bdc:AmountType"/>
+      <xs:element name="NetProfitBeforeTax" type="bdc:AmountType"/>
+      <xs:element name="TaxExpense" type="bdc:AmountType"/>
+      <xs:element name="NetProfitAfterTax" type="bdc:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CapitalAdequacyType">
+    <xs:sequence>
+      <xs:element name="MinimumCapitalRequired" type="bdc:PositiveAmountType"/>
+      <xs:element name="ActualPaidUpCapital" type="bdc:PositiveAmountType"/>
+      <xs:element name="SurplusDeficit" type="bdc:AmountType"/>
+      <xs:element name="IsCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="ForeignCurrencyHoldingsType">
+    <xs:sequence>
+      <xs:element name="CurrencyHolding" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CurrencyCode" type="bdc:CurrencyCodeType"/>
+            <xs:element name="CashHoldings" type="bdc:AmountType"/>
+            <xs:element name="DomiciliaryAccount" type="bdc:AmountType"/>
+            <xs:element name="TotalHoldings" type="bdc:AmountType"/>
+            <xs:element name="USDEquivalent" type="bdc:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="OperationalMetricsType">
+    <xs:sequence>
+      <xs:element name="TotalTransactionCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="UniqueCustomerCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveBranches" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveFranchisees" type="xs:nonNegativeInteger" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- COMPLIANCE RETURN TYPE (QCR)                           -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="ComplianceReturnType">
+    <xs:sequence>
+      <xs:element name="ReportingQuarter">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:pattern value="Q[1-4]-\d{4}"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="STRFilingStats" type="bdc:STRFilingStatsType"/>
+      <xs:element name="CDDMetrics" type="bdc:CDDMetricsType"/>
+      <xs:element name="TrainingMetrics" type="bdc:TrainingMetricsType"/>
+      <xs:element name="AuditMetrics" type="bdc:AuditMetricsType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="STRFilingStatsType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="InternalAlertsGenerated" type="xs:nonNegativeInteger"/>
+      <xs:element name="AlertsEscalated" type="xs:nonNegativeInteger"/>
+      <xs:element name="FalsePositivesClosed" type="xs:nonNegativeInteger"/>
+      <xs:element name="AvgDaysToFileSTR" type="xs:decimal" minOccurs="0"/>
+      <xs:element name="RegulatoryEnquiriesReceived" type="xs:nonNegativeInteger"/>
+      <xs:element name="RegulatoryEnquiriesResolved" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="CDDMetricsType">
+    <xs:sequence>
+      <xs:element name="NewCustomersOnboarded" type="xs:nonNegativeInteger"/>
+      <xs:element name="CDDCompletionRatePct" type="bdc:PercentageType"/>
+      <xs:element name="PEPCustomersIdentified" type="xs:nonNegativeInteger"/>
+      <xs:element name="EDDReviewsConducted" type="xs:nonNegativeInteger"/>
+      <xs:element name="CustomersDeclined" type="xs:nonNegativeInteger"/>
+      <xs:element name="ExistingCustomerReviews" type="xs:nonNegativeInteger"/>
+      <xs:element name="SanctionsScreeningHits" type="xs:nonNegativeInteger"/>
+      <xs:element name="ConfirmedTrueMatches" type="xs:nonNegativeInteger"/>
+      <xs:element name="FalsePositiveRatePct" type="bdc:PercentageType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="TrainingMetricsType">
+    <xs:sequence>
+      <xs:element name="TotalStaffStrength" type="xs:positiveInteger"/>
+      <xs:element name="StaffTrained" type="xs:nonNegativeInteger"/>
+      <xs:element name="TrainingCompletionRatePct" type="bdc:PercentageType"/>
+      <xs:element name="TrainingSessionsConducted" type="xs:nonNegativeInteger"/>
+      <xs:element name="DateOfLastTraining" type="xs:date" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="AuditMetricsType">
+    <xs:sequence>
+      <xs:element name="InternalAuditConducted" type="xs:boolean"/>
+      <xs:element name="DateOfLastInternalAudit" type="xs:date" minOccurs="0"/>
+      <xs:element name="FindingsIdentified" type="xs:nonNegativeInteger"/>
+      <xs:element name="FindingsRemediated" type="xs:nonNegativeInteger"/>
+      <xs:element name="OutstandingFindings" type="xs:nonNegativeInteger"/>
+      <xs:element name="DateOfLastExternalAudit" type="xs:date" minOccurs="0"/>
+      <xs:element name="ComplianceOfficerName" type="xs:string"/>
+      <xs:element name="ComplianceOfficerQualification" type="xs:string" minOccurs="0"/>
+      <xs:element name="AMLPolicyUpToDate" type="xs:boolean"/>
+      <xs:element name="DateOfLastPolicyReview" type="xs:date" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- ANNUAL RETURN TYPE (AAR)                               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="AnnualReturnType">
+    <xs:sequence>
+      <xs:element name="FinancialYearEnd" type="xs:date"/>
+      <xs:element name="EntityProfile" type="bdc:EntityProfileType"/>
+      <xs:element name="OwnershipGovernance" type="bdc:OwnershipGovernanceType"/>
+      <xs:element name="AuditedFinancialSummary" type="bdc:AuditedFinancialSummaryType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="EntityProfileType">
+    <xs:sequence>
+      <xs:element name="DateOfIncorporation" type="xs:date"/>
+      <xs:element name="DateOfLicenceIssue" type="xs:date"/>
+      <xs:element name="LicenceExpiryDate" type="xs:date"/>
+      <xs:element name="RegisteredAddress" type="xs:string"/>
+      <xs:element name="NumberOfBranches" type="xs:nonNegativeInteger"/>
+      <xs:element name="NumberOfFranchisees" type="xs:nonNegativeInteger" minOccurs="0"/>
+      <xs:element name="TotalStaffStrength" type="xs:positiveInteger"/>
+      <xs:element name="ExternalAuditorName" type="xs:string"/>
+      <xs:element name="ExternalAuditorFirm" type="xs:string"/>
+      <xs:element name="AuditOpinionType" type="bdc:AuditOpinionEnum"/>
+      <xs:element name="DateOfAuditorsReport" type="xs:date"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="OwnershipGovernanceType">
+    <xs:sequence>
+      <xs:element name="ShareholderDirector" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="Nationality" type="bdc:CountryCodeType"/>
+            <xs:element name="ShareholdingPct" type="bdc:PercentageType" minOccurs="0"/>
+            <xs:element name="RolePosition" type="xs:string"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="AuditedFinancialSummaryType">
+    <xs:sequence>
+      <xs:element name="TotalAssets" type="bdc:AmountType"/>
+      <xs:element name="TotalLiabilities" type="bdc:AmountType"/>
+      <xs:element name="ShareholdersEquity" type="bdc:AmountType"/>
+      <xs:element name="TotalRevenue" type="bdc:AmountType"/>
+      <xs:element name="TotalOperatingExpenses" type="bdc:AmountType"/>
+      <xs:element name="NetProfitAfterTax" type="bdc:AmountType"/>
+      <xs:element name="PaidUpCapital" type="bdc:PositiveAmountType"/>
+      <xs:element name="IsCapitalAdequate" type="xs:boolean"/>
+      <xs:element name="TotalFXTransactionVolume" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalFXTransactionValue" type="bdc:PositiveAmountType"/>
+    </xs:sequence>
+    <xs:attribute name="reportingCurrency" type="bdc:CurrencyCodeType" use="required"/>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SUSPICIOUS TRANSACTION REPORT TYPE (STR)               -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="SuspiciousReportType">
+    <xs:annotation>
+      <xs:documentation>
+        Suspicious Transaction Report for filing with Financial Intelligence
+        Unit (FIU/NFIU). Aligned with FATF Recommendation 20.
+        CONFIDENTIAL - Must not be disclosed to the subject.
+      </xs:documentation>
+    </xs:annotation>
+    <xs:sequence>
+      <xs:element name="InternalRefNo" type="xs:string"/>
+      <xs:element name="DateOfReport" type="xs:date"/>
+      <xs:element name="Subject" type="bdc:STRSubjectType"/>
+      <xs:element name="SuspiciousTransactions" type="bdc:STRTransactionsType"/>
+      <xs:element name="ReasonForSuspicion">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:maxLength value="5000"/>
+            <xs:minLength value="50"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="RedFlagIndicators">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Indicator" type="xs:string" maxOccurs="unbounded"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="ActionTaken" type="bdc:STRActionType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="STRSubjectType">
+    <xs:sequence>
+      <xs:element name="FullName" type="xs:string"/>
+      <xs:element name="CustomerIdType" type="bdc:CustomerIdTypeEnum"/>
+      <xs:element name="CustomerIdNo" type="xs:string"/>
+      <xs:element name="DateOfBirth" type="xs:date" minOccurs="0"/>
+      <xs:element name="Nationality" type="bdc:CountryCodeType"/>
+      <xs:element name="Address" type="xs:string" minOccurs="0"/>
+      <xs:element name="PhoneNumber" type="xs:string" minOccurs="0"/>
+      <xs:element name="EmailAddress" type="xs:string" minOccurs="0"/>
+      <xs:element name="Occupation" type="xs:string" minOccurs="0"/>
+      <xs:element name="RiskRating" type="bdc:RiskRatingEnum" minOccurs="0"/>
+      <xs:element name="IsPEP" type="xs:boolean" default="false"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="STRTransactionsType">
+    <xs:sequence>
+      <xs:element name="Transaction" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="TxnDate" type="xs:date"/>
+            <xs:element name="TxnRef" type="xs:string"/>
+            <xs:element name="TxnType" type="bdc:TransactionTypeEnum"/>
+            <xs:element name="CurrencyPair" type="bdc:CurrencyPairType"/>
+            <xs:element name="ForeignAmount" type="bdc:PositiveAmountType"/>
+            <xs:element name="LocalAmount" type="bdc:PositiveAmountType"/>
+            <xs:element name="PaymentMethod" type="bdc:PaymentMethodEnum"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalRelatedTransactions" type="xs:positiveInteger"/>
+      <xs:element name="TotalRelatedValue" type="bdc:PositiveAmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <xs:complexType name="STRActionType">
+    <xs:sequence>
+      <xs:element name="TransactionStatus">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="Completed"/>
+            <xs:enumeration value="Blocked"/>
+            <xs:enumeration value="Suspended"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="RelationshipStatus">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="Maintained"/>
+            <xs:enumeration value="Terminated"/>
+            <xs:enumeration value="UnderReview"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:element>
+      <xs:element name="InternalEscalationDate" type="xs:date"/>
+      <xs:element name="STRFilingDate" type="xs:date"/>
+      <xs:element name="FIUAcknowledgementRef" type="xs:string" minOccurs="0"/>
+      <xs:element name="SupportingDocsAttached" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- THRESHOLD REPORT TYPE (CTR)                            -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="ThresholdReportType">
+    <xs:sequence>
+      <xs:element name="ThresholdAmount" type="bdc:PositiveAmountType"/>
+      <xs:element name="ThresholdCurrency" type="bdc:CurrencyCodeType"/>
+      <xs:element name="ThresholdTransaction" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="TxnRef" type="xs:string"/>
+            <xs:element name="TxnDate" type="xs:date"/>
+            <xs:element name="TxnType" type="bdc:TransactionTypeEnum"/>
+            <xs:element name="CurrencyPair" type="bdc:CurrencyPairType"/>
+            <xs:element name="ForeignAmount" type="bdc:PositiveAmountType"/>
+            <xs:element name="LocalAmount" type="bdc:PositiveAmountType"/>
+            <xs:element name="ExchangeRate" type="bdc:ExchangeRateType"/>
+            <xs:element name="Customer" type="bdc:CustomerType"/>
+            <xs:element name="PurposeCode" type="bdc:PurposeCodeEnum"/>
+            <xs:element name="PaymentMethod" type="bdc:PaymentMethodEnum"/>
+            <xs:element name="SourceOfFunds" type="xs:string"/>
+            <xs:element name="Remarks" type="xs:string" minOccurs="0"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+    <xs:attribute name="totalCount" type="xs:positiveInteger" use="required"/>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- DAILY SUMMARY TYPE                                     -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="DailySummaryType">
+    <xs:sequence>
+      <xs:element name="TotalBuyCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalBuyVolume" type="bdc:AmountType"/>
+      <xs:element name="TotalSellCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="TotalSellVolume" type="bdc:AmountType"/>
+      <xs:element name="NetPosition" type="bdc:AmountType"/>
+      <xs:element name="TotalLocalCurrencyTurnover" type="bdc:AmountType"/>
+      <xs:element name="ThresholdTransactionCount" type="xs:nonNegativeInteger"/>
+      <xs:element name="WeightedAvgBuyRate" type="bdc:ExchangeRateType"/>
+      <xs:element name="WeightedAvgSellRate" type="bdc:ExchangeRateType"/>
+      <xs:element name="SpreadCompliance" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SIGNATURE TYPE                                         -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Name" type="xs:string"/>
+            <xs:element name="Designation" type="xs:string"/>
+            <xs:element name="Date" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="ReviewedBy">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Name" type="xs:string"/>
+            <xs:element name="Designation" type="xs:string"/>
+            <xs:element name="Date" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="AuthorisedBy">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Name" type="xs:string"/>
+            <xs:element name="Designation" type="xs:string"/>
+            <xs:element name="Date" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that the information provided in this return is true, accurate, and complete to the best of my/our knowledge and belief."/>
+      <xs:element name="DigitalSignature" type="xs:base64Binary" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!-- SIMPLE TYPES AND ENUMERATIONS                          -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+
+  <xs:simpleType name="LicenceNumberType">
+    <xs:restriction base="xs:string">
+      <xs:maxLength value="20"/>
+      <xs:minLength value="1"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="DTR"/>
+      <xs:enumeration value="WPR"/>
+      <xs:enumeration value="MFR"/>
+      <xs:enumeration value="QCR"/>
+      <xs:enumeration value="AAR"/>
+      <xs:enumeration value="STR"/>
+      <xs:enumeration value="CTR"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TierCategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="TIER1"/>
+      <xs:enumeration value="TIER2"/>
+      <xs:enumeration value="CATEGORY_A"/>
+      <xs:enumeration value="CATEGORY_B"/>
+      <xs:enumeration value="STANDARD"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="TransactionTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="BUY"/>
+      <xs:enumeration value="SELL"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CustomerTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Individual"/>
+      <xs:enumeration value="Corporate"/>
+      <xs:enumeration value="Government"/>
+      <xs:enumeration value="NonResidentIndividual"/>
+      <xs:enumeration value="NonResidentCorporate"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CustomerIdTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="BVN"/>
+      <xs:enumeration value="NIN"/>
+      <xs:enumeration value="InternationalPassport"/>
+      <xs:enumeration value="EmiratesID"/>
+      <xs:enumeration value="NationalID"/>
+      <xs:enumeration value="DriversLicence"/>
+      <xs:enumeration value="TaxID"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PurposeCodeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="BTA"/>
+      <xs:enumeration value="PTA"/>
+      <xs:enumeration value="MED"/>
+      <xs:enumeration value="EDU"/>
+      <xs:enumeration value="TRD"/>
+      <xs:enumeration value="SVC"/>
+      <xs:enumeration value="INV"/>
+      <xs:enumeration value="REM"/>
+      <xs:enumeration value="OTH"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PaymentMethodEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Cash"/>
+      <xs:enumeration value="ElectronicTransfer"/>
+      <xs:enumeration value="PrepaidCard"/>
+      <xs:enumeration value="Cheque"/>
+      <xs:enumeration value="DomiciliaryAccount"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="RiskRatingEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Low"/>
+      <xs:enumeration value="Medium"/>
+      <xs:enumeration value="High"/>
+      <xs:enumeration value="VeryHigh"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="AuditOpinionEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Unqualified"/>
+      <xs:enumeration value="Qualified"/>
+      <xs:enumeration value="Adverse"/>
+      <xs:enumeration value="Disclaimer"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CurrencyCodeType">
+    <xs:annotation>
+      <xs:documentation>ISO 4217 three-letter currency code</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z]{3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CurrencyPairType">
+    <xs:annotation>
+      <xs:documentation>Currency pair in ISO 4217 format: XXX/YYY</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z]{3}/[A-Z]{3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="CountryCodeType">
+    <xs:annotation>
+      <xs:documentation>ISO 3166-1 alpha-3 country code</xs:documentation>
+    </xs:annotation>
+    <xs:restriction base="xs:string">
+      <xs:pattern value="[A-Z]{3}"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="AmountType">
+    <xs:restriction base="xs:decimal">
+      <xs:fractionDigits value="2"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PositiveAmountType">
+    <xs:restriction base="xs:decimal">
+      <xs:fractionDigits value="2"/>
+      <xs:minInclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="ExchangeRateType">
+    <xs:restriction base="xs:decimal">
+      <xs:fractionDigits value="6"/>
+      <xs:minExclusive value="0"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="PercentageType">
+    <xs:restriction base="xs:decimal">
+      <xs:fractionDigits value="2"/>
+      <xs:minInclusive value="0"/>
+      <xs:maxInclusive value="100"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+</xs:schema>

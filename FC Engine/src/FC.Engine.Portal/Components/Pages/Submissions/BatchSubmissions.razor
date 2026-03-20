@@ -1,0 +1,463 @@
+@page "/submissions/batches"
+@attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Domain.Security
+@inject NavigationManager Navigation
+@inject SubmissionBatchPortalService BatchPortalService
+@inject AuthenticationStateProvider AuthState
+@inject ToastService Toast
+
+<PageTitle>Batch Submissions — RegOS™ Portal</PageTitle>
+
+<div class="portal-page">
+
+    <PortalPageHeader
+        Breadcrumb="@_breadcrumbs"
+        Title="Batch Submissions"
+        Subtitle="Direct regulatory submissions via API channels">
+        <PrimaryAction>
+            @if (_canDirectSubmit)
+            {
+                <a href="/submissions/batches/new" class="portal-btn portal-btn-primary portal-btn-sm">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Create Batch
+                </a>
+            }
+        </PrimaryAction>
+        <SecondaryActions>
+            @if (_openQueryCount > 0)
+            {
+                <a href="/submissions/batches/queries" class="portal-btn portal-btn-outline portal-btn-sm">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    @_openQueryCount Open @(_openQueryCount == 1 ? "Query" : "Queries")
+                </a>
+            }
+        </SecondaryActions>
+    </PortalPageHeader>
+
+    @if (_loading)
+    {
+        <SkeletonGuard OnRetry="LoadAsync">
+            <div class="portal-batch-skeleton">
+                @for (int i = 0; i < 5; i++)
+                {
+                    var idx = i;
+                    <SkeletonLoader Variant="@SkeletonLoader.SkeletonVariant.Card" Index="@idx" />
+                }
+            </div>
+        </SkeletonGuard>
+    }
+    else if (_loadError is not null)
+    {
+        <div class="portal-card" style="padding: 1.5rem;">
+            <div class="portal-empty-state">
+                <div class="portal-empty-state-icon" aria-hidden="true">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                </div>
+                <h3 class="portal-empty-state-title">Couldn't load batch submissions</h3>
+                <p class="portal-empty-state-desc">@_loadError</p>
+                <button type="button" class="portal-btn portal-btn-primary" @onclick="LoadAsync">Retry</button>
+            </div>
+        </div>
+    }
+    else if (!_canViewDirectStatus)
+    {
+        <div class="portal-empty-state portal-card" style="padding:3rem;text-align:center;">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="1.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="10"/>
+                <line x1="12" y1="8" x2="12" y2="12"/>
+                <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <h3 class="portal-empty-state-title">Access Restricted</h3>
+            <p class="portal-empty-state-desc">Your account can’t view regulator batch delivery status.</p>
+            <a href="/submissions" class="portal-btn portal-btn-primary">Back to Submissions</a>
+        </div>
+    }
+    else
+    {
+        <!-- Filters -->
+        <div class="portal-batch-filters">
+            <div class="portal-batch-filter-group">
+                <label class="portal-label" for="filter-regulator">Regulator</label>
+                <select id="filter-regulator" class="portal-select portal-select-sm"
+                    @bind="_filterRegulator" @bind:after="ApplyFilters">
+                    <option value="">All regulators</option>
+                    @foreach (var regulator in _regulators)
+                    {
+                        <option value="@regulator.RegulatorCode">@regulator.RegulatorCode</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-batch-filter-group">
+                <label class="portal-label" for="filter-status">Status</label>
+                <select id="filter-status" class="portal-select portal-select-sm"
+                    @bind="_filterStatus" @bind:after="ApplyFilters">
+                    <option value="">All statuses</option>
+                    <option value="SUBMITTED">Submitted</option>
+                    <option value="ACKNOWLEDGED">Acknowledged</option>
+                    <option value="PROCESSING">Processing</option>
+                    <option value="ACCEPTED">Accepted</option>
+                    <option value="FINAL_ACCEPTED">Final Accepted</option>
+                    <option value="QUERIES_RAISED">Queries Raised</option>
+                    <option value="REJECTED">Rejected</option>
+                    <option value="FAILED">Failed</option>
+                </select>
+            </div>
+        </div>
+
+        @if (_batches.Count == 0)
+        {
+            <div class="portal-empty-state portal-card" style="padding: 3rem; text-align: center;">
+                <div class="portal-empty-state-icon" aria-hidden="true">
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                </div>
+                <h3 class="portal-empty-state-title">No batch submissions yet</h3>
+                <p class="portal-empty-state-desc">Batch submissions appear here once you submit returns directly to a regulator's API.</p>
+            </div>
+        }
+        else
+        {
+            <div class="portal-batch-list">
+                @foreach (var batch in _batches)
+                {
+                    <div class="portal-batch-card @(batch.OpenQueries > 0 ? "portal-batch-card--has-queries" : "")">
+                        <div class="portal-batch-card-header">
+                            <div class="portal-batch-card-identity">
+                                <span class="portal-batch-regulator-badge portal-batch-regulator-@batch.RegulatorCode.ToLowerInvariant()">
+                                    @batch.RegulatorCode
+                                </span>
+                                <span class="portal-batch-ref">@batch.BatchReference</span>
+                                @if (!string.IsNullOrWhiteSpace(batch.RegulatorName) && !string.Equals(batch.RegulatorName, batch.RegulatorCode, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <span class="portal-batch-meta-item">@batch.RegulatorName</span>
+                                }
+                            </div>
+                            <span class="portal-badge @GetStatusBadgeClass(batch.Status)">
+                                @GetStatusIcon(batch.Status) @GetStatusLabel(batch.Status)
+                            </span>
+                        </div>
+
+                        <div class="portal-batch-card-meta">
+                            <span class="portal-batch-meta-item">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+                                </svg>
+                                @(batch.SubmittedAt?.ToString("d MMM yyyy HH:mm") ?? "—")
+                            </span>
+                            <span class="portal-batch-meta-item">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
+                                </svg>
+                                @batch.ItemCount @(batch.ItemCount == 1 ? "return" : "returns")
+                            </span>
+                            @if (!string.IsNullOrWhiteSpace(batch.LatestReceipt))
+                            {
+                                <span class="portal-batch-meta-item portal-batch-meta-receipt" title="Regulator reference">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <polyline points="20 6 9 17 4 12"/>
+                                    </svg>
+                                    Ref: @batch.LatestReceipt
+                                </span>
+                            }
+                            @if (batch.RetryCount > 0)
+                            {
+                                <span class="portal-batch-meta-item portal-batch-meta-retry" title="Retry attempts">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                        <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.63"/>
+                                    </svg>
+                                    @batch.RetryCount @(batch.RetryCount == 1 ? "retry" : "retries")
+                                </span>
+                            }
+                        </div>
+
+                        @if (batch.OpenQueries > 0)
+                        {
+                            <div class="portal-batch-query-alert">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                                </svg>
+                                @batch.OpenQueries open @(batch.OpenQueries == 1 ? "query" : "queries") from @batch.RegulatorCode — response required
+                            </div>
+                        }
+
+                        <div class="portal-batch-card-actions">
+                            <a href="/submissions/batches/@batch.Id" class="portal-btn portal-btn-sm portal-btn-outline">
+                                View Details
+                            </a>
+                            @if (batch.OpenQueries > 0)
+                            {
+                                <a href="/submissions/batches/queries" class="portal-btn portal-btn-sm portal-btn-ghost">
+                                    Work Queries
+                                </a>
+                            }
+                            @if (_canDirectSubmit && (batch.Status is "FAILED" or "REJECTED"))
+                            {
+                                <button class="portal-btn portal-btn-sm portal-btn-primary"
+                                    disabled="@_retrying.Contains(batch.Id)"
+                                    @onclick="() => RetryBatchAsync(batch.Id)">
+                                    @if (_retrying.Contains(batch.Id))
+                                    {
+                                        <span class="portal-spinner portal-spinner-xs" aria-hidden="true"></span>
+                                        <span>Retrying…</span>
+                                    }
+                                    else
+                                    {
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.63"/>
+                                        </svg>
+                                        <span>Retry</span>
+                                    }
+                                </button>
+                            }
+                            @if ((batch.Status is "SUBMITTED" or "ACKNOWLEDGED" or "PROCESSING") && _canViewDirectStatus)
+                            {
+                                <button class="portal-btn portal-btn-sm portal-btn-ghost"
+                                    disabled="@_refreshing.Contains(batch.Id)"
+                                    title="Refresh status from regulator"
+                                    @onclick="() => RefreshStatusAsync(batch.Id)">
+                                    @if (_refreshing.Contains(batch.Id))
+                                    {
+                                        <span class="portal-spinner portal-spinner-xs" aria-hidden="true"></span>
+                                    }
+                                    else
+                                    {
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-.49-3.63"/>
+                                        </svg>
+                                    }
+                                    Refresh
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+
+            @if (_totalCount > _pageSize)
+            {
+                <div class="portal-pagination">
+                    <button class="portal-btn portal-btn-sm portal-btn-ghost"
+                        disabled="@(_page <= 1)"
+                        @onclick="PrevPage">← Previous</button>
+                    <span class="portal-pagination-info">
+                        @((_page - 1) * _pageSize + 1)–@Math.Min(_page * _pageSize, _totalCount) of @_totalCount
+                    </span>
+                    <button class="portal-btn portal-btn-sm portal-btn-ghost"
+                        disabled="@(_page * _pageSize >= _totalCount)"
+                        @onclick="NextPage">Next →</button>
+                </div>
+            }
+        }
+    }
+</div>
+
+@code {
+    private bool _loading = true;
+    private Exception? _loadError;
+
+    private List<SubmissionBatchListItem> _batches = [];
+    private List<RegulatoryChannelOption> _regulators = [];
+    private int _totalCount;
+    private int _page = 1;
+    private const int _pageSize = 20;
+
+    private string _filterRegulator = string.Empty;
+    private string _filterStatus = string.Empty;
+
+    private int _openQueryCount;
+    private readonly HashSet<long> _retrying = [];
+    private readonly HashSet<long> _refreshing = [];
+
+    private int _institutionId;
+    private int _userId;
+    private bool _canDirectSubmit;
+    private bool _canViewDirectStatus;
+
+    private readonly List<BreadcrumbItem> _breadcrumbs =
+    [
+        new("Dashboard", "/"),
+        new("Submissions", "/submissions"),
+        new("Batch Submissions", null, IsCurrent: true)
+    ];
+
+    protected override async Task OnInitializedAsync()
+    {
+        var auth = await AuthState.GetAuthenticationStateAsync();
+        var user = auth.User;
+        _ = int.TryParse(
+            user.FindFirst("InstitutionId")?.Value,
+            out _institutionId);
+        _ = int.TryParse(
+            user.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value,
+            out _userId);
+        _canDirectSubmit = user.HasClaim("perm", PermissionCatalog.SubmissionDirectSubmit);
+        _canViewDirectStatus = user.HasClaim("perm", PermissionCatalog.SubmissionDirectStatus)
+            || _canDirectSubmit;
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _loadError = null;
+        StateHasChanged();
+        try
+        {
+            _regulators = await BatchPortalService.GetAvailableRegulatorsAsync();
+            await FetchBatchesAsync();
+            await FetchOpenQueryCountAsync();
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task FetchBatchesAsync()
+    {
+        var response = await BatchPortalService.GetBatchesAsync(
+            _institutionId,
+            _filterRegulator,
+            _filterStatus,
+            _page,
+            _pageSize);
+
+        _batches = response.Items;
+        _totalCount = response.Total;
+    }
+
+    private async Task FetchOpenQueryCountAsync()
+    {
+        try
+        {
+            _openQueryCount = await BatchPortalService.GetOpenQueryCountAsync(_institutionId);
+        }
+        catch
+        {
+            _openQueryCount = 0;
+        }
+    }
+
+    private async Task ApplyFilters()
+    {
+        _page = 1;
+        await LoadAsync();
+    }
+
+    private async Task PrevPage()
+    {
+        if (_page > 1) { _page--; await LoadAsync(); }
+    }
+
+    private async Task NextPage()
+    {
+        if (_page * _pageSize < _totalCount) { _page++; await LoadAsync(); }
+    }
+
+    private async Task RetryBatchAsync(long batchId)
+    {
+        _retrying.Add(batchId);
+        StateHasChanged();
+        try
+        {
+            var result = await BatchPortalService.RetryBatchAsync(_institutionId, batchId, default);
+            if (result.Success)
+            {
+                Toast.Success("Batch retry queued successfully.");
+                await FetchBatchesAsync();
+            }
+            else
+            {
+                Toast.Error(string.IsNullOrWhiteSpace(result.ErrorMessage)
+                    ? "Batch retry failed. Please try again."
+                    : $"Batch retry failed: {result.ErrorMessage}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Batch retry failed: {ex.Message}");
+        }
+        finally
+        {
+            _retrying.Remove(batchId);
+        }
+    }
+
+    private async Task RefreshStatusAsync(long batchId)
+    {
+        _refreshing.Add(batchId);
+        StateHasChanged();
+        try
+        {
+            var result = await BatchPortalService.RefreshStatusAsync(_institutionId, batchId, default);
+            if (result.StatusChanged)
+            {
+                Toast.Success($"Status updated: {result.PreviousStatus} → {result.CurrentStatus}");
+            }
+            else
+            {
+                Toast.Info($"Status unchanged ({result.CurrentStatus}). No update from regulator.");
+            }
+            await FetchBatchesAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Status refresh failed: {ex.Message}");
+        }
+        finally
+        {
+            _refreshing.Remove(batchId);
+        }
+    }
+
+    private static string GetStatusBadgeClass(string status) => status.ToUpperInvariant() switch
+    {
+        "SUBMITTED"      => "portal-badge-blue",
+        "ACKNOWLEDGED"   => "portal-badge-teal",
+        "PROCESSING"     => "portal-badge-amber",
+        "ACCEPTED"       => "portal-badge-green",
+        "FINAL_ACCEPTED" => "portal-badge-green portal-badge-solid",
+        "QUERIES_RAISED" => "portal-badge-orange",
+        "REJECTED"       => "portal-badge-red",
+        "FAILED"         => "portal-badge-red",
+        _                => "portal-badge-gray"
+    };
+
+    private static string GetStatusIcon(string status) => status.ToUpperInvariant() switch
+    {
+        "SUBMITTED"      => "⬆",
+        "ACKNOWLEDGED"   => "✓",
+        "PROCESSING"     => "⏳",
+        "ACCEPTED"       => "✔",
+        "FINAL_ACCEPTED" => "✅",
+        "QUERIES_RAISED" => "❓",
+        "REJECTED"       => "✗",
+        "FAILED"         => "✗",
+        _                => "○"
+    };
+
+    private static string GetStatusLabel(string status) => status.ToUpperInvariant() switch
+    {
+        "SUBMITTED"      => "Submitted",
+        "ACKNOWLEDGED"   => "Acknowledged",
+        "PROCESSING"     => "Processing",
+        "ACCEPTED"       => "Accepted",
+        "FINAL_ACCEPTED" => "Final Accepted",
+        "QUERIES_RAISED" => "Queries Raised",
+        "REJECTED"       => "Rejected",
+        "FAILED"         => "Failed",
+        _                => status
+    };
+}

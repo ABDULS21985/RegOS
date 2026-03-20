@@ -1,0 +1,58 @@
+@page "/privacy/reconsent"
+@layout FC.Engine.Admin.Components.Layout.LoginLayout
+
+<PageTitle>Privacy Re-Consent</PageTitle>
+
+<div class="fc-login-container">
+    <div class="fc-login-card">
+        <div class="fc-login-card-body">
+            <div class="fc-login-card-header">
+                <h2 class="fc-login-title">Privacy Policy Update</h2>
+                <p class="fc-login-subtitle">Re-consent is required before continuing.</p>
+            </div>
+
+            @if (string.Equals(error, "core-required", StringComparison.OrdinalIgnoreCase))
+            {
+                <div class="fc-alert fc-alert--inline fc-alert--error" role="alert">
+                    Core data processing consent is required to continue.
+                </div>
+            }
+
+            <form method="post" action="/account/reconsent">
+                <input type="hidden" name="returnUrl" value="@returnUrl" />
+                <AntiforgeryToken />
+
+                <div class="fc-form-group">
+                    <label>
+                        <input type="checkbox" name="allowCore" checked />
+                        I consent to required processing of personal data for service delivery and regulatory obligations.
+                    </label>
+                </div>
+
+                <div class="fc-form-group">
+                    <label>
+                        <input type="checkbox" name="allowMarketing" />
+                        I consent to optional marketing messages.
+                    </label>
+                </div>
+
+                <div class="fc-form-group">
+                    <label>
+                        <input type="checkbox" name="allowAnalytics" />
+                        I consent to optional usage analytics.
+                    </label>
+                </div>
+
+                <button type="submit" class="fc-btn fc-btn--gold-submit">Save Preferences</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? returnUrl { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? error { get; set; }
+}

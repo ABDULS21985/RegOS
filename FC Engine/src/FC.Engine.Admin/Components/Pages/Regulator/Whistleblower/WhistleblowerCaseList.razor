@@ -1,0 +1,354 @@
+@page "/regulator/whistleblower/cases"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject IWhistleblowerService WhistleblowerService
+@inject RegulatorSessionService RegulatorSession
+@inject ToastService Toast
+
+<PageTitle>Whistleblower Cases</PageTitle>
+
+<PageHeader Title="Whistleblower Cases"
+            Subtitle="@($"Open whistleblower reports requiring review for {(_regulatorCode ?? "regulator")} supervision.")"
+            CountBadge="@(!_loading ? _cases.Count : null)"
+            BackUrl="/regulator/surveillance">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--outline" @onclick="LoadDataAsync" disabled="@_loading">
+            Refresh
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<SectionErrorBoundary Title="Couldn't load whistleblower cases" ExternalError="@_loadException" OnRetry="LoadDataAsync">
+    @if (_loading)
+    {
+        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="5" />
+    }
+    else if (_cases.Count == 0)
+    {
+        <EmptyState Context="data" Size="sm"
+                    Heading="No open cases"
+                    Description="There are no open whistleblower cases requiring review at this time." />
+    }
+    else
+    {
+        <div class="rg-card rg-surveillance-panel">
+            <div class="rg-table-wrap">
+                <table class="rg-table">
+                    <thead>
+                        <tr>
+                            <th>Priority</th>
+                            <th>Case ref</th>
+                            <th>Category</th>
+                            <th>Alleged institution</th>
+                            <th>Status</th>
+                            <th>Assigned to</th>
+                            <th>Received</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var c in _cases)
+                        {
+                            <tr>
+                                <td>
+                                    <span class="rg-surveillance-badge @GetPriorityBadgeClass(c.PriorityScore)">
+                                        @c.PriorityScore
+                                    </span>
+                                </td>
+                                <td><code>@c.CaseReference</code></td>
+                                <td>@FormatCategory(c.Category)</td>
+                                <td>@(c.AllegedInstitutionName ?? "—")</td>
+                                <td>@FormatStatus(c.Status)</td>
+                                <td>@(c.AssignedToUserName ?? "Unassigned")</td>
+                                <td>@c.ReceivedAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td class="rg-surveillance-actions-cell">
+                                    <button class="fc-btn fc-btn--outline" @onclick="() => OpenAssignModal(c)">
+                                        Assign
+                                    </button>
+                                    <button class="fc-btn fc-btn--primary" @onclick="() => OpenUpdateModal(c)">
+                                        Update status
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    }
+</SectionErrorBoundary>
+
+@* ── Assign modal ── *@
+@if (_assignTarget is not null)
+{
+    <div class="rg-modal-overlay" @onclick="CloseAssignModal">
+        <div class="rg-modal-card" @onclick:stopPropagation="true">
+            <h3>Assign case: @_assignTarget.CaseReference</h3>
+            <p class="rg-muted">@FormatCategory(_assignTarget.Category) · @(_assignTarget.AllegedInstitutionName ?? "No institution named")</p>
+
+            <div class="rg-controls" style="display:grid;gap:.75rem;margin-top:1rem;">
+                <label>
+                    Assign to
+                    @if (_assignableUsers.Count == 0)
+                    {
+                        <p class="rg-muted" style="margin-top:.25rem;">No active users found for this regulator.</p>
+                    }
+                    else
+                    {
+                        <select @bind="_selectedAssigneeId">
+                            <option value="0">— select a user —</option>
+                            @foreach (var u in _assignableUsers)
+                            {
+                                <option value="@u.UserId">@u.DisplayName</option>
+                            }
+                        </select>
+                    }
+                </label>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_assignModalError))
+            {
+                <p style="color:var(--cbn-danger);font-size:0.82rem;margin-top:.5rem;">@_assignModalError</p>
+            }
+
+            <div class="rg-modal-actions">
+                <button class="fc-btn fc-btn--outline" @onclick="CloseAssignModal" disabled="@_saving">Cancel</button>
+                <button class="fc-btn fc-btn--primary" @onclick="ConfirmAssignAsync"
+                        disabled="@(_saving || _selectedAssigneeId <= 0 || _assignableUsers.Count == 0)">
+                    @(_saving ? "Saving..." : "Confirm assignment")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@* ── Status-update modal ── *@
+@if (_updateTarget is not null)
+{
+    <div class="rg-modal-overlay" @onclick="CloseUpdateModal">
+        <div class="rg-modal-card" @onclick:stopPropagation="true">
+            <h3>Update case: @_updateTarget.CaseReference</h3>
+            <p class="rg-muted">@FormatCategory(_updateTarget.Category) · @(_updateTarget.AllegedInstitutionName ?? "No institution named")</p>
+
+            <div class="rg-controls" style="display:grid;gap:.75rem;margin-top:1rem;">
+                <label>
+                    New status
+                    <select @bind="_newStatus">
+                        @foreach (var status in Enum.GetValues<FC.Engine.Domain.Models.WhistleblowerStatus>())
+                        {
+                            <option value="@status">@FormatStatusEnum(status)</option>
+                        }
+                    </select>
+                </label>
+                <label>
+                    Note <span class="rg-muted">(required)</span>
+                    <textarea rows="4" @bind="_updateNote" placeholder="Describe the action taken or reason for status change."></textarea>
+                </label>
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_updateModalError))
+            {
+                <p style="color:var(--cbn-danger);font-size:0.82rem;margin-top:.5rem;">@_updateModalError</p>
+            }
+
+            <div class="rg-modal-actions">
+                <button class="fc-btn fc-btn--outline" @onclick="CloseUpdateModal" disabled="@_saving">Cancel</button>
+                <button class="fc-btn fc-btn--primary" @onclick="ConfirmUpdateAsync"
+                        disabled="@(_saving || string.IsNullOrWhiteSpace(_updateNote))">
+                    @(_saving ? "Saving..." : "Confirm update")
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string _regulatorCode = string.Empty;
+    private int _currentUserId;
+    private bool _loading = true;
+    private Exception? _loadException;
+
+    private List<WhistleblowerCaseSummary> _cases = new();
+    private List<WhistleblowerAssignableUser> _assignableUsers = new();
+
+    // Assign modal state
+    private WhistleblowerCaseSummary? _assignTarget;
+    private int _selectedAssigneeId;
+    private string? _assignModalError;
+
+    // Status-update modal state
+    private WhistleblowerCaseSummary? _updateTarget;
+    private FC.Engine.Domain.Models.WhistleblowerStatus _newStatus = FC.Engine.Domain.Models.WhistleblowerStatus.UnderReview;
+    private string _updateNote = string.Empty;
+    private string? _updateModalError;
+
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorCode = session.RegulatorCode;
+        _currentUserId = session.UserId;
+        await LoadDataAsync();
+    }
+
+    private async Task LoadDataAsync()
+    {
+        try
+        {
+            _loading = true;
+            _loadException = null;
+
+            var casesTask = WhistleblowerService.GetOpenCasesAsync(_regulatorCode);
+            var usersTask = WhistleblowerService.GetAssignableUsersAsync(_regulatorCode);
+
+            await Task.WhenAll(casesTask, usersTask);
+
+            _cases = casesTask.Result.ToList();
+            _assignableUsers = usersTask.Result.ToList();
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    // ── Assign modal ──────────────────────────────────────────────────────────
+
+    private void OpenAssignModal(WhistleblowerCaseSummary c)
+    {
+        _assignTarget = c;
+        _selectedAssigneeId = 0;
+        _assignModalError = null;
+    }
+
+    private void CloseAssignModal()
+    {
+        _assignTarget = null;
+        _assignModalError = null;
+    }
+
+    private async Task ConfirmAssignAsync()
+    {
+        if (_assignTarget is null || _selectedAssigneeId <= 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _saving = true;
+            _assignModalError = null;
+            await WhistleblowerService.AssignCaseAsync(_assignTarget.CaseReference, _selectedAssigneeId);
+            var assignee = _assignableUsers.FirstOrDefault(u => u.UserId == _selectedAssigneeId)?.DisplayName
+                           ?? _selectedAssigneeId.ToString();
+            Toast.Success($"Case {_assignTarget.CaseReference} assigned to {assignee}.");
+            _assignTarget = null;
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _assignModalError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    // ── Status-update modal ───────────────────────────────────────────────────
+
+    private void OpenUpdateModal(WhistleblowerCaseSummary c)
+    {
+        _updateTarget = c;
+        _newStatus = FC.Engine.Domain.Models.WhistleblowerStatus.UnderReview;
+        _updateNote = string.Empty;
+        _updateModalError = null;
+    }
+
+    private void CloseUpdateModal()
+    {
+        _updateTarget = null;
+        _updateModalError = null;
+    }
+
+    private async Task ConfirmUpdateAsync()
+    {
+        if (_updateTarget is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_updateNote))
+        {
+            _updateModalError = "A note is required before updating case status.";
+            return;
+        }
+
+        try
+        {
+            _saving = true;
+            _updateModalError = null;
+            await WhistleblowerService.UpdateStatusAsync(
+                _updateTarget.CaseReference,
+                _newStatus,
+                _updateNote.Trim(),
+                _currentUserId);
+            Toast.Success($"Case {_updateTarget.CaseReference} updated to {FormatStatusEnum(_newStatus)}.");
+            _updateTarget = null;
+            await LoadDataAsync();
+        }
+        catch (Exception ex)
+        {
+            _updateModalError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static string GetPriorityBadgeClass(int score) => score switch
+    {
+        >= 80 => "rg-surveillance-badge-critical",
+        >= 65 => "rg-surveillance-badge-high",
+        >= 50 => "rg-surveillance-badge-medium",
+        _ => "rg-surveillance-badge-low"
+    };
+
+    private static string FormatCategory(string raw) => raw switch
+    {
+        "FxManipulation" => "FX Manipulation",
+        "InsiderTrading" => "Insider Trading",
+        "AmlFailure" => "AML Failure",
+        "PremiumFraud" => "Premium Fraud",
+        "ClaimsSuppression" => "Claims Suppression",
+        "RelatedPartyAbuse" => "Related Party Abuse",
+        _ => "Other"
+    };
+
+    private static string FormatStatus(string raw) => raw switch
+    {
+        "RECEIVED" => "Received",
+        "UNDER_REVIEW" => "Under Review",
+        "CONCLUDED" => "Concluded",
+        "REFERRED" => "Referred",
+        "CLOSED" => "Closed",
+        _ => raw
+    };
+
+    private static string FormatStatusEnum(FC.Engine.Domain.Models.WhistleblowerStatus s) => s switch
+    {
+        FC.Engine.Domain.Models.WhistleblowerStatus.Received => "Received",
+        FC.Engine.Domain.Models.WhistleblowerStatus.UnderReview => "Under Review",
+        FC.Engine.Domain.Models.WhistleblowerStatus.Concluded => "Concluded",
+        FC.Engine.Domain.Models.WhistleblowerStatus.Referred => "Referred",
+        FC.Engine.Domain.Models.WhistleblowerStatus.Closed => "Closed",
+        _ => s.ToString()
+    };
+}

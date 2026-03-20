@@ -1,17 +1,36 @@
 using FC.Engine.Domain.Enums;
+using FC.Engine.Domain.Entities;
 
 namespace FC.Engine.Domain.Validation;
 
 public class CrossSheetRule
 {
     public int Id { get; set; }
+
+    /// <summary>FK to Tenant for RLS.</summary>
+    public Guid? TenantId { get; set; }
+
     public string RuleCode { get; set; } = string.Empty;
     public string RuleName { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public int? ModuleId { get; set; }
+    public int? SourceModuleId { get; set; }
+    public int? TargetModuleId { get; set; }
+    public string? SourceTemplateCode { get; set; }
+    public string? SourceFieldCode { get; set; }
+    public string? TargetTemplateCode { get; set; }
+    public string? TargetFieldCode { get; set; }
+    public string? Operator { get; set; }
+    public decimal ToleranceAmount { get; set; }
+    public decimal? TolerancePercent { get; set; }
     public ValidationSeverity Severity { get; set; } = ValidationSeverity.Error;
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     public string CreatedBy { get; set; } = string.Empty;
+
+    public Module? Module { get; set; }
+    public Module? SourceModule { get; set; }
+    public Module? TargetModule { get; set; }
 
     private readonly List<CrossSheetRuleOperand> _operands = new();
     public IReadOnlyList<CrossSheetRuleOperand> Operands => _operands.AsReadOnly();

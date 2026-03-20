@@ -1,0 +1,303 @@
+@page "/billing/subscriptions"
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Infrastructure.Metadata
+@using FC.Engine.Admin.Services
+@using Microsoft.EntityFrameworkCore
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject IDbContextFactory<MetadataDbContext> DbFactory
+@inject ISubscriptionService SubscriptionService
+@inject ToastService Toast
+@inject DialogService Dialog
+
+<PageTitle>Tenant Subscriptions</PageTitle>
+
+<PageHeader Title="Tenant Subscriptions"
+            Subtitle="Monitor lifecycle status, adjust plans, and manage subscription operations across all tenants." />
+
+<div class="fc-page">
+
+    <DataTable TItem="SubscriptionRow"
+               Items="@FilteredSubscriptions"
+               Loading="_loading"
+               Sortable="true"
+               ShowPagination="true"
+               PageSize="25"
+               EmptyTitle="@(_searchTerm == string.Empty && _statusFilter == "ALL" && _planFilter == "ALL" ? "No subscriptions found" : "No matching subscriptions")"
+               EmptyText="@(_searchTerm == string.Empty && _statusFilter == "ALL" && _planFilter == "ALL" ? "Tenant subscriptions will appear here once tenants are onboarded." : "Try adjusting your search or filters.")"
+               SkeletonRows="5">
+        <ToolbarContent>
+            <div class="fc-toolbar-search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                <input type="text" placeholder="Search tenant or plan..." @bind="_searchTerm" @bind:event="oninput" aria-label="Search subscriptions" />
+            </div>
+            <div class="fc-toolbar-filter">
+                <select @bind="_statusFilter" aria-label="Filter by status">
+                    <option value="ALL">All Statuses</option>
+                    @foreach (var status in Enum.GetValues<SubscriptionStatus>())
+                    {
+                        <option value="@status.ToString()">@status</option>
+                    }
+                </select>
+                <select @bind="_planFilter" aria-label="Filter by plan">
+                    <option value="ALL">All Plans</option>
+                    @foreach (var plan in _planOptions)
+                    {
+                        <option value="@plan.PlanCode">@plan.PlanName (@plan.PlanCode)</option>
+                    }
+                </select>
+                <button class="fc-btn fc-btn--outline" @onclick="ClearFilters" type="button">Clear</button>
+            </div>
+        </ToolbarContent>
+        <ChildContent>
+            <DataColumn TItem="SubscriptionRow" Title="Tenant" SortKey="r => r.TenantName">
+                <CellTemplate>
+                    <div class="fc-fw-600">@context.TenantName</div>
+                    <small class="fc-cell-sub">@context.TenantSlug</small>
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionRow" Title="Current Plan" SortKey="r => r.PlanCode" Width="140px">
+                <CellTemplate>
+                    <div class="fc-fw-500">@context.PlanCode</div>
+                    <small class="fc-cell-sub">Tier @context.PlanTier</small>
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionRow" Title="Status" SortKey="r => r.Status" Width="120px">
+                <CellTemplate>
+                    <span class="fc-badge @GetStatusBadgeClass(context.Status)">@context.Status</span>
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionRow" Title="Frequency" Width="110px">
+                <CellTemplate>@context.BillingFrequency</CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionRow" Title="Period" Width="170px">
+                <CellTemplate>
+                    <div>@context.CurrentPeriodStart.ToString("yyyy-MM-dd")</div>
+                    <small class="fc-cell-sub">to @context.CurrentPeriodEnd.ToString("yyyy-MM-dd")</small>
+                </CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionRow" Title="Active Modules" SortKey="r => r.ActiveModuleCount" Width="120px">
+                <CellTemplate>@context.ActiveModuleCount</CellTemplate>
+            </DataColumn>
+            <DataColumn TItem="SubscriptionRow" Title="Actions" Align="right" Width="280px">
+                <CellTemplate>
+                    <div class="fc-actions">
+                        <select class="fc-form-input fc-form-select--compact" @bind="context.TargetPlanCode" @onclick:stopPropagation="true">
+                            @foreach (var plan in _planOptions.Where(p => p.Tier != context.PlanTier))
+                            {
+                                <option value="@plan.PlanCode">@plan.PlanCode</option>
+                            }
+                        </select>
+                        <button class="fc-btn fc-btn--ghost"
+                                disabled="@(_busySubscriptionId == context.SubscriptionId)"
+                                @onclick="() => ChangePlan(context)"
+                                @onclick:stopPropagation="true"
+                                type="button">
+                            Apply Plan
+                        </button>
+                        <button class="fc-btn fc-btn--ghost fc-btn--danger"
+                                disabled="@(_busySubscriptionId == context.SubscriptionId || context.Status is SubscriptionStatus.Cancelled or SubscriptionStatus.Expired)"
+                                @onclick="() => CancelSubscription(context)"
+                                @onclick:stopPropagation="true"
+                                type="button">
+                            Cancel
+                        </button>
+                    </div>
+                </CellTemplate>
+            </DataColumn>
+        </ChildContent>
+    </DataTable>
+
+</div>
+
+@code {
+    private bool _loading = true;
+    private string _searchTerm = string.Empty;
+    private string _statusFilter = "ALL";
+    private string _planFilter = "ALL";
+    private int? _busySubscriptionId;
+
+    private List<SubscriptionRow> _subscriptions = new();
+    private List<PlanOption> _planOptions = new();
+
+    private IReadOnlyList<SubscriptionRow> FilteredSubscriptions => _subscriptions
+        .Where(s => string.IsNullOrWhiteSpace(_searchTerm)
+            || s.TenantName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)
+            || s.TenantSlug.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)
+            || s.PlanCode.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase))
+        .Where(s => _statusFilter == "ALL" || s.Status.ToString() == _statusFilter)
+        .Where(s => _planFilter == "ALL" || s.PlanCode == _planFilter)
+        .OrderByDescending(s => s.UpdatedAt)
+        .ThenBy(s => s.TenantName)
+        .ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+        _loading = false;
+    }
+
+    private async Task LoadData()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _planOptions = await db.SubscriptionPlans
+            .AsNoTracking()
+            .Where(p => p.IsActive)
+            .OrderBy(p => p.Tier)
+            .ThenBy(p => p.DisplayOrder)
+            .ThenBy(p => p.PlanCode)
+            .Select(p => new PlanOption
+            {
+                PlanCode = p.PlanCode,
+                PlanName = p.PlanName,
+                Tier = p.Tier
+            })
+            .ToListAsync();
+
+        _subscriptions = await db.Subscriptions
+            .AsNoTracking()
+            .Include(s => s.Tenant)
+            .Include(s => s.Plan)
+            .Select(s => new SubscriptionRow
+            {
+                SubscriptionId = s.Id,
+                TenantId = s.TenantId,
+                TenantName = s.Tenant != null ? s.Tenant.TenantName : "Unknown",
+                TenantSlug = s.Tenant != null ? s.Tenant.TenantSlug : string.Empty,
+                PlanCode = s.Plan != null ? s.Plan.PlanCode : "N/A",
+                PlanTier = s.Plan != null ? s.Plan.Tier : 0,
+                Status = s.Status,
+                BillingFrequency = s.BillingFrequency,
+                CurrentPeriodStart = s.CurrentPeriodStart,
+                CurrentPeriodEnd = s.CurrentPeriodEnd,
+                ActiveModuleCount = db.SubscriptionModules.Count(sm => sm.SubscriptionId == s.Id && sm.IsActive),
+                UpdatedAt = s.UpdatedAt
+            })
+            .ToListAsync();
+
+        foreach (var row in _subscriptions)
+        {
+            row.TargetPlanCode = row.PlanCode;
+        }
+    }
+
+    private void ClearFilters()
+    {
+        _searchTerm = string.Empty;
+        _statusFilter = "ALL";
+        _planFilter = "ALL";
+    }
+
+    private async Task ChangePlan(SubscriptionRow row)
+    {
+        if (string.IsNullOrWhiteSpace(row.TargetPlanCode) || row.TargetPlanCode == row.PlanCode)
+        {
+            Toast.Warning("Select a different target plan before applying.");
+            return;
+        }
+
+        var target = _planOptions.FirstOrDefault(p => p.PlanCode == row.TargetPlanCode);
+        if (target is null)
+        {
+            Toast.Error($"Target plan {row.TargetPlanCode} is not available.");
+            return;
+        }
+
+        _busySubscriptionId = row.SubscriptionId;
+
+        try
+        {
+            if (target.Tier > row.PlanTier)
+            {
+                await SubscriptionService.UpgradePlan(row.TenantId, row.TargetPlanCode);
+            }
+            else if (target.Tier < row.PlanTier)
+            {
+                await SubscriptionService.DowngradePlan(row.TenantId, row.TargetPlanCode);
+            }
+            else
+            {
+                throw new InvalidOperationException("Switching plans on the same tier is not supported by the subscription service.");
+            }
+
+            Toast.Success($"Updated {row.TenantName} to {row.TargetPlanCode}.");
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message);
+        }
+        finally
+        {
+            _busySubscriptionId = null;
+        }
+    }
+
+    private async Task CancelSubscription(SubscriptionRow row)
+    {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Cancel Subscription",
+            Message = $"Cancel the subscription for {row.TenantName}? This will terminate their active billing cycle and revoke access to subscribed modules.",
+            ConfirmText = "Cancel Subscription",
+            IsDestructive = true,
+            Icon = "archive"
+        });
+
+        if (!confirmed) return;
+
+        _busySubscriptionId = row.SubscriptionId;
+
+        try
+        {
+            await SubscriptionService.CancelSubscription(row.TenantId, "Cancelled by platform administrator");
+            Toast.Success($"Cancelled subscription for {row.TenantName}.");
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message);
+        }
+        finally
+        {
+            _busySubscriptionId = null;
+        }
+    }
+
+    private static string GetStatusBadgeClass(SubscriptionStatus status) => status switch
+    {
+        SubscriptionStatus.Active => "fc-badge--success",
+        SubscriptionStatus.Trial => "fc-badge--warning",
+        SubscriptionStatus.PastDue => "fc-badge--warning",
+        SubscriptionStatus.Suspended => "fc-badge--danger",
+        SubscriptionStatus.Cancelled => "fc-badge--danger",
+        SubscriptionStatus.Expired => "fc-badge--neutral",
+        _ => "fc-badge--neutral"
+    };
+
+    private sealed class PlanOption
+    {
+        public string PlanCode { get; set; } = string.Empty;
+        public string PlanName { get; set; } = string.Empty;
+        public int Tier { get; set; }
+    }
+
+    private sealed class SubscriptionRow
+    {
+        public int SubscriptionId { get; set; }
+        public Guid TenantId { get; set; }
+        public string TenantName { get; set; } = string.Empty;
+        public string TenantSlug { get; set; } = string.Empty;
+        public string PlanCode { get; set; } = string.Empty;
+        public int PlanTier { get; set; }
+        public string TargetPlanCode { get; set; } = string.Empty;
+        public SubscriptionStatus Status { get; set; }
+        public BillingFrequency BillingFrequency { get; set; }
+        public DateTime CurrentPeriodStart { get; set; }
+        public DateTime CurrentPeriodEnd { get; set; }
+        public int ActiveModuleCount { get; set; }
+        public DateTime UpdatedAt { get; set; }
+    }
+}

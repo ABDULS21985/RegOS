@@ -1,0 +1,50 @@
+@page "/privacy/reconsent"
+@layout LoginLayout
+
+<PageTitle>Privacy Re-Consent</PageTitle>
+
+<div class="portal-login-container">
+    <div class="portal-login-card">
+        <div class="portal-login-header">
+            <h2 class="portal-login-title">Privacy Policy Update</h2>
+            <p class="portal-login-subtitle">Please review and confirm your data processing preferences to continue.</p>
+        </div>
+
+        @if (string.Equals(error, "core-required", StringComparison.OrdinalIgnoreCase))
+        {
+            <div class="portal-alert portal-alert-error" role="alert">
+                Core data processing consent is required to continue using RegOS.
+            </div>
+        }
+
+        <form method="post" action="/account/reconsent" class="portal-login-form">
+            <input type="hidden" name="returnUrl" value="@returnUrl" />
+            <AntiforgeryToken />
+
+            <label class="portal-form-checkbox">
+                <input type="checkbox" name="allowCore" checked />
+                <span>I consent to required data processing for regulatory submissions.</span>
+            </label>
+
+            <label class="portal-form-checkbox">
+                <input type="checkbox" name="allowMarketing" />
+                <span>I consent to optional product/marketing communications.</span>
+            </label>
+
+            <label class="portal-form-checkbox">
+                <input type="checkbox" name="allowAnalytics" />
+                <span>I consent to optional analytics for product improvement.</span>
+            </label>
+
+            <button type="submit" class="portal-btn portal-btn-primary portal-btn-full">Save Preferences</button>
+        </form>
+    </div>
+</div>
+
+@code {
+    [SupplyParameterFromQuery]
+    private string? returnUrl { get; set; }
+
+    [SupplyParameterFromQuery]
+    private string? error { get; set; }
+}

@@ -1,0 +1,262 @@
+@page "/partner/support"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using System.Security.Claims
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Entities
+@attribute [Authorize(Roles = "Admin")]
+@inject FC.Engine.Portal.Services.PartnerPortalService PartnerService
+@inject ITenantContext TenantContext
+
+<PageTitle>Partner Support Escalation</PageTitle>
+
+<PortalPageHeader Title="Partner Support Escalation"
+                  Subtitle="Manage support tickets and escalate partner-managed issues to platform support."
+                  Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Partner", "/partner"), new("Support Escalation", IsCurrent: true) })" />
+
+@if (!string.IsNullOrWhiteSpace(_message))
+{
+    <div class="portal-alert portal-alert-success">@_message</div>
+}
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <div class="portal-alert portal-alert-danger">@_error</div>
+}
+
+@if (_loading)
+{
+    <div aria-busy="true" aria-label="Loading support tickets">
+        <div class="portal-card" style="margin-bottom:1rem;"><div class="portal-card-body">
+            <div class="fc-skel fc-skel--text" style="width:30%;margin-bottom:0.75rem;"></div>
+            @for (int i = 0; i < 3; i++)
+            {
+                <div style="display:flex;gap:0.75rem;margin-bottom:0.5rem;">
+                    <div class="fc-skel fc-skel--text" style="width:20%;"></div>
+                    <div class="fc-skel fc-skel--text" style="width:65%;"></div>
+                </div>
+            }
+        </div></div>
+        <div class="portal-card"><div class="portal-card-body">
+            <div class="fc-skel fc-skel--text" style="width:20%;margin-bottom:0.75rem;"></div>
+            @for (int i = 0; i < 4; i++)
+            {
+                <div style="display:flex;gap:1rem;margin-bottom:0.5rem;">
+                    <div class="fc-skel fc-skel--text" style="width:8%;"></div>
+                    <div class="fc-skel fc-skel--text" style="width:30%;"></div>
+                    <div class="fc-skel fc-skel--text" style="width:12%;"></div>
+                    <div class="fc-skel fc-skel--text" style="width:12%;"></div>
+                    <div class="fc-skel fc-skel--text" style="width:15%;"></div>
+                </div>
+            }
+        </div></div>
+    </div>
+}
+else if (!_isPartner)
+{
+    <div class="portal-card"><div class="portal-card-body">This tenant is not configured as a white-label partner.</div></div>
+}
+else
+{
+    <section class="portal-card">
+        <div class="portal-card-header"><h2 class="portal-card-title">Raise Partner Ticket</h2></div>
+        <div class="portal-card-body">
+            <div class="portal-form-row"><label>Title</label><input class="portal-input" @bind="_title" /></div>
+            <div class="portal-form-row">
+                <label>Priority</label>
+                <select class="portal-input" @bind="_priority">
+                    @foreach (var p in Enum.GetValues<PartnerSupportTicketPriority>())
+                    {
+                        <option value="@p">@p</option>
+                    }
+                </select>
+            </div>
+            <div class="portal-form-row"><label>Description</label><textarea class="portal-input" rows="4" @bind="_description"></textarea></div>
+            <button class="portal-btn portal-btn-primary" @onclick="CreateTicket" disabled="@_busy">Create Ticket</button>
+        </div>
+    </section>
+
+    <section class="portal-card">
+        <div class="portal-card-header"><h2 class="portal-card-title">Tickets</h2></div>
+        <div class="portal-card-body">
+            @if (_tickets.Count == 0)
+            {
+                <p>No tickets found.</p>
+            }
+            else
+            {
+                <table class="portal-table">
+                    <thead>
+                        <tr>
+                            <th>Id</th>
+                            <th>Title</th>
+                            <th>Priority</th>
+                            <th>Status</th>
+                            <th>Escalation</th>
+                            <th>SLA Due</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var ticket in _tickets)
+                        {
+                            <tr>
+                                <td>#@ticket.Id</td>
+                                <td>@ticket.Title</td>
+                                <td>@ticket.Priority</td>
+                                <td>@ticket.Status</td>
+                                <td>@ticket.EscalationLevel</td>
+                                <td>@ticket.SlaDueAt.ToString("dd MMM yyyy HH:mm")</td>
+                                <td>
+                                    <button class="portal-btn portal-btn-outline portal-btn-sm"
+                                            disabled="@(ticket.EscalationLevel > 0 || _busy)"
+                                            @onclick="() => Escalate(ticket.Id)">
+                                        Escalate
+                                    </button>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            }
+        </div>
+    </section>
+}
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _busy;
+    private bool _isPartner;
+    private string? _message;
+    private string? _error;
+    private string _title = string.Empty;
+    private string _description = string.Empty;
+    private PartnerSupportTicketPriority _priority = PartnerSupportTicketPriority.Normal;
+    private List<PartnerSupportTicket> _tickets = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _message = null;
+        _error = null;
+
+        try
+        {
+            if (!TenantContext.CurrentTenantId.HasValue)
+            {
+                _error = "Tenant context is not available.";
+                return;
+            }
+
+            var tenantId = TenantContext.CurrentTenantId.Value;
+            _isPartner = await PartnerService.IsPartnerTenant(tenantId);
+            if (!_isPartner)
+            {
+                return;
+            }
+
+            _tickets = await PartnerService.GetSupportTickets(tenantId);
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task CreateTicket()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        var state = AuthState is null ? null : await AuthState;
+        var userIdClaim = state?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var userName = state?.User.FindFirst("DisplayName")?.Value
+                      ?? state?.User.Identity?.Name
+                      ?? "Partner Admin";
+
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            _error = "Unable to resolve current user.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_title) || string.IsNullOrWhiteSpace(_description))
+        {
+            _error = "Title and description are required.";
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+        try
+        {
+            await PartnerService.CreateSupportTicket(
+                TenantContext.CurrentTenantId.Value,
+                userId,
+                userName,
+                _title,
+                _description,
+                _priority);
+
+            _title = string.Empty;
+            _description = string.Empty;
+            _message = "Support ticket created.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task Escalate(int ticketId)
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        var state = AuthState is null ? null : await AuthState;
+        var userIdClaim = state?.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (!int.TryParse(userIdClaim, out var userId))
+        {
+            _error = "Unable to resolve current user.";
+            return;
+        }
+
+        _busy = true;
+        _message = null;
+        _error = null;
+        try
+        {
+            await PartnerService.EscalateSupportTicket(TenantContext.CurrentTenantId.Value, ticketId, userId);
+            _message = $"Ticket #{ticketId} escalated to RegOS platform support.";
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

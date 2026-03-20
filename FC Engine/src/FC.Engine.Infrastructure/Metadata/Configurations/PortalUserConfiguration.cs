@@ -19,8 +19,10 @@ public class PortalUserConfiguration : IEntityTypeConfiguration<PortalUser>
 
         builder.Property(u => u.FailedLoginAttempts).HasDefaultValue(0);
         builder.Property(u => u.LockoutEnd);
+        builder.Property(u => u.DeletionReason).HasMaxLength(300);
 
         builder.HasIndex(u => u.Username).IsUnique();
         builder.HasIndex(u => u.Email).IsUnique();
+        builder.HasIndex(u => u.TenantId);
     }
 }

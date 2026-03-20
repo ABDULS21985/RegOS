@@ -1,0 +1,190 @@
+@page "/regulator/cross-border/dataflows"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject ICrossBorderDataFlowEngine FlowEngine
+@inject NavigationManager Nav
+@inject ToastService Toast
+@using FC.Engine.Domain.Entities
+@using FC.Engine.Infrastructure.Metadata
+@inject IServiceScopeFactory ScopeFactory
+@using Microsoft.EntityFrameworkCore
+
+<PageTitle>Data Flows — RegOS</PageTitle>
+
+<PageHeader Title="Cross-Border Data Flows"
+            Subtitle="Define and execute automated data transformations between jurisdictions, including currency conversion and proportional mapping."
+            BackUrl="/regulator/cross-border">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick='() => Nav.NavigateTo("/regulator/cross-border/dataflows/new")'>Define Flow</button>
+    </PrimaryAction>
+</PageHeader>
+
+@* -- Group Selection -- *@
+<div class="rg-cb-filters">
+    <select class="rg-cb-filter-select" @bind="_selectedGroupId" @bind:after="LoadFlows">
+        <option value="0">-- Select group --</option>
+        @foreach (var g in _groups)
+        {
+            <option value="@g.Id">@g.GroupName</option>
+        }
+    </select>
+    @if (_selectedGroupId > 0)
+    {
+        <input class="rg-cb-filter-input" @bind="_executePeriod" placeholder="2025-Q4" style="width:120px;" />
+        <button class="fc-btn fc-btn--primary" @onclick="ExecuteFlows" disabled="@_executing">
+            @(_executing ? "Executing..." : "Execute All Flows")
+        </button>
+    }
+</div>
+
+<SectionErrorBoundary Title="Couldn't load data flows" ExternalError="@_loadException" OnRetry="LoadFlows">
+    @if (_loading)
+    {
+        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" />
+        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="4" />
+    }
+    else if (_selectedGroupId == 0)
+    {
+        <EmptyState Context="data" Heading="Select a Group" Description="Choose a financial group to view and manage its cross-border data flows." />
+    }
+    else
+    {
+        @* -- Flow Visualization -- *@
+        @if (_flows.Count > 0)
+        {
+            <div class="rg-card" style="padding:0.85rem;margin-bottom:1rem;">
+                <h3 class="rg-section-title" style="margin-bottom:0.6rem;">Flow Definitions</h3>
+                <div class="rg-cb-flow-vis">
+                    @foreach (var f in _flows)
+                    {
+                        <div class="rg-cb-flow-row">
+                            <FlagBadge Code="@f.SourceJurisdiction" Label="@f.SourceReturnCode" />
+                            <span class="rg-cb-flow-arrow">-></span>
+                            <span class="rg-cb-flow-transform">@f.Transformation</span>
+                            @if (f.RequiresCurrencyConversion)
+                            {
+                                <span class="rg-cb-flow-fx">FX</span>
+                            }
+                            <span class="rg-cb-flow-arrow">-></span>
+                            <FlagBadge Code="@f.TargetJurisdiction" Label="@f.TargetReturnCode" />
+                            <span style="margin-left:auto;font-size:0.72rem;color:var(--rg-muted);font-family:monospace;">@f.FlowCode</span>
+                            <StatusPill Label="@(f.IsActive ? "Active" : "Inactive")" Variant="@(f.IsActive ? "success" : "default")" />
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <EmptyState Context="data" Heading="No Data Flows" Description="Define cross-border data flows to automate regulatory data transformation between jurisdictions." />
+        }
+
+        @* -- Execution Results -- *@
+        @if (_executionResults.Count > 0)
+        {
+            <div class="rg-card" style="padding:0.85rem;">
+                <h3 class="rg-section-title" style="margin-bottom:0.6rem;">Execution Results — @_executePeriod</h3>
+                <div class="rg-table-wrap">
+                    <table class="rg-table">
+                        <thead>
+                            <tr>
+                                <th>Flow</th>
+                                <th>Source Value</th>
+                                <th>FX Rate</th>
+                                <th>Converted</th>
+                                <th>Target Value</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var r in _executionResults)
+                            {
+                                <tr>
+                                    <td><code style="font-size:0.78rem;">@r.FlowCode</code></td>
+                                    <td style="text-align:right;font-family:monospace;font-size:0.82rem;">
+                                        @r.SourceValue.ToString("N2") @r.SourceCurrency
+                                    </td>
+                                    <td style="text-align:right;font-size:0.78rem;">
+                                        @(r.FxRateApplied?.ToString("F4") ?? "--")
+                                    </td>
+                                    <td style="text-align:right;font-family:monospace;font-size:0.82rem;">
+                                        @(r.ConvertedValue?.ToString("N2") ?? "--")
+                                    </td>
+                                    <td style="text-align:right;font-family:monospace;font-size:0.82rem;font-weight:600;">
+                                        @r.TargetValue.ToString("N2") @r.TargetCurrency
+                                    </td>
+                                    <td>
+                                        <StatusPill Label="@r.Status" Variant="@(r.Status == "SUCCESS" ? "success" : "danger")" />
+                                        @if (!string.IsNullOrEmpty(r.ErrorMessage))
+                                        {
+                                            <div style="font-size:0.7rem;color:var(--rg-danger);margin-top:0.15rem;">@r.ErrorMessage</div>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+    }
+</SectionErrorBoundary>
+
+@code {
+    private bool _loading;
+    private bool _executing;
+    private int _selectedGroupId;
+    private string _executePeriod = $"{DateTime.UtcNow.Year}-Q{(DateTime.UtcNow.Month - 1) / 3 + 1}";
+    private Exception? _loadException;
+
+    private List<DataFlowSummary> _flows = [];
+    private List<DataFlowExecutionResult> _executionResults = [];
+    private List<FinancialGroup> _groups = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        using var scope = ScopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
+        _groups = await db.FinancialGroups
+            .AsNoTracking()
+            .Where(g => g.IsActive)
+            .OrderBy(g => g.GroupName)
+            .ToListAsync();
+    }
+
+    private async Task LoadFlows()
+    {
+        if (_selectedGroupId == 0) { _flows = []; return; }
+        _loading = true;
+        _loadException = null;
+        StateHasChanged();
+
+        try
+        {
+            _flows = (await FlowEngine.ListFlowsAsync(_selectedGroupId, null, null)).ToList();
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+            _flows = [];
+        }
+        finally { _loading = false; StateHasChanged(); }
+    }
+
+    private async Task ExecuteFlows()
+    {
+        _executing = true;
+        StateHasChanged();
+
+        try
+        {
+            _executionResults = (await FlowEngine.ExecuteFlowsAsync(_selectedGroupId, _executePeriod)).ToList();
+            var success = _executionResults.Count(r => r.Status == "SUCCESS");
+            Toast.Success($"Executed {_executionResults.Count} flows: {success} succeeded, {_executionResults.Count - success} failed.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error("Execution failed: " + ex.Message);
+        }
+        finally { _executing = false; StateHasChanged(); }
+    }
+}

@@ -1,0 +1,343 @@
+@page "/regulator/institution/{InstitutionId:int}"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject IHeatmapQueryService HeatmapService
+@inject ISupervisoryActionEngine ActionEngine
+@inject IDbConnectionFactory Db
+@inject NavigationManager Nav
+@inject RegulatorSessionService RegulatorSession
+@inject ToastService Toast
+@using Dapper
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Models
+@using Microsoft.AspNetCore.Authorization
+
+<PageTitle>Institution Risk Detail</PageTitle>
+
+<PageHeader Title="@_institutionName"
+            Subtitle="@($"{_institutionType} · CAMELS Score: {_compositeScore:F2}")"
+            BackUrl="/regulator/heatmap"
+            StatusBadge="@_riskBand"
+            StatusVariant="@RiskBandVariant(_riskBand)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="GenerateActionAsync" disabled="@_generatingAction">
+            @(_generatingAction ? "Generating..." : "Generate Supervisory Action")
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<SectionErrorBoundary Title="Couldn't load institution data" ExternalError="@_loadException" OnRetry="LoadAsync">
+    @if (_loading)
+    {
+        <div class="rg-camels-grid">
+                @for (var i = 0; i < 6; i++)
+                {
+                    <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" />
+                }
+            </div>
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="6" />
+            <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="4" />
+}
+    else
+    {
+        <div class="rg-camels-grid">
+            @foreach (var (component, score, label) in _camelsComponents)
+            {
+                var scoreClass = score switch
+                {
+                    1 => "rg-score-strong",
+                    2 => "rg-score-satisfactory",
+                    3 => "rg-score-fair",
+                    4 => "rg-score-marginal",
+                    _ => "rg-score-unsatisfactory"
+                };
+                <div class="rg-camels-cell @scoreClass">
+                    <span class="rg-camels-letter">@component</span>
+                    <span class="rg-camels-score">@score</span>
+                    <span class="rg-camels-label">@label</span>
+                </div>
+            }
+        </div>
+
+        <h2 class="rg-section-heading">Active Early Warning Indicators</h2>
+        @if (!_ewis.Any(e => e.IsActive))
+        {
+            <EmptyState Context="data" Size="sm"
+                        Heading="No active EWIs"
+                        Description="No active early warning indicators for this period." />
+        }
+        else
+        {
+            <table class="rg-table">
+                <thead>
+                    <tr>
+                        <th>EWI</th>
+                        <th>CAMELS</th>
+                        <th>Severity</th>
+                        <th class="rg-text-right">Triggered Value</th>
+                        <th class="rg-text-right">Threshold</th>
+                        <th>Triggered</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var ewi in _ewis.Where(e => e.IsActive))
+                    {
+                        <tr class="@(ewi.Severity == "CRITICAL" ? "rg-row-critical" : "")">
+                            <td>
+                                <strong>@ewi.EWICode</strong>
+                                <div class="rg-muted" style="font-size:.78rem;">@ewi.EWIName</div>
+                            </td>
+                            <td><span class="rg-camels-badge">@ewi.CAMELSComponent</span></td>
+                            <td>
+                                <span class="rg-severity-badge rg-severity-@ewi.Severity.ToLowerInvariant()">
+                                    @ewi.Severity
+                                </span>
+                            </td>
+                            <td class="rg-text-right">@ewi.TriggerValue?.ToString("F2")</td>
+                            <td class="rg-text-right rg-muted">@ewi.ThresholdValue?.ToString("F2")</td>
+                            <td>@ewi.TriggeredAt.ToString("dd MMM yyyy")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+
+        <h2 class="rg-section-heading">Open Supervisory Actions</h2>
+        @if (!_actions.Any())
+        {
+            <EmptyState Context="data" Size="sm"
+                        Heading="No open actions"
+                        Description="No open supervisory actions for this institution." />
+        }
+        else
+        {
+            <table class="rg-table">
+                <thead>
+                    <tr>
+                        <th>Action</th>
+                        <th>Severity</th>
+                        <th>Status</th>
+                        <th>Escalation Level</th>
+                        <th>Due Date</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var action in _actions)
+                    {
+                        <tr>
+                            <td>@action.Title</td>
+                            <td>
+                                <span class="rg-severity-badge rg-severity-@action.Severity.ToLowerInvariant()">
+                                    @action.Severity
+                                </span>
+                            </td>
+                            <td>@action.Status</td>
+                            <td>@action.EscalationLabel</td>
+                            <td class="@(action.IsOverdue ? "rg-danger-text" : "")">
+                                @action.DueDate?.ToString("dd MMM yyyy")
+                                @(action.IsOverdue ? " !" : "")
+                            </td>
+                            <td>
+                                <button class="fc-btn fc-btn--outline fc-btn--sm"
+                                        @onclick="() => IssueAction(action.ActionId)">
+                                    Issue
+                                </button>
+                                <button class="fc-btn fc-btn--outline fc-btn--sm"
+                                        @onclick="() => EscalateAction(action.ActionId)">
+                                    Escalate
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        }
+    }
+</SectionErrorBoundary>
+
+@code {
+    [Parameter] public int InstitutionId { get; set; }
+    [SupplyParameterFromQuery] public string Period { get; set; } = string.Empty;
+
+    private bool _loading = true;
+    private bool _generatingAction;
+    private Exception? _loadException;
+    private int _currentUserId;
+    private string _regulatorCode = string.Empty;
+    private string _institutionName = string.Empty;
+    private string _riskBand = "GREEN";
+    private string _institutionType = string.Empty;
+    private double _compositeScore;
+    private IReadOnlyList<EWITriggerRow> _ewis = Array.Empty<EWITriggerRow>();
+    private List<ActionSummaryRow> _actions = new();
+    private List<(string Letter, int Score, string Label)> _camelsComponents = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorCode = session.RegulatorCode;
+        _currentUserId = session.UserId;
+
+        if (string.IsNullOrWhiteSpace(Period))
+        {
+            var now = DateTime.UtcNow.AddMonths(-1);
+            Period = $"{now.Year}-{now.Month:D2}";
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        try
+        {
+            _ewis = await HeatmapService.GetInstitutionEWIHistoryAsync(
+                InstitutionId, _regulatorCode, 50);
+
+            using var conn = await Db.CreateConnectionAsync(null);
+
+            var rating = await conn.QuerySingleOrDefaultAsync<CamelsRatingRow>(
+                """
+                SELECT cr.CompositeScore, cr.RiskBand,
+                       cr.CapitalScore, cr.AssetQualityScore, cr.ManagementScore,
+                       cr.EarningsScore, cr.LiquidityScore, cr.SensitivityScore,
+                       ISNULL(i.InstitutionName, CAST(cr.InstitutionId AS NVARCHAR)) AS ShortName,
+                       ISNULL(pm.InstitutionType, ISNULL(i.LicenseType,'UNKNOWN')) AS InstitutionType
+                FROM   meta.camels_ratings cr
+                LEFT JOIN institutions i ON i.Id = cr.InstitutionId
+                LEFT JOIN meta.prudential_metrics pm
+                       ON pm.InstitutionId = cr.InstitutionId AND pm.PeriodCode = cr.PeriodCode
+                WHERE  cr.InstitutionId = @Id AND cr.PeriodCode = @Period
+                """,
+                new { Id = InstitutionId, Period });
+
+            if (rating is not null)
+            {
+                _institutionName  = rating.ShortName;
+                _riskBand         = rating.RiskBand;
+                _institutionType  = rating.InstitutionType;
+                _compositeScore   = (double)rating.CompositeScore;
+
+                _camelsComponents = new List<(string, int, string)>
+                {
+                    ("C", rating.CapitalScore,      "Capital"),
+                    ("A", rating.AssetQualityScore, "Assets"),
+                    ("M", rating.ManagementScore,   "Management"),
+                    ("E", rating.EarningsScore,     "Earnings"),
+                    ("L", rating.LiquidityScore,    "Liquidity"),
+                    ("S", rating.SensitivityScore,  "Sensitivity")
+                };
+            }
+
+            _actions = (await conn.QueryAsync<ActionSummaryRow>(
+                """
+                SELECT sa.Id AS ActionId, sa.Title, sa.Severity, sa.Status,
+                       sa.EscalationLevel, sa.DueDate
+                FROM   meta.supervisory_actions sa
+                WHERE  sa.InstitutionId = @Id AND sa.Status NOT IN ('CLOSED')
+                ORDER BY sa.EscalationLevel DESC, sa.CreatedAt DESC
+                """,
+                new { Id = InstitutionId }))
+                .Select(r => r with
+                {
+                    EscalationLabel = r.EscalationLevel switch
+                    {
+                        1 => "Analyst",
+                        2 => "Senior Examiner",
+                        3 => "Director",
+                        4 => "Governor",
+                        _ => "Unknown"
+                    },
+                    IsOverdue = r.DueDate.HasValue &&
+                                r.DueDate.Value < DateOnly.FromDateTime(DateTime.UtcNow)
+                }).ToList();
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private async Task GenerateActionAsync()
+    {
+        _generatingAction = true;
+        try
+        {
+            using var conn = await Db.CreateConnectionAsync(null);
+            var runId = await conn.ExecuteScalarAsync<Guid>(
+                """
+                SELECT TOP 1 ComputationRunId FROM meta.ewi_triggers
+                WHERE InstitutionId=@Id AND IsActive=1
+                ORDER BY TriggeredAt DESC
+                """,
+                new { Id = InstitutionId });
+
+            if (runId != Guid.Empty)
+                await ActionEngine.GenerateActionsForRunAsync(runId, _regulatorCode);
+
+            Toast.Success("Supervisory action generated.");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Could not generate action: {ex.Message}");
+        }
+        finally
+        {
+            _generatingAction = false;
+        }
+    }
+
+    private async Task IssueAction(long actionId)
+    {
+        try
+        {
+            await ActionEngine.IssueActionAsync(actionId, issuedByUserId: _currentUserId);
+            Toast.Success("Action issued.");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to issue action: {ex.Message}");
+        }
+    }
+
+    private async Task EscalateAction(long actionId)
+    {
+        try
+        {
+            await ActionEngine.EscalateActionAsync(actionId, _currentUserId, "Manual escalation from regulator workspace");
+            Toast.Success("Action escalated.");
+            await LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to escalate: {ex.Message}");
+        }
+    }
+
+    private static string RiskBandVariant(string band) => band.ToUpperInvariant() switch
+    {
+        "GREEN" => "success",
+        "AMBER" => "warning",
+        "RED" or "CRITICAL" => "danger",
+        _ => "neutral"
+    };
+
+    private sealed record CamelsRatingRow(
+        decimal CompositeScore, string RiskBand,
+        int CapitalScore, int AssetQualityScore, int ManagementScore,
+        int EarningsScore, int LiquidityScore, int SensitivityScore,
+        string ShortName, string InstitutionType);
+
+    private sealed record ActionSummaryRow(
+        long ActionId, string Title, string Severity, string Status,
+        int EscalationLevel, DateOnly? DueDate,
+        string EscalationLabel = "", bool IsOverdue = false);
+}

@@ -1,0 +1,296 @@
+@using System.Globalization
+
+@if (Profile is null)
+{
+    <div class="regiq-profile-card regiq-profile-card--empty">
+        <div class="regiq-profile-card__empty">
+            <i class="bi bi-building text-secondary" aria-hidden="true"></i>
+            <span>No institution profile is loaded yet.</span>
+        </div>
+    </div>
+}
+else
+{
+    <article class="regiq-profile-card @(Compact ? "regiq-profile-card--compact" : string.Empty)" aria-label="@($"{Profile.InstitutionName} intelligence profile")">
+        <header class="regiq-profile-card__header">
+            <div>
+                <div class="regiq-profile-card__eyebrow">
+                    <span class="badge text-bg-light border">@Profile.LicenceCategory</span>
+                    <span class="badge text-bg-dark">@Profile.RegulatorAgency</span>
+                </div>
+                <h3 class="regiq-profile-card__title">@Profile.InstitutionName</h3>
+                <p class="regiq-profile-card__meta mb-0">
+                    @if (!string.IsNullOrWhiteSpace(Profile.InstitutionType))
+                    {
+                        <span>@Profile.InstitutionType</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(Profile.LatestPeriodCode))
+                    {
+                        <span>@Profile.LatestPeriodCode</span>
+                    }
+                    @if (Profile.LatestSubmissionAt.HasValue)
+                    {
+                        <span>Updated @Profile.LatestSubmissionAt.Value.ToLocalTime().ToString("dd MMM yyyy", CultureInfo.InvariantCulture)</span>
+                    }
+                </p>
+            </div>
+
+            <div class="regiq-profile-card__actions">
+                <span class="badge rounded-pill @ResolveFlagBadgeTone(Profile.ActiveAlerts.Count + Profile.EarlyWarningFlags.Count)">
+                    @(Profile.ActiveAlerts.Count + Profile.EarlyWarningFlags.Count) active flags
+                </span>
+                @if (OnDeepDive.HasDelegate)
+                {
+                    <button type="button"
+                            class="btn btn-sm btn-outline-dark"
+                            @onclick="HandleDeepDiveAsync"
+                            aria-label="@($"Deep dive into {Profile.InstitutionName}")">
+                        <i class="bi bi-arrow-up-right-circle me-1" aria-hidden="true"></i>
+                        Deep Dive
+                    </button>
+                }
+            </div>
+        </header>
+
+        <div class="regiq-profile-card__metrics">
+            @foreach (var metric in BuildMetricGauges())
+            {
+                <section class="regiq-profile-card__metric-gauge @metric.Tone" aria-label="@metric.Label">
+                    <svg class="regiq-profile-card__gauge-svg" viewBox="0 0 44 44">
+                        <circle cx="22" cy="22" r="18" fill="none" stroke="rgba(148, 163, 184, 0.2)" stroke-width="4"/>
+                        <circle cx="22" cy="22" r="18" fill="none" stroke="currentColor" stroke-width="4" stroke-dasharray="@metric.Percentage 100" stroke-dashoffset="25" transform="rotate(-90 22 22)" style="transition: stroke-dasharray 0.6s ease;"/>
+                    </svg>
+                    <div class="regiq-profile-card__gauge-content">
+                        <span class="regiq-profile-card__gauge-label">@metric.Label</span>
+                        <strong class="regiq-profile-card__gauge-value">
+                            @metric.Value
+                            @if (metric.Trend != TrendDirection.Flat)
+                            {
+                                <i class="bi bi-arrow-@(metric.Trend == TrendDirection.Up ? "up" : "down")-right text-@(metric.TrendColor) ms-1" aria-hidden="true"></i>
+                            }
+                        </strong>
+                    </div>
+                </section>
+            }
+        </div>
+
+        @if (!Compact)
+        {
+            <div class="regiq-profile-card__body">
+                @if (Profile.ActiveAlerts.Count > 0 || Profile.EarlyWarningFlags.Count > 0)
+                {
+                    <div class="regiq-profile-card__section">
+                        <div class="regiq-profile-card__section-title">Active Concerns</div>
+                        <ul class="regiq-profile-card__flag-list">
+                            @foreach (var flag in Profile.ActiveAlerts.Take(3))
+                            {
+                                <li>
+                                    <span class="badge @ResolveSeverityBadge(flag.Severity)">@flag.Severity</span>
+                                    <span>@flag.Title</span>
+                                </li>
+                            }
+                            @foreach (var flag in Profile.EarlyWarningFlags.Take(Math.Max(0, 3 - Profile.ActiveAlerts.Count)))
+                            {
+                                <li>
+                                    <span class="badge @ResolveSeverityBadge(flag.Severity.ToString())">@flag.Severity.ToString().ToUpperInvariant()</span>
+                                    <span>@flag.Message</span>
+                                </li>
+                            }
+                        </ul>
+                    </div>
+                }
+
+                @if (Profile.KeyMetrics.Count > 0)
+                {
+                    <div class="regiq-profile-card__section">
+                        <div class="regiq-profile-card__section-title">Key Ratios</div>
+                        <div class="regiq-profile-card__ratio-grid">
+                            @foreach (var snapshot in Profile.KeyMetrics.Take(4))
+                            {
+                                <div class="regiq-profile-card__ratio-item">
+                                    <span>@snapshot.MetricLabel</span>
+                                    <strong>@FormatMetric(snapshot.Value, snapshot.MetricCode)</strong>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </article>
+}
+
+@code {
+    [Parameter] public EntityIntelligenceProfile? Profile { get; set; }
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public EventCallback<string> OnDeepDive { get; set; }
+
+    private async Task HandleDeepDiveAsync()
+    {
+        if (Profile is not null)
+        {
+            await OnDeepDive.InvokeAsync(Profile.InstitutionName);
+        }
+    }
+
+    private List<MetricGauge> BuildMetricGauges()
+    {
+        if (Profile is null)
+        {
+            return new();
+        }
+
+        var car = Profile.KeyMetrics.FirstOrDefault(x => x.MetricCode.Equals("carratio", StringComparison.OrdinalIgnoreCase))?.Value;
+        var npl = Profile.KeyMetrics.FirstOrDefault(x => x.MetricCode.Equals("nplratio", StringComparison.OrdinalIgnoreCase))?.Value;
+        var chs = Profile.ComplianceHealth?.OverallScore;
+
+        return new List<MetricGauge>
+        {
+            BuildGauge("CAR", car, 15m, higherIsBetter: true),
+            BuildGauge("NPL", npl, 5m, higherIsBetter: false),
+            BuildGauge("CHS", chs, 70m, higherIsBetter: true)
+        };
+    }
+
+    private MetricGauge BuildGauge(string label, decimal? value, decimal median, bool higherIsBetter)
+    {
+        if (!value.HasValue)
+        {
+            return new MetricGauge(label, "N/A", "regiq-profile-card__metric--neutral", 0, TrendDirection.Flat, "secondary");
+        }
+
+        var percentage = Math.Clamp((double)(value.Value / (higherIsBetter ? 25m : 15m) * 100m), 0, 100);
+        var tone = ResolveThresholdTone(value, higherIsBetter ? 15m : 5m, higherIsBetter ? 10m : 10m, higherIsBetter);
+
+        TrendDirection trend;
+        string trendColor;
+        if (value.Value > median)
+        {
+            trend = higherIsBetter ? TrendDirection.Up : TrendDirection.Down;
+            trendColor = higherIsBetter ? "success" : "danger";
+        }
+        else if (value.Value < median)
+        {
+            trend = higherIsBetter ? TrendDirection.Down : TrendDirection.Up;
+            trendColor = higherIsBetter ? "danger" : "success";
+        }
+        else
+        {
+            trend = TrendDirection.Flat;
+            trendColor = "secondary";
+        }
+
+        var displayValue = label == "CHS" ? value.Value.ToString("N1", CultureInfo.InvariantCulture) : $"{value.Value:N1}%";
+
+        return new MetricGauge(label, displayValue, tone, percentage, trend, trendColor);
+    }
+
+    private static string FormatMetric(decimal? value, string metricCode)
+    {
+        if (!value.HasValue)
+        {
+            return "N/A";
+        }
+
+        return metricCode.ToLowerInvariant() switch
+        {
+            "carratio" or "nplratio" or "liquidityratio" or "loandepositratio" or "roa" => $"{value.Value:N1}%",
+            "totalassets" => value.Value >= 1_000_000_000_000m
+                ? $"₦{value.Value / 1_000_000_000_000m:N2}T"
+                : value.Value >= 1_000_000_000m
+                    ? $"₦{value.Value / 1_000_000_000m:N1}B"
+                    : $"₦{value.Value:N0}",
+            _ => value.Value.ToString("N2", CultureInfo.InvariantCulture)
+        };
+    }
+
+    private static string ResolveCarTone(decimal? value) => ResolveThresholdTone(value, 15m, 10m, higherIsBetter: true);
+    private static string ResolveLiquidityTone(decimal? value) => ResolveThresholdTone(value, 30m, 20m, higherIsBetter: true);
+    private static string ResolveNplTone(decimal? value) => ResolveThresholdTone(value, 5m, 10m, higherIsBetter: false);
+    private static string ResolveChsTone(decimal? value) => ResolveThresholdTone(value, 70m, 50m, higherIsBetter: true);
+
+    private static string ResolveThresholdTone(decimal? value, decimal greenThreshold, decimal amberThreshold, bool higherIsBetter)
+    {
+        if (!value.HasValue)
+        {
+            return "regiq-profile-card__metric--neutral";
+        }
+
+        if (higherIsBetter)
+        {
+            if (value.Value >= greenThreshold)
+            {
+                return "regiq-profile-card__metric--success";
+            }
+
+            if (value.Value >= amberThreshold)
+            {
+                return "regiq-profile-card__metric--warning";
+            }
+
+            return "regiq-profile-card__metric--danger";
+        }
+
+        if (value.Value <= greenThreshold)
+        {
+            return "regiq-profile-card__metric--success";
+        }
+
+        if (value.Value <= amberThreshold)
+        {
+            return "regiq-profile-card__metric--warning";
+        }
+
+        return "regiq-profile-card__metric--danger";
+    }
+
+    private static string ResolveCountTone(int count, int amberThreshold, int redThreshold)
+    {
+        if (count >= redThreshold)
+        {
+            return "regiq-profile-card__metric--danger";
+        }
+
+        if (count >= amberThreshold)
+        {
+            return "regiq-profile-card__metric--warning";
+        }
+
+        return "regiq-profile-card__metric--success";
+    }
+
+    private static string ResolveFlagBadgeTone(int flagCount)
+    {
+        if (flagCount >= 3)
+        {
+            return "text-bg-danger";
+        }
+
+        if (flagCount > 0)
+        {
+            return "text-bg-warning";
+        }
+
+        return "text-bg-success";
+    }
+
+    private static string ResolveSeverityBadge(string? severity)
+    {
+        return severity?.ToUpperInvariant() switch
+        {
+            "RED" or "CRITICAL" or "HIGH" => "text-bg-danger",
+            "AMBER" or "WARNING" or "MEDIUM" => "text-bg-warning",
+            "GREEN" or "LOW" => "text-bg-success",
+            _ => "text-bg-secondary"
+        };
+    }
+
+    private sealed record MetricGauge(string Label, string Value, string Tone, double Percentage, TrendDirection Trend, string TrendColor);
+
+    private enum TrendDirection
+    {
+        Up,
+        Down,
+        Flat
+    }
+}

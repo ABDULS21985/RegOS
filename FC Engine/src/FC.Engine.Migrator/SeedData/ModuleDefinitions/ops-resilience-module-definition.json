@@ -1,0 +1,224 @@
+{
+  "moduleCode": "OPS_RESILIENCE",
+  "moduleVersion": "1.0.0",
+  "description": "Operational Resilience & ICT Risk module pack with 10 sheets covering important business services, tolerances, incidents, testing, third-party risk, and board oversight.",
+  "templates": [
+    {
+      "returnCode": "OPS_IBS",
+      "name": "Important Business Services Inventory",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "IBS", "name": "Important Business Services", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "important_service_code", "label": "Important Service Code", "dataType": "Text", "section": "IBS", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-IBS-001" },
+        { "fieldCode": "service_name", "label": "Service Name", "dataType": "Text", "section": "IBS", "required": true, "displayOrder": 2, "regulatoryReference": "CBN-OR-IBS-002" },
+        { "fieldCode": "service_owner", "label": "Service Owner", "dataType": "Text", "section": "IBS", "required": true, "displayOrder": 3, "regulatoryReference": "CBN-OR-IBS-003" },
+        { "fieldCode": "criticality_level", "label": "Criticality Level", "dataType": "Enum", "section": "IBS", "required": true, "displayOrder": 4, "enumValues": "Critical,High,Moderate", "regulatoryReference": "CBN-OR-IBS-004" },
+        { "fieldCode": "max_disruption_minutes", "label": "Maximum Acceptable Disruption (Minutes)", "dataType": "Integer", "section": "IBS", "required": true, "displayOrder": 5, "minValue": 0, "regulatoryReference": "CBN-OR-IBS-005" },
+        { "fieldCode": "supporting_provider", "label": "Supporting Provider", "dataType": "Text", "section": "IBS", "required": false, "displayOrder": 6, "regulatoryReference": "CBN-OR-TPR-001" }
+      ]
+    },
+    {
+      "returnCode": "OPS_TOL",
+      "name": "Impact Tolerance Definitions",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "TOL", "name": "Impact Tolerances", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "important_service_code", "label": "Important Service Code", "dataType": "Text", "section": "TOL", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-TOL-001" },
+        { "fieldCode": "max_disruption_minutes", "label": "Maximum Disruption (Minutes)", "dataType": "Integer", "section": "TOL", "required": true, "displayOrder": 2, "minValue": 0, "regulatoryReference": "CBN-OR-TOL-002" },
+        { "fieldCode": "recovery_target_minutes", "label": "Recovery Target (Minutes)", "dataType": "Integer", "section": "TOL", "required": true, "displayOrder": 3, "minValue": 0, "regulatoryReference": "CBN-OR-TOL-003" },
+        { "fieldCode": "tolerance_breach_flag", "label": "Tolerance Breach Flag", "dataType": "Boolean", "section": "TOL", "required": true, "displayOrder": 4, "regulatoryReference": "CBN-OR-TOL-004" },
+        { "fieldCode": "board_review_date", "label": "Board Review Date", "dataType": "Date", "section": "TOL", "required": false, "displayOrder": 5, "regulatoryReference": "CBN-OR-BRD-001" }
+      ],
+      "crossSheetRules": [
+        {
+          "description": "Every tolerance must map to a defined important business service.",
+          "sourceTemplate": "OPS_IBS",
+          "sourceField": "important_service_code",
+          "targetTemplate": "OPS_TOL",
+          "targetField": "important_service_code",
+          "operator": "Equals",
+          "severity": "Error"
+        }
+      ]
+    },
+    {
+      "returnCode": "OPS_SCN",
+      "name": "Scenario Testing Results",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "SCN", "name": "Scenario Testing", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "scenario_code", "label": "Scenario Code", "dataType": "Text", "section": "SCN", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-SCN-001" },
+        { "fieldCode": "important_service_code", "label": "Important Service Code", "dataType": "Text", "section": "SCN", "required": true, "displayOrder": 2, "regulatoryReference": "CBN-OR-SCN-002" },
+        { "fieldCode": "scenario_type", "label": "Scenario Type", "dataType": "Enum", "section": "SCN", "required": true, "displayOrder": 3, "enumValues": "Cyber,Outage,Third-Party,People,Process", "regulatoryReference": "CBN-OR-SCN-003" },
+        { "fieldCode": "last_test_date", "label": "Last Test Date", "dataType": "Date", "section": "SCN", "required": true, "displayOrder": 4, "regulatoryReference": "CBN-OR-SCN-004" },
+        { "fieldCode": "test_outcome", "label": "Test Outcome", "dataType": "Enum", "section": "SCN", "required": true, "displayOrder": 5, "enumValues": "Pass,Weaknesses Found,Control Gap,Failed", "regulatoryReference": "CBN-OR-SCN-005" },
+        { "fieldCode": "findings_count", "label": "Findings Count", "dataType": "Integer", "section": "SCN", "required": true, "displayOrder": 6, "minValue": 0, "regulatoryReference": "CBN-OR-SCN-006" }
+      ]
+    },
+    {
+      "returnCode": "OPS_TPR",
+      "name": "ICT Third-Party Risk Register",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "TPR", "name": "Third-Party Risk", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "provider_name", "label": "Provider Name", "dataType": "Text", "section": "TPR", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-TPR-002" },
+        { "fieldCode": "provider_type", "label": "Provider Type", "dataType": "Enum", "section": "TPR", "required": true, "displayOrder": 2, "enumValues": "Cloud,Network,Software,Facility,Managed Service", "regulatoryReference": "CBN-OR-TPR-003" },
+        { "fieldCode": "critical_services_supported", "label": "Critical Services Supported", "dataType": "Integer", "section": "TPR", "required": true, "displayOrder": 3, "minValue": 0, "regulatoryReference": "CBN-OR-TPR-004" },
+        { "fieldCode": "concentration_percent", "label": "Concentration Percent", "dataType": "Percentage", "section": "TPR", "required": true, "displayOrder": 4, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-OR-TPR-005" },
+        { "fieldCode": "exit_plan_tested", "label": "Exit Plan Tested", "dataType": "Boolean", "section": "TPR", "required": true, "displayOrder": 5, "regulatoryReference": "CBN-OR-TPR-006" }
+      ]
+    },
+    {
+      "returnCode": "OPS_INC",
+      "name": "Incident Management Reporting",
+      "frequency": "Monthly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "INC", "name": "Operational Incidents", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "incident_reference", "label": "Incident Reference", "dataType": "Text", "section": "INC", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-INC-001" },
+        { "fieldCode": "important_service_code", "label": "Important Service Code", "dataType": "Text", "section": "INC", "required": true, "displayOrder": 2, "regulatoryReference": "CBN-OR-INC-002" },
+        { "fieldCode": "incident_severity", "label": "Incident Severity", "dataType": "Enum", "section": "INC", "required": true, "displayOrder": 3, "enumValues": "Critical,High,Medium,Low", "regulatoryReference": "CBN-OR-INC-003" },
+        { "fieldCode": "detected_at", "label": "Detected At", "dataType": "Date", "section": "INC", "required": true, "displayOrder": 4, "regulatoryReference": "CBN-OR-INC-004" },
+        { "fieldCode": "recovered_at", "label": "Recovered At", "dataType": "Date", "section": "INC", "required": false, "displayOrder": 5, "regulatoryReference": "CBN-OR-INC-005" },
+        { "fieldCode": "root_cause_signed_off", "label": "Root Cause Signed Off", "dataType": "Boolean", "section": "INC", "required": true, "displayOrder": 6, "regulatoryReference": "CBN-OR-INC-006" }
+      ]
+    },
+    {
+      "returnCode": "OPS_BCP",
+      "name": "Business Continuity Plan Status",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "BCP", "name": "Business Continuity", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "important_service_code", "label": "Important Service Code", "dataType": "Text", "section": "BCP", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-BCP-001" },
+        { "fieldCode": "bcp_status", "label": "BCP Status", "dataType": "Enum", "section": "BCP", "required": true, "displayOrder": 2, "enumValues": "Current,Review Due,Overdue", "regulatoryReference": "CBN-OR-BCP-002" },
+        { "fieldCode": "last_exercised_at", "label": "Last Exercised At", "dataType": "Date", "section": "BCP", "required": true, "displayOrder": 3, "regulatoryReference": "CBN-OR-BCP-003" },
+        { "fieldCode": "next_exercise_due", "label": "Next Exercise Due", "dataType": "Date", "section": "BCP", "required": true, "displayOrder": 4, "regulatoryReference": "CBN-OR-BCP-004" },
+        { "fieldCode": "open_actions", "label": "Open Actions", "dataType": "Integer", "section": "BCP", "required": true, "displayOrder": 5, "minValue": 0, "regulatoryReference": "CBN-OR-BCP-005" }
+      ],
+      "crossSheetRules": [
+        {
+          "description": "Every BCP record must map to a defined important business service.",
+          "sourceTemplate": "OPS_IBS",
+          "sourceField": "important_service_code",
+          "targetTemplate": "OPS_BCP",
+          "targetField": "important_service_code",
+          "operator": "Equals",
+          "severity": "Error"
+        }
+      ]
+    },
+    {
+      "returnCode": "OPS_CYB",
+      "name": "Cyber Resilience Assessment",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "CYB", "name": "Cyber Resilience", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "domain_code", "label": "Domain Code", "dataType": "Text", "section": "CYB", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-CYB-001" },
+        { "fieldCode": "domain_name", "label": "Domain Name", "dataType": "Text", "section": "CYB", "required": true, "displayOrder": 2, "regulatoryReference": "CBN-OR-CYB-002" },
+        { "fieldCode": "score_percentage", "label": "Score Percentage", "dataType": "Percentage", "section": "CYB", "required": true, "displayOrder": 3, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-OR-CYB-003" },
+        { "fieldCode": "open_critical_gaps", "label": "Open Critical Gaps", "dataType": "Integer", "section": "CYB", "required": true, "displayOrder": 4, "minValue": 0, "regulatoryReference": "CBN-OR-CYB-004" },
+        { "fieldCode": "last_assessed_at", "label": "Last Assessed At", "dataType": "Date", "section": "CYB", "required": true, "displayOrder": 5, "regulatoryReference": "CBN-OR-CYB-005" }
+      ]
+    },
+    {
+      "returnCode": "OPS_CHG",
+      "name": "Change Management Controls",
+      "frequency": "Monthly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "CHG", "name": "Change Controls", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "control_area", "label": "Control Area", "dataType": "Text", "section": "CHG", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-CHG-001" },
+        { "fieldCode": "changes_reviewed", "label": "Changes Reviewed", "dataType": "Integer", "section": "CHG", "required": true, "displayOrder": 2, "minValue": 0, "regulatoryReference": "CBN-OR-CHG-002" },
+        { "fieldCode": "elevated_changes", "label": "Elevated Changes", "dataType": "Integer", "section": "CHG", "required": true, "displayOrder": 3, "minValue": 0, "regulatoryReference": "CBN-OR-CHG-003" },
+        { "fieldCode": "cab_approval_rate", "label": "CAB Approval Rate", "dataType": "Percentage", "section": "CHG", "required": true, "displayOrder": 4, "minValue": 0, "maxValue": 100, "decimalPlaces": 2, "regulatoryReference": "CBN-OR-CHG-004" },
+        { "fieldCode": "evidence_date", "label": "Evidence Date", "dataType": "Date", "section": "CHG", "required": true, "displayOrder": 5, "regulatoryReference": "CBN-OR-CHG-005" }
+      ]
+    },
+    {
+      "returnCode": "OPS_RTO",
+      "name": "Recovery Time Testing",
+      "frequency": "Quarterly",
+      "structuralCategory": "MultiRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "RTO", "name": "Recovery Time Objectives", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "important_service_code", "label": "Important Service Code", "dataType": "Text", "section": "RTO", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-RTO-001" },
+        { "fieldCode": "recovery_target_minutes", "label": "Recovery Target Minutes", "dataType": "Integer", "section": "RTO", "required": true, "displayOrder": 2, "minValue": 0, "regulatoryReference": "CBN-OR-RTO-002" },
+        { "fieldCode": "tested_recovery_minutes", "label": "Tested Recovery Minutes", "dataType": "Integer", "section": "RTO", "required": true, "displayOrder": 3, "minValue": 0, "regulatoryReference": "CBN-OR-RTO-003" },
+        { "fieldCode": "variance_minutes", "label": "Variance Minutes", "dataType": "Integer", "section": "RTO", "required": false, "displayOrder": 4, "regulatoryReference": "CBN-OR-RTO-004" },
+        { "fieldCode": "last_test_date", "label": "Last Test Date", "dataType": "Date", "section": "RTO", "required": true, "displayOrder": 5, "regulatoryReference": "CBN-OR-RTO-005" }
+      ],
+      "formulas": [
+        {
+          "formulaType": "Custom",
+          "customFunction": "DELTA",
+          "targetField": "variance_minutes",
+          "sourceFields": [ "tested_recovery_minutes", "recovery_target_minutes" ],
+          "severity": "Warning",
+          "description": "Variance between tested recovery and target."
+        }
+      ],
+      "crossSheetRules": [
+        {
+          "description": "Every RTO record must map to a defined important business service.",
+          "sourceTemplate": "OPS_IBS",
+          "sourceField": "important_service_code",
+          "targetTemplate": "OPS_RTO",
+          "targetField": "important_service_code",
+          "operator": "Equals",
+          "severity": "Error"
+        }
+      ]
+    },
+    {
+      "returnCode": "OPS_BRD",
+      "name": "Board Resilience Oversight",
+      "frequency": "Quarterly",
+      "structuralCategory": "FixedRow",
+      "tablePrefix": "ops",
+      "sections": [
+        { "code": "BRD", "name": "Board Oversight", "displayOrder": 1 }
+      ],
+      "fields": [
+        { "fieldCode": "board_report_date", "label": "Board Report Date", "dataType": "Date", "section": "BRD", "required": true, "displayOrder": 1, "regulatoryReference": "CBN-OR-BRD-002" },
+        { "fieldCode": "critical_issues", "label": "Critical Issues", "dataType": "Integer", "section": "BRD", "required": true, "displayOrder": 2, "minValue": 0, "regulatoryReference": "CBN-OR-BRD-003" },
+        { "fieldCode": "overdue_actions", "label": "Overdue Actions", "dataType": "Integer", "section": "BRD", "required": true, "displayOrder": 3, "minValue": 0, "regulatoryReference": "CBN-OR-BRD-004" },
+        { "fieldCode": "due_tests", "label": "Due Tests", "dataType": "Integer", "section": "BRD", "required": true, "displayOrder": 4, "minValue": 0, "regulatoryReference": "CBN-OR-BRD-005" },
+        { "fieldCode": "overall_posture", "label": "Overall Posture", "dataType": "Enum", "section": "BRD", "required": true, "displayOrder": 5, "enumValues": "Current,Watch,Critical", "regulatoryReference": "CBN-OR-BRD-006" }
+      ]
+    }
+  ],
+  "interModuleDataFlows": []
+}

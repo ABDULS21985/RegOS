@@ -1,16 +1,21 @@
 @page "/templates/{ReturnCode}"
 @attribute [Authorize(Policy = "InstitutionUser")]
+@using FC.Engine.Infrastructure.DragDrop
+@using FC.Engine.Portal.Services
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
+@inject DragDropInterop DragDrop
 
-<PageTitle>@(template?.ReturnCode ?? "Template") — FC Engine Portal</PageTitle>
+<PageTitle>@(template?.ReturnCode ?? "Template") — RegOS™ Portal</PageTitle>
 
 <div class="portal-page">
 
     @if (isLoading)
     {
-        <div class="portal-skeleton portal-skeleton-block" style="height: 120px; margin-bottom: 1.5rem;"></div>
-        <div class="portal-skeleton portal-skeleton-block" style="height: 400px;"></div>
+        <div aria-busy="true" aria-label="Loading template details">
+            <div class="portal-skeleton portal-skeleton-block" style="height: 120px; margin-bottom: 1.5rem;"></div>
+            <div class="portal-skeleton portal-skeleton-block" style="height: 400px;"></div>
+        </div>
     }
     else if (template is null)
     {
@@ -22,16 +27,17 @@
     }
     else
     {
-        <!-- ═══════════════════════════════════════════════════════════
-             BREADCRUMB
-             ═══════════════════════════════════════════════════════════ -->
-        <nav class="portal-breadcrumb" aria-label="Breadcrumb">
-            <a href="/" class="portal-breadcrumb-link">Dashboard</a>
-            <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
-            <a href="/templates" class="portal-breadcrumb-link">Templates</a>
-            <span class="portal-breadcrumb-sep" aria-hidden="true">/</span>
-            <span class="portal-breadcrumb-current">@template.ReturnCode</span>
-        </nav>
+        <PortalPageHeader BackUrl="/templates"
+                          Breadcrumb="@(new List<BreadcrumbItem> { new("Home", "/"), new("Templates", "/templates"), new(template.ReturnCode, IsCurrent: true) })">
+            <PrimaryAction>
+                <a href="@PortalSubmissionLinkBuilder.BuildSubmitHref(template.ReturnCode, template.ModuleCode)" class="portal-btn portal-btn-primary portal-btn-sm">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    Submit This Return
+                </a>
+            </PrimaryAction>
+        </PortalPageHeader>
 
         <!-- ═══════════════════════════════════════════════════════════
              TEMPLATE HEADER
@@ -45,6 +51,12 @@
                 </div>
                 <p class="portal-detail-hero-subtitle">@template.TemplateName</p>
                 <div class="portal-detail-hero-meta">
+                    @if (!string.IsNullOrWhiteSpace(template.ModuleCode))
+                    {
+                        <span class="portal-detail-meta-item">
+                            <strong>@(PortalSubmissionLinkBuilder.ResolveModuleName(template.ModuleCode) ?? template.ModuleCode)</strong> workflow
+                        </span>
+                    }
                     <span class="portal-detail-meta-item">
                         <strong>@template.FieldCount</strong> fields
                     </span>
@@ -59,14 +71,7 @@
                     }
                 </div>
             </div>
-            <div class="portal-detail-hero-actions">
-                <a href="/submit?returnCode=@template.ReturnCode" class="portal-btn portal-btn-primary portal-btn-sm">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                        <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                    </svg>
-                    Submit This Return
-                </a>
-            </div>
+            <div class="portal-detail-hero-actions"></div>
         </div>
 
         <!-- ═══════════════════════════════════════════════════════════
@@ -117,8 +122,25 @@
             @if (activeTab == "fields")
             {
                 <div role="tabpanel" aria-label="Template fields">
+                    <div class="portal-tmpl-fields-toolbar">
+                        <button class="portal-btn portal-btn-ghost portal-btn-sm @(customizeFieldView ? "portal-btn-active" : "")"
+                                @onclick="ToggleCustomizeView"
+                                title="@(customizeFieldView ? "Exit customize mode" : "Drag rows to customize field order")">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
+                            @(customizeFieldView ? "Done" : "Customize View")
+                        </button>
+                        @if (customizeFieldView)
+                        {
+                            <button class="portal-btn portal-btn-ghost portal-btn-sm portal-btn-danger-ghost" @onclick="ResetFieldOrder">
+                                Reset Order
+                            </button>
+                        }
+                    </div>
+
+                    @{ int sectionIdx = 0; }
                     @foreach (var sectionGroup in template.Fields.GroupBy(f => f.SectionName))
                     {
+                        var tableId = $"field-table-{sectionIdx++}";
                         <div class="portal-tmpl-section">
                             <h3 class="portal-tmpl-section-title">
                                 @sectionGroup.Key
@@ -126,9 +148,13 @@
                             </h3>
                             <div class="portal-card portal-card-flush">
                                 <div class="portal-table-responsive">
-                                    <table class="portal-table" aria-label="@sectionGroup.Key fields">
+                                    <table class="portal-table" id="@tableId" aria-label="@sectionGroup.Key fields">
                                         <thead>
                                             <tr>
+                                                @if (customizeFieldView)
+                                                {
+                                                    <th style="width: 32px;" aria-hidden="true"></th>
+                                                }
                                                 <th>Field Name</th>
                                                 <th>Display Name</th>
                                                 <th>XML Element</th>
@@ -140,7 +166,15 @@
                                         <tbody>
                                             @foreach (var field in sectionGroup)
                                             {
-                                                <tr>
+                                                <tr data-item-id="@field.FieldName">
+                                                    @if (customizeFieldView)
+                                                    {
+                                                        <td>
+                                                            <button class="portal-drag-handle portal-drag-handle-sm" title="Drag to reorder" aria-label="Drag to reorder" tabindex="0">
+                                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="5" r="1.5"/><circle cx="15" cy="5" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="9" cy="19" r="1.5"/><circle cx="15" cy="19" r="1.5"/></svg>
+                                                            </button>
+                                                        </td>
+                                                    }
                                                     <td class="portal-table-mono">@field.FieldName</td>
                                                     <td>@field.DisplayName</td>
                                                     <td class="portal-table-mono portal-text-muted">@field.XmlElementName</td>
@@ -360,7 +394,7 @@
                     {
                         <div class="portal-empty-state portal-card" style="padding: 2rem;">
                             <p class="portal-empty-state-desc">No submissions found for this template.</p>
-                            <a href="/submit?returnCode=@template.ReturnCode" class="portal-btn portal-btn-primary portal-btn-sm" style="margin-top: 1rem;">
+                            <a href="@PortalSubmissionLinkBuilder.BuildSubmitHref(template.ReturnCode, template.ModuleCode)" class="portal-btn portal-btn-primary portal-btn-sm" style="margin-top: 1rem;">
                                 Submit Your First Return
                             </a>
                         </div>
@@ -443,6 +477,7 @@
     private bool isLoading = true;
     private TemplateDetailModel? template;
     private string activeTab = "fields";
+    private bool customizeFieldView = false;
 
     // Schema tab
     private bool isLoadingSchema;
@@ -461,6 +496,7 @@
     private bool historyLoaded;
     private List<TemplateSubmissionHistoryItem> submissionHistory = new();
     private int institutionId;
+    private Guid? tenantId;
 
     // ── Lifecycle ─────────────────────────────────────────────────
     protected override async Task OnInitializedAsync()
@@ -472,11 +508,17 @@
             var instClaim = authState.User.FindFirst("InstitutionId");
             if (instClaim is not null)
                 int.TryParse(instClaim.Value, out institutionId);
+            if (PortalTenantClaimResolver.TryResolveTenantId(authState.User, out var resolvedTenantId))
+            {
+                tenantId = resolvedTenantId;
+            }
         }
 
         try
         {
-            template = await BrowserSvc.GetTemplateDetail(ReturnCode);
+            template = tenantId.HasValue
+                ? await BrowserSvc.GetTemplateDetail(ReturnCode, tenantId.Value)
+                : null;
         }
         catch
         {
@@ -500,7 +542,9 @@
 
         try
         {
-            schemaXml = await BrowserSvc.GetSchemaXml(ReturnCode);
+            schemaXml = tenantId.HasValue
+                ? await BrowserSvc.GetSchemaXml(ReturnCode, tenantId.Value)
+                : null;
         }
         catch
         {
@@ -523,7 +567,9 @@
 
         try
         {
-            sampleXml = await BrowserSvc.GenerateSampleXml(ReturnCode);
+            sampleXml = tenantId.HasValue
+                ? await BrowserSvc.GenerateSampleXml(ReturnCode, tenantId.Value)
+                : null;
         }
         catch
         {
@@ -673,5 +719,53 @@
         if (status == "ApprovalRejected") return "Approval Rejected";
         if (status == "PendingApproval") return "Pending Approval";
         return status;
+    }
+
+    // ── Field View Customization ──────────────────────────────────
+
+    private async Task ToggleCustomizeView()
+    {
+        customizeFieldView = !customizeFieldView;
+        StateHasChanged();
+
+        if (customizeFieldView)
+        {
+            await Task.Yield(); // let Blazor render handles first
+            if (template is null) return;
+            var sectionCount = template.Fields.GroupBy(f => f.SectionName).Count();
+            for (int i = 0; i < sectionCount; i++)
+            {
+                var storageKey = $"fc-tmpl-field-order-{ReturnCode}-s{i}";
+                await DragDrop.InitSortable($"#field-table-{i} tbody", "tr", new
+                {
+                    storageKey,
+                    handle = ".portal-drag-handle"
+                });
+            }
+        }
+        else
+        {
+            if (template is null) return;
+            var sectionCount = template.Fields.GroupBy(f => f.SectionName).Count();
+            for (int i = 0; i < sectionCount; i++)
+                await DragDrop.Destroy($"field-table-{i}");
+        }
+    }
+
+    private async Task ResetFieldOrder()
+    {
+        if (template is null) return;
+        var sectionCount = template.Fields.GroupBy(f => f.SectionName).Count();
+        for (int i = 0; i < sectionCount; i++)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("localStorage.removeItem",
+                    $"fc-tmpl-field-order-{ReturnCode}-s{i}");
+            }
+            catch { /* ignore */ }
+        }
+        customizeFieldView = false;
+        StateHasChanged();
     }
 }

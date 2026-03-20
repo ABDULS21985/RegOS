@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  MFB REGULATORY RETURN - XML SCHEMA DEFINITION (XSD)
+  Microfinance Banks Reporting Standards for CBN Supervision
+  Version: 1.0 | March 2026
+  Aligned: CBN MFB Guidelines, BOFIA 2020, NDIC, NFIU, FATF
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:mfb="urn:centralbank:mfb:reporting:v1"
+           targetNamespace="urn:centralbank:mfb:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+
+  <xs:element name="MFBReturn" type="mfb:MFBReturnType"/>
+
+  <xs:complexType name="MFBReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="mfb:HeaderType"/>
+      <xs:element name="CapitalAdequacy" type="mfb:CapitalAdequacyType" minOccurs="0"/>
+      <xs:element name="Liquidity" type="mfb:LiquidityType" minOccurs="0"/>
+      <xs:element name="PortfolioAtRisk" type="mfb:PortfolioAtRiskType" minOccurs="0"/>
+      <xs:element name="CreditRisk" type="mfb:CreditRiskType" minOccurs="0"/>
+      <xs:element name="FinancialStatements" type="mfb:FinancialStatementsType" minOccurs="0"/>
+      <xs:element name="AMLCompliance" type="mfb:AMLComplianceType" minOccurs="0"/>
+      <xs:element name="FinancialInclusion" type="mfb:FinancialInclusionType" minOccurs="0"/>
+      <xs:element name="Governance" type="mfb:GovernanceType" minOccurs="0"/>
+      <xs:element name="OperationalRisk" type="mfb:OperationalRiskType" minOccurs="0"/>
+      <xs:element name="Signature" type="mfb:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="MFBLicenceNo"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="20"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="MFBName"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="200"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReturnType" type="mfb:ReturnTypeEnum"/>
+      <xs:element name="MFBCategory" type="mfb:MFBCategoryEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="ContactPerson" type="xs:string"/>
+      <xs:element name="ContactEmail"><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="[^@\s]+@[^@\s]+\.[^@\s]+"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ContactPhone" type="xs:string"/>
+      <xs:element name="IsNilReturn" type="xs:boolean" default="false"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CAPITAL ADEQUACY -->
+  <xs:complexType name="CapitalAdequacyType">
+    <xs:sequence>
+      <xs:element name="PaidUpShareCapital" type="mfb:AmountType"/>
+      <xs:element name="SharePremium" type="mfb:AmountType"/>
+      <xs:element name="RetainedEarnings" type="mfb:AmountType"/>
+      <xs:element name="StatutoryReserves" type="mfb:AmountType"/>
+      <xs:element name="GeneralReserves" type="mfb:AmountType"/>
+      <xs:element name="GrossTier1" type="mfb:AmountType"/>
+      <xs:element name="Tier1Deductions" type="mfb:AmountType"/>
+      <xs:element name="NetTier1" type="mfb:AmountType"/>
+      <xs:element name="GeneralProvisions" type="mfb:AmountType"/>
+      <xs:element name="RevaluationReserves" type="mfb:AmountType"/>
+      <xs:element name="TotalTier2" type="mfb:AmountType"/>
+      <xs:element name="TotalQualifyingCapital" type="mfb:AmountType"/>
+      <xs:element name="TotalRWA" type="mfb:AmountType"/>
+      <xs:element name="CARRatio" type="mfb:RatioType"/>
+      <xs:element name="MinimumCARRequired" type="mfb:RatioType" fixed="10.00"/>
+      <xs:element name="IsCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- LIQUIDITY -->
+  <xs:complexType name="LiquidityType">
+    <xs:sequence>
+      <xs:element name="CashInHand" type="mfb:AmountType"/>
+      <xs:element name="BalancesWithCBN" type="mfb:AmountType"/>
+      <xs:element name="TreasuryBills" type="mfb:AmountType"/>
+      <xs:element name="PlacementsWithDMBs" type="mfb:AmountType"/>
+      <xs:element name="OtherLiquidAssets" type="mfb:AmountType"/>
+      <xs:element name="TotalLiquidAssets" type="mfb:AmountType"/>
+      <xs:element name="TotalDepositLiabilities" type="mfb:AmountType"/>
+      <xs:element name="LiquidityRatio" type="mfb:RatioType"/>
+      <xs:element name="MinimumRequired" type="mfb:RatioType" fixed="20.00"/>
+      <xs:element name="TBillsInvestmentCompliance" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- PORTFOLIO AT RISK -->
+  <xs:complexType name="PortfolioAtRiskType">
+    <xs:sequence>
+      <xs:element name="PARBand" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="BandLabel" type="xs:string"/>
+            <xs:element name="DaysMin" type="xs:nonNegativeInteger"/>
+            <xs:element name="DaysMax" type="xs:nonNegativeInteger" minOccurs="0"/>
+            <xs:element name="NumberOfAccounts" type="xs:nonNegativeInteger"/>
+            <xs:element name="OutstandingBalance" type="mfb:AmountType"/>
+            <xs:element name="PercentOfPortfolio" type="mfb:RatioType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="GrossLoanPortfolio" type="mfb:AmountType"/>
+      <xs:element name="MicroLoanAmount" type="mfb:AmountType"/>
+      <xs:element name="MicroLoanPct" type="mfb:RatioType"/>
+      <xs:element name="SMELoanAmount" type="mfb:AmountType"/>
+      <xs:element name="SMELoanPct" type="mfb:RatioType"/>
+      <xs:element name="PAR30Ratio" type="mfb:RatioType"/>
+      <xs:element name="PAR90Ratio" type="mfb:RatioType"/>
+      <xs:element name="WriteOffRatio" type="mfb:RatioType"/>
+      <xs:element name="CollectionRate" type="mfb:RatioType"/>
+      <xs:element name="ActiveBorrowers" type="xs:nonNegativeInteger"/>
+      <xs:element name="AverageLoanSize" type="mfb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CREDIT RISK -->
+  <xs:complexType name="CreditRiskType">
+    <xs:sequence>
+      <xs:element name="LoanClassification">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Category" maxOccurs="5">
+              <xs:complexType>
+                <xs:sequence>
+                  <xs:element name="Classification" type="mfb:ClassificationEnum"/>
+                  <xs:element name="NumberOfAccounts" type="xs:nonNegativeInteger"/>
+                  <xs:element name="OutstandingBalance" type="mfb:AmountType"/>
+                  <xs:element name="ProvisionRate" type="mfb:RatioType"/>
+                  <xs:element name="ProvisionAmount" type="mfb:AmountType"/>
+                </xs:sequence>
+              </xs:complexType>
+            </xs:element>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="SectoralDistribution" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Sector" maxOccurs="unbounded">
+              <xs:complexType>
+                <xs:sequence>
+                  <xs:element name="SectorName" type="xs:string"/>
+                  <xs:element name="LoanCount" type="xs:nonNegativeInteger"/>
+                  <xs:element name="Amount" type="mfb:AmountType"/>
+                  <xs:element name="PctOfPortfolio" type="mfb:RatioType"/>
+                </xs:sequence>
+              </xs:complexType>
+            </xs:element>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL STATEMENTS -->
+  <xs:complexType name="FinancialStatementsType">
+    <xs:sequence>
+      <xs:element name="TotalAssets" type="mfb:AmountType"/>
+      <xs:element name="GrossLoans" type="mfb:AmountType"/>
+      <xs:element name="NetLoans" type="mfb:AmountType"/>
+      <xs:element name="TotalDeposits" type="mfb:AmountType"/>
+      <xs:element name="TotalLiabilities" type="mfb:AmountType"/>
+      <xs:element name="ShareholdersEquity" type="mfb:AmountType"/>
+      <xs:element name="TotalInterestIncome" type="mfb:AmountType"/>
+      <xs:element name="TotalInterestExpense" type="mfb:AmountType"/>
+      <xs:element name="NetInterestIncome" type="mfb:AmountType"/>
+      <xs:element name="TotalOperatingIncome" type="mfb:AmountType"/>
+      <xs:element name="TotalOperatingExpenses" type="mfb:AmountType"/>
+      <xs:element name="ProfitBeforeTax" type="mfb:AmountType"/>
+      <xs:element name="ProfitAfterTax" type="mfb:AmountType"/>
+      <xs:element name="ROA" type="mfb:RatioType"/>
+      <xs:element name="ROE" type="mfb:RatioType"/>
+      <xs:element name="OSS" type="mfb:RatioType"/>
+      <xs:element name="CostToIncomeRatio" type="mfb:RatioType"/>
+      <xs:element name="NIM" type="mfb:RatioType"/>
+    </xs:sequence>
+    <xs:attribute name="reportingCurrency" type="xs:string" default="NGN"/>
+  </xs:complexType>
+
+  <!-- AML COMPLIANCE -->
+  <xs:complexType name="AMLComplianceType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="InternalAlerts" type="xs:nonNegativeInteger"/>
+      <xs:element name="BVNNINVerificationRate" type="mfb:RatioType"/>
+      <xs:element name="PEPCustomers" type="xs:nonNegativeInteger"/>
+      <xs:element name="StaffTrainedPct" type="mfb:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL INCLUSION -->
+  <xs:complexType name="FinancialInclusionType">
+    <xs:sequence>
+      <xs:element name="TotalDepositAccounts" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveDepositAccounts" type="xs:nonNegativeInteger"/>
+      <xs:element name="ActiveBorrowers" type="xs:nonNegativeInteger"/>
+      <xs:element name="FemaleBorrowers" type="xs:nonNegativeInteger"/>
+      <xs:element name="FemaleBorrowerPct" type="mfb:RatioType"/>
+      <xs:element name="YouthBorrowers" type="xs:nonNegativeInteger"/>
+      <xs:element name="RuralCustomerPct" type="mfb:RatioType"/>
+      <xs:element name="AgentBankingLocations" type="xs:nonNegativeInteger"/>
+      <xs:element name="DigitalTransactionVolume" type="xs:nonNegativeInteger"/>
+      <xs:element name="DigitalTransactionValue" type="mfb:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- GOVERNANCE -->
+  <xs:complexType name="GovernanceType">
+    <xs:sequence>
+      <xs:element name="Director" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="Nationality" type="xs:string"/>
+            <xs:element name="ExecutiveNonExec" type="xs:string"/>
+            <xs:element name="MicrofinanceCertified" type="xs:boolean"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="Shareholder" maxOccurs="unbounded" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="Name" type="xs:string"/>
+            <xs:element name="ShareholdingPct" type="mfb:RatioType"/>
+            <xs:element name="CBNApproval" type="xs:boolean"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- OPERATIONAL RISK -->
+  <xs:complexType name="OperationalRiskType">
+    <xs:sequence>
+      <xs:element name="FraudCases" type="xs:nonNegativeInteger"/>
+      <xs:element name="FraudLossAmount" type="mfb:AmountType"/>
+      <xs:element name="FraudRecoveries" type="mfb:AmountType"/>
+      <xs:element name="SystemDowntimeHours" type="xs:decimal"/>
+      <xs:element name="CyberIncidents" type="xs:nonNegativeInteger"/>
+      <xs:element name="CustomerComplaints" type="xs:nonNegativeInteger"/>
+      <xs:element name="ComplaintsResolved" type="xs:nonNegativeInteger"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SIGNATURE -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="MDSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that the information provided is true, accurate, and complete to the best of our knowledge and in compliance with CBN MFB guidelines."/>
+      <xs:element name="DigitalSignature" type="xs:base64Binary" minOccurs="0"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENUMERATIONS -->
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="CAR"/><xs:enumeration value="LIQ"/><xs:enumeration value="PAR"/>
+      <xs:enumeration value="CRR"/><xs:enumeration value="FIN"/><xs:enumeration value="AML"/>
+      <xs:enumeration value="FII"/><xs:enumeration value="GOV"/><xs:enumeration value="OPR"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="MFBCategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Tier1Unit"/><xs:enumeration value="Tier2Unit"/>
+      <xs:enumeration value="State"/><xs:enumeration value="National"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="ClassificationEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Performing"/><xs:enumeration value="Watchlist"/>
+      <xs:enumeration value="Substandard"/><xs:enumeration value="Doubtful"/><xs:enumeration value="Lost"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

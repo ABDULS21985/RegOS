@@ -1,0 +1,290 @@
+@page "/platform/capital/planning"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@inject FC.Engine.Infrastructure.Services.CapitalPlanningScenarioStoreService ScenarioStore
+@inject FC.Engine.Admin.Services.ToastService Toast
+@inject IJSRuntime JS
+
+<PageTitle>Capital Planning</PageTitle>
+
+<PageHeader Title="Capital Planning & Forecasting"
+            Subtitle="Project CAR over 4–8 quarters using growth, profit, dividend, and issuance assumptions."
+            BackUrl="/platform/capital">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="SaveScenarioAsync" disabled="@_saving">
+            @if (_saving) { <span class="fc-spinner fc-spinner--xs"></span> } Save Scenario
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load scenario" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <div class="rg-grid rg-grid-2">
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" />
+                <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Card" />
+            </div>
+        }
+        else
+        {
+            <div class="rg-grid rg-grid-2">
+                <div class="fc-card">
+                    <div class="fc-card__header"><h2 class="fc-card__title">Scenario Parameters</h2></div>
+                    <div class="fc-card__body">
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Current CAR (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_currentCar" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Current RWA (bn)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_currentRwa" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Quarterly RWA Growth (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_rwaGrowth" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Quarterly Retained Earnings (bn)</label>
+                            <input type="number" class="fc-input" step="0.01" @bind="_retainedEarnings" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Capital Action (bn)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_capitalAction" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">RWA Optimisation (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_rwaOpt" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Target CAR (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_targetCar" @bind:after="ProjectAsync" />
+                        </div>
+
+                        <h3 class="fc-card__title" style="margin-top:var(--space-6)">Buffer Requirements</h3>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Minimum Requirement (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_minReq" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Conservation Buffer (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_conservation" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Countercyclical Buffer (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_countercyclical" @bind:after="ProjectAsync" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">D-SIB Buffer (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_dsib" @bind:after="ProjectAsync" />
+                        </div>
+
+                        <h3 class="fc-card__title" style="margin-top:var(--space-6)">Cost of Capital</h3>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">CET1 Cost (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_cet1Cost" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">AT1 Cost (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_at1Cost" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Tier 2 Cost (%)</label>
+                            <input type="number" class="fc-input" step="0.1" @bind="_tier2Cost" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Max AT1 Share (%)</label>
+                            <input type="number" class="fc-input" step="1" @bind="_maxAt1" />
+                        </div>
+                        <div class="fc-form-row">
+                            <label class="fc-form-label">Max Tier 2 Share (%)</label>
+                            <input type="number" class="fc-input" step="1" @bind="_maxTier2" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="fc-card">
+                    <div class="fc-card__header"><h2 class="fc-card__title">8-Quarter CAR Projection</h2></div>
+                    <div class="fc-card__body">
+                        <canvas id="carProjectionChart"></canvas>
+
+                        <div class="fc-cap-projection-table">
+                            <table class="rg-table">
+                                <thead>
+                                    <tr><th>Quarter</th><th>RWA (bn)</th><th>Capital (bn)</th><th>CAR (%)</th><th>Status</th></tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var q in _projections)
+                                    {
+                                        var totalReq = _minReq + _conservation + _countercyclical + _dsib;
+                                        var statusClass = q.Car >= _targetCar ? "fc-badge--success" : q.Car >= totalReq ? "fc-badge--warning" : "fc-badge--danger";
+                                        var statusLabel = q.Car >= _targetCar ? "On Target" : q.Car >= totalReq ? "Watch" : "Below Minimum";
+                                        <tr>
+                                            <td>@q.Label</td>
+                                            <td>@q.Rwa.ToString("F2")</td>
+                                            <td>@q.Capital.ToString("F2")</td>
+                                            <td><strong>@q.Car.ToString("F2")%</strong></td>
+                                            <td><span class="fc-badge @statusClass">@statusLabel</span></td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true, _saving, _chartsRendered;
+    private Exception? _loadException;
+
+    // Scenario parameters
+    private decimal _currentCar = 15m, _currentRwa = 100m, _rwaGrowth = 2m, _retainedEarnings = 0.5m;
+    private decimal _capitalAction, _rwaOpt, _targetCar = 15m;
+    private decimal _minReq = 10m, _conservation = 2.5m, _countercyclical = 0.5m, _dsib = 1m;
+    private decimal _cet1Cost = 12m, _at1Cost = 8m, _tier2Cost = 5m, _maxAt1 = 30m, _maxTier2 = 35m;
+    private decimal _step = 0.5m;
+
+    private List<ProjectionRow> _projections = [];
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_loading && !_chartsRendered && _projections.Count > 0)
+        {
+            _chartsRendered = true;
+            await RenderChartAsync();
+        }
+    }
+
+    private async Task ReloadAsync()
+    {
+        _loading = true;
+        _loadException = null;
+        _chartsRendered = false;
+        try
+        {
+            var s = await ScenarioStore.LoadAsync();
+            if (s is not null)
+            {
+                _currentCar = s.CurrentCarPercent;
+                _currentRwa = s.CurrentRwaBn;
+                _rwaGrowth = s.QuarterlyRwaGrowthPercent;
+                _retainedEarnings = s.QuarterlyRetainedEarningsBn;
+                _capitalAction = s.CapitalActionBn;
+                _rwaOpt = s.RwaOptimisationPercent;
+                _targetCar = s.TargetCarPercent;
+                _minReq = s.MinimumRequirementPercent;
+                _conservation = s.ConservationBufferPercent;
+                _countercyclical = s.CountercyclicalBufferPercent;
+                _dsib = s.DsibBufferPercent;
+                _cet1Cost = s.Cet1CostPercent;
+                _at1Cost = s.At1CostPercent;
+                _tier2Cost = s.Tier2CostPercent;
+                _maxAt1 = s.MaxAt1SharePercent;
+                _maxTier2 = s.MaxTier2SharePercent;
+                _step = s.StepPercent > 0 ? s.StepPercent : 0.5m;
+            }
+            ComputeProjection();
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private Task ProjectAsync()
+    {
+        ComputeProjection();
+        _chartsRendered = false;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void ComputeProjection()
+    {
+        _projections.Clear();
+        var rwa = _currentRwa > 0 ? _currentRwa : 1m;
+        var capital = rwa * _currentCar / 100m;
+
+        _projections.Add(new("Current", rwa, capital, _currentCar));
+
+        for (var q = 1; q <= 8; q++)
+        {
+            if (q == 1)
+            {
+                rwa *= (1m - _rwaOpt / 100m);
+                capital += _capitalAction;
+            }
+            rwa *= (1m + _rwaGrowth / 100m);
+            capital += _retainedEarnings;
+            var car = rwa > 0 ? capital / rwa * 100m : 0;
+            _projections.Add(new($"Q{q}", Math.Round(rwa, 2), Math.Round(capital, 2), Math.Round(car, 2)));
+        }
+    }
+
+    private async Task SaveScenarioAsync()
+    {
+        _saving = true;
+        try
+        {
+            await ScenarioStore.SaveAsync(new CapitalPlanningScenarioCommand
+            {
+                CurrentCarPercent = _currentCar,
+                CurrentRwaBn = _currentRwa,
+                QuarterlyRwaGrowthPercent = _rwaGrowth,
+                QuarterlyRetainedEarningsBn = _retainedEarnings,
+                CapitalActionBn = _capitalAction,
+                MinimumRequirementPercent = _minReq,
+                ConservationBufferPercent = _conservation,
+                CountercyclicalBufferPercent = _countercyclical,
+                DsibBufferPercent = _dsib,
+                RwaOptimisationPercent = _rwaOpt,
+                TargetCarPercent = _targetCar,
+                Cet1CostPercent = _cet1Cost,
+                At1CostPercent = _at1Cost,
+                Tier2CostPercent = _tier2Cost,
+                MaxAt1SharePercent = _maxAt1,
+                MaxTier2SharePercent = _maxTier2,
+                StepPercent = _step
+            });
+            Toast.Show(new ToastItem { Variant = ToastVariant.Success, Title = "Scenario Saved", Message = "Capital planning scenario saved to database." });
+        }
+        catch (Exception ex)
+        {
+            Toast.Error("Save failed: " + ex.Message);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task RenderChartAsync()
+    {
+        try
+        {
+            var totalReq = (double)(_minReq + _conservation + _countercyclical + _dsib);
+            await JS.InvokeVoidAsync("fcCharts.renderLine", "carProjectionChart", new
+            {
+                labels = _projections.Select(p => p.Label).ToArray(),
+                datasets = new object[]
+                {
+                    new { label = "Projected CAR", data = _projections.Select(p => (double)p.Car).ToArray(), borderColor = "#006B3F", backgroundColor = "rgba(0,107,63,0.1)", fill = true },
+                    new { label = "Target CAR", data = _projections.Select(_ => (double)_targetCar).ToArray(), borderColor = "#C8A415", borderDash = new[] { 6, 4 }, fill = false },
+                    new { label = "Total Required", data = _projections.Select(_ => totalReq).ToArray(), borderColor = "#dc2626", borderDash = new[] { 3, 3 }, fill = false }
+                }
+            });
+        }
+        catch { }
+    }
+
+    private sealed record ProjectionRow(string Label, decimal Rwa, decimal Capital, decimal Car);
+}

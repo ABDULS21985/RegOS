@@ -1,0 +1,195 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+@if (_visible && Steps.Count > 0)
+{
+    @if (_showCompletion)
+    {
+        @* ── Tour-complete celebration screen ── *@
+        <div class="portal-tour-backdrop portal-tour-backdrop-spotlight"></div>
+        <div class="portal-tour-card portal-tour-card-center" role="dialog" aria-live="polite">
+            <div class="portal-tour-complete-icon" aria-hidden="true">
+                <svg viewBox="0 0 48 48" fill="none" width="48" height="48">
+                    <circle cx="24" cy="24" r="22" fill="#006B3F" opacity=".12"/>
+                    <path d="M14 24l7 7 13-13" stroke="#006B3F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </div>
+            <h3 class="portal-tour-complete-title">Tour complete!</h3>
+            <p class="portal-tour-description">
+                Bookmark the help centre for quick reference whenever you need it.
+            </p>
+            <div class="portal-tour-actions portal-tour-actions-center">
+                <a href="/help" class="portal-btn portal-btn-primary portal-btn-sm">Open Help Centre</a>
+                <button class="portal-btn portal-btn-outline portal-btn-sm" @onclick="Complete" type="button">Done</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* ── Step overlay ── *@
+        <div class="portal-tour-backdrop @(IsSpotlight ? "portal-tour-backdrop-spotlight" : "")" @onclick="Close"></div>
+        <div class="portal-tour-card" style="@GetCardStyle()" role="dialog" aria-live="polite">
+            <div class="portal-tour-header">
+                <h3>@CurrentStep.Title</h3>
+                <button class="portal-tour-close" @onclick="Close" type="button" aria-label="Close guided tour">×</button>
+            </div>
+            <p class="portal-tour-description">@CurrentStep.Description</p>
+            <div class="portal-tour-footer">
+                <span class="portal-tour-progress">@(_currentIndex + 1) of @Steps.Count</span>
+                <div class="portal-tour-actions">
+                    <button class="portal-btn portal-btn-outline portal-btn-sm"
+                            @onclick="Previous" disabled="@(_currentIndex == 0)" type="button">Back</button>
+                    @if (_currentIndex == Steps.Count - 1)
+                    {
+                        <button class="portal-btn portal-btn-primary portal-btn-sm"
+                                @onclick="ShowCompletionScreen" type="button">Finish Tour</button>
+                    }
+                    else
+                    {
+                        <button class="portal-btn portal-btn-primary portal-btn-sm"
+                                @onclick="Next" type="button">
+                            Next <span class="portal-tour-nav-count">(@(_currentIndex + 2)/@Steps.Count)</span>
+                        </button>
+                    }
+                </div>
+            </div>
+            <button class="portal-tour-skip" @onclick="Close" type="button">Skip Tour</button>
+        </div>
+    }
+}
+
+@code {
+    [Parameter] public IReadOnlyList<GuidedTourStepDefinition> Steps { get; set; } = Array.Empty<GuidedTourStepDefinition>();
+    [Parameter] public EventCallback OnCompleted { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    /// <summary>
+    /// When true the element gets a spotlight box-shadow instead of the amber outline,
+    /// and the backdrop is fully dark so only the highlighted element is visible.
+    /// </summary>
+    [Parameter] public bool IsSpotlight { get; set; }
+
+    private int _currentIndex;
+    private bool _visible = true;
+    private bool _showCompletion;
+    private TourTargetRect _targetRect = new();
+    private bool _positionResolved;
+
+    private GuidedTourStepDefinition CurrentStep => Steps[_currentIndex];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_visible || Steps.Count == 0 || _showCompletion) return;
+
+        if (firstRender || !_positionResolved)
+            await ResolveCurrentStepPositionAsync();
+    }
+
+    private async Task ResolveCurrentStepPositionAsync()
+    {
+        var highlightFn = IsSpotlight ? "portalTour.spotlightOn" : "portalTour.highlight";
+        var rect = await JS.InvokeAsync<TourTargetRect?>(highlightFn, CurrentStep.TargetSelector);
+        _targetRect = rect ?? new TourTargetRect();
+        _positionResolved = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Next()
+    {
+        if (_currentIndex >= Steps.Count - 1) return;
+        _currentIndex++;
+        _positionResolved = false;
+        await ResolveCurrentStepPositionAsync();
+    }
+
+    private async Task Previous()
+    {
+        if (_currentIndex <= 0) return;
+        _currentIndex--;
+        _positionResolved = false;
+        await ResolveCurrentStepPositionAsync();
+    }
+
+    private async Task ShowCompletionScreen()
+    {
+        await ClearHighlightAsync();
+        _showCompletion = true;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Complete()
+    {
+        _visible = false;
+        _showCompletion = false;
+        await ClearHighlightAsync();
+        if (OnCompleted.HasDelegate)
+            await OnCompleted.InvokeAsync();
+    }
+
+    private async Task Close()
+    {
+        _visible = false;
+        await ClearHighlightAsync();
+        if (OnClosed.HasDelegate)
+            await OnClosed.InvokeAsync();
+    }
+
+    private async Task ClearHighlightAsync()
+    {
+        try
+        {
+            if (IsSpotlight)
+                await JS.InvokeVoidAsync("portalTour.spotlightOff");
+            else
+                await JS.InvokeVoidAsync("portalTour.clear");
+        }
+        catch { /* disposal-time JS failures are expected */ }
+    }
+
+    private string GetCardStyle()
+    {
+        if (_targetRect.Width <= 0 && _targetRect.Height <= 0)
+            return "top:20%;left:50%;transform:translateX(-50%);";
+
+        var position = (CurrentStep.Position ?? "bottom").Trim().ToLowerInvariant();
+        double top, left;
+
+        switch (position)
+        {
+            case "top":
+                top = Math.Max(16, _targetRect.Top - 220);
+                left = _targetRect.Left;
+                break;
+            case "left":
+                top = _targetRect.Top;
+                left = Math.Max(16, _targetRect.Left - 380);
+                break;
+            case "right":
+                top = _targetRect.Top;
+                left = _targetRect.Left + _targetRect.Width + 16;
+                break;
+            default: // bottom
+                top = _targetRect.Top + _targetRect.Height + 16;
+                left = _targetRect.Left;
+                break;
+        }
+
+        // Keep within viewport (rough guard; JS positioning handles fine-grained cases)
+        left = Math.Max(16, left);
+        return $"top:{top:F0}px;left:{left:F0}px;";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await ClearHighlightAsync(); }
+        catch { }
+    }
+
+    public class TourTargetRect
+    {
+        public double Top { get; set; }
+        public double Left { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+    }
+}

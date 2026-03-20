@@ -11,7 +11,8 @@ public partial class DynamicSqlBuilder
         string tableName,
         IReadOnlyList<TemplateField> fields,
         ReturnDataRow row,
-        int submissionId)
+        int submissionId,
+        Guid? tenantId = null)
     {
         ValidateName(tableName);
 
@@ -20,6 +21,14 @@ public partial class DynamicSqlBuilder
 
         var columns = new List<string> { "submission_id" };
         var paramNames = new List<string> { "@submission_id" };
+
+        // Include TenantId in INSERT for belt-and-suspenders with RLS
+        if (tenantId.HasValue)
+        {
+            columns.Add("TenantId");
+            paramNames.Add("@TenantId");
+            parameters.Add("@TenantId", tenantId.Value);
+        }
 
         foreach (var field in fields)
         {
@@ -40,7 +49,7 @@ public partial class DynamicSqlBuilder
         return (sql, parameters);
     }
 
-    public string BuildSelect(string tableName, IReadOnlyList<TemplateField> fields)
+    public string BuildSelect(string tableName, IReadOnlyList<TemplateField> fields, Guid? tenantId = null)
     {
         ValidateName(tableName);
 
@@ -51,11 +60,13 @@ public partial class DynamicSqlBuilder
             columns.Add($"[{f.FieldName}]");
         }
 
+        // RLS handles tenant filtering; explicit TenantId filter helps index usage.
+        var tenantFilter = tenantId.HasValue ? " AND TenantId = @TenantId" : "";
         return $"SELECT {string.Join(", ", columns)} FROM dbo.[{tableName}] " +
-               "WHERE submission_id = @submissionId ORDER BY id";
+               $"WHERE submission_id = @submissionId{tenantFilter} ORDER BY id";
     }
 
-    public string BuildSelectByInstitutionAndPeriod(string tableName, IReadOnlyList<TemplateField> fields)
+    public string BuildSelectByInstitutionAndPeriod(string tableName, IReadOnlyList<TemplateField> fields, Guid? tenantId = null)
     {
         ValidateName(tableName);
 
@@ -66,10 +77,52 @@ public partial class DynamicSqlBuilder
             columns.Add($"d.[{f.FieldName}]");
         }
 
+        var tenantFilter = tenantId.HasValue
+            ? " AND d.TenantId = @TenantId AND s.TenantId = @TenantId"
+            : "";
+
         return $"SELECT {string.Join(", ", columns)} FROM dbo.[{tableName}] d " +
                "INNER JOIN dbo.return_submissions s ON d.submission_id = s.id " +
-               "WHERE s.InstitutionId = @institutionId AND s.ReturnPeriodId = @returnPeriodId " +
+               $"WHERE s.InstitutionId = @institutionId AND s.ReturnPeriodId = @returnPeriodId{tenantFilter} " +
                "ORDER BY d.id";
+    }
+
+    public string BuildDeleteBySubmission(string tableName, Guid? tenantId = null)
+    {
+        ValidateName(tableName);
+        var tenantFilter = tenantId.HasValue ? " AND TenantId = @TenantId" : "";
+        return $"DELETE FROM dbo.[{tableName}] WHERE submission_id = @submissionId{tenantFilter}";
+    }
+
+    public string BuildSelectFieldBySubmission(string tableName, string fieldName, Guid? tenantId = null)
+    {
+        ValidateName(tableName);
+        ValidateName(fieldName);
+        var tenantFilter = tenantId.HasValue ? " AND TenantId = @TenantId" : "";
+        return $"SELECT TOP 1 [{fieldName}] FROM dbo.[{tableName}] " +
+               $"WHERE submission_id = @submissionId{tenantFilter} ORDER BY id";
+    }
+
+    public string BuildUpdateFieldBySubmission(string tableName, string fieldName, Guid? tenantId = null)
+    {
+        ValidateName(tableName);
+        ValidateName(fieldName);
+        var tenantFilter = tenantId.HasValue ? " AND TenantId = @TenantId" : "";
+        return $"UPDATE dbo.[{tableName}] SET [{fieldName}] = @value " +
+               $"WHERE submission_id = @submissionId{tenantFilter}";
+    }
+
+    public string BuildInsertSingleField(string tableName, string fieldName, Guid? tenantId = null)
+    {
+        ValidateName(tableName);
+        ValidateName(fieldName);
+        if (tenantId.HasValue)
+        {
+            return $"INSERT INTO dbo.[{tableName}] (submission_id, TenantId, [{fieldName}]) " +
+                   "VALUES (@submissionId, @TenantId, @value)";
+        }
+
+        return $"INSERT INTO dbo.[{tableName}] (submission_id, [{fieldName}]) VALUES (@submissionId, @value)";
     }
 
     private static void ValidateName(string name)

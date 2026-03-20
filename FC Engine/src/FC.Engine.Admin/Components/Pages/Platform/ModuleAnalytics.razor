@@ -1,0 +1,549 @@
+@page "/platform/module-analytics"
+@attribute [Authorize(Policy = "PlatformAdmin")]
+@using Microsoft.AspNetCore.Authorization
+@using FC.Engine.Admin.Services
+@using FC.Engine.Domain.Models
+@using FC.Engine.Infrastructure.Charts
+@inject PlatformAdminService PlatformService
+@inject ChartJsInterop Charts
+
+<PageTitle>Module Analytics — RegOS™</PageTitle>
+
+<PageHeader Title="Module Analytics"
+            Subtitle="Adoption heatmap, validation hotspot drilldown, and module health across your platform." />
+
+<div class="fc-page">
+
+    @if (_loading)
+    {
+        <div aria-busy="true" aria-label="Loading module analytics">
+        <!-- Skeleton KPIs -->
+        <div class="fc-ma-kpi-strip">
+            @for (var i = 0; i < 4; i++)
+            {
+                <div class="fc-card fc-ma-kpi-card">
+                    <div class="fc-skel fc-skel-text" style="--skel-w:60px;--skel-h:12px"></div>
+                    <div class="fc-skel fc-skel-text" style="--skel-w:50px;--skel-h:28px;margin-top:8px"></div>
+                    <div class="fc-skel fc-skel-text" style="--skel-w:90px;--skel-h:10px;margin-top:6px"></div>
+                </div>
+            }
+        </div>
+
+        <!-- Skeleton Table -->
+        <div class="fc-card fc-card--mb">
+            <div class="fc-card__body fc-card-body--flush">
+                <table class="fc-table">
+                    <thead><tr><th>Module</th><th>Tenants</th><th>Users</th><th>Returns</th><th>Error Rate</th><th>Heat</th></tr></thead>
+                    <tbody>
+                        @for (var i = 0; i < 5; i++)
+                        {
+                            <tr>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:140px"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:30px"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:30px"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:30px"></div></td>
+                                <td><div class="fc-skel fc-skel-text" style="--skel-w:50px"></div></td>
+                                <td><div class="fc-skel" style="--skel-w:50px;--skel-h:20px"></div></td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        </div>
+    }
+    else if (_data is not null)
+    {
+        @* ── KPI Summary Strip ── *@
+        <div class="fc-ma-kpi-strip">
+            <div class="fc-card fc-ma-kpi-card fc-ma-kpi-card--modules">
+                <div class="fc-ma-kpi-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+                </div>
+                <div class="fc-ma-kpi-content">
+                    <div class="fc-ma-kpi-label">Active Modules</div>
+                    <div class="fc-ma-kpi-value">@_data.Items.Count</div>
+                    <div class="fc-ma-kpi-sub">across platform</div>
+                </div>
+            </div>
+            <div class="fc-card fc-ma-kpi-card fc-ma-kpi-card--tenants">
+                <div class="fc-ma-kpi-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                </div>
+                <div class="fc-ma-kpi-content">
+                    <div class="fc-ma-kpi-label">Total Tenants</div>
+                    <div class="fc-ma-kpi-value">@_data.Items.Sum(x => x.TenantCount)</div>
+                    <div class="fc-ma-kpi-sub">module subscriptions</div>
+                </div>
+            </div>
+            <div class="fc-card fc-ma-kpi-card fc-ma-kpi-card--errors">
+                <div class="fc-ma-kpi-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </div>
+                <div class="fc-ma-kpi-content">
+                    <div class="fc-ma-kpi-label">Avg Error Rate</div>
+                    <div class="fc-ma-kpi-value fc-ma-kpi-value--@(_avgErrorRate > 10 ? "danger" : _avgErrorRate > 5 ? "warning" : "success")">
+                        @_avgErrorRate.ToString("0.#")%
+                    </div>
+                    <div class="fc-ma-kpi-sub">validation failures</div>
+                </div>
+            </div>
+            <div class="fc-card fc-ma-kpi-card fc-ma-kpi-card--risk">
+                <div class="fc-ma-kpi-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                </div>
+                <div class="fc-ma-kpi-content">
+                    <div class="fc-ma-kpi-label">Modules at Risk</div>
+                    <div class="fc-ma-kpi-value fc-ma-kpi-value--@(_modulesAtRisk > 0 ? "danger" : "success")">
+                        @_modulesAtRisk
+                    </div>
+                    <div class="fc-ma-kpi-sub">red heat status</div>
+                </div>
+            </div>
+        </div>
+
+        @* ── Collapsible Charts ── *@
+        <div class="fc-card fc-card--mb">
+            <button type="button" class="fc-ma-charts-toggle" @onclick="ToggleCharts" aria-expanded="@_chartsExpanded">
+                <span class="fc-ma-charts-toggle-left">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+                    Charts
+                </span>
+                <svg class="fc-ma-charts-chevron @(_chartsExpanded ? "fc-ma-charts-chevron--open" : "")" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+            @if (_chartsExpanded)
+            {
+                <div class="fc-ma-charts-body">
+                    <div class="fc-ma-chart-slot">
+                        <div class="fc-ma-chart-slot-title">Filing Volumes by Module</div>
+                        <div class="fc-chart-height"><canvas id="maVolumeChart"></canvas></div>
+                    </div>
+                    <div class="fc-ma-chart-slot">
+                        <div class="fc-ma-chart-slot-title">Error Distribution</div>
+                        <div class="fc-chart-height"><canvas id="maErrorChart"></canvas></div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @* ── Adoption Heatmap Table ── *@
+        <div class="fc-card fc-card--mb">
+            <div class="fc-card__header">
+                <h2 class="fc-card__title">Adoption Heatmap</h2>
+                <span class="fc-ma-header-hint">Click a row to open detail drawer</span>
+            </div>
+
+            <div class="fc-ma-toolbar">
+                <div class="fc-ma-toolbar-search">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input type="text" class="fc-ma-toolbar-input" @bind="_searchFilter" @bind:event="oninput" placeholder="Filter modules..." />
+                </div>
+                <select class="fc-ma-toolbar-sort" @bind="_sortBy">
+                    <option value="heat">Sort by Heat</option>
+                    <option value="tenants">Sort by Tenants</option>
+                    <option value="errors">Sort by Error Rate</option>
+                    <option value="name">Sort by Name</option>
+                </select>
+            </div>
+
+            <div class="fc-card__body fc-card-body--flush">
+                <table class="fc-table fc-ma-table">
+                    <thead>
+                        <tr>
+                            <th>Module</th>
+                            <th>Tenants</th>
+                            <th>Active Users</th>
+                            <th>Returns Submitted</th>
+                            <th style="min-width:160px">Validation Error Rate</th>
+                            <th>Heat</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var row in FilteredItems)
+                        {
+                            var isSelected = _selected?.ModuleId == row.ModuleId;
+                            <tr class="fc-ma-row @(isSelected ? "fc-ma-row--selected" : "")" @onclick="() => SelectModule(row.ModuleId)">
+                                <td>
+                                    <div class="fc-fw-600">@row.ModuleName</div>
+                                    <small class="fc-cell-sub">@row.ModuleCode</small>
+                                </td>
+                                <td><span class="fc-badge fc-badge--neutral">@row.TenantCount</span></td>
+                                <td>@row.ActiveUsers.ToString("N0")</td>
+                                <td>@row.ReturnsSubmitted.ToString("N0")</td>
+                                <td>
+                                    <div class="fc-ma-error-bar-wrap">
+                                        <div class="fc-ma-error-bar">
+                                            <div class="fc-ma-error-bar-fill fc-ma-error-bar-fill--@HeatKey(row.Heat)"
+                                                 style="width:@(Math.Min(row.ValidationErrorRate, 100).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture))%">
+                                            </div>
+                                        </div>
+                                        <span class="fc-badge @HeatBadge(row.Heat)" style="min-width:52px;text-align:center;">
+                                            @row.ValidationErrorRate.ToString("0.##")%
+                                        </span>
+                                    </div>
+                                </td>
+                                <td>
+                                    <div class="fc-ma-heat-cell fc-ma-heat-cell--@HeatKey(row.Heat)">
+                                        <span class="fc-ma-heat-dot fc-ma-heat-dot--@HeatKey(row.Heat)"></span>
+                                        <span class="fc-capitalize">@row.Heat</span>
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        @* ── Detail Drawer (slide-in from right) ── *@
+        @if (_selected is not null)
+        {
+            <div class="fc-ma-backdrop" @onclick="() => _selected = null"></div>
+            <aside class="fc-ma-drawer" @key="_selected.ModuleId">
+                <div class="fc-ma-drawer-header">
+                    <div class="fc-ma-drawer-header-left">
+                        <span class="fc-ma-heat-dot fc-ma-heat-dot--@HeatKey(_selected.Heat) fc-ma-heat-dot--lg"></span>
+                        <div>
+                            <h2 class="fc-ma-drawer-title">@_selected.ModuleName</h2>
+                            <span class="fc-ma-drawer-code">@_selected.ModuleCode</span>
+                        </div>
+                    </div>
+                    <button class="fc-btn fc-btn--ghost fc-ma-drawer-close" @onclick="() => _selected = null" title="Close drawer">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+
+                <div class="fc-ma-drawer-body">
+                    @* ── Module Stats ── *@
+                    <div class="fc-ma-dd-stats">
+                        <div class="fc-ma-dd-stat">
+                            <div class="fc-ma-dd-stat-icon fc-ma-dd-stat-icon--tenants">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                            </div>
+                            <div class="fc-ma-dd-stat-body">
+                                <div class="fc-ma-dd-stat-value">@_selected.TenantCount</div>
+                                <div class="fc-ma-dd-stat-label">Tenants</div>
+                            </div>
+                        </div>
+                        <div class="fc-ma-dd-stat">
+                            <div class="fc-ma-dd-stat-icon fc-ma-dd-stat-icon--users">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                            </div>
+                            <div class="fc-ma-dd-stat-body">
+                                <div class="fc-ma-dd-stat-value">@_selected.ActiveUsers.ToString("N0")</div>
+                                <div class="fc-ma-dd-stat-label">Active Users</div>
+                            </div>
+                        </div>
+                        <div class="fc-ma-dd-stat">
+                            <div class="fc-ma-dd-stat-icon fc-ma-dd-stat-icon--returns">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                            </div>
+                            <div class="fc-ma-dd-stat-body">
+                                <div class="fc-ma-dd-stat-value">@_selected.ReturnsSubmitted.ToString("N0")</div>
+                                <div class="fc-ma-dd-stat-label">Returns Filed</div>
+                            </div>
+                        </div>
+                        <div class="fc-ma-dd-stat">
+                            <div class="fc-ma-dd-stat-icon fc-ma-dd-stat-icon--@HeatKey(_selected.Heat)">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            </div>
+                            <div class="fc-ma-dd-stat-body">
+                                <div class="fc-ma-dd-stat-value fc-ma-kpi-value--@(HeatKey(_selected.Heat) == "red" ? "danger" : HeatKey(_selected.Heat) == "amber" ? "warning" : "success")">
+                                    @_selected.ValidationErrorRate.ToString("0.##")%
+                                </div>
+                                <div class="fc-ma-dd-stat-label">Error Rate</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    @* ── Error Rate Gauge ── *@
+                    <div class="fc-ma-dd-gauge-row">
+                        <div class="fc-ma-dd-gauge-wrap">
+                            <svg viewBox="0 0 120 70" class="fc-ma-dd-gauge-svg">
+                                <path d="M10 65 A50 50 0 0 1 110 65" fill="none" stroke="#e2e8f0" stroke-width="8" stroke-linecap="round"/>
+                                <path d="M10 65 A50 50 0 0 1 110 65" fill="none"
+                                      stroke="@GaugeColor(_selected.ValidationErrorRate)"
+                                      stroke-width="8" stroke-linecap="round"
+                                      stroke-dasharray="@GaugeDash(_selected.ValidationErrorRate)"
+                                      class="fc-ma-dd-gauge-arc"/>
+                            </svg>
+                            <div class="fc-ma-dd-gauge-label">
+                                <span class="fc-ma-dd-gauge-pct">@_selected.ValidationErrorRate.ToString("0.#")%</span>
+                                <span class="fc-ma-dd-gauge-sub">error rate</span>
+                            </div>
+                        </div>
+                        <div class="fc-ma-dd-gauge-legend">
+                            <div class="fc-ma-dd-gauge-legend-item"><span class="fc-ma-dd-legend-dot" style="background:#10b981;"></span> Healthy (&lt;5%)</div>
+                            <div class="fc-ma-dd-gauge-legend-item"><span class="fc-ma-dd-legend-dot" style="background:#f59e0b;"></span> Warning (5–15%)</div>
+                            <div class="fc-ma-dd-gauge-legend-item"><span class="fc-ma-dd-legend-dot" style="background:#ef4444;"></span> Critical (&gt;15%)</div>
+                        </div>
+                    </div>
+
+                    @* ── Hotspot Table ── *@
+                    <div class="fc-ma-dd-section">
+                        <h3 class="fc-ma-dd-section-title">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                            Validation Hotspots
+                            <span class="fc-ma-dd-section-count">@_selected.Hotspots.Count</span>
+                        </h3>
+
+                        @if (_selected.Hotspots.Count == 0)
+                        {
+                            <div class="fc-ma-dd-empty">
+                                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                <div class="fc-ma-dd-empty-title">All Clear</div>
+                                <div class="fc-ma-dd-empty-desc">No recurring validation hotspots detected for this module.</div>
+                            </div>
+                        }
+                        else
+                        {
+                            var maxCount = _selected.Hotspots.Max(h => h.Count);
+
+                            <div class="fc-ma-dd-hotspot-scroll">
+                                <table class="fc-table fc-ma-hotspot-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:36px">#</th>
+                                            <th>Rule ID</th>
+                                            <th>Field</th>
+                                            <th>Count</th>
+                                            <th style="min-width:100px">Frequency</th>
+                                            <th>Severity</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @{  var idx = 0; }
+                                        @foreach (var hotspot in _selected.Hotspots)
+                                        {
+                                            idx++;
+                                            var pct = maxCount > 0 ? (hotspot.Count * 100.0 / maxCount) : 0;
+                                            var severity = hotspot.Count > 50 ? "critical" : hotspot.Count > 20 ? "high" : hotspot.Count > 5 ? "medium" : "low";
+
+                                            <tr class="fc-ma-hotspot-row">
+                                                <td><span class="fc-ma-hotspot-rank">@idx</span></td>
+                                                <td><code class="fc-ma-hotspot-rule">@hotspot.RuleId</code></td>
+                                                <td><span class="fc-ma-hotspot-field">@hotspot.Field</span></td>
+                                                <td><span class="fc-badge fc-badge--danger">@hotspot.Count</span></td>
+                                                <td>
+                                                    <div class="fc-ma-freq-bar-wrap">
+                                                        <div class="fc-ma-freq-bar">
+                                                            <div class="fc-ma-freq-bar-fill fc-ma-freq-bar-fill--@severity"
+                                                                 style="width:@(pct.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture))%"></div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <span class="fc-ma-severity-pill fc-ma-severity-pill--@severity">@severity</span>
+                                                </td>
+                                            </tr>
+                                        }
+                                    </tbody>
+                                </table>
+                            </div>
+                        }
+                    </div>
+
+                    @* ── Insights ── *@
+                    <div class="fc-ma-dd-insights">
+                        <h3 class="fc-ma-dd-section-title">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            Quick Insights
+                        </h3>
+                        <div class="fc-ma-dd-insight-cards">
+                            @if (_selected.Hotspots.Count > 0)
+                            {
+                                var top = _selected.Hotspots.First();
+                                <div class="fc-ma-insight-card fc-ma-insight-card--warning">
+                                    <div class="fc-ma-insight-icon">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+                                    </div>
+                                    <div>
+                                        <div class="fc-ma-insight-title">Top Failing Rule</div>
+                                        <div class="fc-ma-insight-body">
+                                            <code>@top.RuleId</code> on field <strong>@top.Field</strong> has failed @top.Count times.
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            @if (_selected.TenantCount > 0 && _selected.ReturnsSubmitted > 0)
+                            {
+                                var avgPerTenant = Math.Round((double)_selected.ReturnsSubmitted / _selected.TenantCount, 1);
+                                <div class="fc-ma-insight-card fc-ma-insight-card--info">
+                                    <div class="fc-ma-insight-icon">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+                                    </div>
+                                    <div>
+                                        <div class="fc-ma-insight-title">Filing Density</div>
+                                        <div class="fc-ma-insight-body">
+                                            Average of <strong>@avgPerTenant.ToString("0.#")</strong> returns filed per tenant for this module.
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                            @if (_selected.ActiveUsers > 0 && _selected.TenantCount > 0)
+                            {
+                                var avgUsers = Math.Round((double)_selected.ActiveUsers / _selected.TenantCount, 1);
+                                <div class="fc-ma-insight-card fc-ma-insight-card--success">
+                                    <div class="fc-ma-insight-icon">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+                                    </div>
+                                    <div>
+                                        <div class="fc-ma-insight-title">User Engagement</div>
+                                        <div class="fc-ma-insight-body">
+                                            Average of <strong>@avgUsers.ToString("0.#")</strong> active users per tenant using this module.
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        }
+    }
+</div>
+
+@code {
+    private ModuleAnalyticsData? _data;
+    private ModuleAnalyticsItem? _selected;
+    private bool _loading = true;
+    private bool _chartsRendered;
+    private bool _chartsExpanded = true;
+    private decimal _avgErrorRate;
+    private int _modulesAtRisk;
+    private string _sortBy = "heat";
+    private string _searchFilter = string.Empty;
+
+    private IEnumerable<ModuleAnalyticsItem> FilteredItems
+    {
+        get
+        {
+            var items = _data?.Items.AsEnumerable() ?? Enumerable.Empty<ModuleAnalyticsItem>();
+
+            if (!string.IsNullOrWhiteSpace(_searchFilter))
+                items = items.Where(i => i.ModuleName.Contains(_searchFilter, StringComparison.OrdinalIgnoreCase)
+                                      || i.ModuleCode.Contains(_searchFilter, StringComparison.OrdinalIgnoreCase));
+
+            return _sortBy switch
+            {
+                "tenants" => items.OrderByDescending(i => i.TenantCount),
+                "errors" => items.OrderByDescending(i => i.ValidationErrorRate),
+                "name" => items.OrderBy(i => i.ModuleName),
+                _ => items.OrderByDescending(i => HeatOrder(i.Heat)).ThenByDescending(i => i.ValidationErrorRate)
+            };
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _loading = true;
+        try
+        {
+            _data = await PlatformService.GetModuleAnalytics();
+            if (_data.Items.Count > 0)
+            {
+                _avgErrorRate = Math.Round(_data.Items.Average(x => x.ValidationErrorRate), 1);
+                _modulesAtRisk = _data.Items.Count(x => x.Heat.Equals("red", StringComparison.OrdinalIgnoreCase));
+            }
+        }
+        catch { }
+        finally { _loading = false; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is null || !_chartsExpanded || _chartsRendered) return;
+
+        await Charts.RenderBarChart("maVolumeChart", BuildVolumeChart(_data));
+        await Charts.RenderDoughnutChart("maErrorChart", BuildErrorDonut(_data));
+        _chartsRendered = true;
+    }
+
+    private void ToggleCharts()
+    {
+        _chartsExpanded = !_chartsExpanded;
+        if (!_chartsExpanded) _chartsRendered = false;
+    }
+
+    private void SelectModule(int moduleId)
+    {
+        if (_selected?.ModuleId == moduleId)
+            _selected = null;
+        else
+            _selected = _data?.Items.FirstOrDefault(x => x.ModuleId == moduleId);
+    }
+
+    private static int HeatOrder(string heat) => heat.ToLowerInvariant() switch
+    {
+        "red" => 3,
+        "amber" => 2,
+        _ => 1
+    };
+
+    private static string HeatKey(string heat) => heat.ToLowerInvariant() switch
+    {
+        "red" => "red",
+        "amber" => "amber",
+        _ => "green"
+    };
+
+    private static string HeatBadge(string heat) => heat.ToLowerInvariant() switch
+    {
+        "red" => "fc-badge--danger",
+        "amber" => "fc-badge--warning",
+        _ => "fc-badge--success"
+    };
+
+    private static string GaugeColor(decimal errorRate) => errorRate switch
+    {
+        > 15m => "#ef4444",
+        > 5m => "#f59e0b",
+        _ => "#10b981"
+    };
+
+    private static string GaugeDash(decimal errorRate)
+    {
+        const double totalArc = 157.0;
+        var pct = Math.Min((double)errorRate, 100.0) / 100.0;
+        var filled = totalArc * pct;
+        return $"{filled.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)} {totalArc.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}";
+    }
+
+    private static TrendData BuildVolumeChart(ModuleAnalyticsData data) => new()
+    {
+        Title = "Returns by Module",
+        Labels = data.Items.Select(i => i.ModuleCode).ToList(),
+        Datasets =
+        {
+            new TrendDataset
+            {
+                Label = "Returns Submitted",
+                Data = data.Items.Select(i => (decimal)i.ReturnsSubmitted).ToList(),
+                BackgroundColor = "#0f766e",
+                BorderColor = "#0f766e"
+            }
+        }
+    };
+
+    private static TrendData BuildErrorDonut(ModuleAnalyticsData data) => new()
+    {
+        Title = "Error Share by Module",
+        Labels = data.Items.Where(i => i.ValidationErrorRate > 0).Select(i => i.ModuleCode).ToList(),
+        Datasets =
+        {
+            new TrendDataset
+            {
+                Label = "Validation Errors",
+                Data = data.Items.Where(i => i.ValidationErrorRate > 0).Select(i => i.ValidationErrorRate).ToList(),
+                BackgroundColor = string.Join(",", data.Items.Where(i => i.ValidationErrorRate > 0).Select((_, idx) => ChartColors[idx % ChartColors.Length])),
+                BorderColor = "#ffffff"
+            }
+        }
+    };
+
+    private static readonly string[] ChartColors =
+    [
+        "#0f766e", "#C8A415", "#2563eb", "#dc2626", "#7c3aed",
+        "#db2777", "#ea580c", "#059669", "#4f46e5", "#ca8a04"
+    ];
+}

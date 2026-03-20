@@ -1,44 +1,80 @@
 @inherits LayoutComponentBase
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.ValueObjects
+@inject ITenantBrandingService BrandingService
+@inject ITenantContext TenantContext
+@inject ILogger<LoginLayout> Logger
+
+<TenantThemeProvider />
 
 <div class="portal-login-layout">
     <!-- Left Brand Panel -->
-    <aside class="portal-brand-panel" aria-hidden="true">
+    <aside class="portal-brand-panel" aria-hidden="true" style="@BackgroundStyle">
         <div class="portal-brand-bg-layer"></div>
-        <div class="portal-brand-bg-accent"></div>
+        <div class="portal-brand-bg-mesh"></div>
         <div class="portal-brand-bg-grid" aria-hidden="true"></div>
 
         <div class="portal-brand-content">
+            <!-- Logo in glowing ring -->
             <div class="portal-brand-logo-wrapper">
-                <img src="images/cbn-logo.svg" alt="" class="portal-brand-logo" width="130" height="108" />
+                <div class="portal-brand-logo-ring">
+                    <img src="@_branding.LogoUrl" alt="" class="portal-brand-logo" width="64" height="64" />
+                </div>
             </div>
 
-            <h1 class="portal-brand-name">Central Bank of Nigeria</h1>
+            <h1 class="portal-brand-name">@_branding.CompanyName</h1>
 
             <div class="portal-brand-separator" role="presentation">
                 <span class="portal-separator-line"></span>
             </div>
 
-            <p class="portal-brand-tagline">Financial Institution Reporting Portal</p>
+            <!-- Rotating trust statements (CSS crossfade, no JS) -->
+            <div class="portal-trust-statements" aria-hidden="true">
+                <div class="portal-trust-stmt" style="--stmt-idx:0">Serving 500+ institutions across Nigeria</div>
+                <div class="portal-trust-stmt" style="--stmt-idx:1">&#8358;2.3T in returns processed annually</div>
+                <div class="portal-trust-stmt" style="--stmt-idx:2">99.9% platform uptime since 2019</div>
+            </div>
 
             <!-- Trust badges -->
             <div class="portal-trust-badges">
+                <!-- CBN Licensed -->
                 <div class="portal-trust-badge">
-                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true">
-                        <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                    </svg>
-                    <span>Secure Submission</span>
+                    <div class="portal-trust-badge-icon">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true">
+                            <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z"/>
+                            <path fill-rule="evenodd" d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z" clip-rule="evenodd"/>
+                        </svg>
+                    </div>
+                    <div class="portal-trust-badge-text">
+                        <span class="portal-trust-badge-label">CBN Licensed</span>
+                        <span class="portal-trust-badge-sub">Central Bank of Nigeria</span>
+                    </div>
                 </div>
+
+                <!-- 256-bit Encryption -->
                 <div class="portal-trust-badge">
-                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true">
-                        <path fill-rule="evenodd" d="M6 2a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2V7.414A2 2 0 0015.414 6L12 2.586A2 2 0 0010.586 2H6zm2 10a1 1 0 10-2 0v3a1 1 0 102 0v-3zm2-3a1 1 0 011 1v5a1 1 0 11-2 0v-5a1 1 0 011-1zm4 2a1 1 0 10-2 0v3a1 1 0 102 0v-3z" clip-rule="evenodd"/>
-                    </svg>
-                    <span>Real-time Validation</span>
+                    <div class="portal-trust-badge-icon">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
+                        </svg>
+                    </div>
+                    <div class="portal-trust-badge-text">
+                        <span class="portal-trust-badge-label">256-bit Encryption</span>
+                        <span class="portal-trust-badge-sub">End-to-end TLS 1.3</span>
+                    </div>
                 </div>
+
+                <!-- ISO 27001 -->
                 <div class="portal-trust-badge">
-                    <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14" aria-hidden="true">
-                        <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
-                    </svg>
-                    <span>Encrypted Sessions</span>
+                    <div class="portal-trust-badge-icon">
+                        <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" aria-hidden="true">
+                            <path fill-rule="evenodd" d="M2.166 4.999A11.954 11.954 0 0010 1.944 11.954 11.954 0 0017.834 5c.11.65.166 1.32.166 2.001 0 5.225-3.34 9.67-8 11.317C5.34 16.67 2 12.225 2 7c0-.682.057-1.35.166-2.001zm11.541 3.708a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                        </svg>
+                    </div>
+                    <div class="portal-trust-badge-text">
+                        <span class="portal-trust-badge-label">ISO 27001 Certified</span>
+                        <span class="portal-trust-badge-sub">Information Security</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -50,6 +86,39 @@
 
     <!-- Right Content Panel -->
     <main class="portal-login-content">
+        <!-- Mobile brand strip (visible only on small screens via CSS) -->
+        <div class="portal-mobile-brand-strip" aria-hidden="true">
+            <img src="@_branding.LogoUrl" alt="" />
+            <span>@_branding.CompanyName</span>
+        </div>
         @Body
     </main>
 </div>
+
+@code {
+    private BrandingConfig _branding = BrandingConfig.WithDefaults();
+
+    private string? BackgroundStyle =>
+        string.IsNullOrWhiteSpace(_branding.LoginBackgroundUrl)
+            ? null
+            : $"background-image: linear-gradient(135deg, rgba(0,0,0,0.45), rgba(0,0,0,0.1)), url('{_branding.LoginBackgroundUrl}'); background-size: cover; background-position: center;";
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!TenantContext.CurrentTenantId.HasValue)
+        {
+            return;
+        }
+
+        try
+        {
+            _branding = await BrandingService.GetBrandingConfig(TenantContext.CurrentTenantId.Value);
+        }
+        catch (Exception ex)
+        {
+            // Fall back to safe defaults so /login remains available even if branding lookup fails.
+            _branding = BrandingConfig.WithDefaults();
+            Logger.LogWarning(ex, "Failed to load tenant branding for login layout; using defaults.");
+        }
+    }
+}

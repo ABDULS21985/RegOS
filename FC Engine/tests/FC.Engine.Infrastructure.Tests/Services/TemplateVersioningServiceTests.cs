@@ -557,8 +557,8 @@ public class TemplateVersioningServiceTests
         _ddlEngine.Verify(d => d.GenerateCreateTable(template, reviewVersion), Times.Once);
         _migrationExecutor.Verify(m => m.Execute(1, null, 1, ddl, "approver", It.IsAny<CancellationToken>()), Times.Once);
         _templateRepo.Verify(r => r.Update(template, It.IsAny<CancellationToken>()), Times.Once);
-        _cache.Verify(c => c.Invalidate("MFCR 300"), Times.Once);
-        _xsdGenerator.Verify(x => x.InvalidateCache("MFCR 300"), Times.Once);
+        _cache.Verify(c => c.Invalidate(template.TenantId, "MFCR 300"), Times.Once);
+        _xsdGenerator.Verify(x => x.InvalidateCache(template.TenantId, "MFCR 300"), Times.Once);
         _audit.Verify(a => a.Log(
             "TemplateVersion",
             1,
@@ -638,8 +638,8 @@ public class TemplateVersioningServiceTests
         template.UpdatedBy.Should().Be("approver");
 
         // Assert - caches invalidated
-        _cache.Verify(c => c.Invalidate("MFCR 300"), Times.Once);
-        _xsdGenerator.Verify(x => x.InvalidateCache("MFCR 300"), Times.Once);
+        _cache.Verify(c => c.Invalidate(template.TenantId, "MFCR 300"), Times.Once);
+        _xsdGenerator.Verify(x => x.InvalidateCache(template.TenantId, "MFCR 300"), Times.Once);
 
         _ddlEngine.Verify(d => d.GenerateAlterTable(template, publishedVersion, reviewVersion), Times.Once);
         _migrationExecutor.Verify(m => m.Execute(1, 1, 2, ddl, "approver", It.IsAny<CancellationToken>()), Times.Once);
@@ -726,8 +726,8 @@ public class TemplateVersioningServiceTests
 
         // Assert - no persistence or cache invalidation
         _templateRepo.Verify(r => r.Update(It.IsAny<ReturnTemplate>(), It.IsAny<CancellationToken>()), Times.Never);
-        _cache.Verify(c => c.Invalidate(It.IsAny<string>()), Times.Never);
-        _xsdGenerator.Verify(x => x.InvalidateCache(It.IsAny<string>()), Times.Never);
+        _cache.Verify(c => c.Invalidate(It.IsAny<Guid?>(), It.IsAny<string>()), Times.Never);
+        _xsdGenerator.Verify(x => x.InvalidateCache(It.IsAny<Guid?>(), It.IsAny<string>()), Times.Never);
         _audit.Verify(a => a.Log(
             It.IsAny<string>(),
             It.IsAny<int>(),
@@ -870,8 +870,8 @@ public class TemplateVersioningServiceTests
         await service.Publish(1, 1, "approver");
 
         // Assert - both caches invalidated with correct return code
-        _cache.Verify(c => c.Invalidate("MFCR 500"), Times.Once);
-        _xsdGenerator.Verify(x => x.InvalidateCache("MFCR 500"), Times.Once);
+        _cache.Verify(c => c.Invalidate(template.TenantId, "MFCR 500"), Times.Once);
+        _xsdGenerator.Verify(x => x.InvalidateCache(template.TenantId, "MFCR 500"), Times.Once);
     }
 
     [Fact]

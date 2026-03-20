@@ -26,8 +26,12 @@ public class TemplateField
     public string? ReferenceTable { get; set; }
     public string? ReferenceColumn { get; set; }
     public string? HelpText { get; set; }
+    /// <summary>Operator-facing validation rule description from the module definition (e.g. "Must be ≥ 0"). Stored separately from HelpText.</summary>
+    public string? ValidationNote { get; set; }
+    public string? RegulatoryReference { get; set; }
     public bool IsYtdField { get; set; }
     public int? YtdSourceFieldId { get; set; }
+    public DataClassification DataClassification { get; set; } = DataClassification.Internal;
     public DateTime CreatedAt { get; set; }
 
     public TemplateField Clone()
@@ -54,7 +58,10 @@ public class TemplateField
             ReferenceTable = ReferenceTable,
             ReferenceColumn = ReferenceColumn,
             HelpText = HelpText,
+            ValidationNote = ValidationNote,
+            RegulatoryReference = RegulatoryReference,
             IsYtdField = IsYtdField,
+            DataClassification = DataClassification,
             CreatedAt = DateTime.UtcNow
         };
     }

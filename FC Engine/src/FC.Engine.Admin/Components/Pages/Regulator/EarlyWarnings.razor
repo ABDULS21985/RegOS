@@ -1,0 +1,101 @@
+@page "/regulator/warnings"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject IEarlyWarningService WarningService
+@inject RegulatorSessionService RegulatorSession
+@inject ToastService Toast
+
+<PageTitle>Early Warnings</PageTitle>
+
+<PageHeader Title="Early Warning Flags"
+            Subtitle="Computed early-warning indicators for your jurisdiction"
+            CountBadge="@(!_loading ? _flags.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--primary" @onclick="Load">Refresh Flags</button>
+    </PrimaryAction>
+</PageHeader>
+
+<SectionErrorBoundary Title="Couldn't load early warnings" ExternalError="@_loadException" OnRetry="Load">
+    @if (_loading)
+    {
+        <SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" RowCount="8" />
+}
+    else if (_flags.Count == 0)
+    {
+        <EmptyState Context="data"
+                    Heading="No early-warning flags"
+                    Description="No early-warning flags have been triggered for this jurisdiction."
+                    PrimaryActionLabel="Refresh"
+                    OnPrimaryAction="Load" />
+    }
+    else
+    {
+        <div class="rg-table-wrap">
+            <table class="rg-table">
+                <thead>
+                    <tr>
+                        <th>Severity</th>
+                        <th>Institution</th>
+                        <th>Flag</th>
+                        <th>Message</th>
+                        <th>Triggered</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var flag in _flags)
+                    {
+                        <tr>
+                            <td>
+                                <span class="rg-badge @(flag.Severity == EarlyWarningSeverity.Red ? "open" : "query")">@flag.Severity</span>
+                            </td>
+                            <td>@flag.InstitutionName</td>
+                            <td>@flag.FlagCode</td>
+                            <td>@flag.Message</td>
+                            <td>@flag.TriggeredAt.ToString("dd MMM yyyy HH:mm")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</SectionErrorBoundary>
+
+@code {
+    private string _regulatorCode = string.Empty;
+    private bool _loading = true;
+    private Exception? _loadException;
+    private List<EarlyWarningFlag> _flags = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _regulatorCode = session.RegulatorCode;
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        if (string.IsNullOrWhiteSpace(_regulatorCode))
+        {
+            Toast.Error("Regulator context is unavailable.");
+            return;
+        }
+
+        _loading = true;
+        _loadException = null;
+
+        try
+        {
+            _flags = await WarningService.ComputeFlags(_regulatorCode);
+        }
+        catch (Exception ex)
+        {
+            _loadException = ex;
+            Toast.Error($"Failed to load warnings: {ex.Message}");
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+}

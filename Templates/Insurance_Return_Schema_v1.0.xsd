@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  INSURANCE COMPANY REGULATORY RETURN - XML SCHEMA DEFINITION (XSD)
+  NAICOM Reporting Standards | NIIRA 2025 | Insurance Act 2003
+  Version: 1.0 | March 2026
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:ins="urn:naicom:insurance:reporting:v1"
+           targetNamespace="urn:naicom:insurance:reporting:v1"
+           elementFormDefault="qualified" version="1.0">
+
+  <xs:element name="InsuranceReturn" type="ins:InsuranceReturnType"/>
+
+  <xs:complexType name="InsuranceReturnType">
+    <xs:sequence>
+      <xs:element name="Header" type="ins:HeaderType"/>
+      <xs:element name="SolvencyMargin" type="ins:SolvencyMarginType" minOccurs="0"/>
+      <xs:element name="Underwriting" type="ins:UnderwritingType" minOccurs="0"/>
+      <xs:element name="Claims" type="ins:ClaimsType" minOccurs="0"/>
+      <xs:element name="TechnicalReserves" type="ins:TechnicalReservesType" minOccurs="0"/>
+      <xs:element name="Reinsurance" type="ins:ReinsuranceType" minOccurs="0"/>
+      <xs:element name="Investment" type="ins:InvestmentType" minOccurs="0"/>
+      <xs:element name="FinancialStatements" type="ins:FinancialStatementsType" minOccurs="0"/>
+      <xs:element name="AMLCompliance" type="ins:AMLComplianceType" minOccurs="0"/>
+      <xs:element name="Governance" type="ins:GovernanceType" minOccurs="0"/>
+      <xs:element name="RiskBasedCapital" type="ins:RiskBasedCapitalType" minOccurs="0"/>
+      <xs:element name="Signature" type="ins:SignatureType"/>
+    </xs:sequence>
+    <xs:attribute name="schemaVersion" type="xs:string" use="required" fixed="1.0"/>
+  </xs:complexType>
+
+  <!-- HEADER -->
+  <xs:complexType name="HeaderType">
+    <xs:sequence>
+      <xs:element name="NAICOMRegNo"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="20"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="InsurerName"><xs:simpleType><xs:restriction base="xs:string"><xs:maxLength value="200"/></xs:restriction></xs:simpleType></xs:element>
+      <xs:element name="ReturnType" type="ins:ReturnTypeEnum"/>
+      <xs:element name="InsurerCategory" type="ins:InsurerCategoryEnum"/>
+      <xs:element name="ReportingPeriodStart" type="xs:date"/>
+      <xs:element name="ReportingPeriodEnd" type="xs:date"/>
+      <xs:element name="SubmissionDateTime" type="xs:dateTime"/>
+      <xs:element name="ContactPerson" type="xs:string"/>
+      <xs:element name="ContactEmail" type="xs:string"/>
+      <xs:element name="ContactPhone" type="xs:string"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SOLVENCY MARGIN -->
+  <xs:complexType name="SolvencyMarginType">
+    <xs:sequence>
+      <xs:element name="AdmissibleAsset" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="AssetCategory" type="xs:string"/>
+            <xs:element name="GrossValue" type="ins:AmountType"/>
+            <xs:element name="AdmissibilityPct" type="ins:RatioType"/>
+            <xs:element name="AdmittedValue" type="ins:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalAdmissibleAssets" type="ins:AmountType"/>
+      <xs:element name="TotalLiabilities" type="ins:AmountType"/>
+      <xs:element name="AvailableCapital" type="ins:AmountType"/>
+      <xs:element name="MCR" type="ins:AmountType"/>
+      <xs:element name="SolvencyMarginRatio" type="ins:RatioType"/>
+      <xs:element name="IsCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- UNDERWRITING -->
+  <xs:complexType name="UnderwritingType">
+    <xs:sequence>
+      <xs:element name="ClassOfBusiness" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="ClassName" type="xs:string"/>
+            <xs:element name="BusinessType" type="ins:BusinessTypeEnum"/>
+            <xs:element name="GrossWrittenPremium" type="ins:AmountType"/>
+            <xs:element name="ReinsuranceCeded" type="ins:AmountType"/>
+            <xs:element name="NetWrittenPremium" type="ins:AmountType"/>
+            <xs:element name="NetEarnedPremium" type="ins:AmountType"/>
+            <xs:element name="NetClaimsIncurred" type="ins:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalGWP" type="ins:AmountType"/>
+      <xs:element name="TotalNWP" type="ins:AmountType"/>
+      <xs:element name="LossRatio" type="ins:RatioType"/>
+      <xs:element name="ExpenseRatio" type="ins:RatioType"/>
+      <xs:element name="CombinedRatio" type="ins:RatioType"/>
+      <xs:element name="RetentionRatio" type="ins:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- CLAIMS -->
+  <xs:complexType name="ClaimsType">
+    <xs:sequence>
+      <xs:element name="ClaimsByClass" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="ClassName" type="xs:string"/>
+            <xs:element name="ClaimsReported" type="xs:nonNegativeInteger"/>
+            <xs:element name="ClaimsPaid" type="ins:AmountType"/>
+            <xs:element name="OutstandingClaims" type="ins:AmountType"/>
+            <xs:element name="IBNRReserve" type="ins:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalClaimsPaid" type="ins:AmountType"/>
+      <xs:element name="TotalOutstanding" type="ins:AmountType"/>
+      <xs:element name="TotalIBNR" type="ins:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- TECHNICAL RESERVES -->
+  <xs:complexType name="TechnicalReservesType">
+    <xs:sequence>
+      <xs:element name="UPR" type="ins:AmountType"/>
+      <xs:element name="AURR" type="ins:AmountType"/>
+      <xs:element name="OutstandingClaimsReserve" type="ins:AmountType"/>
+      <xs:element name="IBNRReserve" type="ins:AmountType"/>
+      <xs:element name="CatastropheReserve" type="ins:AmountType"/>
+      <xs:element name="TotalNonLifeReserves" type="ins:AmountType"/>
+      <xs:element name="LifeFund" type="ins:AmountType" minOccurs="0"/>
+      <xs:element name="AnnuityReserves" type="ins:AmountType" minOccurs="0"/>
+      <xs:element name="TotalLifeReserves" type="ins:AmountType" minOccurs="0"/>
+      <xs:element name="LATPass" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- REINSURANCE -->
+  <xs:complexType name="ReinsuranceType">
+    <xs:sequence>
+      <xs:element name="Treaty" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="TreatyName" type="xs:string"/>
+            <xs:element name="TreatyType" type="ins:TreatyTypeEnum"/>
+            <xs:element name="PremiumCeded" type="ins:AmountType"/>
+            <xs:element name="CommissionReceived" type="ins:AmountType"/>
+            <xs:element name="Recoveries" type="ins:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="Reinsurer" maxOccurs="unbounded" minOccurs="0">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="ReinsurerName" type="xs:string"/>
+            <xs:element name="Country" type="xs:string"/>
+            <xs:element name="CreditRating" type="xs:string"/>
+            <xs:element name="SharePct" type="ins:RatioType"/>
+            <xs:element name="NAICOMApproved" type="xs:boolean"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalCeded" type="ins:AmountType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- INVESTMENT -->
+  <xs:complexType name="InvestmentType">
+    <xs:sequence>
+      <xs:element name="AssetAllocation" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="AssetClass" type="xs:string"/>
+            <xs:element name="MarketValue" type="ins:AmountType"/>
+            <xs:element name="PctOfPortfolio" type="ins:RatioType"/>
+            <xs:element name="NAICOMLimit" type="ins:RatioType"/>
+            <xs:element name="IsCompliant" type="xs:boolean"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalPortfolio" type="ins:AmountType"/>
+      <xs:element name="InvestmentYield" type="ins:RatioType"/>
+      <xs:element name="PolicyholdersFundCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- FINANCIAL STATEMENTS -->
+  <xs:complexType name="FinancialStatementsType">
+    <xs:sequence>
+      <xs:element name="GrossWrittenPremium" type="ins:AmountType"/>
+      <xs:element name="NetWrittenPremium" type="ins:AmountType"/>
+      <xs:element name="NetEarnedPremium" type="ins:AmountType"/>
+      <xs:element name="NetClaimsIncurred" type="ins:AmountType"/>
+      <xs:element name="UnderwritingProfit" type="ins:AmountType"/>
+      <xs:element name="InvestmentIncome" type="ins:AmountType"/>
+      <xs:element name="ProfitBeforeTax" type="ins:AmountType"/>
+      <xs:element name="ProfitAfterTax" type="ins:AmountType"/>
+      <xs:element name="TotalAssets" type="ins:AmountType"/>
+      <xs:element name="TotalLiabilities" type="ins:AmountType"/>
+      <xs:element name="ShareholdersEquity" type="ins:AmountType"/>
+      <xs:element name="LossRatio" type="ins:RatioType"/>
+      <xs:element name="CombinedRatio" type="ins:RatioType"/>
+      <xs:element name="ROA" type="ins:RatioType"/>
+      <xs:element name="ROE" type="ins:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- AML COMPLIANCE -->
+  <xs:complexType name="AMLComplianceType">
+    <xs:sequence>
+      <xs:element name="STRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="CTRsFiled" type="xs:nonNegativeInteger"/>
+      <xs:element name="KYCCompletionRate" type="ins:RatioType"/>
+      <xs:element name="PEPPolicyholders" type="xs:nonNegativeInteger"/>
+      <xs:element name="StaffTrainedPct" type="ins:RatioType"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- GOVERNANCE -->
+  <xs:complexType name="GovernanceType">
+    <xs:sequence>
+      <xs:element name="Director" maxOccurs="15">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="FullName" type="xs:string"/>
+            <xs:element name="Nationality" type="xs:string"/>
+            <xs:element name="Role" type="xs:string"/>
+            <xs:element name="AttendanceRate" type="ins:RatioType"/>
+            <xs:element name="DateAppointed" type="xs:date"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="Committee" maxOccurs="6" minOccurs="6">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="CommitteeName" type="xs:string"/>
+            <xs:element name="Chairperson" type="xs:string"/>
+            <xs:element name="MeetingsHeld" type="xs:nonNegativeInteger"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- RISK-BASED CAPITAL -->
+  <xs:complexType name="RiskBasedCapitalType">
+    <xs:sequence>
+      <xs:element name="NetAdmissibleCapital" type="ins:AmountType"/>
+      <xs:element name="MCR" type="ins:AmountType"/>
+      <xs:element name="RiskCharge" maxOccurs="unbounded">
+        <xs:complexType>
+          <xs:sequence>
+            <xs:element name="RiskCategory" type="xs:string"/>
+            <xs:element name="Exposure" type="ins:AmountType"/>
+            <xs:element name="ChargeRate" type="ins:RatioType"/>
+            <xs:element name="CapitalRequired" type="ins:AmountType"/>
+          </xs:sequence>
+        </xs:complexType>
+      </xs:element>
+      <xs:element name="TotalSCR" type="ins:AmountType"/>
+      <xs:element name="CapitalAddOn" type="ins:AmountType"/>
+      <xs:element name="TotalCapitalRequirement" type="ins:AmountType"/>
+      <xs:element name="Surplus" type="ins:AmountType"/>
+      <xs:element name="CAR" type="ins:RatioType"/>
+      <xs:element name="IsCompliant" type="xs:boolean"/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- SIGNATURE -->
+  <xs:complexType name="SignatureType">
+    <xs:sequence>
+      <xs:element name="PreparedBy"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CEOSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CFOSignOff"><xs:complexType><xs:sequence>
+        <xs:element name="Name" type="xs:string"/><xs:element name="Designation" type="xs:string"/><xs:element name="Date" type="xs:date"/>
+      </xs:sequence></xs:complexType></xs:element>
+      <xs:element name="CertificationStatement" type="xs:string" fixed="I/We certify that the information provided is true, accurate, and complete to the best of our knowledge and in compliance with NAICOM prudential guidelines and the NIIRA 2025."/>
+    </xs:sequence>
+  </xs:complexType>
+
+  <!-- ENUMERATIONS -->
+  <xs:simpleType name="ReturnTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="SOL"/><xs:enumeration value="UWR"/><xs:enumeration value="CLM"/>
+      <xs:enumeration value="RES"/><xs:enumeration value="REI"/><xs:enumeration value="INV"/>
+      <xs:enumeration value="FIN"/><xs:enumeration value="AML"/><xs:enumeration value="GOV"/>
+      <xs:enumeration value="RBC"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="InsurerCategoryEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Life"/><xs:enumeration value="NonLife"/>
+      <xs:enumeration value="Composite"/><xs:enumeration value="Reinsurance"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="BusinessTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Life"/><xs:enumeration value="NonLife"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="TreatyTypeEnum">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="Proportional"/><xs:enumeration value="NonProportional"/>
+      <xs:enumeration value="Facultative"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="AmountType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+  <xs:simpleType name="RatioType"><xs:restriction base="xs:decimal"><xs:fractionDigits value="2"/></xs:restriction></xs:simpleType>
+</xs:schema>

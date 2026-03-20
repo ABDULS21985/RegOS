@@ -1,0 +1,290 @@
+@page "/regulator/resilience/third-party"
+@attribute [Authorize(Policy = "RegulatorOnly")]
+@inject FC.Engine.Admin.Services.Resilience.ResilienceOrchestratorService ResService
+
+<PageTitle>Third-Party Risk</PageTitle>
+
+<PageHeader Title="Third-Party Risk"
+            Subtitle="Provider concentration, service criticality, dependent assets, and risk tiers."
+            BackUrl="/regulator/resilience"
+            CountBadge="@(!_loading ? _providers?.Count : null)">
+    <PrimaryAction><button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button></PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    <SectionErrorBoundary Title="Failed to load third-party data" ExternalError="@_loadException" OnRetry="ReloadAsync">
+        @if (_loading)
+        {
+            <div class="rg-premium-flow">
+                <div class="rg-premium-banner"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="138px" /></div>
+                <div class="rg-premium-stat-grid">
+                    @for (var i = 0; i < 4; i++)
+                    {
+                        <div class="rg-premium-stat"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="140px" /></div>
+                    }
+                </div>
+                <div class="rg-premium-content-grid">
+                    <div class="rg-premium-main"><div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="480px" /></div></div>
+                    <div class="rg-premium-side">
+                        <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="240px" /></div>
+                        <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="280px" /></div>
+                    </div>
+                </div>
+            </div>
+        }
+        else if (_providers is null || _providers.Count == 0)
+        {
+            <EmptyState Context="data" Heading="No third-party data" Description="Refresh the Intelligence Hub to load third-party provider data." />
+        }
+        else
+        {
+            var totalCriticalServices = _providers.Sum(p => p.CriticalServiceCount);
+            var totalDependentAssets = _providers.Sum(p => p.DependentAssetCount);
+            var elevatedProviders = _providers.Count(p => IsElevatedSignal(p.Signal));
+            var leadProvider = _providers
+                .OrderByDescending(p => p.CriticalServiceCount)
+                .ThenByDescending(p => p.ServiceCount)
+                .FirstOrDefault();
+
+            <div class="rg-premium-flow">
+                <section class="rg-premium-banner @ResolveThirdPartyBannerTone()" aria-label="Third-party posture">
+                    <div class="rg-premium-banner__grid">
+                        <div>
+                            <div class="rg-premium-banner__eyebrow">Third-party posture</div>
+                            <h2 class="rg-premium-banner__headline">@BuildThirdPartyBannerHeadline()</h2>
+                            <p class="rg-premium-banner__detail">@BuildThirdPartyBannerDetail()</p>
+                        </div>
+                        <div class="rg-premium-banner__meta">
+                            <div class="rg-premium-banner__meta-label">Primary concentration</div>
+                            <div class="rg-premium-banner__meta-value">@(leadProvider?.ProviderName ?? "No provider")</div>
+                            <div class="rg-premium-banner__meta-copy">@BuildThirdPartyFocusCopy(leadProvider)</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="rg-premium-hero" aria-labelledby="third-party-risk-title">
+                    <div class="rg-premium-hero__grid">
+                        <div>
+                            <div class="rg-premium-hero__eyebrow">Dependency oversight lane</div>
+                            <h1 id="third-party-risk-title" class="rg-premium-hero__title">See provider concentration before operational resilience turns into dependency risk.</h1>
+                            <p class="rg-premium-hero__subtitle">
+                                This workspace exposes provider concentration, critical service exposure, and latest resilience test outcomes
+                                so supervisors can escalate the providers with the most systemic operational blast radius.
+                            </p>
+                            <div class="rg-premium-badge-row">
+                                <span class="rg-premium-chip rg-premium-chip--info">@_providers.Count providers</span>
+                                <span class="rg-premium-chip @(totalCriticalServices > 0 ? "rg-premium-chip--warning" : "rg-premium-chip--success")">@totalCriticalServices critical services</span>
+                                <span class="rg-premium-chip @(elevatedProviders > 0 ? "rg-premium-chip--danger" : "rg-premium-chip--success")">@elevatedProviders elevated signals</span>
+                            </div>
+                        </div>
+                        <div class="rg-premium-hero__aside">
+                            <div class="rg-premium-note">
+                                <div class="rg-premium-note__label">Dependent assets</div>
+                                <div class="rg-premium-note__value">@totalDependentAssets</div>
+                                <div class="rg-premium-note__copy">Infrastructure, applications, or service assets currently dependent on the visible provider estate.</div>
+                            </div>
+                            <div class="rg-premium-note">
+                                <div class="rg-premium-note__label">Latest test outcome</div>
+                                <div class="rg-premium-note__value">@(leadProvider?.LatestTestOutcome ?? "Awaiting test")</div>
+                                <div class="rg-premium-note__copy">Most exposed provider’s latest resilience or dependency validation result.</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="rg-premium-stat-grid" aria-label="Third-party summary metrics">
+                    <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__label">Provider estate</div>
+                        <div class="rg-premium-stat__value rg-premium-stat__value--info">@_providers.Count</div>
+                        <div class="rg-premium-stat__note">Distinct providers currently represented in the resilience dependency register.</div>
+                    </article>
+                    <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__label">Critical services</div>
+                        <div class="rg-premium-stat__value @(totalCriticalServices > 0 ? "rg-premium-stat__value--warning" : "rg-premium-stat__value--success")">@totalCriticalServices</div>
+                        <div class="rg-premium-stat__note">Important business services depending on providers in the current scope.</div>
+                    </article>
+                    <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__label">Dependent assets</div>
+                        <div class="rg-premium-stat__value rg-premium-stat__value--info">@totalDependentAssets</div>
+                        <div class="rg-premium-stat__note">Assets whose resilience posture depends on these providers remaining available.</div>
+                    </article>
+                    <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__label">Watch providers</div>
+                        <div class="rg-premium-stat__value @(elevatedProviders > 0 ? "rg-premium-stat__value--danger" : "rg-premium-stat__value--success")">@elevatedProviders</div>
+                        <div class="rg-premium-stat__note">Providers currently carrying red or amber resilience signals.</div>
+                    </article>
+                </section>
+
+                <section class="rg-premium-content-grid">
+                    <div class="rg-premium-main">
+                        <section class="rg-premium-panel">
+                            <div class="rg-premium-panel__header">
+                                <div>
+                                    <div class="rg-premium-panel__eyebrow">Provider register</div>
+                                    <h2 class="rg-premium-panel__title">Third-party concentration and exposure</h2>
+                                    <p class="rg-premium-panel__subtitle">Sort, export, and inspect the provider estate with criticality and signal context.</p>
+                                </div>
+                            </div>
+                            <div class="rg-premium-panel__body rg-premium-panel__body--table">
+                                <DataTable TItem="ThirdPartyProviderRiskRow" Items="@_providers" PageSize="20" Sortable="true" ShowExport="true" ExportFileName="third-party-risk">
+                                    <ChildContent>
+                                        <DataColumn TItem="ThirdPartyProviderRiskRow" Title="Provider" SortKey="@(x => x.ProviderName)">
+                                            <CellTemplate>
+                                                <strong>@context.ProviderName</strong>
+                                                <div class="fc-text-muted-sm">@context.ProviderType</div>
+                                            </CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="ThirdPartyProviderRiskRow" Title="Services" Width="90px" SortKey="@(x => x.ServiceCount)">
+                                            <CellTemplate>@context.ServiceCount</CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="ThirdPartyProviderRiskRow" Title="Critical" Width="90px" SortKey="@(x => x.CriticalServiceCount)">
+                                            <CellTemplate>
+                                                <strong class="@(context.CriticalServiceCount > 0 ? "rg-res-kpi-value--red" : "")">@context.CriticalServiceCount</strong>
+                                            </CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="ThirdPartyProviderRiskRow" Title="Dependent Assets" Width="120px" SortKey="@(x => x.DependentAssetCount)">
+                                            <CellTemplate>@context.DependentAssetCount</CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="ThirdPartyProviderRiskRow" Title="Criticality" Width="100px" SortKey="@(x => x.HighestCriticality)">
+                                            <CellTemplate><span class="fc-badge @CritBadge(context.HighestCriticality)">@context.HighestCriticality</span></CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="ThirdPartyProviderRiskRow" Title="Signal" Width="90px" SortKey="@(x => x.Signal)">
+                                            <CellTemplate><span class="fc-badge @SignalBadge(context.Signal)">@context.Signal</span></CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="ThirdPartyProviderRiskRow" Title="Linked Services" SortKey="@(x => x.LinkedServices.Count)">
+                                            <CellTemplate><span class="fc-text-muted-sm">@string.Join(", ", context.LinkedServices.Take(3))@(context.LinkedServices.Count > 3 ? $" +{context.LinkedServices.Count - 3}" : "")</span></CellTemplate>
+                                        </DataColumn>
+                                    </ChildContent>
+                                </DataTable>
+                            </div>
+                        </section>
+                    </div>
+
+                    <aside class="rg-premium-side">
+                        <section class="rg-premium-panel">
+                            <div class="rg-premium-panel__header">
+                                <div>
+                                    <div class="rg-premium-panel__eyebrow">Concentration rail</div>
+                                    <h2 class="rg-premium-panel__title">Most exposed providers</h2>
+                                    <p class="rg-premium-panel__subtitle">Providers carrying the highest mix of critical services and dependencies.</p>
+                                </div>
+                            </div>
+                            <div class="rg-premium-panel__body">
+                                <div class="rg-premium-list">
+                                    @foreach (var provider in _providers.OrderByDescending(p => p.CriticalServiceCount).ThenByDescending(p => p.DependentAssetCount).Take(5))
+                                    {
+                                        <article class="rg-premium-list__item">
+                                            <div class="rg-premium-list__top">
+                                                <div class="rg-premium-list__heading">@provider.ProviderName</div>
+                                                <div class="rg-premium-list__value">@provider.CriticalServiceCount critical</div>
+                                            </div>
+                                            <div class="rg-premium-list__meta">@provider.DependentAssetCount dependent asset(s) · @provider.ServiceCount linked service(s)</div>
+                                        </article>
+                                    }
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="rg-premium-panel">
+                            <div class="rg-premium-panel__header">
+                                <div>
+                                    <div class="rg-premium-panel__eyebrow">Action rail</div>
+                                    <h2 class="rg-premium-panel__title">Recommended interventions</h2>
+                                    <p class="rg-premium-panel__subtitle">Latest commentary and action guidance from the visible provider estate.</p>
+                                </div>
+                            </div>
+                            <div class="rg-premium-panel__body">
+                                <div class="rg-premium-list">
+                                    @foreach (var provider in _providers.Where(p => !string.IsNullOrWhiteSpace(p.RecommendedAction)).Take(4))
+                                    {
+                                        <article class="rg-premium-list__item">
+                                            <div class="rg-premium-list__top">
+                                                <div class="rg-premium-list__heading">@provider.ProviderName</div>
+                                                <span class="fc-badge @SignalBadge(provider.Signal)">@provider.Signal</span>
+                                            </div>
+                                            <div class="rg-premium-list__meta">@provider.RecommendedAction</div>
+                                        </article>
+                                    }
+                                </div>
+                            </div>
+                        </section>
+                    </aside>
+                </section>
+            </div>
+        }
+    </SectionErrorBoundary>
+</div>
+
+@code {
+    private bool _loading = true;
+    private Exception? _loadException;
+    private List<ThirdPartyProviderRiskRow>? _providers;
+
+    protected override async Task OnInitializedAsync() => await ReloadAsync();
+    private async Task ReloadAsync()
+    {
+        _loading = true; _loadException = null;
+        try { _providers = await ResService.GetThirdPartyRegisterAsync(); }
+        catch (Exception ex) { _loadException = ex; }
+        finally { _loading = false; }
+    }
+
+    private string ResolveThirdPartyBannerTone()
+    {
+        if (_providers is null || _providers.Count == 0)
+        {
+            return "rg-premium-banner--info";
+        }
+
+        return _providers.Any(p => string.Equals(p.Signal, "Critical", StringComparison.OrdinalIgnoreCase) || string.Equals(p.Signal, "red", StringComparison.OrdinalIgnoreCase))
+            ? "rg-premium-banner--danger"
+            : _providers.Any(p => string.Equals(p.Signal, "Watch", StringComparison.OrdinalIgnoreCase) || string.Equals(p.Signal, "amber", StringComparison.OrdinalIgnoreCase))
+                ? "rg-premium-banner--warning"
+                : "rg-premium-banner--success";
+    }
+
+    private string BuildThirdPartyBannerHeadline()
+    {
+        if (_providers is null || _providers.Count == 0)
+        {
+            return "Third-party register is awaiting data.";
+        }
+
+        var watchCount = _providers.Count(p => IsElevatedSignal(p.Signal));
+        return watchCount > 0
+            ? $"{watchCount} provider{(watchCount == 1 ? string.Empty : "s")} are carrying elevated dependency signals."
+            : "Third-party dependency posture is stable across the visible provider estate.";
+    }
+
+    private string BuildThirdPartyBannerDetail()
+    {
+        if (_providers is null || _providers.Count == 0)
+        {
+            return "Refresh the resilience register to load provider concentration, service exposure, and latest test outcomes.";
+        }
+
+        var lead = _providers.OrderByDescending(p => p.CriticalServiceCount).ThenByDescending(p => p.ServiceCount).FirstOrDefault();
+        return lead is null
+            ? "Provider concentration data is available for supervisory review."
+            : $"{lead.ProviderName} currently anchors the highest critical service exposure, so that provider should be the first escalation point if resilience posture deteriorates.";
+    }
+
+    private string BuildThirdPartyFocusCopy(ThirdPartyProviderRiskRow? provider)
+    {
+        if (provider is null)
+        {
+            return "No provider concentration is available yet.";
+        }
+
+        return $"{provider.ServiceCount} linked services · {provider.DependentAssetCount} dependent assets · latest outcome: {provider.LatestTestOutcome}.";
+    }
+
+    private static bool IsElevatedSignal(string signal) =>
+        string.Equals(signal, "Critical", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(signal, "red", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(signal, "Watch", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(signal, "amber", StringComparison.OrdinalIgnoreCase);
+
+    private static string CritBadge(string c) => c switch { "Critical" => "fc-badge--danger", "High" => "fc-badge--warning", "Medium" => "fc-badge--info", _ => "fc-badge--neutral" };
+    private static string SignalBadge(string s) => s switch { "green" or "Current" or "Healthy" => "fc-badge--success", "amber" or "Watch" => "fc-badge--warning", "red" or "Critical" => "fc-badge--danger", _ => "fc-badge--neutral" };
+}
