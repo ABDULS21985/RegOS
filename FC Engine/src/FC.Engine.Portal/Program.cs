@@ -475,6 +475,10 @@ app.MapRazorComponents<FC.Engine.Portal.Components.App>()
 
 app.Run();
 
+public partial class Program
+{
+}
+
 static string GetContentType(ExportFormat format) => format switch
 {
     ExportFormat.Excel => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
