@@ -175,6 +175,7 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
 
         var tenants = await db.Tenants
             .AsNoTracking()
+            .Select(x => new MarketplaceTenantSnapshot(x.TenantId, x.TenantName))
             .ToListAsync(ct);
 
         var subscriptions = await db.Subscriptions
@@ -4811,7 +4812,7 @@ public sealed class PlatformIntelligenceService : IPlatformIntelligenceWorkspace
 
     private static MarketplaceRolloutSnapshot BuildMarketplaceRolloutSnapshot(
         IReadOnlyList<Module> modules,
-        IReadOnlyList<Tenant> tenants,
+        IReadOnlyList<MarketplaceTenantSnapshot> tenants,
         IReadOnlyList<Subscription> subscriptions,
         IReadOnlyList<PlanModulePricing> planModulePricing,
         IReadOnlyList<TenantLicenceType> tenantLicences,
@@ -7325,3 +7326,5 @@ public sealed class InterventionQueueRow
     public DateTime DueDate { get; set; }
     public string OwnerLane { get; set; } = string.Empty;
 }
+
+internal sealed record MarketplaceTenantSnapshot(Guid TenantId, string TenantName);

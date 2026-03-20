@@ -20,7 +20,7 @@ public class TemplateBrowserServiceTests
 
         var templateCache = new Mock<ITemplateMetadataCache>();
         templateCache
-            .Setup(x => x.GetPublishedTemplate("CAP_BUF", It.IsAny<CancellationToken>()))
+            .Setup(x => x.GetPublishedTemplate(tenantId, "CAP_BUF", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CachedTemplate
             {
                 ReturnCode = "CAP_BUF",
@@ -56,7 +56,17 @@ public class TemplateBrowserServiceTests
             .ReturnsAsync(new TenantEntitlement
             {
                 TenantId = tenantId,
-                TenantStatus = TenantStatus.Active
+                TenantStatus = TenantStatus.Active,
+                ActiveModules =
+                [
+                    new EntitledModule
+                    {
+                        ModuleCode = "CAPITAL_SUPERVISION",
+                        ModuleName = "Capital Supervision",
+                        RegulatorCode = "CBN",
+                        IsActive = true
+                    }
+                ]
             });
 
         var fieldLocalisationService = new Mock<IFieldLocalisationService>();

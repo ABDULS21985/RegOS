@@ -39,8 +39,11 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("FcEngine")
-            ?? throw new InvalidOperationException("Connection string 'FcEngine' not found");
+        var connectionString = configuration.GetConnectionString("FcEngine");
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new InvalidOperationException("Connection string 'FcEngine' not found or empty.");
+        }
 
         services.AddHttpContextAccessor();
         services.Configure<FileStorageOptions>(configuration.GetSection(FileStorageOptions.SectionName));

@@ -5,14 +5,14 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     environment:
       - ACCEPT_EULA=Y
-      - MSSQL_SA_PASSWORD=${SA_PASSWORD:-YourStrong@Passw0rd}
+      - MSSQL_SA_PASSWORD=${SA_PASSWORD:?set SA_PASSWORD in docker/.env}
       - MSSQL_PID=Developer
     ports:
       - "1433:1433"
     volumes:
       - sqlserver-data:/var/opt/mssql
     healthcheck:
-      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${SA_PASSWORD:-YourStrong@Passw0rd}" -C -Q "SELECT 1" || exit 1
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${SA_PASSWORD}" -C -Q "SELECT 1" || exit 1
       interval: 10s
       timeout: 5s
       retries: 10
@@ -26,12 +26,12 @@ services:
       sqlserver:
         condition: service_healthy
     environment:
-      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
+      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:?set SA_PASSWORD in docker/.env};TrustServerCertificate=True
       - Seeding__SchemaFilePath=/app/schema.sql
       - Seeding__MetadataSchemaPath=/app/scripts/create-metadata-schema.sql
       - Seeding__ReferenceDataPath=/app/scripts/seed-reference-data.sql
       - Seeding__AutoSeed=true
-      - DefaultAdmin__Password=${ADMIN_PASSWORD:-Admin@123}
+      - DefaultAdmin__Password=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in docker/.env}
     volumes:
       - ../schema.sql:/app/schema.sql:ro
       - ../scripts:/app/scripts:ro
@@ -47,10 +47,11 @@ services:
     ports:
       - "5100:8080"
     environment:
-      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
+      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:?set SA_PASSWORD in docker/.env};TrustServerCertificate=True
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:8080
-      - ApiKey=${API_KEY:-}
+      - Transport__RequireHttps=false
+      - ApiKey=${API_KEY:?set API_KEY in docker/.env}
       - Seeding__SchemaFilePath=/app/schema.sql
     volumes:
       - ../schema.sql:/app/schema.sql:ro
@@ -61,57 +62,64 @@ services:
       retries: 5
       start_period: 15s
 
-  # admin: (commented out — run locally with: dotnet watch run --urls "http://localhost:5001")
-  #   restart: unless-stopped
-  #   build:
-  #     context: ..
-  #     dockerfile: docker/Dockerfile.admin
-  #   depends_on:
-  #     migrator:
-  #       condition: service_completed_successfully
-  #   ports:
-  #     - "5200:8080"
-  #   environment:
-  #     - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
-  #     - ASPNETCORE_ENVIRONMENT=Production
-  #     - ASPNETCORE_URLS=http://+:8080
-  #     - Seeding__SchemaFilePath=/app/schema.sql
-  #   volumes:
-  #     - ../schema.sql:/app/schema.sql:ro
-  #   healthcheck:
-  #     test: curl -f http://localhost:8080/ || exit 1
-  #     interval: 10s
-  #     timeout: 3s
-  #     retries: 5
-  #     start_period: 15s
+  admin:
+    restart: unless-stopped
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.admin
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+    ports:
+      - "5200:8080"
+    environment:
+      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:?set SA_PASSWORD in docker/.env};TrustServerCertificate=True
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - Transport__RequireHttps=false
+      - HealthCheck__ApiBaseUrl=http://api:8080
+      - Seeding__SchemaFilePath=/app/schema.sql
+    volumes:
+      - ../schema.sql:/app/schema.sql:ro
+    healthcheck:
+      test: curl -f http://localhost:8080/login || exit 1
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 
-  # portal: (commented out — run locally with: dotnet watch run --urls "http://localhost:5003")
-  #   restart: unless-stopped
-  #   deploy:
-  #     resources:
-  #       limits:
-  #         memory: 512M
-  #         cpus: '1.0'
-  #       reservations:
-  #         memory: 256M
-  #   build:
-  #     context: ..
-  #     dockerfile: docker/Dockerfile.portal
-  #   depends_on:
-  #     migrator:
-  #       condition: service_completed_successfully
-  #   ports:
-  #     - "5300:8080"
-  #   environment:
-  #     - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:-YourStrong@Passw0rd};TrustServerCertificate=True
-  #     - ASPNETCORE_ENVIRONMENT=Production
-  #     - ASPNETCORE_URLS=http://+:8080
-  #   healthcheck:
-  #     test: curl -f http://localhost:8080/login || exit 1
-  #     interval: 10s
-  #     timeout: 3s
-  #     retries: 5
-  #     start_period: 15s
+  portal:
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+        reservations:
+          memory: 256M
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.portal
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+    ports:
+      - "5300:8080"
+    environment:
+      - ConnectionStrings__FcEngine=Server=sqlserver;Database=FcEngine;User Id=sa;Password=${SA_PASSWORD:?set SA_PASSWORD in docker/.env};TrustServerCertificate=True
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:8080
+      - Transport__RequireHttps=false
+      - EngineApi__BaseUrl=http://api:8080
+      - RegOS__PortalBaseUrl=http://localhost:5300
+    healthcheck:
+      test: curl -f http://localhost:8080/login || exit 1
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
 
 volumes:
   sqlserver-data:

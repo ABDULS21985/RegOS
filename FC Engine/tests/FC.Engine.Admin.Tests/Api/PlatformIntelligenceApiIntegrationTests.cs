@@ -63,7 +63,7 @@ public sealed class PlatformIntelligenceApiIntegrationTests : IClassFixture<Plat
     [Fact]
     public async Task KnowledgeCatalog_Returns_Persisted_Graph_State()
     {
-        using var client = _factory.CreateAuthenticatedClient("Admin");
+        using var client = _factory.CreateAuthenticatedClient("Admin", "PlatformAdmin");
 
         var response = await client.GetAsync("/api/intelligence/knowledge/catalog");
         var payload = await response.Content.ReadAsStringAsync();
@@ -83,7 +83,7 @@ public sealed class PlatformIntelligenceApiIntegrationTests : IClassFixture<Plat
     [Fact]
     public async Task CapitalActionCatalog_Returns_Seeded_Templates()
     {
-        using var client = _factory.CreateAuthenticatedClient("Admin");
+        using var client = _factory.CreateAuthenticatedClient("Admin", "PlatformAdmin");
 
         var response = await client.GetAsync("/api/intelligence/capital/action-catalog");
         var payload = await response.Content.ReadAsStringAsync();
@@ -103,7 +103,7 @@ public sealed class PlatformIntelligenceApiIntegrationTests : IClassFixture<Plat
     [Fact]
     public async Task SanctionsCatalogSources_Returns_Baseline_Sources()
     {
-        using var client = _factory.CreateAuthenticatedClient("Admin");
+        using var client = _factory.CreateAuthenticatedClient("Admin", "PlatformAdmin");
 
         var response = await client.GetAsync("/api/intelligence/sanctions/catalog/sources");
         var payload = await response.Content.ReadAsStringAsync();
@@ -124,7 +124,7 @@ public sealed class PlatformIntelligenceApiIntegrationTests : IClassFixture<Plat
     [Fact]
     public async Task ModelRiskCatalog_Returns_Governed_Model_Definitions()
     {
-        using var client = _factory.CreateAuthenticatedClient("Admin");
+        using var client = _factory.CreateAuthenticatedClient("Admin", "PlatformAdmin");
 
         var response = await client.GetAsync("/api/intelligence/model-risk/catalog");
         var payload = await response.Content.ReadAsStringAsync();

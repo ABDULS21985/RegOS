@@ -6,6 +6,7 @@ using FC.Engine.Domain.Enums;
 using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Infrastructure.Services;
 using FluentAssertions;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
@@ -98,9 +99,12 @@ public class TenantManagementServiceTests
             factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
+            Mock.Of<ISubscriptionService>(),
             bootstrap,
             new RecordingAuditLogger(),
-            new PlatformAdminTenantContext());
+            new PlatformAdminTenantContext(),
+            Mock.Of<ITenantBrandingService>(),
+            new HttpContextAccessor());
 
         var result = await sut.AssignLicenceAsync(seed.TenantId, seed.LicenceTypeId, "RC-100");
 
@@ -158,9 +162,12 @@ public class TenantManagementServiceTests
             factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
+            Mock.Of<ISubscriptionService>(),
             bootstrap,
             new RecordingAuditLogger(),
-            new PlatformAdminTenantContext());
+            new PlatformAdminTenantContext(),
+            Mock.Of<ITenantBrandingService>(),
+            new HttpContextAccessor());
 
         var result = await sut.RemoveLicenceAsync(seed.TenantId, seed.LicenceTypeId);
 
@@ -204,9 +211,12 @@ public class TenantManagementServiceTests
             factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
+            Mock.Of<ISubscriptionService>(),
             bootstrap,
             new RecordingAuditLogger(),
-            new PlatformAdminTenantContext());
+            new PlatformAdminTenantContext(),
+            Mock.Of<ITenantBrandingService>(),
+            new HttpContextAccessor());
 
         var result = await sut.ReconcileTenantModulesAsync(seed.TenantId);
 
@@ -265,9 +275,12 @@ public class TenantManagementServiceTests
             factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
+            Mock.Of<ISubscriptionService>(),
             bootstrap,
             new RecordingAuditLogger(),
-            new PlatformAdminTenantContext());
+            new PlatformAdminTenantContext(),
+            Mock.Of<ITenantBrandingService>(),
+            new HttpContextAccessor());
 
         var result = await sut.ReconcileTenantModulesAsync(new[] { seedA.TenantId, seedB.TenantId });
 
@@ -298,9 +311,12 @@ public class TenantManagementServiceTests
             factory,
             Mock.Of<ITenantOnboardingService>(),
             entitlementMock.Object,
+            Mock.Of<ISubscriptionService>(),
             bootstrap,
             new RecordingAuditLogger(),
-            new PlatformAdminTenantContext());
+            new PlatformAdminTenantContext(),
+            Mock.Of<ITenantBrandingService>(),
+            new HttpContextAccessor());
     }
 
     private static async Task<SeededTenantData> SeedTenantSubscriptionAsync(
@@ -393,6 +409,9 @@ public class TenantManagementServiceTests
     private sealed class RecordingAuditLogger : IAuditLogger
     {
         public Task Log(string entityType, int entityId, string action, object? oldValues, object? newValues, string performedBy, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task Log(string entityType, string entityRef, string action, object? oldValues, object? newValues, string performedBy, Guid? explicitTenantId = null, CancellationToken ct = default)
             => Task.CompletedTask;
     }
 

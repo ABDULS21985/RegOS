@@ -12,11 +12,13 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.HttpOverrides;
 using System.Security.Claims;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 const string AdminAuthScheme = "FC.Admin.Auth";
+var requireHttps = builder.Configuration.GetValue<bool?>("Transport:RequireHttps") ?? !builder.Environment.IsDevelopment();
 
 // Serilog
 builder.Host.UseSerilog((ctx, lc) => lc
@@ -109,6 +111,7 @@ builder.Services.AddAuthentication(AdminAuthScheme)
         options.Cookie.HttpOnly = true;
         options.Cookie.SameSite = SameSiteMode.Strict;
         options.Cookie.Name = "FC.Admin.Auth";
+        options.Cookie.SecurePolicy = requireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
     });
 
 // Authorization policies
@@ -127,6 +130,13 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.AddCascadingAuthenticationState();
 
 // Named HTTP client for the self-probe in PlatformAdminService health checks
@@ -144,10 +154,20 @@ builder.Services.AddRazorComponents()
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
-    app.UseHsts();
+    if (requireHttps)
+    {
+        app.UseHsts();
+    }
+}
+
+if (requireHttps)
+{
+    app.UseHttpsRedirection();
 }
 
 app.UseTenantResolution();

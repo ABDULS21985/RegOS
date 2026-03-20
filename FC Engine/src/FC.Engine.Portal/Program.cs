@@ -12,10 +12,12 @@ using FC.Engine.Infrastructure.MultiTenancy;
 using FC.Engine.Infrastructure.Notifications;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Serilog;
 
 var builder = WebApplication.CreateBuilder(args);
 const string PortalAuthScheme = "FC.Portal.Auth";
+var requireHttps = builder.Configuration.GetValue<bool?>("Transport:RequireHttps") ?? !builder.Environment.IsDevelopment();
 
 // Serilog
 builder.Host.UseSerilog((ctx, lc) => lc
@@ -95,6 +97,7 @@ builder.Services.AddAuthentication(PortalAuthScheme)
         options.Cookie.Name = "FC.Portal.Auth";
         options.Cookie.HttpOnly = true;
         options.Cookie.SameSite = SameSiteMode.Strict;
+        options.Cookie.SecurePolicy = requireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
     });
 
 // Authorization policies
@@ -116,6 +119,13 @@ builder.Services.AddAuthorization(options =>
 });
 
 builder.Services.AddHttpContextAccessor();
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 builder.Services.AddCascadingAuthenticationState();
 builder.Services.AddControllers();
 var signalRBuilder = builder.Services.AddSignalR();
@@ -143,10 +153,20 @@ builder.Services.Configure<Microsoft.AspNetCore.Components.Server.CircuitOptions
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
+
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error");
-    app.UseHsts();
+    if (requireHttps)
+    {
+        app.UseHsts();
+    }
+}
+
+if (requireHttps)
+{
+    app.UseHttpsRedirection();
 }
 
 app.UseTenantResolution();
@@ -475,10 +495,6 @@ app.MapRazorComponents<FC.Engine.Portal.Components.App>()
 
 app.Run();
 
-public partial class Program
-{
-}
-
 static string GetContentType(ExportFormat format) => format switch
 {
     ExportFormat.Excel => "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -496,3 +512,7 @@ static string GetExtension(ExportFormat format) => format switch
     ExportFormat.XBRL => "xbrl",
     _ => "bin"
 };
+
+public partial class Program
+{
+}

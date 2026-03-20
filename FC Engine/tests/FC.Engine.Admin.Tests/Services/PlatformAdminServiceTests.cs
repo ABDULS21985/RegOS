@@ -99,7 +99,8 @@ public class PlatformAdminServiceTests
             null!,
             Mock.Of<IAuditLogger>(),
             Mock.Of<INotificationOrchestrator>(),
-            Mock.Of<IFeatureFlagService>());
+            Mock.Of<IFeatureFlagService>(),
+            Mock.Of<IHttpClientFactory>());
 
         var list = await sut.GetTenantList(new PlatformTenantListQuery());
         var detail = await sut.GetTenantDetail(tenant.TenantId);
@@ -299,7 +300,8 @@ public class PlatformAdminServiceTests
             null!,
             Mock.Of<IAuditLogger>(),
             Mock.Of<INotificationOrchestrator>(),
-            Mock.Of<IFeatureFlagService>());
+            Mock.Of<IFeatureFlagService>(),
+            Mock.Of<IHttpClientFactory>());
 
         var allRows = await sut.GetTenantList(new PlatformTenantListQuery());
 
@@ -462,7 +464,8 @@ public class PlatformAdminServiceTests
             null!,
             Mock.Of<IAuditLogger>(),
             Mock.Of<INotificationOrchestrator>(),
-            Mock.Of<IFeatureFlagService>());
+            Mock.Of<IFeatureFlagService>(),
+            Mock.Of<IHttpClientFactory>());
 
         var allRows = await sut.GetTenantList(new PlatformTenantListQuery());
         allRows.Tenants.Single(x => x.TenantId == staleTenant.TenantId).ReconciliationState.Should().Be("Stale");
@@ -620,7 +623,8 @@ public class PlatformAdminServiceTests
             null!,
             Mock.Of<IAuditLogger>(),
             Mock.Of<INotificationOrchestrator>(),
-            Mock.Of<IFeatureFlagService>());
+            Mock.Of<IFeatureFlagService>(),
+            Mock.Of<IHttpClientFactory>());
 
         var result = await sut.GetTenantDetail(tenant.TenantId);
 

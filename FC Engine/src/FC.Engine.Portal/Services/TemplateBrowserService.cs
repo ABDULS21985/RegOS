@@ -380,6 +380,11 @@ public class TemplateBrowserService
             return null;
         }
 
+        if (template is null)
+        {
+            return null;
+        }
+
         var accessScope = await GetTemplateAccessScopeAsync(tenantId, ct);
         return IsTemplateAccessible(template, accessScope)
             ? template

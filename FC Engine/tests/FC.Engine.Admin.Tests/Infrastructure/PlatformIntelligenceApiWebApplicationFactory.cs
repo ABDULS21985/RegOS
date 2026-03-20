@@ -1,7 +1,9 @@
+using FC.Engine.Infrastructure.Metadata;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -34,6 +36,17 @@ public sealed class PlatformIntelligenceApiWebApplicationFactory : WebApplicatio
                 })
                 .AddScheme<AuthenticationSchemeOptions, TestAdminAuthHandler>(TestAdminAuthHandler.SchemeName, _ => { });
         });
+    }
+
+    protected override IHost CreateHost(IHostBuilder builder)
+    {
+        var host = base.CreateHost(builder);
+
+        using var scope = host.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
+        db.Database.Migrate();
+
+        return host;
     }
 
     public HttpClient CreateAuthenticatedClient(params string[] roles)

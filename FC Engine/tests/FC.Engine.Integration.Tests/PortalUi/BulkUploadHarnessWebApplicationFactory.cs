@@ -219,7 +219,7 @@ public sealed class BulkUploadHarnessWebApplicationFactory : WebApplicationFacto
         var submissionRepository = new Mock<ISubmissionRepository>();
         submissionRepository
             .Setup(x => x.GetByInstitution(InstitutionId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Array.Empty<Submission>());
+            .ReturnsAsync(Array.Empty<FC.Engine.Domain.Entities.Submission>());
 
         var validationOrchestrator = new ValidationOrchestrator(
             templateCache.Object,

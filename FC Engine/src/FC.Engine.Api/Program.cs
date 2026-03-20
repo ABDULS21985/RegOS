@@ -10,6 +10,7 @@ using FC.Engine.Infrastructure.Auth;
 using FC.Engine.Infrastructure.MultiTenancy;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -18,6 +19,7 @@ using Serilog;
 using System.Security.Cryptography;
 
 var builder = WebApplication.CreateBuilder(args);
+var requireHttps = builder.Configuration.GetValue<bool?>("Transport:RequireHttps") ?? !builder.Environment.IsDevelopment();
 
 // Serilog
 builder.Host.UseSerilog((ctx, lc) => lc
@@ -60,6 +62,13 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 
 builder.Services.AddAuthorization(options => { options.AddRegosPermissionPolicies(); });
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.ForwardLimit = 1;
+    options.KnownIPNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // ── API Versioning (RG-15) ──
 builder.Services.AddApiVersioning(options =>
@@ -203,9 +212,24 @@ var app = builder.Build();
 // Middleware pipeline — order matters (RG-15)
 // ═══════════════════════════════════════════════════════════════════
 
+app.UseForwardedHeaders();
+
 // 1. Exception handler (outermost)
 app.UseExceptionHandler("/error");
 app.Map("/error", () => Results.Problem());
+
+if (!app.Environment.IsDevelopment())
+{
+    if (requireHttps)
+    {
+        app.UseHsts();
+    }
+}
+
+if (requireHttps)
+{
+    app.UseHttpsRedirection();
+}
 
 // 2. Request ID generation
 app.UseRequestId();
