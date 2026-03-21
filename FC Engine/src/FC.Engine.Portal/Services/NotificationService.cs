@@ -415,7 +415,10 @@ public class NotificationService
 
     private static string FormatTimeAgo(DateTime utcTime)
     {
-        var diff = DateTime.UtcNow - utcTime;
+        var safeUtc = utcTime.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)
+            : utcTime.ToUniversalTime();
+        var diff = DateTime.UtcNow - safeUtc;
         if (diff.TotalMinutes < 1) return "Just now";
         if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
         if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";

@@ -1423,7 +1423,10 @@ else
 
     private static string FormatRelativeTime(DateTime dt)
     {
-        var diff = DateTime.UtcNow - dt.ToUniversalTime();
+        var utcValue = dt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+            : dt.ToUniversalTime();
+        var diff = DateTime.UtcNow - utcValue;
         if (diff.TotalMinutes < 1) return "just now";
         if (diff.TotalHours < 1)   return $"{(int)diff.TotalMinutes}m ago";
         if (diff.TotalDays < 1)    return $"{(int)diff.TotalHours}h ago";

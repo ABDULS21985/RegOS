@@ -490,7 +490,10 @@ else
     private static string FormatTimeAgo(DateTime? utcTime)
     {
         if (utcTime is null) return "—";
-        var span = DateTime.UtcNow - utcTime.Value;
+        var safeUtc = utcTime.Value.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(utcTime.Value, DateTimeKind.Utc)
+            : utcTime.Value.ToUniversalTime();
+        var span = DateTime.UtcNow - safeUtc;
         if (span.TotalMinutes < 1) return "just now";
         if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
         if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";

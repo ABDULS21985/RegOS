@@ -185,12 +185,20 @@
         }
     }
 
-    private static bool IsStale(DateTime lastSavedAt) =>
-        DateTime.UtcNow - lastSavedAt > TimeSpan.FromHours(24);
+    private static bool IsStale(DateTime lastSavedAt)
+    {
+        var safeUtc = lastSavedAt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(lastSavedAt, DateTimeKind.Utc)
+            : lastSavedAt.ToUniversalTime();
+        return DateTime.UtcNow - safeUtc > TimeSpan.FromHours(24);
+    }
 
     private static string GetRelativeTime(DateTime utcTime)
     {
-        var elapsed = DateTime.UtcNow - utcTime;
+        var safeUtc = utcTime.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)
+            : utcTime.ToUniversalTime();
+        var elapsed = DateTime.UtcNow - safeUtc;
         if (elapsed.TotalMinutes < 1) return "just now";
         if (elapsed.TotalMinutes < 60) return $"{(int)elapsed.TotalMinutes}m ago";
         if (elapsed.TotalHours < 24) return $"{(int)elapsed.TotalHours}h ago";

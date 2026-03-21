@@ -1111,7 +1111,10 @@
     // ── Relative time ─────────────────────────────────────────────────────────
     private static string RelativeTime(DateTime dt)
     {
-        var ago = DateTime.UtcNow - dt.ToUniversalTime();
+        var utcValue = dt.Kind == DateTimeKind.Unspecified
+            ? DateTime.SpecifyKind(dt, DateTimeKind.Utc)
+            : dt.ToUniversalTime();
+        var ago = DateTime.UtcNow - utcValue;
         if (ago.TotalSeconds < 60) return "just now";
         if (ago.TotalMinutes < 60) return $"{(int)ago.TotalMinutes}m ago";
         if (ago.TotalHours < 24) return $"{(int)ago.TotalHours}h ago";
