@@ -144,4 +144,30 @@ public class ModuleService : IModuleService
             }).ToList()
         };
     }
+
+    public async Task ToggleModuleActive(string moduleCode, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var module = await db.Modules.FirstOrDefaultAsync(m => m.ModuleCode == moduleCode, ct)
+            ?? throw new InvalidOperationException($"Module '{moduleCode}' not found");
+        module.IsActive = !module.IsActive;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task UpdateModuleDetails(
+        string moduleCode, string moduleName, string? description,
+        string defaultFrequency, int? deadlineOffsetDays, int displayOrder,
+        CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var module = await db.Modules.FirstOrDefaultAsync(m => m.ModuleCode == moduleCode, ct)
+            ?? throw new InvalidOperationException($"Module '{moduleCode}' not found");
+
+        module.ModuleName = moduleName;
+        module.Description = description;
+        module.DefaultFrequency = defaultFrequency;
+        module.DeadlineOffsetDays = deadlineOffsetDays;
+        module.DisplayOrder = displayOrder;
+        await db.SaveChangesAsync(ct);
+    }
 }

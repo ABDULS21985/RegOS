@@ -171,6 +171,55 @@ public class FormulaService
         await _audit.Log("CrossSheetRule", ruleId, "Deleted", null, null, deletedBy, ct);
     }
 
+    public async Task UpdateBusinessRule(
+        int ruleId, string ruleName, string ruleType,
+        string? expression, string? appliesToTemplates,
+        ValidationSeverity severity, string updatedBy,
+        string? description = null,
+        CancellationToken ct = default)
+    {
+        var rule = await _formulaRepo.GetBusinessRuleById(ruleId, ct)
+            ?? throw new InvalidOperationException($"Business rule {ruleId} not found");
+
+        var oldState = new { rule.RuleName, rule.RuleType, rule.Expression, rule.AppliesToTemplates, rule.Severity, rule.Description };
+
+        rule.RuleName = ruleName;
+        rule.RuleType = ruleType;
+        rule.Expression = expression;
+        rule.AppliesToTemplates = appliesToTemplates;
+        rule.Severity = severity;
+        rule.Description = description;
+
+        await _formulaRepo.UpdateBusinessRule(rule, ct);
+        await _audit.Log("BusinessRule", rule.Id, "Updated", oldState, rule, updatedBy, ct);
+    }
+
+    public async Task DeleteBusinessRule(int ruleId, string deletedBy, CancellationToken ct = default)
+    {
+        await _formulaRepo.DeleteBusinessRule(ruleId, ct);
+        await _audit.Log("BusinessRule", ruleId, "Deleted", null, null, deletedBy, ct);
+    }
+
+    public async Task ToggleBusinessRule(int ruleId, bool isActive, string updatedBy, CancellationToken ct = default)
+    {
+        var rule = await _formulaRepo.GetBusinessRuleById(ruleId, ct)
+            ?? throw new InvalidOperationException($"Business rule {ruleId} not found");
+
+        rule.IsActive = isActive;
+        await _formulaRepo.UpdateBusinessRule(rule, ct);
+        await _audit.Log("BusinessRule", rule.Id, isActive ? "Activated" : "Deactivated", null, rule, updatedBy, ct);
+    }
+
+    public async Task ToggleCrossSheetRule(int ruleId, bool isActive, string updatedBy, CancellationToken ct = default)
+    {
+        var rule = await _formulaRepo.GetCrossSheetRuleById(ruleId, ct)
+            ?? throw new InvalidOperationException($"Cross-sheet rule {ruleId} not found");
+
+        rule.IsActive = isActive;
+        await _formulaRepo.UpdateCrossSheetRule(rule, ct);
+        await _audit.Log("CrossSheetRule", rule.Id, isActive ? "Activated" : "Deactivated", null, rule, updatedBy, ct);
+    }
+
     private static FormulaDto MapToDto(IntraSheetFormula f) => new()
     {
         Id = f.Id,

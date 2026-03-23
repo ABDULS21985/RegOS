@@ -2,7 +2,11 @@
 @layout FC.Engine.Admin.Components.Layout.LoginLayout
 @attribute [AllowAnonymous]
 @inject IWhistleblowerService WhistleblowerService
-@inject IDbConnectionFactory Db
+@inject IRegulatorTenantResolver TenantResolver
+@inject IDbContextFactory<MetadataDbContext> DbFactory
+@using FC.Engine.Infrastructure.Metadata
+@using FC.Engine.Infrastructure.Services
+@using Microsoft.EntityFrameworkCore
 
 <PageTitle>Confidential Report Submission</PageTitle>
 
@@ -110,15 +114,16 @@
             int? institutionId = null;
             if (!string.IsNullOrWhiteSpace(_institutionName))
             {
-                using var conn = await Db.CreateConnectionAsync(null);
-                institutionId = await conn.ExecuteScalarAsync<int?>(
-                    """
-                    SELECT TOP 1 Id
-                    FROM dbo.institutions
-                    WHERE InstitutionName LIKE @InstitutionName
-                    ORDER BY InstitutionName
-                    """,
-                    new { InstitutionName = $"%{_institutionName.Trim()}%" });
+                var tenantContext = await TenantResolver.ResolveAsync(_regulatorCode);
+                await using var db = await DbFactory.CreateDbContextAsync();
+                var searchTerm = _institutionName.Trim();
+                institutionId = await db.Institutions
+                    .AsNoTracking()
+                    .Where(i => i.TenantId == tenantContext.TenantId
+                             && i.InstitutionName.Contains(searchTerm))
+                    .OrderBy(i => i.InstitutionName)
+                    .Select(i => (int?)i.Id)
+                    .FirstOrDefaultAsync();
             }
 
             _receipt = await WhistleblowerService.SubmitAsync(new WhistleblowerSubmission(

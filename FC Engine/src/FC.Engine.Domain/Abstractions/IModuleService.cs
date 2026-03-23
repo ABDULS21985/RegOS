@@ -4,6 +4,8 @@ public interface IModuleService
 {
     Task<IReadOnlyList<ModuleSummaryDto>> GetModuleSummaries(CancellationToken ct = default);
     Task<ModuleDetailDto?> GetModuleDetail(string moduleCode, CancellationToken ct = default);
+    Task ToggleModuleActive(string moduleCode, CancellationToken ct = default);
+    Task UpdateModuleDetails(string moduleCode, string moduleName, string? description, string defaultFrequency, int? deadlineOffsetDays, int displayOrder, CancellationToken ct = default);
 }
 
 public sealed class ModuleSummaryDto

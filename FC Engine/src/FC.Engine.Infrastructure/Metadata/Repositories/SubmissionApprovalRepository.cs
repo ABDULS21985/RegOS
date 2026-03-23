@@ -61,4 +61,28 @@ public class SubmissionApprovalRepository : ISubmissionApprovalRepository
         db.SubmissionApprovals.Remove(approval);
         await db.SaveChangesAsync(ct);
     }
+
+    public async Task<int> GetPendingCountByInstitution(int institutionId, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await db.SubmissionApprovals
+            .Where(a => a.Status == ApprovalStatus.Pending
+                     && a.RequestedBy != null
+                     && a.RequestedBy.InstitutionId == institutionId)
+            .CountAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<SubmissionApproval>> GetBySubmissionIds(IEnumerable<int> submissionIds, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var idList = submissionIds.ToList();
+
+        return await db.SubmissionApprovals
+            .Include(a => a.RequestedBy)
+            .Include(a => a.ReviewedBy)
+            .Where(a => idList.Contains(a.SubmissionId))
+            .OrderByDescending(a => a.RequestedAt)
+            .ToListAsync(ct);
+    }
 }

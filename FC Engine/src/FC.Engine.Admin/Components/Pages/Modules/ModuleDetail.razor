@@ -42,6 +42,20 @@
             Publish Drafts
         </button>
     </PrimaryAction>
+    <SecondaryActions>
+        @if (!_loading && _module is not null)
+        {
+            <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="OpenEditModal" type="button">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Edit
+            </button>
+            <button class="@($"fc-btn fc-btn--sm {(_module.IsActive ? "fc-btn--danger" : "fc-btn--success")}")"
+                    disabled="@_togglingActive" @onclick="ToggleActive" type="button">
+                @if (_togglingActive) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                @(_module.IsActive ? "Deactivate" : "Activate")
+            </button>
+        }
+    </SecondaryActions>
 </PageHeader>
 
 <div class="fc-page">
@@ -152,12 +166,58 @@
     }
 </div>
 
+@if (_showEditModal && _editForm is not null)
+{
+    <AppModal Title="Edit Module" OnClose="CloseEditModal">
+        <div class="fc-form">
+            <FormField Label="Module Name" Required="true">
+                <input class="fc-input" @bind="_editForm.ModuleName" />
+            </FormField>
+            <FormField Label="Description">
+                <textarea class="fc-textarea" rows="3" @bind="_editForm.Description"></textarea>
+            </FormField>
+            <div class="fc-grid fc-grid-3">
+                <FormField Label="Default Frequency">
+                    <select class="fc-select" @bind="_editForm.DefaultFrequency">
+                        <option value="Monthly">Monthly</option>
+                        <option value="Quarterly">Quarterly</option>
+                        <option value="SemiAnnual">Semi-Annual</option>
+                        <option value="Annual">Annual</option>
+                    </select>
+                </FormField>
+                <FormField Label="Deadline Offset (days)">
+                    <input class="fc-input" type="number" @bind="_editForm.DeadlineOffsetDays" placeholder="Use default" />
+                </FormField>
+                <FormField Label="Display Order">
+                    <input class="fc-input" type="number" min="0" @bind="_editForm.DisplayOrder" />
+                </FormField>
+            </div>
+            @if (!string.IsNullOrEmpty(_editError))
+            {
+                <div class="fc-alert fc-alert--error fc-alert--inline fc-mt-2">@_editError</div>
+            }
+            <FormActions>
+                <button class="fc-btn fc-btn--primary" @onclick="SaveEditAsync" disabled="@_savingEdit" type="button">
+                    @if (_savingEdit) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Save Changes
+                </button>
+                <button class="fc-btn fc-btn--outline" @onclick="CloseEditModal" type="button">Cancel</button>
+            </FormActions>
+        </div>
+    </AppModal>
+}
+
 @code {
     [Parameter] public string ModuleCode { get; set; } = string.Empty;
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _loading = true;
     private bool _publishing;
+    private bool _togglingActive;
+    private bool _showEditModal;
+    private bool _savingEdit;
+    private string? _editError;
+    private ModuleEditForm? _editForm;
     private ModuleDetailDto? _module;
 
     protected override async Task OnParametersSetAsync()
@@ -227,4 +287,91 @@
         "Deprecated" => "fc-badge--danger",
         _ => "fc-badge--neutral"
     };
+
+    private async Task ToggleActive()
+    {
+        if (_module is null) return;
+        var action = _module.IsActive ? "deactivate" : "activate";
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = $"{(_module.IsActive ? "Deactivate" : "Activate")} Module",
+            Message = $"Are you sure you want to {action} module '{_module.ModuleCode}'?",
+            ConfirmText = _module.IsActive ? "Deactivate" : "Activate"
+        });
+        if (!confirmed) return;
+
+        _togglingActive = true;
+        try
+        {
+            await ModuleService.ToggleModuleActive(ModuleCode);
+            _module = await ModuleService.GetModuleDetail(ModuleCode);
+            Toast.Success($"Module {ModuleCode} {action}d.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message);
+        }
+        finally
+        {
+            _togglingActive = false;
+        }
+    }
+
+    private void OpenEditModal()
+    {
+        if (_module is null) return;
+        _editForm = new ModuleEditForm
+        {
+            ModuleName = _module.ModuleName,
+            Description = _module.Description
+        };
+        _editError = null;
+        _showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        _showEditModal = false;
+        _editForm = null;
+        _editError = null;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (_editForm is null) return;
+        if (string.IsNullOrWhiteSpace(_editForm.ModuleName))
+        {
+            _editError = "Module name is required.";
+            return;
+        }
+
+        _savingEdit = true;
+        _editError = null;
+        try
+        {
+            await ModuleService.UpdateModuleDetails(
+                ModuleCode, _editForm.ModuleName.Trim(), _editForm.Description?.Trim(),
+                _editForm.DefaultFrequency, _editForm.DeadlineOffsetDays, _editForm.DisplayOrder);
+            _module = await ModuleService.GetModuleDetail(ModuleCode);
+            CloseEditModal();
+            Toast.Success("Module details updated.");
+        }
+        catch (Exception ex)
+        {
+            _editError = ex.Message;
+        }
+        finally
+        {
+            _savingEdit = false;
+        }
+    }
+
+    private sealed class ModuleEditForm
+    {
+        public string ModuleName { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string DefaultFrequency { get; set; } = "Monthly";
+        public int? DeadlineOffsetDays { get; set; }
+        public int DisplayOrder { get; set; }
+    }
 }

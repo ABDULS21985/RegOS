@@ -21,6 +21,14 @@
     </PrimaryAction>
 </PageHeader>
 
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <AppAlert Variant="AppAlert.AlertVariant.Error"
+              Message="@_error"
+              Dismissible="true"
+              OnDismiss="() => _error = null" />
+}
+
 <ProgressStepper Steps="_steps" @bind-CurrentStep="_step" Clickable />
 
 <div class="fc-sc-builder-layout" style="margin-top:var(--space-5);">
@@ -98,6 +106,7 @@
                         <table class="fc-sc-override-table">
                             <thead>
                                 <tr>
+                                    <th>Return Code</th>
                                     <th>Field Name</th>
                                     <th>Section</th>
                                     <th>Shock Type</th>
@@ -111,6 +120,10 @@
                                     var idx = i;
                                     var ov = _definition.Overrides[idx];
                                     <tr>
+                                        <td>
+                                            <input type="text" class="fc-sc-override-input" value="@ov.ReturnCode"
+                                                   @onchange="e => UpdateOverrideReturnCode(idx, e)" placeholder="DMB_RETURNS" />
+                                        </td>
                                         <td>
                                             <input type="text" class="fc-sc-override-input" value="@ov.FieldName"
                                                    @onchange="e => UpdateOverrideField(idx, e)" placeholder="field_name" />
@@ -233,12 +246,13 @@
                     <div class="fc-section-body">
                         <table class="fc-sc-override-table">
                             <thead>
-                                <tr><th>Field</th><th>Section</th><th>Type</th><th>Value</th></tr>
+                                <tr><th>Return Code</th><th>Field</th><th>Section</th><th>Type</th><th>Value</th></tr>
                             </thead>
                             <tbody>
                                 @foreach (var ov in _definition.Overrides)
                                 {
                                     <tr>
+                                        <td style="color:var(--cbn-text-muted);">@(string.IsNullOrEmpty(ov.ReturnCode) ? "—" : ov.ReturnCode)</td>
                                         <td style="font-weight:600;">@ov.FieldName</td>
                                         <td>@ov.SectionName</td>
                                         <td>
@@ -331,6 +345,7 @@
 
     private bool _isEdit;
     private bool _running;
+    private string? _error;
     private int _step = 1;
     private Guid _tenantId = Guid.Empty;
     private ScenarioDefinition _definition = new();
@@ -422,6 +437,12 @@
         _definition.Overrides = list;
     }
 
+    private void UpdateOverrideReturnCode(int idx, ChangeEventArgs e)
+    {
+        var ov = _definition.Overrides[idx];
+        _definition.Overrides[idx] = ov with { ReturnCode = e.Value?.ToString() ?? "" };
+    }
+
     private void UpdateOverrideField(int idx, ChangeEventArgs e)
     {
         var ov = _definition.Overrides[idx];
@@ -459,14 +480,22 @@
 
     private async Task SaveDraft()
     {
-        _definition.Status = ScenarioStatus.Draft;
-        var saved = await Engine.SaveScenario(_definition);
-        Nav.NavigateTo("/scenarios");
+        try
+        {
+            _definition.Status = ScenarioStatus.Draft;
+            await Engine.SaveScenario(_definition);
+            Nav.NavigateTo("/scenarios");
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to save draft: {ex.Message}";
+        }
     }
 
     private async Task RunAndView()
     {
         _running = true;
+        _error = null;
         StateHasChanged();
 
         try
@@ -474,6 +503,10 @@
             var saved = await Engine.SaveScenario(_definition);
             await Engine.RunScenario(_tenantId, saved.Id);
             Nav.NavigateTo($"/scenarios/{saved.Id}/results");
+        }
+        catch (Exception ex)
+        {
+            _error = $"Scenario run failed: {ex.Message}";
         }
         finally
         {

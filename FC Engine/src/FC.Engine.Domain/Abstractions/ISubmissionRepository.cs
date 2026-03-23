@@ -13,6 +13,8 @@ public interface ISubmissionRepository
     Task<IReadOnlyList<Submission>> GetRecent(int count = 10, CancellationToken ct = default);
     Task<int> GetCountByStatus(SubmissionStatus status, CancellationToken ct = default);
     Task<int> GetTotalCount(CancellationToken ct = default);
+    Task<IReadOnlyList<Submission>> GetByIdsWithReport(IEnumerable<int> ids, CancellationToken ct = default);
+    Task<Submission?> GetLatestByInstitutionAndReturnCode(int institutionId, string returnCode, CancellationToken ct = default);
     Task Add(Submission submission, CancellationToken ct = default);
     Task Update(Submission submission, CancellationToken ct = default);
     Task UpdateStatus(int submissionId, SubmissionStatus status, CancellationToken ct = default);

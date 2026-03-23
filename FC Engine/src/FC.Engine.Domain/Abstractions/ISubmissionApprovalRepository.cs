@@ -9,6 +9,8 @@ public interface ISubmissionApprovalRepository
 {
     Task<SubmissionApproval?> GetBySubmission(int submissionId, CancellationToken ct = default);
     Task<IReadOnlyList<SubmissionApproval>> GetPendingByInstitution(int institutionId, CancellationToken ct = default);
+    Task<int> GetPendingCountByInstitution(int institutionId, CancellationToken ct = default);
+    Task<IReadOnlyList<SubmissionApproval>> GetBySubmissionIds(IEnumerable<int> submissionIds, CancellationToken ct = default);
     Task Create(SubmissionApproval approval, CancellationToken ct = default);
     Task Update(SubmissionApproval approval, CancellationToken ct = default);
     Task Delete(SubmissionApproval approval, CancellationToken ct = default);

@@ -101,15 +101,17 @@ public class ExportService
         var current = await _submissionRepo.GetByIdWithReport(submissionId);
         if (current is null) return null;
 
-        var submissions = await _submissionRepo.GetByInstitution(institutionId);
-        var prev = submissions
-            .Where(s => s.ReturnCode == current.ReturnCode
-                     && s.Id != submissionId
-                     && s.SubmittedAt < current.SubmittedAt
-                     && s.ValidationReport != null)
-            .OrderByDescending(s => s.SubmittedAt)
-            .FirstOrDefault();
+        // Use targeted query instead of loading all institution submissions
+        var prev = await _submissionRepo.GetLatestByInstitutionAndReturnCode(
+            institutionId, current.ReturnCode);
 
+        // Skip if the latest is the current one or has no report
+        if (prev is null || prev.Id == submissionId) return null;
+        if (prev.ValidationReport is null)
+        {
+            // Fetch with report
+            prev = await _submissionRepo.GetByIdWithReport(prev.Id);
+        }
         if (prev?.ValidationReport is null) return null;
         return (prev.ValidationReport.ErrorCount, prev.ValidationReport.WarningCount);
     }
@@ -304,6 +306,10 @@ public class ExportService
         var entries = new List<AuditTrailEntry>();
         var moduleContext = await BuildModuleContextLookupAsync(submissions.Select(x => x.ReturnCode));
 
+        // Batch-fetch all approvals for these submissions (eliminates N+1)
+        var allApprovals = await _approvalRepo.GetBySubmissionIds(submissions.Select(s => s.Id));
+        var approvalLookup = allApprovals.ToDictionary(a => a.SubmissionId);
+
         foreach (var sub in submissions)
         {
             if (sub.SubmittedAt >= startDate && sub.SubmittedAt <= endDate)
@@ -326,8 +332,8 @@ public class ExportService
                 });
             }
 
-            // Include approval actions
-            var approval = await _approvalRepo.GetBySubmission(sub.Id);
+            // Include approval actions from pre-fetched lookup
+            var approval = approvalLookup.GetValueOrDefault(sub.Id);
             if (approval?.ReviewedAt is not null
                 && approval.ReviewedAt >= startDate
                 && approval.ReviewedAt <= endDate)

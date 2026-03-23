@@ -132,6 +132,36 @@ public class SubmissionRepository : ISubmissionRepository
         return await ApplyTenantFilter(db.Submissions).CountAsync(ct);
     }
 
+    public async Task<IReadOnlyList<Submission>> GetByIdsWithReport(IEnumerable<int> ids, CancellationToken ct = default)
+    {
+        var idSet = ids.ToHashSet();
+        if (idSet.Count == 0) return [];
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await ApplyTenantFilter(db.Submissions)
+            .Where(s => idSet.Contains(s.Id))
+            .Include(s => s.Institution)
+            .Include(s => s.ReturnPeriod)
+            .Include(s => s.ValidationReport)
+                .ThenInclude(r => r!.Errors)
+            .AsSplitQuery()
+            .AsNoTracking()
+            .ToListAsync(ct);
+    }
+
+    public async Task<Submission?> GetLatestByInstitutionAndReturnCode(int institutionId, string returnCode, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        return await ApplyTenantFilter(db.Submissions)
+            .Where(s => s.InstitutionId == institutionId && s.ReturnCode == returnCode)
+            .Where(s => s.Status != SubmissionStatus.Rejected && s.Status != SubmissionStatus.ApprovalRejected)
+            .OrderByDescending(s => s.SubmittedAt)
+            .Include(s => s.ReturnPeriod)
+            .AsNoTracking()
+            .FirstOrDefaultAsync(ct);
+    }
+
     public async Task Add(Submission submission, CancellationToken ct = default)
     {
         await using var db = await _dbFactory.CreateDbContextAsync(ct);

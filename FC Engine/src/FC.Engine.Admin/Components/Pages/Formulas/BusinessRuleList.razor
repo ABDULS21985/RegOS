@@ -1,0 +1,198 @@
+@page "/business-rules"
+@attribute [Authorize(Policy = "AdminOnly")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using FC.Engine.Admin.Utilities
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Validation
+@using FC.Engine.Application.Services
+@inject FormulaService FormulaService
+@inject IFormulaRepository FormulaRepo
+@inject ToastService Toast
+@inject DialogService Dialog
+
+<PageTitle>Business Rules</PageTitle>
+
+<PageHeader Title="Business Rules"
+            Subtitle="Manage cross-field validation rules that enforce data quality constraints."
+            CountBadge="@(!_loading ? _rules.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--gold" @onclick="ShowAddForm" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Rule
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    @if (_loading)
+    {
+        <div class="fc-card"><div class="fc-card__body"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" /></div></div>
+    }
+    else
+    {
+        @if (_showForm)
+        {
+            <div class="fc-card fc-mb-4">
+                <div class="fc-card__header"><h3 class="fc-card__title">@(_editId.HasValue ? "Edit Rule" : "Add Business Rule")</h3></div>
+                <div class="fc-card__body">
+                    <div class="fc-form">
+                        <div class="fc-grid fc-grid-2">
+                            <FormField Label="Rule Code" Required="true">
+                                <input class="fc-input" @bind="_ruleCode" placeholder="e.g. BR-DATE-001" />
+                            </FormField>
+                            <FormField Label="Rule Name" Required="true">
+                                <input class="fc-input" @bind="_ruleName" />
+                            </FormField>
+                        </div>
+                        <div class="fc-grid fc-grid-3">
+                            <FormField Label="Rule Type">
+                                <select class="fc-select" @bind="_ruleType">
+                                    <option value="DateCheck">Date Check</option>
+                                    <option value="ThresholdCheck">Threshold Check</option>
+                                    <option value="Completeness">Completeness</option>
+                                    <option value="Custom">Custom</option>
+                                </select>
+                            </FormField>
+                            <FormField Label="Severity">
+                                <select class="fc-select" @bind="_severity">
+                                    @foreach (var s in Enum.GetValues<ValidationSeverity>())
+                                    {
+                                        <option value="@s">@s</option>
+                                    }
+                                </select>
+                            </FormField>
+                            <FormField Label="Applies to Templates">
+                                <input class="fc-input" @bind="_appliesToTemplates" placeholder='["MFCR 300"] or *' />
+                            </FormField>
+                        </div>
+                        <FormField Label="Expression">
+                            <textarea class="fc-textarea" rows="2" @bind="_expression" placeholder="e.g. field_a > 0 AND field_b IS NOT NULL"></textarea>
+                        </FormField>
+                        <FormActions>
+                            <button class="fc-btn fc-btn--primary" @onclick="SaveRule" disabled="@_saving" type="button">
+                                @if (_saving) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                                @(_editId.HasValue ? "Update" : "Add") Rule
+                            </button>
+                            <button class="fc-btn fc-btn--outline" @onclick="CancelForm" type="button">Cancel</button>
+                        </FormActions>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <DataTable TItem="BusinessRule" Items="_filteredRules" Clickable="false"
+                   EmptyTitle="No business rules" EmptyMessage="Add a business rule to get started.">
+            <ChildContent>
+                <DataColumn TItem="BusinessRule" Title="Code" SortKey="x => x.RuleCode" Width="140px">
+                    <CellTemplate><span class="fc-list-cell-code">@context.RuleCode</span></CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="BusinessRule" Title="Name" SortKey="x => x.RuleName">
+                    <CellTemplate><span class="fc-list-cell-strong">@context.RuleName</span></CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="BusinessRule" Title="Type" SortKey="x => x.RuleType" Width="130px">
+                    <CellTemplate><span class="fc-badge fc-badge--neutral">@context.RuleType</span></CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="BusinessRule" Title="Severity" SortKey="x => x.Severity" Width="100px">
+                    <CellTemplate>
+                        <span class="fc-badge @(context.Severity == ValidationSeverity.Error ? "fc-badge--danger" : context.Severity == ValidationSeverity.Warning ? "fc-badge--warning" : "fc-badge--neutral")">
+                            @context.Severity
+                        </span>
+                    </CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="BusinessRule" Title="Active" SortKey="x => x.IsActive" Width="80px">
+                    <CellTemplate>
+                        @if (context.IsActive) { <span class="fc-badge fc-badge--success">Yes</span> }
+                        else { <span class="fc-badge fc-badge--neutral">No</span> }
+                    </CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="BusinessRule" Title="Applies To" Width="180px">
+                    <CellTemplate><span class="fc-list-cell-muted">@(context.AppliesToTemplates ?? "All")</span></CellTemplate>
+                </DataColumn>
+            </ChildContent>
+        </DataTable>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _showForm;
+    private bool _saving;
+    private int? _editId;
+    private string _currentUser = "system";
+
+    private List<BusinessRule> _rules = new();
+    private string _searchTerm = "";
+
+    // Form fields
+    private string _ruleCode = "";
+    private string _ruleName = "";
+    private string _ruleType = "DateCheck";
+    private string? _expression;
+    private string? _appliesToTemplates;
+    private ValidationSeverity _severity = ValidationSeverity.Error;
+
+    private List<BusinessRule> _filteredRules => string.IsNullOrWhiteSpace(_searchTerm)
+        ? _rules
+        : _rules.Where(r => r.RuleCode.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)
+                          || r.RuleName.Contains(_searchTerm, StringComparison.OrdinalIgnoreCase)).ToList();
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        _currentUser = UserIdentityResolver.ResolveActor(state?.User);
+        await LoadRules();
+        _loading = false;
+    }
+
+    private async Task LoadRules()
+    {
+        _rules = (await FormulaRepo.GetActiveBusinessRules()).ToList();
+    }
+
+    private void ShowAddForm()
+    {
+        _editId = null;
+        _ruleCode = "";
+        _ruleName = "";
+        _ruleType = "DateCheck";
+        _expression = null;
+        _appliesToTemplates = null;
+        _severity = ValidationSeverity.Error;
+        _showForm = true;
+    }
+
+    private void CancelForm() => _showForm = false;
+
+    private async Task SaveRule()
+    {
+        if (string.IsNullOrWhiteSpace(_ruleCode) || string.IsNullOrWhiteSpace(_ruleName))
+        {
+            Toast.Error("Rule code and name are required.");
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            await FormulaService.AddBusinessRule(
+                _ruleCode.Trim(), _ruleName.Trim(), _ruleType,
+                _expression?.Trim(), _appliesToTemplates?.Trim(),
+                _severity, _currentUser);
+            Toast.Success($"Business rule '{_ruleCode}' added.");
+            _showForm = false;
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Failed");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

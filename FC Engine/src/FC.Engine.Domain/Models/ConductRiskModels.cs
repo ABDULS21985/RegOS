@@ -148,7 +148,7 @@ public sealed record WhistleblowerStatusView(
     string CaseReference,
     string Status,
     DateTimeOffset ReceivedAt,
-    DateTimeOffset UpdatedAt
+    DateTimeOffset? UpdatedAt
 );
 
 public sealed record WhistleblowerAssignableUser(

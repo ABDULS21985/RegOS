@@ -3,6 +3,7 @@
 @inject IConsolidationEngine ConsolidationEngine
 @inject NavigationManager Nav
 @inject ToastService Toast
+@inject RegulatorSessionService RegulatorSession
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Infrastructure.Metadata
 @inject IServiceScopeFactory ScopeFactory
@@ -49,7 +50,7 @@
 {
     <div class="rg-cb-section-head">
         <h2 class="rg-cb-section-title">Run #@_latestRun.RunNumber — @_latestRun.ReportingPeriod</h2>
-        <button class="fc-btn fc-btn--outline" @onclick='() => Nav.NavigateTo($"/regulator/cross-border/consolidation/{_latestRun.RunId}")'>Full Detail →</button>
+        <button class="fc-btn fc-btn--outline" @onclick='() => Nav.NavigateTo($"/regulator/cross-border/consolidation/{_latestRun.RunId}?groupId={_selectedGroupId}")'>Full Detail →</button>
     </div>
 
     @* -- Progress Stepper -- *@
@@ -162,6 +163,7 @@
 @code {
     private bool _running;
     private int _selectedGroupId;
+    private int _userId;
     private string _reportingPeriod = $"{DateTime.UtcNow.Year}-Q{(DateTime.UtcNow.Month - 1) / 3 + 1}";
     private DateOnly _snapshotDate = DateOnly.FromDateTime(DateTime.UtcNow);
 
@@ -171,6 +173,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _userId = session.UserId;
+
         using var scope = ScopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
         _groups = await db.FinancialGroups
@@ -188,7 +193,7 @@
         try
         {
             _latestRun = await ConsolidationEngine.RunConsolidationAsync(
-                _selectedGroupId, _reportingPeriod, _snapshotDate, 1);
+                _selectedGroupId, _reportingPeriod, _snapshotDate, _userId);
 
             _subsidiaries = (await ConsolidationEngine.GetSubsidiarySnapshotsAsync(
                 _latestRun.RunId, _selectedGroupId)).ToList();

@@ -122,12 +122,39 @@ public sealed class CapitalStackOptimizerService
         {
             var requiredCapital = currentRwa * car / 100m;
 
-            // Optimal mix at this CAR level
-            var optAt1 = Math.Min(requiredCapital * maxAt1 / 100m, requiredCapital * 0.5m);
-            var optTier2 = Math.Min(requiredCapital * maxTier2 / 100m, requiredCapital - optAt1);
-            if (optTier2 < 0) optTier2 = 0;
+            // Enforce Basel III floors: CET1 >= 4.5% RWA, Tier 1 >= 6% RWA
+            var baselMinCet1 = currentRwa * 4.5m / 100m;
+            var baselMinTier1 = currentRwa * 6m / 100m;
+
+            // Max allowed from share constraints
+            var maxAt1Bn = requiredCapital * maxAt1 / 100m;
+            var maxTier2Bn = requiredCapital * maxTier2 / 100m;
+
+            // Start with cheapest: maximize Tier2, then AT1, CET1 fills the rest
+            var optTier2 = Math.Min(maxTier2Bn, requiredCapital);
+            var optAt1 = Math.Min(maxAt1Bn, requiredCapital - optTier2);
+            if (optAt1 < 0) optAt1 = 0;
             var optCet1 = requiredCapital - optAt1 - optTier2;
             if (optCet1 < 0) { optCet1 = 0; optTier2 = requiredCapital - optAt1; }
+
+            // Enforce Basel CET1 floor
+            if (optCet1 < baselMinCet1)
+            {
+                var deficit = baselMinCet1 - optCet1;
+                optCet1 = baselMinCet1;
+                // Reduce Tier2 first, then AT1
+                if (optTier2 >= deficit) { optTier2 -= deficit; }
+                else { deficit -= optTier2; optTier2 = 0; optAt1 = Math.Max(0, optAt1 - deficit); }
+            }
+
+            // Enforce Basel Tier1 (CET1 + AT1) floor
+            var tier1 = optCet1 + optAt1;
+            if (tier1 < baselMinTier1)
+            {
+                var deficit = baselMinTier1 - tier1;
+                optCet1 += deficit;
+                optTier2 = Math.Max(0, optTier2 - deficit);
+            }
 
             var total = optCet1 + optAt1 + optTier2;
             var blended = total > 0

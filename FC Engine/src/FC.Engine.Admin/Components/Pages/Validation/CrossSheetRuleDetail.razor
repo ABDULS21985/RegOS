@@ -1,12 +1,34 @@
 @page "/cross-sheet-rules/{Id:int}"
 @using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
 @attribute [Authorize]
+@using FC.Engine.Admin.Utilities
 @using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
 @using FC.Engine.Domain.Validation
+@using FC.Engine.Application.Services
 @inject IFormulaRepository FormulaRepo
+@inject FormulaService FormulaService
+@inject ToastService Toast
+@inject DialogService Dialog
+@inject NavigationManager Nav
 
 <PageHeader Title="@(_rule?.RuleCode ?? $"Rule #{Id}")"
-            BackUrl="/cross-sheet-rules" />
+            BackUrl="/cross-sheet-rules">
+    <PrimaryAction>
+        @if (_rule != null)
+        {
+            <AuthorizeView Roles="Admin">
+                <Authorized Context="actionAuth">
+                    <button class="fc-btn @(_rule.IsActive ? "fc-btn--outline" : "fc-btn--primary") fc-btn--sm" @onclick="ToggleRule">
+                        @(_rule.IsActive ? "Disable Rule" : "Enable Rule")
+                    </button>
+                    <button class="fc-btn fc-btn--danger fc-btn--sm" @onclick="DeleteRule">Delete</button>
+                </Authorized>
+            </AuthorizeView>
+        }
+    </PrimaryAction>
+</PageHeader>
 
 <div class="fc-detail-page" aria-busy="@(_loading ? "true" : null)">
 
@@ -207,9 +229,11 @@
 
 @code {
     [Parameter] public int Id { get; set; }
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _loading = true;
     private CrossSheetRule? _rule;
+    private string _currentUser = string.Empty;
 
     private IEnumerable<CrossSheetRuleOperand> SortedOperands =>
         _rule?.Operands
@@ -228,8 +252,53 @@
     protected override async Task OnParametersSetAsync()
     {
         _loading = true;
+        var state = AuthState is null ? null : await AuthState;
+        _currentUser = UserIdentityResolver.ResolveActor(state?.User);
         _rule = await FormulaRepo.GetCrossSheetRuleById(Id);
         _loading = false;
+    }
+
+    private async Task ToggleRule()
+    {
+        if (_rule == null) return;
+        var action = _rule.IsActive ? "Disable" : "Enable";
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = $"{action} Cross-Sheet Rule",
+            Message = $"{action} rule '{_rule.RuleCode}'?",
+            ConfirmText = action,
+            IsDestructive = _rule.IsActive
+        });
+        if (!confirmed) return;
+
+        try
+        {
+            await FormulaService.ToggleCrossSheetRule(_rule.Id, !_rule.IsActive, _currentUser);
+            Toast.Success($"Rule '{_rule.RuleCode}' {(_rule.IsActive ? "disabled" : "enabled")}.", $"Rule {action}d");
+            _rule = await FormulaRepo.GetCrossSheetRuleById(Id);
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, $"{action} Failed");
+        }
+    }
+
+    private async Task DeleteRule()
+    {
+        if (_rule == null) return;
+        var confirmed = await Dialog.ConfirmDelete("Cross-Sheet Rule");
+        if (!confirmed) return;
+
+        try
+        {
+            await FormulaService.DeleteCrossSheetRule(_rule.Id, _currentUser);
+            Toast.Success($"Rule '{_rule.RuleCode}' deleted.", "Rule Deleted");
+            Nav.NavigateTo("/cross-sheet-rules");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Delete Failed");
+        }
     }
 
     private static string StatusBadge(string status) => status.ToLowerInvariant() switch

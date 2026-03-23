@@ -654,7 +654,10 @@ else
             var subTenants = subTenantsTask.Result;
 
             _data = dashboard;
-            _rows = subTenants.Select(BuildHealthRow).ToList();
+
+            // Compute real compliance metrics from submission data
+            var healthMetrics = await PartnerService.GetSubTenantHealthMetrics(tenantId, subTenants);
+            _rows = subTenants.Select(s => BuildHealthRow(s, healthMetrics)).ToList();
             _alerts = BuildAlerts();
         }
         catch (Exception ex)
@@ -668,37 +671,18 @@ else
     }
 
     // ── Build helpers ─────────────────────────────────────────────────────────
-    private static SubTenantHealthRow BuildHealthRow(PartnerSubTenantSummary s)
+    private static SubTenantHealthRow BuildHealthRow(
+        PartnerSubTenantSummary s, Dictionary<Guid, SubTenantHealthMetrics> metrics)
     {
-        var hash = Math.Abs(s.TenantId.GetHashCode());
-        var isActive = s.Status is "Active";
-
-        var complianceRate = isActive
-            ? Math.Max(20m, Math.Min(100m, 60m + (hash % 40) - (s.ReturnsSubmittedThisMonth == 0 ? 30 : 0)))
-            : 0m;
-
-        var overdueReturns = isActive && s.ReturnsSubmittedThisMonth == 0
-            ? (hash % 3) + 1
-            : 0;
-
-        var lastSubmission = s.ReturnsSubmittedThisMonth > 0
-            ? DateTime.UtcNow.AddDays(-(hash % 20))
-            : (DateTime?)null;
-
-        var modules = s.PlanCode?.ToUpperInvariant() switch
-        {
-            "ENTERPRISE" => new[] { "Filing", "Analytics", "API", "Audit" },
-            "PRO" => new[] { "Filing", "Analytics", "Audit" },
-            _ => new[] { "Filing" }
-        };
+        var m = metrics.GetValueOrDefault(s.TenantId);
 
         return new SubTenantHealthRow
         {
             Summary = s,
-            ComplianceRate = complianceRate,
-            OverdueReturns = overdueReturns,
-            LastSubmission = lastSubmission,
-            ActiveModules = modules
+            ComplianceRate = m?.ComplianceRate ?? 0m,
+            OverdueReturns = m?.OverdueReturns ?? 0,
+            LastSubmission = m?.LastSubmission,
+            ActiveModules = m?.ActiveModules ?? ["Filing"]
         };
     }
 
@@ -740,21 +724,28 @@ else
     private static int GetHeatmapLevel(PartnerSubTenantSummary s, int monthIndex)
     {
         if (s.Status != "Active") return 0;
-        var hash = Math.Abs(s.TenantId.GetHashCode() * 31 + monthIndex * 7919) % 101;
-        // Current month biased by actual submissions
-        if (monthIndex == 5) hash = s.ReturnsSubmittedThisMonth > 0 ? 75 + (hash % 25) : (int)(hash * 0.3);
-        if (hash < 25) return 1;
-        if (hash < 55) return 2;
-        if (hash < 80) return 3;
-        return 4;
+        // Only current month (index 5) uses real data; historical months show neutral level
+        if (monthIndex == 5)
+        {
+            return s.ReturnsSubmittedThisMonth switch
+            {
+                0 => 0,
+                1 => 1,
+                <= 3 => 2,
+                <= 6 => 3,
+                _ => 4
+            };
+        }
+        // Historical months: we don't have per-month data; show neutral/unknown
+        return s.ReturnsSubmittedThisMonth > 0 ? 1 : 0;
     }
 
     private static int GetHeatmapPct(PartnerSubTenantSummary s, int monthIndex)
     {
         if (s.Status != "Active") return 0;
-        var hash = Math.Abs(s.TenantId.GetHashCode() * 31 + monthIndex * 7919) % 101;
-        if (monthIndex == 5) return s.ReturnsSubmittedThisMonth > 0 ? 75 + (hash % 25) : (int)(hash * 0.3);
-        return hash;
+        if (monthIndex == 5)
+            return Math.Min(100, s.ReturnsSubmittedThisMonth * 20);
+        return s.ReturnsSubmittedThisMonth > 0 ? 20 : 0;
     }
 
     // ── Sorting & filtering ───────────────────────────────────────────────────

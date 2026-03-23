@@ -220,8 +220,99 @@ public class TenantManagementService
         var tenant = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
             ?? throw new InvalidOperationException("Tenant not found");
         tenant.Deactivate();
+
+        // Cascade: cancel active subscriptions
+        var subscriptions = await db.Subscriptions
+            .Where(s => s.TenantId == tenantId
+                && s.Status != SubscriptionStatus.Cancelled
+                && s.Status != SubscriptionStatus.Expired)
+            .ToListAsync(ct);
+        foreach (var sub in subscriptions)
+        {
+            sub.Cancel("Tenant deactivated");
+        }
+
+        // Cascade: deactivate all subscription modules
+        var subIds = subscriptions.Select(s => s.Id).ToList();
+        if (subIds.Count > 0)
+        {
+            var modules = await db.SubscriptionModules
+                .Where(sm => subIds.Contains(sm.SubscriptionId) && sm.IsActive)
+                .ToListAsync(ct);
+            foreach (var mod in modules)
+            {
+                mod.IsActive = false;
+            }
+        }
+
+        // Cascade: disable portal users for this tenant
+        var portalUsers = await db.PortalUsers
+            .Where(u => u.TenantId == tenantId && u.IsActive && u.DeletedAt == null)
+            .ToListAsync(ct);
+        foreach (var user in portalUsers)
+        {
+            user.IsActive = false;
+        }
+
+        // Cascade: disable institution users across all tenant institutions
+        var institutionIds = await db.Institutions
+            .Where(i => i.TenantId == tenantId)
+            .Select(i => i.Id)
+            .ToListAsync(ct);
+        if (institutionIds.Count > 0)
+        {
+            var instUsers = await db.InstitutionUsers
+                .Where(u => institutionIds.Contains(u.InstitutionId) && u.IsActive)
+                .ToListAsync(ct);
+            foreach (var user in instUsers)
+            {
+                user.IsActive = false;
+            }
+        }
+
+        // Cascade: close all open return periods
+        var openPeriods = await db.ReturnPeriods
+            .Where(rp => rp.TenantId == tenantId && rp.IsOpen)
+            .ToListAsync(ct);
+        foreach (var period in openPeriods)
+        {
+            period.IsOpen = false;
+            period.Status = "ClosedByDeactivation";
+        }
+
         await db.SaveChangesAsync(ct);
         await LogPlatformAction("TenantDeactivated", tenantId, actor, ct);
+    }
+
+    public async Task UpdateTenantDetailsAsync(
+        Guid tenantId, string name, string? contactEmail, string? contactPhone,
+        string? address, string? timezone, string? defaultCurrency,
+        int? fiscalYearStartMonth, int? maxInstitutions, int? maxUsersPerEntity,
+        CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var tenant = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
+            ?? throw new InvalidOperationException("Tenant not found");
+
+        tenant.UpdateDetails(name, contactEmail, contactPhone, address);
+        if (timezone is not null) tenant.Timezone = timezone;
+        if (defaultCurrency is not null) tenant.DefaultCurrency = defaultCurrency;
+        if (fiscalYearStartMonth.HasValue) tenant.FiscalYearStartMonth = fiscalYearStartMonth.Value;
+        if (maxInstitutions.HasValue) tenant.MaxInstitutions = maxInstitutions.Value;
+        if (maxUsersPerEntity.HasValue) tenant.MaxUsersPerEntity = maxUsersPerEntity.Value;
+
+        await db.SaveChangesAsync(ct);
+        await LogPlatformAction("TenantDetailsUpdated", tenantId, ct);
+    }
+
+    public async Task ArchiveTenantAsync(Guid tenantId, string? actor = null, CancellationToken ct = default)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+        var tenant = await db.Tenants.FindAsync(new object[] { tenantId }, ct)
+            ?? throw new InvalidOperationException("Tenant not found");
+        tenant.Archive();
+        await db.SaveChangesAsync(ct);
+        await LogPlatformAction("TenantArchived", tenantId, actor, ct);
     }
 
     public async Task<List<TenantLicenceType>> GetTenantLicencesAsync(Guid tenantId, CancellationToken ct = default)
@@ -742,10 +833,25 @@ public class TenantManagementService
         var today = DateTime.UtcNow.Date;
         foreach (var module in modules)
         {
-            for (var offset = 0; offset < 12; offset++)
+            var frequency = NormalizeFrequency(module.DefaultFrequency);
+            var periodCount = frequency switch
             {
-                var periodStart = new DateTime(today.Year, today.Month, 1).AddMonths(offset);
-                var frequency = NormalizeFrequency(module.DefaultFrequency);
+                "Quarterly" => 4,
+                "SemiAnnual" => 2,
+                "Annual" => 1,
+                _ => 12 // Monthly
+            };
+            var monthStep = frequency switch
+            {
+                "Quarterly" => 3,
+                "SemiAnnual" => 6,
+                "Annual" => 12,
+                _ => 1 // Monthly
+            };
+
+            for (var offset = 0; offset < periodCount; offset++)
+            {
+                var periodStart = new DateTime(today.Year, today.Month, 1).AddMonths(offset * monthStep);
                 var deadline = ComputeDeadline(periodStart, frequency, module.DeadlineOffsetDays);
 
                 db.ReturnPeriods.Add(new ReturnPeriod

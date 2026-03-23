@@ -75,18 +75,24 @@ public class ApprovalServiceTests
             Category = ValidationCategory.Business
         });
 
+        var submissionWithReport = new Submission
+        {
+            Id = submission.Id,
+            TenantId = tenantId,
+            InstitutionId = 44,
+            ReturnCode = submission.ReturnCode,
+            ReturnPeriodId = submission.ReturnPeriodId,
+            Status = SubmissionStatus.PendingApproval,
+            ValidationReport = validationReport
+        };
+
         submissionRepo
             .Setup(x => x.GetByIdWithReport(submission.Id, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Submission
-            {
-                Id = submission.Id,
-                TenantId = tenantId,
-                InstitutionId = 44,
-                ReturnCode = submission.ReturnCode,
-                ReturnPeriodId = submission.ReturnPeriodId,
-                Status = SubmissionStatus.PendingApproval,
-                ValidationReport = validationReport
-            });
+            .ReturnsAsync(submissionWithReport);
+
+        submissionRepo
+            .Setup(x => x.GetByIdsWithReport(It.IsAny<IEnumerable<int>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<Submission> { submissionWithReport });
 
         var templateCache = new Mock<ITemplateMetadataCache>();
         templateCache

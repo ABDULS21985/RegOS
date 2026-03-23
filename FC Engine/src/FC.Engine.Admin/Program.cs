@@ -326,8 +326,8 @@ app.MapGet("/account/logout", async (HttpContext context) =>
     context.Response.Redirect("/login");
 });
 
-// Forgot password — generates a reset token
-app.MapPost("/account/forgot-password", async (HttpContext context, AuthService authService) =>
+// Forgot password — generates a reset token and sends email
+app.MapPost("/account/forgot-password", async (HttpContext context, AuthService authService, IEmailSender emailSender) =>
 {
     var form = await context.Request.ReadFormAsync();
     var email = form["email"].ToString().Trim();
@@ -342,9 +342,43 @@ app.MapPost("/account/forgot-password", async (HttpContext context, AuthService 
 
     if (token is not null)
     {
-        // In production, send this via email. For now, log it.
         var resetUrl = $"{context.Request.Scheme}://{context.Request.Host}/reset-password?token={token}";
-        Log.Information("Password reset link generated for {Email}: {ResetUrl}", email, resetUrl);
+        Log.Information("Password reset link generated for {Email}", email);
+
+        // Send reset email via configured email provider
+        var emailResult = await emailSender.SendAsync(new EmailMessage
+        {
+            ToEmail = email,
+            Subject = "Reset Your Password — FC Engine Admin",
+            HtmlBody = $"""
+                <div style="font-family: 'Inter', Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 32px;">
+                    <h2 style="color: #006B3F; margin-bottom: 16px;">Password Reset Request</h2>
+                    <p style="color: #374151; line-height: 1.6;">
+                        We received a request to reset your password. Click the button below to set a new password.
+                        This link will expire in 1 hour.
+                    </p>
+                    <div style="text-align: center; margin: 32px 0;">
+                        <a href="{resetUrl}" style="background-color: #006B3F; color: #fff; padding: 12px 32px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block;">
+                            Reset Password
+                        </a>
+                    </div>
+                    <p style="color: #6B7280; font-size: 13px; line-height: 1.5;">
+                        If you did not request a password reset, please ignore this email. Your password will remain unchanged.
+                    </p>
+                    <hr style="border: none; border-top: 1px solid #E5E7EB; margin: 24px 0;" />
+                    <p style="color: #9CA3AF; font-size: 12px;">
+                        If the button doesn't work, copy and paste this URL into your browser:<br/>
+                        <a href="{resetUrl}" style="color: #006B3F; word-break: break-all;">{resetUrl}</a>
+                    </p>
+                </div>
+                """,
+            PlainTextBody = $"Reset your password by visiting: {resetUrl}\n\nThis link expires in 1 hour. If you did not request this, ignore this email."
+        });
+
+        if (!emailResult.Success)
+        {
+            Log.Warning("Failed to send password reset email to {Email}: {Error}", email, emailResult.ErrorMessage);
+        }
     }
 
     // Always show success message to prevent email enumeration
@@ -385,6 +419,12 @@ app.MapPost("/account/reset-password", async (HttpContext context, AuthService a
     }
 
     context.Response.Redirect("/login?reset=success");
+});
+
+// WebAuthn — stub endpoint; redirects to login with informational message until full FIDO2 is implemented
+app.MapGet("/account/webauthn", (HttpContext context) =>
+{
+    context.Response.Redirect("/login?error=webauthn-not-configured");
 });
 
 app.MapPost("/account/reconsent", async (HttpContext context, IConsentService consentService) =>

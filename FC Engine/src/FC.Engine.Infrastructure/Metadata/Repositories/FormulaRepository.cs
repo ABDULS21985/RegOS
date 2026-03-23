@@ -150,4 +150,43 @@ public class FormulaRepository : IFormulaRepository
             .ThenBy(f => f.SortOrder)
             .ToListAsync(ct);
     }
+
+    public async Task<IReadOnlyList<BusinessRule>> GetAllBusinessRules(CancellationToken ct = default)
+    {
+        return await _db.BusinessRules
+            .OrderByDescending(r => r.IsActive)
+            .ThenBy(r => r.RuleCode)
+            .ToListAsync(ct);
+    }
+
+    public async Task<BusinessRule?> GetBusinessRuleById(int id, CancellationToken ct = default)
+    {
+        return await _db.BusinessRules.FindAsync(new object[] { id }, ct);
+    }
+
+    public async Task UpdateBusinessRule(BusinessRule rule, CancellationToken ct = default)
+    {
+        _db.BusinessRules.Update(rule);
+        await _db.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteBusinessRule(int id, CancellationToken ct = default)
+    {
+        var rule = await _db.BusinessRules.FindAsync(new object[] { id }, ct);
+        if (rule != null)
+        {
+            rule.IsActive = false;
+            await _db.SaveChangesAsync(ct);
+        }
+    }
+
+    public async Task<IReadOnlyList<CrossSheetRule>> GetAllCrossSheetRules(CancellationToken ct = default)
+    {
+        return await _db.CrossSheetRules
+            .Include(r => r.Operands)
+            .Include(r => r.Expression)
+            .OrderByDescending(r => r.IsActive)
+            .ThenBy(r => r.RuleCode)
+            .ToListAsync(ct);
+    }
 }

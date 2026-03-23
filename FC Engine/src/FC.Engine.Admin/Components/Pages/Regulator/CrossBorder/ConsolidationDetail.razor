@@ -4,6 +4,7 @@
 @inject IConsolidationEngine ConsolidationEngine
 @inject NavigationManager Nav
 @inject ToastService Toast
+@inject RegulatorSessionService RegulatorSession
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Infrastructure.Metadata
 @inject IServiceScopeFactory ScopeFactory
@@ -207,6 +208,7 @@
 
 @code {
     [Parameter] public long RunId { get; set; }
+    [SupplyParameterFromQuery(Name = "groupId")] public int? GroupIdParam { get; set; }
 
     private bool _loading = true;
     private string _tab = "subsidiaries";
@@ -216,6 +218,7 @@
     private List<ConsolidationAdjustmentDto> _adjustments = [];
     private FinancialGroup? _group;
 
+    private int _userId;
     private string _adjType = "INTERCOMPANY_ELIMINATION";
     private string _adjDescription = "";
     private string _adjDebit = "";
@@ -223,7 +226,12 @@
     private decimal _adjAmount;
     private bool _adjSaving;
 
-    protected override async Task OnInitializedAsync() => await ReloadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _userId = session.UserId;
+        await ReloadAsync();
+    }
 
     private async Task ReloadAsync()
     {
@@ -235,15 +243,31 @@
         {
             using var scope = ScopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<MetadataDbContext>();
-            foreach (var gid in await db.FinancialGroups.AsNoTracking().Select(g => g.Id).ToListAsync())
+
+            if (GroupIdParam is > 0)
             {
-                _run = await ConsolidationEngine.GetRunResultAsync(RunId, gid);
+                // Direct lookup when GroupId is provided via query string
+                _run = await ConsolidationEngine.GetRunResultAsync(RunId, GroupIdParam.Value);
                 if (_run is not null)
                 {
-                    _group = await db.FinancialGroups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == gid);
-                    _subsidiaries = (await ConsolidationEngine.GetSubsidiarySnapshotsAsync(RunId, gid)).ToList();
-                    _adjustments = (await ConsolidationEngine.GetAdjustmentsAsync(RunId, gid)).ToList();
-                    break;
+                    _group = await db.FinancialGroups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == GroupIdParam.Value);
+                    _subsidiaries = (await ConsolidationEngine.GetSubsidiarySnapshotsAsync(RunId, GroupIdParam.Value)).ToList();
+                    _adjustments = (await ConsolidationEngine.GetAdjustmentsAsync(RunId, GroupIdParam.Value)).ToList();
+                }
+            }
+            else
+            {
+                // Fallback: scan groups to find the one owning this run (legacy URLs without groupId)
+                foreach (var gid in await db.FinancialGroups.AsNoTracking().Select(g => g.Id).ToListAsync())
+                {
+                    _run = await ConsolidationEngine.GetRunResultAsync(RunId, gid);
+                    if (_run is not null)
+                    {
+                        _group = await db.FinancialGroups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == gid);
+                        _subsidiaries = (await ConsolidationEngine.GetSubsidiarySnapshotsAsync(RunId, gid)).ToList();
+                        _adjustments = (await ConsolidationEngine.GetAdjustmentsAsync(RunId, gid)).ToList();
+                        break;
+                    }
                 }
             }
         }
@@ -272,7 +296,7 @@
                 Amount = _adjAmount
             };
 
-            await ConsolidationEngine.AddManualAdjustmentAsync(RunId, _run.GroupId, input, 1);
+            await ConsolidationEngine.AddManualAdjustmentAsync(RunId, _run.GroupId, input, _userId);
             _adjustments = (await ConsolidationEngine.GetAdjustmentsAsync(RunId, _run.GroupId)).ToList();
             Toast.Success("Adjustment added successfully.");
             _adjDescription = ""; _adjDebit = ""; _adjCredit = ""; _adjAmount = 0;

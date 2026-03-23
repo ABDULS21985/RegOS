@@ -541,6 +541,105 @@ public class CrossBorderServiceTests
         updated!.Status.Should().Be(AfcftaProtocolStatus.Negotiating);
     }
 
+    // ── Consolidation Manual Adjustment Tests ───────────────────────
+
+    [Fact]
+    public async Task ConsolidationEngine_AddManualAdjustment_PersistsAndReturns()
+    {
+        await using var db = CreateDb(nameof(ConsolidationEngine_AddManualAdjustment_PersistsAndReturns));
+        await SeedJurisdictions(db);
+        var group = await SeedGroupWithSubsidiaries(db);
+        await SeedFxRates(db);
+        await SeedAcceptedSubmissionMetrics(db, group, "2025-Q4");
+
+        var sut = CreateConsolidationEngine(db);
+        var snapshotDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        var run = await sut.RunConsolidationAsync(group.Id, "2025-Q4", snapshotDate, userId: 1);
+
+        await sut.AddManualAdjustmentAsync(run.RunId, group.Id, new ConsolidationAdjustmentInput
+        {
+            AdjustmentType = "INTERCOMPANY_ELIMINATION",
+            Description = "Eliminate intercompany loan",
+            DebitAccount = "3100-INTERCO",
+            CreditAccount = "3200-INVEST",
+            Amount = 50_000m
+        }, userId: 42);
+
+        var adjustments = await sut.GetAdjustmentsAsync(run.RunId, group.Id);
+        adjustments.Should().Contain(a => a.AdjustmentType == "INTERCOMPANY_ELIMINATION"
+                                       && a.Amount == 50_000m
+                                       && !a.IsAutomatic);
+    }
+
+    [Fact]
+    public async Task ConsolidationEngine_GetSubsidiarySnapshots_ReturnsAllSubsidiaries()
+    {
+        await using var db = CreateDb(nameof(ConsolidationEngine_GetSubsidiarySnapshots_ReturnsAllSubsidiaries));
+        await SeedJurisdictions(db);
+        var group = await SeedGroupWithSubsidiaries(db);
+        await SeedFxRates(db);
+        await SeedAcceptedSubmissionMetrics(db, group, "2025-Q4");
+
+        var sut = CreateConsolidationEngine(db);
+        var snapshotDate = DateOnly.FromDateTime(DateTime.UtcNow);
+        var run = await sut.RunConsolidationAsync(group.Id, "2025-Q4", snapshotDate, userId: 1);
+
+        var subsidiaries = await sut.GetSubsidiarySnapshotsAsync(run.RunId, group.Id);
+
+        subsidiaries.Should().HaveCount(3);
+        subsidiaries.Should().Contain(s => s.SubsidiaryCode == "ACCESS_NG" && s.ConsolidationMethod == "Full");
+        subsidiaries.Should().Contain(s => s.SubsidiaryCode == "ACCESS_GH" && s.ConsolidationMethod == "Full");
+        subsidiaries.Should().Contain(s => s.SubsidiaryCode == "ACCESS_KE" && s.ConsolidationMethod == "Proportional");
+
+        // Verify FX rates were applied
+        var ghSub = subsidiaries.First(s => s.SubsidiaryCode == "ACCESS_GH");
+        ghSub.FxRateUsed.Should().BeGreaterThan(0);
+        ghSub.ConvertedTotalAssets.Should().BeGreaterThan(0);
+    }
+
+    // ── FX Rate Advanced Tests ────────────────────────────────────────
+
+    [Fact]
+    public async Task CurrencyConversion_UpsertRate_UpdatesExistingRate()
+    {
+        await using var db = CreateDb(nameof(CurrencyConversion_UpsertRate_UpdatesExistingRate));
+        var sut = CreateFxEngine(db);
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        await sut.UpsertRateAsync("USD", "ZAR", today, 18.0m, "SARB", FxRateType.PeriodEnd, userId: 1);
+        await sut.UpsertRateAsync("USD", "ZAR", today, 18.5m, "SARB", FxRateType.PeriodEnd, userId: 2);
+
+        var rate = await sut.GetRateAsync("USD", "ZAR", today);
+        rate.Should().Be(18.5m);
+
+        // Verify only one rate record exists (upsert, not duplicate)
+        var count = await db.CrossBorderFxRates.CountAsync(r =>
+            r.BaseCurrency == "USD" && r.QuoteCurrency == "ZAR" && r.RateDate == today);
+        count.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task CurrencyConversion_GetRateHistory_ReturnsDateRange()
+    {
+        await using var db = CreateDb(nameof(CurrencyConversion_GetRateHistory_ReturnsDateRange));
+        var sut = CreateFxEngine(db);
+        var baseDate = DateOnly.FromDateTime(DateTime.UtcNow);
+
+        // Seed 5 days of rates
+        for (var i = 0; i < 5; i++)
+        {
+            await sut.UpsertRateAsync("USD", "NGN", baseDate.AddDays(-i),
+                1550m + i, "CBN", FxRateType.PeriodEnd, userId: 1);
+        }
+
+        var history = await sut.GetRateHistoryAsync("USD", "NGN",
+            baseDate.AddDays(-4), baseDate);
+
+        history.Should().HaveCount(5);
+        // Service may return in any order; verify all dates present
+        history.Select(r => r.RateDate).Distinct().Should().HaveCount(5);
+    }
+
     // ── Audit Logger Tests ───────────────────────────────────────────
 
     [Fact]

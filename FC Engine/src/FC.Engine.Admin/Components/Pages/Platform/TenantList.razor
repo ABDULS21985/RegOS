@@ -10,6 +10,7 @@
 @inject TenantManagementService TenantService
 @inject NavigationManager Navigation
 @inject ToastService Toast
+@inject DialogService Dialog
 
 <PageTitle>Tenant List</PageTitle>
 
@@ -304,6 +305,14 @@
         var tenant = _data.Tenants.Find(t => t.TenantId == tenantId);
         if (tenant is null) return;
 
+        if (!await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = $"Activate \"{tenant.TenantName}\"?",
+            Message = "This will grant full portal access to the tenant.",
+            ConfirmText = "Activate"
+        }))
+            return;
+
         var actor = await GetActor();
         _savingTenantIds.Add(tenantId);
 
@@ -313,7 +322,7 @@
             optimisticValue: TenantStatus.Active,
             action: () => PlatformService.ActivateTenant(tenantId, actor),
             onStateChanged: StateHasChanged,
-            onSuccess: () => Toast.Success(tenant.TenantName + " activated."),
+            onSuccess: async () => { Toast.Success(tenant.TenantName + " activated."); await LoadAsync(); },
             onFailure: ex => Toast.Error("Failed to activate: " + ex.Message)
         );
 
@@ -326,6 +335,14 @@
         var tenant = _data.Tenants.Find(t => t.TenantId == tenantId);
         if (tenant is null) return;
 
+        if (!await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = $"Suspend \"{tenant.TenantName}\"?",
+            Message = "This will immediately revoke portal access for all users of this tenant.",
+            ConfirmText = "Suspend"
+        }))
+            return;
+
         var actor = await GetActor();
         _savingTenantIds.Add(tenantId);
 
@@ -335,7 +352,7 @@
             optimisticValue: TenantStatus.Suspended,
             action: () => PlatformService.SuspendTenant(tenantId, actor),
             onStateChanged: StateHasChanged,
-            onSuccess: () => Toast.Success(tenant.TenantName + " suspended."),
+            onSuccess: async () => { Toast.Success(tenant.TenantName + " suspended."); await LoadAsync(); },
             onFailure: ex => Toast.Error("Failed to suspend: " + ex.Message)
         );
 

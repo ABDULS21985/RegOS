@@ -55,6 +55,21 @@
                     Deactivate
                 </button>
             }
+            else if (_data.Status == TenantStatus.Deactivated)
+            {
+                <button class="fc-btn fc-btn--ghost fc-btn--sm" @onclick="ArchiveTenantAction" disabled="@_savingStatus" type="button">
+                    @if (_savingStatus) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Archive
+                </button>
+            }
+
+            @if (_data.Status is TenantStatus.Active or TenantStatus.PendingActivation or TenantStatus.Suspended)
+            {
+                <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="OpenEditModal" type="button">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Edit Details
+                </button>
+            }
         }
     </SecondaryActions>
 </PageHeader>
@@ -815,6 +830,60 @@
     }
 </div>
 
+@* ─── Edit Tenant Modal ─── *@
+@if (_showEditModal && _editForm is not null)
+{
+    <AppModal Title="Edit Tenant Details" OnClose="CloseEditModal">
+        <div class="fc-form">
+            <FormField Label="Tenant Name" Required="true">
+                <input class="fc-input" @bind="_editForm.TenantName" />
+            </FormField>
+            <FormField Label="Contact Email">
+                <input class="fc-input" type="email" @bind="_editForm.ContactEmail" />
+            </FormField>
+            <FormField Label="Contact Phone">
+                <input class="fc-input" @bind="_editForm.ContactPhone" />
+            </FormField>
+            <FormField Label="Address">
+                <input class="fc-input" @bind="_editForm.Address" />
+            </FormField>
+            <FormField Label="Timezone">
+                <input class="fc-input" @bind="_editForm.Timezone" />
+            </FormField>
+            <FormField Label="Default Currency">
+                <input class="fc-input" @bind="_editForm.DefaultCurrency" maxlength="3" />
+            </FormField>
+            <div class="fc-grid fc-grid-3">
+                <FormField Label="Fiscal Year Start (Month)">
+                    <select class="fc-select" @bind="_editForm.FiscalYearStartMonth">
+                        @for (var m = 1; m <= 12; m++)
+                        {
+                            <option value="@m">@System.Globalization.CultureInfo.InvariantCulture.DateTimeFormat.GetMonthName(m)</option>
+                        }
+                    </select>
+                </FormField>
+                <FormField Label="Max Institutions">
+                    <input class="fc-input" type="number" min="1" @bind="_editForm.MaxInstitutions" />
+                </FormField>
+                <FormField Label="Max Users per Entity">
+                    <input class="fc-input" type="number" min="1" @bind="_editForm.MaxUsersPerEntity" />
+                </FormField>
+            </div>
+            @if (!string.IsNullOrEmpty(_editError))
+            {
+                <div class="fc-alert fc-alert--error fc-alert--inline fc-mt-2">@_editError</div>
+            }
+            <FormActions>
+                <button class="fc-btn fc-btn--primary" @onclick="SaveEditAsync" disabled="@_savingEdit" type="button">
+                    @if (_savingEdit) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                    Save Changes
+                </button>
+                <button class="fc-btn fc-btn--outline" @onclick="CloseEditModal" type="button">Cancel</button>
+            </FormActions>
+        </div>
+    </AppModal>
+}
+
 @code {
     [Parameter] public Guid TenantId { get; set; }
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -837,6 +906,12 @@
     private string? _registrationNumber;
     private string _tab = "overview";
     private HashSet<int> _savingLicenceTypeIds = new();
+
+    // Edit modal state
+    private bool _showEditModal;
+    private bool _savingEdit;
+    private string? _editError;
+    private TenantEditForm? _editForm;
 
     private int? SelectedLicenceTypeId
     {
@@ -1014,6 +1089,108 @@
             _savingStatus = false;
             StateHasChanged();
         }
+    }
+
+    private async Task ArchiveTenantAction()
+    {
+        var confirmed = await Dialog.Confirm(new ConfirmRequest
+        {
+            Title = "Archive Tenant",
+            Message = $"Archive {_data?.TenantName}? This is permanent and the tenant data will be read-only.",
+            ConfirmText = "Archive",
+            IsDestructive = true
+        });
+        if (!confirmed) return;
+
+        _savingStatus = true;
+        try
+        {
+            var actor = await GetActor();
+            await TenantService.ArchiveTenantAsync(TenantId, actor);
+            await LoadAsync();
+            Toast.Info($"{_data?.TenantName} archived.");
+        }
+        catch (Exception ex)
+        {
+            Toast.Error($"Failed to archive tenant: {ex.Message}");
+        }
+        finally
+        {
+            _savingStatus = false;
+            StateHasChanged();
+        }
+    }
+
+    private void OpenEditModal()
+    {
+        if (_data is null) return;
+        _editForm = new TenantEditForm
+        {
+            TenantName = _data.TenantName,
+            ContactEmail = _data.ContactEmail,
+            ContactPhone = _data.ContactPhone,
+            Address = _data.Address,
+            Timezone = _data.Timezone,
+            DefaultCurrency = _data.DefaultCurrency,
+            FiscalYearStartMonth = _data.FiscalYearStartMonth,
+            MaxInstitutions = _data.MaxInstitutions,
+            MaxUsersPerEntity = _data.MaxUsersPerEntity
+        };
+        _editError = null;
+        _showEditModal = true;
+    }
+
+    private void CloseEditModal()
+    {
+        _showEditModal = false;
+        _editForm = null;
+        _editError = null;
+    }
+
+    private async Task SaveEditAsync()
+    {
+        if (_editForm is null) return;
+        if (string.IsNullOrWhiteSpace(_editForm.TenantName))
+        {
+            _editError = "Tenant name is required.";
+            return;
+        }
+
+        _savingEdit = true;
+        _editError = null;
+        try
+        {
+            await TenantService.UpdateTenantDetailsAsync(
+                TenantId, _editForm.TenantName.Trim(), _editForm.ContactEmail?.Trim(),
+                _editForm.ContactPhone?.Trim(), _editForm.Address?.Trim(),
+                _editForm.Timezone?.Trim(), _editForm.DefaultCurrency?.Trim(),
+                _editForm.FiscalYearStartMonth, _editForm.MaxInstitutions, _editForm.MaxUsersPerEntity);
+            await LoadAsync();
+            CloseEditModal();
+            Toast.Success("Tenant details updated.");
+        }
+        catch (Exception ex)
+        {
+            _editError = ex.Message;
+        }
+        finally
+        {
+            _savingEdit = false;
+            StateHasChanged();
+        }
+    }
+
+    private sealed class TenantEditForm
+    {
+        public string TenantName { get; set; } = string.Empty;
+        public string? ContactEmail { get; set; }
+        public string? ContactPhone { get; set; }
+        public string? Address { get; set; }
+        public string? Timezone { get; set; }
+        public string? DefaultCurrency { get; set; }
+        public int FiscalYearStartMonth { get; set; } = 1;
+        public int MaxInstitutions { get; set; } = 1;
+        public int MaxUsersPerEntity { get; set; } = 10;
     }
 
     private void ClearLicencePreview()

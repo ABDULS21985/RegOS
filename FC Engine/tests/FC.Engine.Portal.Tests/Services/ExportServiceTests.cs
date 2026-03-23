@@ -162,6 +162,9 @@ public class ExportServiceTests
         approvalRepo
             .Setup(x => x.GetBySubmission(submission.Id, It.IsAny<CancellationToken>()))
             .ReturnsAsync((SubmissionApproval?)null);
+        approvalRepo
+            .Setup(x => x.GetBySubmissionIds(It.IsAny<IEnumerable<int>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new List<SubmissionApproval>());
 
         var templateCache = new Mock<ITemplateMetadataCache>();
         templateCache

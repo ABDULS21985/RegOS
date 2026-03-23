@@ -3,6 +3,7 @@
 @inject ICurrencyConversionEngine FxEngine
 @inject NavigationManager Nav
 @inject ToastService Toast
+@inject RegulatorSessionService RegulatorSession
 
 <PageTitle>FX Rates — RegOS</PageTitle>
 
@@ -240,6 +241,7 @@ else if (_tab == "history")
 
 @code {
     private string _tab = "matrix";
+    private int _userId;
     private readonly string[] _currencies = ["NGN", "GHS", "KES", "ZAR", "EGP", "USD"];
 
     // Matrix
@@ -271,7 +273,12 @@ else if (_tab == "history")
     private List<FxRateDto> _historyRates = [];
     private bool _historyLoading;
 
-    protected override async Task OnInitializedAsync() => await LoadMatrix();
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _userId = session.UserId;
+        await LoadMatrix();
+    }
 
     private async Task LoadMatrix()
     {
@@ -328,7 +335,7 @@ else if (_tab == "history")
 
         try
         {
-            await FxEngine.UpsertRateAsync(_addBase, _addQuote, _addDate, _addRate, _addSource, _addType, 1);
+            await FxEngine.UpsertRateAsync(_addBase, _addQuote, _addDate, _addRate, _addSource, _addType, _userId);
             Toast.Success("Rate saved successfully.");
         }
         catch (Exception ex)

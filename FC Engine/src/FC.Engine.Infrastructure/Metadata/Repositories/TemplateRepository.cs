@@ -20,6 +20,8 @@ public class TemplateRepository : ITemplateRepository
                 .ThenInclude(v => v.ItemCodes)
             .Include(t => t.Versions)
                 .ThenInclude(v => v.IntraSheetFormulas)
+            .Include(t => t.Versions)
+                .ThenInclude(v => v.Sections)
             .FirstOrDefaultAsync(t => t.Id == id, ct);
     }
 
@@ -32,6 +34,8 @@ public class TemplateRepository : ITemplateRepository
                 .ThenInclude(v => v.ItemCodes)
             .Include(t => t.Versions)
                 .ThenInclude(v => v.IntraSheetFormulas)
+            .Include(t => t.Versions)
+                .ThenInclude(v => v.Sections)
             .FirstOrDefaultAsync(t => t.ReturnCode == returnCode, ct);
     }
 
@@ -44,6 +48,8 @@ public class TemplateRepository : ITemplateRepository
                 .ThenInclude(v => v.ItemCodes)
             .Include(t => t.Versions.Where(v => v.Status == TemplateStatus.Published))
                 .ThenInclude(v => v.IntraSheetFormulas)
+            .Include(t => t.Versions.Where(v => v.Status == TemplateStatus.Published))
+                .ThenInclude(v => v.Sections)
             .FirstOrDefaultAsync(t => t.ReturnCode == returnCode, ct);
     }
 

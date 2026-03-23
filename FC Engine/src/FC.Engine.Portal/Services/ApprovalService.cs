@@ -39,6 +39,16 @@ public class ApprovalService
         int institutionId, CancellationToken ct = default)
     {
         var approvals = await _approvalRepo.GetPendingByInstitution(institutionId, ct);
+        if (approvals.Count == 0) return [];
+
+        // Batch-fetch all submissions with reports in one query (eliminates N+1)
+        var submissionIds = approvals
+            .Where(a => a.Submission is not null)
+            .Select(a => a.Submission!.Id)
+            .Distinct();
+        var fullSubmissions = await _submissionRepo.GetByIdsWithReport(submissionIds, ct);
+        var submissionLookup = fullSubmissions.ToDictionary(s => s.Id);
+
         var items = new List<PendingApprovalItem>();
 
         foreach (var approval in approvals)
@@ -68,8 +78,7 @@ public class ApprovalService
                     .ToString("MMM yyyy");
             }
 
-            // Load validation data
-            var fullSub = await _submissionRepo.GetByIdWithReport(submission.Id, ct);
+            var fullSub = submissionLookup.GetValueOrDefault(submission.Id);
             var errCount = fullSub?.ValidationReport?.ErrorCount ?? 0;
             var warnCount = fullSub?.ValidationReport?.WarningCount ?? 0;
 
@@ -96,11 +105,11 @@ public class ApprovalService
 
     /// <summary>
     /// Get the count of pending approvals for the institution (for badge display).
+    /// Uses a direct COUNT query instead of fetching all records.
     /// </summary>
     public async Task<int> GetPendingCount(int institutionId, CancellationToken ct = default)
     {
-        var approvals = await _approvalRepo.GetPendingByInstitution(institutionId, ct);
-        return approvals.Count;
+        return await _approvalRepo.GetPendingCountByInstitution(institutionId, ct);
     }
 
     /// <summary>

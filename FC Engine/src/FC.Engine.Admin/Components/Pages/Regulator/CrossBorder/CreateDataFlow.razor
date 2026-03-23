@@ -3,6 +3,7 @@
 @inject ICrossBorderDataFlowEngine FlowEngine
 @inject NavigationManager Nav
 @inject ToastService Toast
+@inject RegulatorSessionService RegulatorSession
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Infrastructure.Metadata
 @inject IServiceScopeFactory ScopeFactory
@@ -165,6 +166,7 @@
 
 @code {
     private int _selectedGroupId;
+    private int _userId;
     private bool _saving;
     private bool _loading = true;
     private Exception? _loadException;
@@ -172,7 +174,12 @@
     private List<FinancialGroup> _groups = [];
     private List<RegulatoryJurisdiction> _jurisdictions = [];
 
-    protected override async Task OnInitializedAsync() => await ReloadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _userId = session.UserId;
+        await ReloadAsync();
+    }
 
     private async Task ReloadAsync()
     {
@@ -202,7 +209,7 @@
 
         try
         {
-            await FlowEngine.DefineFlowAsync(_selectedGroupId, _def, 1);
+            await FlowEngine.DefineFlowAsync(_selectedGroupId, _def, _userId);
             Toast.Success("Data flow created successfully.");
             Nav.NavigateTo("/regulator/cross-border/dataflows");
         }

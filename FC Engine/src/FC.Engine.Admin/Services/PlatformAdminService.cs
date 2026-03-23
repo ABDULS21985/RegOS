@@ -617,6 +617,9 @@ public class PlatformAdminService
             CreatedAt = tenant.CreatedAt,
             DefaultCurrency = tenant.DefaultCurrency,
             Timezone = tenant.Timezone,
+            FiscalYearStartMonth = tenant.FiscalYearStartMonth,
+            MaxInstitutions = tenant.MaxInstitutions,
+            MaxUsersPerEntity = tenant.MaxUsersPerEntity,
             CurrentPlanName = currentSubscription?.Plan?.PlanName ?? "N/A",
             CurrentPlanCode = currentSubscription?.Plan?.PlanCode ?? "N/A",
             CurrentModuleEntitlements = BuildModuleEntitlements(
@@ -1701,6 +1704,9 @@ public class PlatformTenantDetailData
     public List<TenantUserItem> Users { get; set; } = new();
     public List<TenantEntityItem> Entities { get; set; } = new();
     public List<TenantFilingMatrixItem> FilingMatrix { get; set; } = new();
+    public int FiscalYearStartMonth { get; set; } = 1;
+    public int MaxInstitutions { get; set; } = 1;
+    public int MaxUsersPerEntity { get; set; } = 10;
     public DateTime? LastReconciledAt { get; set; }
     public List<TenantEntitlementActivityItem> EntitlementActivity { get; set; } = new();
     public List<TenantAuditItem> AuditEntries { get; set; } = new();

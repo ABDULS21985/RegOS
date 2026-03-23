@@ -6,6 +6,7 @@ using FC.Engine.Domain.Entities;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Notifications;
 using FC.Engine.Domain.Security;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 
 namespace FC.Engine.Portal.Services;
@@ -780,7 +781,15 @@ public class InstitutionManagementService
     private async Task SaveSettingsEnvelope(Institution institution, InstitutionSettingsEnvelope envelope, CancellationToken ct)
     {
         institution.SettingsJson = InstitutionSettingsState.Serialize(envelope);
-        await _institutionRepo.Update(institution, ct);
+        try
+        {
+            await _institutionRepo.Update(institution, ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "The institution settings were modified by another user. Please reload and try again.");
+        }
     }
 
     private static void EnsureProfileDefaults(InstitutionProfileState profile, Institution institution)

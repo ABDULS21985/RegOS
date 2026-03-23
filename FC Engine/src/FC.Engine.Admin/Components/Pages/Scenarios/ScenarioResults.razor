@@ -3,6 +3,7 @@
 @inject IScenarioEngine Engine
 @inject NavigationManager Nav
 @inject FC.Engine.Infrastructure.Charts.ChartJsInterop Charts
+@inject FC.Engine.Admin.Services.RegulatorSessionService RegulatorSession
 
 <PageHeader Title="@(_result?.ScenarioName ?? "Scenario Results")" BackUrl="/scenarios"
             StatusBadge="@_statusBadge" StatusVariant="@_statusVariant">
@@ -11,6 +12,14 @@
         <button class="fc-btn fc-btn--outline" @onclick="EditScenario">Re-run with Changes</button>
     </SecondaryActions>
 </PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <AppAlert Variant="AppAlert.AlertVariant.Error"
+              Message="@_error"
+              Dismissible="true"
+              OnDismiss="() => _error = null" />
+}
 
 @if (_loading)
 {
@@ -214,16 +223,45 @@ else
     [Parameter] public int Id { get; set; }
 
     private bool _loading = true;
+    private bool _chartsRendered;
+    private string? _error;
     private ScenarioResult? _result;
     private string _statusBadge = "";
     private string _statusVariant = "success";
+    private Guid _tenantId = Guid.Empty;
 
     protected override async Task OnInitializedAsync()
     {
-        var scenario = await Engine.GetScenario(Id);
-        if (scenario != null)
+        try
         {
-            _result = await Engine.RunScenario(Guid.Empty, Id);
+            var session = await RegulatorSession.GetRequiredAsync();
+            _tenantId = session.TenantId;
+        }
+        catch { /* engine resolves context internally */ }
+
+        try
+        {
+            var scenario = await Engine.GetScenario(Id);
+            if (scenario == null)
+            {
+                _loading = false;
+                return;
+            }
+
+            // Show cached results for completed scenarios; only run if still in Draft state
+            if (scenario.Status == ScenarioStatus.Completed)
+            {
+                _result = await Engine.RunScenario(_tenantId, Id); // returns cached
+            }
+            else if (scenario.Status == ScenarioStatus.Draft)
+            {
+                _result = await Engine.RunScenario(_tenantId, Id);
+            }
+            // Running/Failed — show what we have or nothing
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load scenario results: {ex.Message}";
         }
 
         if (_result != null)
@@ -251,8 +289,9 @@ else
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && _result != null)
+        if (_result != null && !_chartsRendered)
         {
+            _chartsRendered = true;
             await RenderCharts();
         }
     }

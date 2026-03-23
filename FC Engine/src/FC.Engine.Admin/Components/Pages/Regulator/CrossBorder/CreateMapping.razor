@@ -3,6 +3,7 @@
 @inject IEquivalenceMappingService MappingService
 @inject NavigationManager Nav
 @inject ToastService Toast
+@inject RegulatorSessionService RegulatorSession
 @using FC.Engine.Domain.Entities
 @using FC.Engine.Infrastructure.Metadata
 @inject IServiceScopeFactory ScopeFactory
@@ -236,6 +237,7 @@
 
 @code {
     private int _step = 1;
+    private int _userId;
     private bool _saving;
     private bool _loading = true;
     private Exception? _loadException;
@@ -257,7 +259,12 @@
         _ => true
     };
 
-    protected override async Task OnInitializedAsync() => await ReloadAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        var session = await RegulatorSession.GetRequiredAsync();
+        _userId = session.UserId;
+        await ReloadAsync();
+    }
 
     private async Task ReloadAsync()
     {
@@ -312,7 +319,7 @@
             }
 
             var id = await MappingService.CreateMappingAsync(
-                _code, _name, _domain, _description, validEntries, 1);
+                _code, _name, _domain, _description, validEntries, _userId);
 
             Toast.Success("Equivalence mapping created successfully.");
             Nav.NavigateTo($"/regulator/cross-border/mappings/{id}");

@@ -22,6 +22,27 @@
     </SecondaryActions>
 </PageHeader>
 
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <AppAlert Variant="AppAlert.AlertVariant.Error"
+              Message="@_error"
+              Dismissible="true"
+              OnDismiss="() => _error = null" />
+}
+
+@if (_deleteTarget != null)
+{
+    <AppModal Title="Delete Scenario" OnClose="CancelDelete">
+        <Body>
+            <p>Are you sure you want to delete <strong>@_deleteTarget.Name</strong>? This action cannot be undone.</p>
+        </Body>
+        <Footer>
+            <button class="fc-btn fc-btn--outline" @onclick="CancelDelete">Cancel</button>
+            <button class="fc-btn fc-btn--danger" @onclick="ConfirmDelete">Delete</button>
+        </Footer>
+    </AppModal>
+}
+
 @if (_loading)
 {
     <div aria-busy="true" aria-label="Loading scenario hub">
@@ -154,7 +175,7 @@ else
                                     <button class="fc-btn fc-btn--sm fc-btn--gold" @onclick="() => RunScenario(row.Id)">Run</button>
                                 }
                                 <button class="fc-btn fc-btn--sm fc-btn--outline" @onclick="() => EditScenario(row.Id)">Edit</button>
-                                <button class="fc-btn fc-btn--sm fc-btn--ghost" @onclick="() => DeleteScenario(row.Id)" title="Delete">
+                                <button class="fc-btn fc-btn--sm fc-btn--ghost" @onclick="() => RequestDelete(row)" title="Delete">
                                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                                 </button>
                             </div>
@@ -168,6 +189,8 @@ else
 
 @code {
     private bool _loading = true;
+    private string? _error;
+    private ScenarioDefinition? _deleteTarget;
     private List<ScenarioDefinition> _scenarios = [];
     private List<ScenarioTemplate> _templates = [];
     private int _totalBreaches;
@@ -180,16 +203,35 @@ else
             var session = await RegulatorSession.GetRequiredAsync();
             _tenantId = session.TenantId;
         }
-        catch
+        catch { /* engine resolves context internally */ }
+
+        try
         {
-            // Unauthenticated context or missing session — engine will use Guid.Empty
-            // which PersistedScenarioEngine handles via RegulatorSessionService internally.
+            _templates = Templates.GetAllTemplates();
+            _scenarios = await Engine.GetAllScenarios();
+            await ComputeBreachCount();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Failed to load scenarios: {ex.Message}";
         }
 
-        _templates = Templates.GetAllTemplates();
-        _scenarios = await Engine.GetAllScenarios();
-        _totalBreaches = _scenarios.Count(s => s.Status == ScenarioStatus.Completed) * 2; // Simplified count
         _loading = false;
+    }
+
+    private async Task ComputeBreachCount()
+    {
+        var count = 0;
+        foreach (var s in _scenarios.Where(s => s.Status == ScenarioStatus.Completed))
+        {
+            try
+            {
+                var result = await Engine.RunScenario(_tenantId, s.Id); // returns cached for completed
+                count += result.Breaches.Count;
+            }
+            catch { /* skip scenarios whose results can't be loaded */ }
+        }
+        _totalBreaches = count;
     }
 
     private void CreateNew() => Nav.NavigateTo("/scenarios/build");
@@ -199,21 +241,51 @@ else
 
     private async Task QuickRunTemplate(string templateId)
     {
-        var definition = Templates.CreateFromTemplate(templateId);
-        var saved = await Engine.SaveScenario(definition);
-        await Engine.RunScenario(_tenantId, saved.Id);
-        Nav.NavigateTo($"/scenarios/{saved.Id}/results");
+        try
+        {
+            var definition = Templates.CreateFromTemplate(templateId);
+            var saved = await Engine.SaveScenario(definition);
+            await Engine.RunScenario(_tenantId, saved.Id);
+            Nav.NavigateTo($"/scenarios/{saved.Id}/results");
+        }
+        catch (Exception ex)
+        {
+            _error = $"Quick run failed: {ex.Message}";
+        }
     }
 
     private async Task RunScenario(int id)
     {
-        await Engine.RunScenario(_tenantId, id);
-        Nav.NavigateTo($"/scenarios/{id}/results");
+        try
+        {
+            await Engine.RunScenario(_tenantId, id);
+            Nav.NavigateTo($"/scenarios/{id}/results");
+        }
+        catch (Exception ex)
+        {
+            _error = $"Run failed: {ex.Message}";
+        }
     }
 
-    private async Task DeleteScenario(int id)
+    private void RequestDelete(ScenarioDefinition scenario) => _deleteTarget = scenario;
+    private void CancelDelete() => _deleteTarget = null;
+
+    private async Task ConfirmDelete()
     {
-        await Engine.DeleteScenario(id);
-        _scenarios = await Engine.GetAllScenarios();
+        if (_deleteTarget == null) return;
+        try
+        {
+            await Engine.DeleteScenario(_deleteTarget.Id);
+            _scenarios = await Engine.GetAllScenarios();
+            await ComputeBreachCount();
+        }
+        catch (Exception ex)
+        {
+            _error = $"Delete failed: {ex.Message}";
+        }
+        finally
+        {
+            _deleteTarget = null;
+        }
     }
 }

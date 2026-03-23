@@ -20,4 +20,11 @@ public interface IFormulaRepository
     Task UpdateCrossSheetRule(CrossSheetRule rule, CancellationToken ct = default);
     Task DeleteCrossSheetRule(int id, CancellationToken ct = default);
     Task<IReadOnlyList<IntraSheetFormula>> GetAllIntraSheetFormulas(CancellationToken ct = default);
+
+    Task<IReadOnlyList<BusinessRule>> GetAllBusinessRules(CancellationToken ct = default);
+    Task<BusinessRule?> GetBusinessRuleById(int id, CancellationToken ct = default);
+    Task UpdateBusinessRule(BusinessRule rule, CancellationToken ct = default);
+    Task DeleteBusinessRule(int id, CancellationToken ct = default);
+
+    Task<IReadOnlyList<CrossSheetRule>> GetAllCrossSheetRules(CancellationToken ct = default);
 }

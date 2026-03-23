@@ -1,0 +1,233 @@
+@page "/cross-sheet-rules"
+@attribute [Authorize(Policy = "AdminOnly")]
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using FC.Engine.Admin.Utilities
+@using FC.Engine.Domain.Abstractions
+@using FC.Engine.Domain.Enums
+@using FC.Engine.Domain.Validation
+@using FC.Engine.Application.Services
+@inject FormulaService FormulaService
+@inject IFormulaRepository FormulaRepo
+@inject ToastService Toast
+@inject DialogService Dialog
+@inject NavigationManager Nav
+
+<PageTitle>Cross-Sheet Rules</PageTitle>
+
+<PageHeader Title="Cross-Sheet Rules"
+            Subtitle="Manage validation rules that compare values across different return templates."
+            CountBadge="@(!_loading ? _rules.Count : null)">
+    <PrimaryAction>
+        <button class="fc-btn fc-btn--gold" @onclick="ShowAddForm" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Rule
+        </button>
+    </PrimaryAction>
+</PageHeader>
+
+<div class="fc-page">
+    @if (_loading)
+    {
+        <div class="fc-card"><div class="fc-card__body"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.TableRows" /></div></div>
+    }
+    else
+    {
+        @if (_showForm)
+        {
+            <div class="fc-card fc-mb-4">
+                <div class="fc-card__header"><h3 class="fc-card__title">Add Cross-Sheet Rule</h3></div>
+                <div class="fc-card__body">
+                    <div class="fc-form">
+                        <div class="fc-grid fc-grid-2">
+                            <FormField Label="Rule Code" Required="true">
+                                <input class="fc-input" @bind="_ruleCode" placeholder="e.g. XS-BAL-001" />
+                            </FormField>
+                            <FormField Label="Rule Name" Required="true">
+                                <input class="fc-input" @bind="_ruleName" />
+                            </FormField>
+                        </div>
+                        <FormField Label="Description">
+                            <textarea class="fc-textarea" rows="2" @bind="_description"></textarea>
+                        </FormField>
+                        <h4 class="fc-form-section-title fc-mt-3">Operands</h4>
+                        <div class="fc-grid fc-grid-2">
+                            <div>
+                                <p class="fc-form-label fc-mb-1"><strong>Operand A</strong></p>
+                                <FormField Label="Template Code">
+                                    <input class="fc-input" @bind="_operandATemplate" placeholder="e.g. MFCR 300" />
+                                </FormField>
+                                <FormField Label="Field Name">
+                                    <input class="fc-input" @bind="_operandAField" />
+                                </FormField>
+                            </div>
+                            <div>
+                                <p class="fc-form-label fc-mb-1"><strong>Operand B</strong></p>
+                                <FormField Label="Template Code">
+                                    <input class="fc-input" @bind="_operandBTemplate" placeholder="e.g. MFCR 400" />
+                                </FormField>
+                                <FormField Label="Field Name">
+                                    <input class="fc-input" @bind="_operandBField" />
+                                </FormField>
+                            </div>
+                        </div>
+                        <div class="fc-grid fc-grid-3">
+                            <FormField Label="Expression">
+                                <input class="fc-input" @bind="_expressionText" placeholder="A = B" />
+                            </FormField>
+                            <FormField Label="Tolerance">
+                                <input class="fc-input" type="number" step="0.01" @bind="_tolerance" />
+                            </FormField>
+                            <FormField Label="Severity">
+                                <select class="fc-select" @bind="_severity">
+                                    @foreach (var s in Enum.GetValues<ValidationSeverity>())
+                                    {
+                                        <option value="@s">@s</option>
+                                    }
+                                </select>
+                            </FormField>
+                        </div>
+                        <FormActions>
+                            <button class="fc-btn fc-btn--primary" @onclick="SaveRule" disabled="@_saving" type="button">
+                                @if (_saving) { <span class="fc-spinner fc-spinner--xs fc-mr-2" aria-hidden="true"></span> }
+                                Add Rule
+                            </button>
+                            <button class="fc-btn fc-btn--outline" @onclick="CancelForm" type="button">Cancel</button>
+                        </FormActions>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <DataTable TItem="CrossSheetRule" Items="_rules" Clickable="true" OnRowClick="NavigateToRule"
+                   EmptyTitle="No cross-sheet rules" EmptyMessage="Add a cross-sheet rule to validate values across templates.">
+            <ChildContent>
+                <DataColumn TItem="CrossSheetRule" Title="Code" SortKey="x => x.RuleCode" Width="140px">
+                    <CellTemplate><span class="fc-list-cell-code">@context.RuleCode</span></CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="CrossSheetRule" Title="Name" SortKey="x => x.RuleName">
+                    <CellTemplate><span class="fc-list-cell-strong">@context.RuleName</span></CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="CrossSheetRule" Title="Source" Width="140px">
+                    <CellTemplate><span class="fc-list-cell-muted">@(context.SourceTemplateCode ?? "—")</span></CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="CrossSheetRule" Title="Target" Width="140px">
+                    <CellTemplate><span class="fc-list-cell-muted">@(context.TargetTemplateCode ?? "—")</span></CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="CrossSheetRule" Title="Severity" SortKey="x => x.Severity" Width="100px">
+                    <CellTemplate>
+                        <span class="fc-badge @(context.Severity == ValidationSeverity.Error ? "fc-badge--danger" : context.Severity == ValidationSeverity.Warning ? "fc-badge--warning" : "fc-badge--neutral")">
+                            @context.Severity
+                        </span>
+                    </CellTemplate>
+                </DataColumn>
+                <DataColumn TItem="CrossSheetRule" Title="Active" SortKey="x => x.IsActive" Width="80px">
+                    <CellTemplate>
+                        @if (context.IsActive) { <span class="fc-badge fc-badge--success">Yes</span> }
+                        else { <span class="fc-badge fc-badge--neutral">No</span> }
+                    </CellTemplate>
+                </DataColumn>
+            </ChildContent>
+        </DataTable>
+    }
+</div>
+
+@code {
+    [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
+
+    private bool _loading = true;
+    private bool _showForm;
+    private bool _saving;
+    private string _currentUser = "system";
+
+    private void NavigateToRule(CrossSheetRule r) => Nav.NavigateTo($"/cross-sheet-rules/{r.Id}");
+    private List<CrossSheetRule> _rules = new();
+
+    // Form fields
+    private string _ruleCode = "";
+    private string _ruleName = "";
+    private string? _description;
+    private string _operandATemplate = "";
+    private string _operandAField = "";
+    private string _operandBTemplate = "";
+    private string _operandBField = "";
+    private string _expressionText = "A = B";
+    private decimal _tolerance;
+    private ValidationSeverity _severity = ValidationSeverity.Error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var state = AuthState is null ? null : await AuthState;
+        _currentUser = UserIdentityResolver.ResolveActor(state?.User);
+        await LoadRules();
+        _loading = false;
+    }
+
+    private async Task LoadRules()
+    {
+        _rules = (await FormulaRepo.GetAllActiveCrossSheetRules()).ToList();
+    }
+
+    private void ShowAddForm()
+    {
+        _ruleCode = "";
+        _ruleName = "";
+        _description = null;
+        _operandATemplate = "";
+        _operandAField = "";
+        _operandBTemplate = "";
+        _operandBField = "";
+        _expressionText = "A = B";
+        _tolerance = 0;
+        _severity = ValidationSeverity.Error;
+        _showForm = true;
+    }
+
+    private void CancelForm() => _showForm = false;
+
+    private async Task SaveRule()
+    {
+        if (string.IsNullOrWhiteSpace(_ruleCode) || string.IsNullOrWhiteSpace(_ruleName))
+        {
+            Toast.Error("Rule code and name are required.");
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_operandATemplate) || string.IsNullOrWhiteSpace(_operandAField)
+            || string.IsNullOrWhiteSpace(_operandBTemplate) || string.IsNullOrWhiteSpace(_operandBField))
+        {
+            Toast.Error("Both operands require a template code and field name.");
+            return;
+        }
+
+        _saving = true;
+        try
+        {
+            var operands = new List<CrossSheetRuleOperand>
+            {
+                new() { OperandAlias = "A", TemplateReturnCode = _operandATemplate.Trim(), FieldName = _operandAField.Trim(), SortOrder = 0 },
+                new() { OperandAlias = "B", TemplateReturnCode = _operandBTemplate.Trim(), FieldName = _operandBField.Trim(), SortOrder = 1 }
+            };
+            var expression = new CrossSheetRuleExpression
+            {
+                Expression = _expressionText.Trim(),
+                ToleranceAmount = _tolerance
+            };
+
+            await FormulaService.AddCrossSheetRule(
+                _ruleCode.Trim(), _ruleName.Trim(), _description?.Trim(),
+                operands, expression, _severity, _currentUser);
+
+            Toast.Success($"Cross-sheet rule '{_ruleCode}' added.");
+            _showForm = false;
+            await LoadRules();
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Failed");
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

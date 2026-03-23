@@ -1091,6 +1091,18 @@
                     </button>
                 </div>
 
+                @if (requiresApproval)
+                {
+                    <div class="portal-sticky-notes" style="flex:1; min-width:200px; max-width:400px;">
+                        <textarea class="portal-input portal-input-sm"
+                                  placeholder="Notes for reviewer (optional)"
+                                  rows="1"
+                                  maxlength="1000"
+                                  @bind="_submitterNotes"
+                                  style="width:100%; resize:vertical; font-size:0.8125rem;"></textarea>
+                    </div>
+                }
+
                 <div class="portal-sticky-submit-right">
                     <button type="button"
                             class="portal-btn portal-btn-outline portal-btn-sm"
@@ -1246,6 +1258,9 @@
     private string userDisplayName = "User";
     private string institutionCode = "";
     private bool requiresApproval;
+
+    // Maker-checker notes (shown when requiresApproval is true)
+    private string _submitterNotes = "";
 
     // Period
     private int selectedPeriodId;
@@ -2489,6 +2504,9 @@
 
     private async Task SubmitForm()
     {
+        // Guard against double-clicks (same protection as ValidateAndSubmit)
+        if (isSubmitting || submissionComplete) return;
+
         showValidationResult = false;
         serverErrors.Clear();
         submitError = "";
@@ -2501,7 +2519,6 @@
 
         if (!ValidateClientSide())
         {
-            // Error summary panel (top of form) shows the full error list
             return;
         }
 
@@ -2516,39 +2533,13 @@
 
         try
         {
-            await AutoSave();
-
-            var selectedPeriod = availablePeriods.FirstOrDefault(p => p.ReturnPeriodId == selectedPeriodId);
-            var reportingDate = selectedPeriod is not null
-                ? selectedPeriod.ReportingDate.ToString("yyyy-MM-dd")
-                : DateTime.UtcNow.ToString("yyyy-MM-dd");
-
-            await using var xmlStream = await XmlSvc.ConvertToStream(
-                ReturnCode, institutionCode, reportingDate, formRows);
-
-            var result = await SubmissionSvc.ProcessSubmission(
-                xmlStream, ReturnCode, institutionId, selectedPeriodId,
-                submittedByUserId: userId);
-
-            submissionResult = result;
-            submittedId = result.SubmissionId;
-
-            if (result.ValidationReport is not null && result.ValidationReport.Errors.Any())
+            await ExecuteSubmission();
+            if (!showValidationResult || submissionResult?.ValidationReport?.IsValid == true)
             {
-                serverErrors = result.ValidationReport.Errors;
-                showValidationResult = true;
-
-                if (!result.ValidationReport.IsValid)
-                {
-                    // Rejected — stay on form
-                    return;
-                }
+                await TryDeleteDraftSnapshot();
+                submissionComplete = true;
+                await ReleaseLock();
             }
-
-            // Accepted or AcceptedWithWarnings — delete JSON draft snapshot
-            await TryDeleteDraftSnapshot();
-            submissionComplete = true;
-            await ReleaseLock();
         }
         catch (Exception ex)
         {
@@ -2562,6 +2553,41 @@
     }
 
     // ── State-Machine Submit (sticky panel) ───────────────────────
+
+    /// <summary>
+    /// Core submission logic shared by both submit paths.
+    /// Calls AutoSave, builds XML, processes through the orchestrator.
+    /// </summary>
+    private async Task ExecuteSubmission()
+    {
+        await AutoSave();
+
+        var selectedPeriod = availablePeriods.FirstOrDefault(p => p.ReturnPeriodId == selectedPeriodId);
+        var reportingDate = selectedPeriod is not null
+            ? selectedPeriod.ReportingDate.ToString("yyyy-MM-dd")
+            : DateTime.UtcNow.ToString("yyyy-MM-dd");
+
+        await using var xmlStream = await XmlSvc.ConvertToStream(
+            ReturnCode, institutionCode, reportingDate, formRows);
+
+        var notes = requiresApproval && !string.IsNullOrWhiteSpace(_submitterNotes)
+            ? _submitterNotes.Trim()
+            : null;
+
+        var result = await SubmissionSvc.ProcessSubmission(
+            xmlStream, ReturnCode, institutionId, selectedPeriodId,
+            submittedByUserId: userId,
+            submitterNotes: notes);
+
+        submissionResult = result;
+        submittedId = result.SubmissionId;
+
+        if (result.ValidationReport is not null && result.ValidationReport.Errors.Any())
+        {
+            serverErrors = result.ValidationReport.Errors;
+            showValidationResult = true;
+        }
+    }
 
     private async Task ValidateAndSubmit()
     {
@@ -2607,36 +2633,15 @@
 
         try
         {
-            await AutoSave();
+            await ExecuteSubmission();
 
-            var selectedPeriod = availablePeriods.FirstOrDefault(p => p.ReturnPeriodId == selectedPeriodId);
-            var reportingDate = selectedPeriod is not null
-                ? selectedPeriod.ReportingDate.ToString("yyyy-MM-dd")
-                : DateTime.UtcNow.ToString("yyyy-MM-dd");
-
-            await using var xmlStream = await XmlSvc.ConvertToStream(
-                ReturnCode, institutionCode, reportingDate, formRows);
-
-            var result = await SubmissionSvc.ProcessSubmission(
-                xmlStream, ReturnCode, institutionId, selectedPeriodId,
-                submittedByUserId: userId);
-
-            submissionResult = result;
-            submittedId = result.SubmissionId;
-
-            if (result.ValidationReport is not null && result.ValidationReport.Errors.Any())
+            if (showValidationResult && submissionResult?.ValidationReport?.IsValid == false)
             {
-                serverErrors = result.ValidationReport.Errors;
-                showValidationResult = true;
-
-                if (!result.ValidationReport.IsValid)
-                {
-                    submitError = $"{result.ValidationReport.ErrorCount} validation error(s) prevented submission.";
-                    _submitState = SubmitState.Error;
-                    StateHasChanged();
-                    await JS.InvokeVoidAsync("portalScrollToElement", ".portal-form-validation-result");
-                    return;
-                }
+                submitError = $"{submissionResult.ValidationReport.ErrorCount} validation error(s) prevented submission.";
+                _submitState = SubmitState.Error;
+                StateHasChanged();
+                await JS.InvokeVoidAsync("portalScrollToElement", ".portal-form-validation-result");
+                return;
             }
 
             await TryDeleteDraftSnapshot();

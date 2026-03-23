@@ -143,7 +143,7 @@ if (signalRSettings?.RedisBackplane == true)
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext>(context =>
+    options.GlobalLimiter = System.Threading.RateLimiting.PartitionedRateLimiter.Create<HttpContext, string>(context =>
     {
         // Only rate-limit public invitation and login paths
         var path = context.Request.Path.Value ?? "";
