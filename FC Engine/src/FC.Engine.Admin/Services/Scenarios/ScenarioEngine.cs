@@ -23,6 +23,15 @@ public class ScenarioEngine : IScenarioEngine
 
     public Task<ScenarioDefinition> SaveScenario(ScenarioDefinition scenario)
     {
+        if (string.IsNullOrWhiteSpace(scenario.Name))
+            throw new ArgumentException("Scenario name is required.");
+        if (scenario.Name.Length > 200)
+            throw new ArgumentException("Scenario name must be 200 characters or fewer.");
+
+        scenario.Overrides = scenario.Overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.FieldName))
+            .ToList();
+
         if (scenario.Id == 0)
             scenario.Id = Interlocked.Increment(ref _nextId);
 

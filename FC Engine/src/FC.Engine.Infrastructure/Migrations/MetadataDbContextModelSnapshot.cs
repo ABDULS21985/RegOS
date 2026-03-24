@@ -1591,6 +1591,11 @@ namespace FC.Engine.Infrastructure.Migrations
                     b.Property<decimal>("QuarterlyRwaGrowthPercent")
                         .HasColumnType("decimal(18,4)");
 
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
                     b.Property<decimal>("RwaOptimisationPercent")
                         .HasColumnType("decimal(18,4)");
 
@@ -14750,6 +14755,10 @@ namespace FC.Engine.Infrastructure.Migrations
                     b.Property<string>("RcNumber")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("SuspensionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
 
                     b.Property<string>("Status")
                         .IsRequired()

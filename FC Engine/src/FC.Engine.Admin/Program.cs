@@ -151,6 +151,7 @@ builder.Services.AddHttpClient("ApiHealthProbe", (sp, client) =>
 // Blazor Server
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+builder.Services.AddServerSideBlazor().AddCircuitOptions(o => o.DetailedErrors = true);
 
 var app = builder.Build();
 

@@ -120,10 +120,7 @@ else
                     @foreach (var m in _result.KeyMetrics)
                     {
                         var isRatio = !m.MetricName.Contains("₦");
-                        var higherIsBetter = !m.MetricName.Contains("NPL") && !m.MetricName.Contains("Open Position")
-                            && !m.MetricName.Contains("NDIC") && !m.MetricName.Contains("Provisioning")
-                            && !m.MetricName.Contains("Loan-to-Deposit") && !m.MetricName.Contains("Stranded")
-                            && !m.MetricName.Contains("Concentration");
+                        var higherIsBetter = ScenarioComputationHelper.IsHigherBetter(m.MetricName);
                         <tr>
                             <td>
                                 <div class="fc-sc-metric-name">@m.MetricName</div>
@@ -135,7 +132,11 @@ else
                                 <MetricDelta Baseline="m.BaselineValue" Scenario="m.ScenarioValue"
                                              Format="@(isRatio ? "P1" : "N1")" HigherIsBetter="higherIsBetter" />
                             </td>
-                            <td style="@(m.DeltaPct < 0 ? "color:var(--cbn-danger);" : m.DeltaPct > 0 ? "color:var(--cbn-success);" : "")">
+                            @{
+                                var isGoodChange = higherIsBetter ? m.DeltaPct > 0 : m.DeltaPct < 0;
+                                var isBadChange = higherIsBetter ? m.DeltaPct < 0 : m.DeltaPct > 0;
+                            }
+                            <td style="@(isBadChange ? "color:var(--cbn-danger);" : isGoodChange ? "color:var(--cbn-success);" : "")">
                                 @(m.DeltaPct >= 0 ? "+" : "")@m.DeltaPct.ToString("N1")%
                             </td>
                             <td>@(m.Threshold.HasValue ? FormatMetric(m.Threshold.Value, isRatio) : "—")</td>
@@ -257,7 +258,14 @@ else
             {
                 _result = await Engine.RunScenario(_tenantId, Id);
             }
-            // Running/Failed — show what we have or nothing
+            else if (scenario.Status == ScenarioStatus.Running)
+            {
+                _error = "This scenario is currently running. Please wait and refresh.";
+            }
+            else if (scenario.Status == ScenarioStatus.Failed)
+            {
+                _error = "This scenario failed during execution. Edit the scenario and try again.";
+            }
         }
         catch (Exception ex)
         {

@@ -20,6 +20,7 @@
         {
             <AuthorizeView Roles="Admin">
                 <Authorized Context="actionAuth">
+                    <button class="fc-btn fc-btn--gold fc-btn--sm" @onclick="StartEdit" disabled="@_isEditing">Edit</button>
                     <button class="fc-btn @(_rule.IsActive ? "fc-btn--outline" : "fc-btn--primary") fc-btn--sm" @onclick="ToggleRule">
                         @(_rule.IsActive ? "Disable Rule" : "Enable Rule")
                     </button>
@@ -108,6 +109,99 @@
             </div>
 
         </section>
+
+        @if (_isEditing)
+        {
+            <div class="fc-list-inline-form">
+                <h3>Edit Cross-Sheet Rule</h3>
+                <div class="fc-grid fc-grid-2">
+                    <div class="fc-form-group">
+                        <label>Rule Name</label>
+                        <input class="fc-form-input" @bind="_editName" aria-label="Rule Name" />
+                    </div>
+                    <div class="fc-form-group">
+                        <label>Severity</label>
+                        <select class="fc-form-input" @bind="_editSeverity" aria-label="Severity">
+                            @foreach (var s in Enum.GetValues<ValidationSeverity>())
+                            {
+                                <option value="@s">@s</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="fc-form-group fc-grid-span-full">
+                        <label>Description</label>
+                        <input class="fc-form-input" @bind="_editDescription" placeholder="Description of the validation rule" aria-label="Description" />
+                    </div>
+                </div>
+
+                <h4 class="fc-section-header">Operands</h4>
+                @for (int i = 0; i < _editOperands.Count; i++)
+                {
+                    var idx = i;
+                    <div class="fc-grid fc-grid-2 fc-operand-row fc-operand-row--2col">
+                        <div class="fc-form-group">
+                            <label>Alias</label>
+                            <input class="fc-form-input" @bind="_editOperands[idx].Alias" aria-label="Operand Alias" />
+                        </div>
+                        <div class="fc-form-group">
+                            <label>Template Return Code</label>
+                            <input class="fc-form-input" @bind="_editOperands[idx].ReturnCode" aria-label="Template Return Code" />
+                        </div>
+                        <div class="fc-form-group">
+                            <label>Field Name</label>
+                            <input class="fc-form-input" @bind="_editOperands[idx].FieldName" aria-label="Field Name" />
+                        </div>
+                        <div class="fc-form-group">
+                            <label>Aggregate (optional)</label>
+                            <select class="fc-form-input" @bind="_editOperands[idx].Aggregate" aria-label="Aggregate function">
+                                <option value="">None</option>
+                                <option value="SUM">SUM</option>
+                                <option value="COUNT">COUNT</option>
+                                <option value="MAX">MAX</option>
+                                <option value="MIN">MIN</option>
+                                <option value="AVG">AVG</option>
+                            </select>
+                        </div>
+                        <div class="fc-form-group">
+                            <label>Line Code (optional)</label>
+                            <input class="fc-form-input" @bind="_editOperands[idx].LineCode" aria-label="Line Code" />
+                        </div>
+                        <div class="fc-form-group">
+                            <label>Filter Item Code (optional)</label>
+                            <input class="fc-form-input" @bind="_editOperands[idx].FilterItemCode" aria-label="Filter Item Code" />
+                        </div>
+                    </div>
+                }
+                <button class="fc-btn fc-btn--outline fc-btn--sm fc-mt-2" @onclick="AddEditOperandRow">+ Add Operand</button>
+
+                <h4 class="fc-section-header">Expression</h4>
+                <div class="fc-grid fc-grid-2">
+                    <div class="fc-form-group">
+                        <label>Expression</label>
+                        <input class="fc-form-input" @bind="_editExpression" aria-label="Expression" />
+                    </div>
+                    <div class="fc-form-group">
+                        <label>Tolerance Amount</label>
+                        <input type="number" step="0.01" class="fc-form-input" @bind="_editToleranceAmount" aria-label="Tolerance Amount" />
+                    </div>
+                    <div class="fc-form-group">
+                        <label>Tolerance Percent (optional)</label>
+                        <input type="number" step="0.01" class="fc-form-input" @bind="_editTolerancePercent" aria-label="Tolerance Percent" />
+                    </div>
+                    <div class="fc-form-group">
+                        <label>Error Message</label>
+                        <input class="fc-form-input" @bind="_editErrorMessage" aria-label="Error Message" />
+                    </div>
+                </div>
+                <div class="fc-list-form-actions">
+                    <button class="fc-btn fc-btn--primary fc-btn--sm @(_isSaving ? "fc-btn--loading" : "")" @onclick="SaveEdit" disabled="@_isSaving" aria-busy="@(_isSaving ? "true" : null)">
+                        @if (_isSaving) { <span class="fc-spinner fc-spinner--sm fc-spinner--white" aria-hidden="true"></span> }
+                        Save Changes
+                    </button>
+                    <button class="fc-btn fc-btn--outline fc-btn--sm" @onclick="CancelEdit" disabled="@_isSaving">Cancel</button>
+                </div>
+            </div>
+        }
 
         <div class="fc-section">
             <div class="fc-section-header">
@@ -232,8 +326,18 @@
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
 
     private bool _loading = true;
+    private bool _isEditing;
+    private bool _isSaving;
     private CrossSheetRule? _rule;
     private string _currentUser = string.Empty;
+
+    // Edit form state
+    private string _editName = "", _editDescription = "";
+    private string _editExpression = "", _editErrorMessage = "";
+    private decimal _editToleranceAmount;
+    private decimal? _editTolerancePercent;
+    private ValidationSeverity _editSeverity = ValidationSeverity.Error;
+    private List<EditOperandModel> _editOperands = new();
 
     private IEnumerable<CrossSheetRuleOperand> SortedOperands =>
         _rule?.Operands
@@ -299,6 +403,96 @@
         {
             Toast.Error(ex.Message, "Delete Failed");
         }
+    }
+
+    private void StartEdit()
+    {
+        if (_rule == null) return;
+        _editName = _rule.RuleName;
+        _editDescription = _rule.Description ?? "";
+        _editSeverity = _rule.Severity;
+        _editExpression = _rule.Expression?.Expression ?? "";
+        _editToleranceAmount = _rule.Expression?.ToleranceAmount ?? 0;
+        _editTolerancePercent = _rule.Expression?.TolerancePercent;
+        _editErrorMessage = _rule.Expression?.ErrorMessage ?? "";
+        _editOperands = _rule.Operands.OrderBy(o => o.SortOrder).Select(o => new EditOperandModel
+        {
+            Alias = o.OperandAlias,
+            ReturnCode = o.TemplateReturnCode,
+            FieldName = o.FieldName,
+            LineCode = o.LineCode ?? "",
+            Aggregate = o.AggregateFunction ?? "",
+            FilterItemCode = o.FilterItemCode ?? ""
+        }).ToList();
+        _isEditing = true;
+    }
+
+    private void CancelEdit() => _isEditing = false;
+
+    private void AddEditOperandRow()
+    {
+        var nextAlias = ((char)('A' + _editOperands.Count)).ToString();
+        _editOperands.Add(new EditOperandModel { Alias = nextAlias });
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_rule == null) return;
+        if (string.IsNullOrWhiteSpace(_editName))
+        {
+            Toast.Error("Rule Name is required.", "Validation Error");
+            return;
+        }
+
+        _isSaving = true;
+        try
+        {
+            var operands = _editOperands.Select((o, i) => new CrossSheetRuleOperand
+            {
+                OperandAlias = o.Alias,
+                TemplateReturnCode = o.ReturnCode,
+                FieldName = o.FieldName,
+                LineCode = string.IsNullOrWhiteSpace(o.LineCode) ? null : o.LineCode,
+                AggregateFunction = string.IsNullOrWhiteSpace(o.Aggregate) ? null : o.Aggregate,
+                FilterItemCode = string.IsNullOrWhiteSpace(o.FilterItemCode) ? null : o.FilterItemCode,
+                SortOrder = i + 1
+            }).ToList();
+
+            var expression = new CrossSheetRuleExpression
+            {
+                Expression = _editExpression,
+                ToleranceAmount = _editToleranceAmount,
+                TolerancePercent = _editTolerancePercent,
+                ErrorMessage = string.IsNullOrWhiteSpace(_editErrorMessage) ? null : _editErrorMessage
+            };
+
+            await FormulaService.UpdateCrossSheetRule(
+                _rule.Id, _editName,
+                string.IsNullOrWhiteSpace(_editDescription) ? null : _editDescription,
+                operands, expression, _editSeverity, _currentUser);
+
+            Toast.Success($"Rule '{_rule.RuleCode}' updated.", "Rule Updated");
+            _isEditing = false;
+            _rule = await FormulaRepo.GetCrossSheetRuleById(Id);
+        }
+        catch (Exception ex)
+        {
+            Toast.Error(ex.Message, "Update Failed");
+        }
+        finally
+        {
+            _isSaving = false;
+        }
+    }
+
+    private class EditOperandModel
+    {
+        public string Alias { get; set; } = "";
+        public string ReturnCode { get; set; } = "";
+        public string FieldName { get; set; } = "";
+        public string LineCode { get; set; } = "";
+        public string Aggregate { get; set; } = "";
+        public string FilterItemCode { get; set; } = "";
     }
 
     private static string StatusBadge(string status) => status.ToLowerInvariant() switch

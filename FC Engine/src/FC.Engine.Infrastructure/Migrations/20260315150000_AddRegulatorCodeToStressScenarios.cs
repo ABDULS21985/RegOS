@@ -22,8 +22,10 @@ public partial class AddRegulatorCodeToStressScenarios : Migration
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         // Add column (nullable so existing rows are unaffected)
+        // Guard: only run if StressScenarios table exists (it's created by schema.sql seed, not EF)
         migrationBuilder.Sql("""
-IF NOT EXISTS (
+IF OBJECT_ID('StressScenarios', 'U') IS NOT NULL
+AND NOT EXISTS (
     SELECT 1
     FROM   sys.columns c
     JOIN   sys.tables  t ON t.object_id = c.object_id
@@ -38,7 +40,8 @@ END
 
         // Index to support per-regulator scenario catalogue queries efficiently
         migrationBuilder.Sql("""
-IF NOT EXISTS (
+IF OBJECT_ID('StressScenarios', 'U') IS NOT NULL
+AND NOT EXISTS (
     SELECT 1
     FROM   sys.indexes
     WHERE  name      = 'IX_StressScenarios_RegulatorCode'

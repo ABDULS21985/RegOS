@@ -195,7 +195,7 @@
                     Back
                 </button>
                 <button class="fc-btn fc-btn--primary" @onclick="() => _step = 3"
-                        disabled="@(_definition.Overrides.Count == 0 && _definition.MacroShocks.Count == 0)">
+                        disabled="@(!HasValidOverridesOrShocks)">
                     Next: Review & Run
                     <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </button>
@@ -357,6 +357,10 @@
     private int EstimatedFields => _definition.Overrides.Count +
         _definition.MacroShocks.Sum(s => s.Overrides.Count);
 
+    private bool HasValidOverridesOrShocks =>
+        _definition.MacroShocks.Count > 0 ||
+        _definition.Overrides.Any(o => !string.IsNullOrWhiteSpace(o.FieldName));
+
     private static readonly List<ProgressStepper.StepItem> _steps =
     [
         new("Define", "Name & template"),
@@ -480,6 +484,11 @@
 
     private async Task SaveDraft()
     {
+        // Strip empty overrides before saving
+        _definition.Overrides = _definition.Overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.FieldName))
+            .ToList();
+
         try
         {
             _definition.Status = ScenarioStatus.Draft;
@@ -494,6 +503,11 @@
 
     private async Task RunAndView()
     {
+        // Strip empty overrides before saving
+        _definition.Overrides = _definition.Overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.FieldName))
+            .ToList();
+
         _running = true;
         _error = null;
         StateHasChanged();

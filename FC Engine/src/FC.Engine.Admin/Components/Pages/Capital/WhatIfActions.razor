@@ -4,6 +4,7 @@
 @inject FC.Engine.Admin.Services.Capital.RwaOptimizationService RwaService
 @inject FC.Engine.Admin.Services.ToastService Toast
 @inject IJSRuntime JS
+@inject ILogger<FC.Engine.Admin.Components.Pages.Capital.WhatIfActions> Logger
 
 <PageTitle>What-If Capital Actions</PageTitle>
 
@@ -71,7 +72,7 @@
                 </div>
             </div>
 
-            @if (_selectedAction is not null && _simulation is not null)
+            @if (_selectedAction is not null && _simulation is not null && _simulation.QuarterProjections.Count > 0)
             {
                 <div class="fc-card fc-card--mb">
                     <div class="fc-card__header">
@@ -173,6 +174,10 @@
         {
             _chartsRendered = false;
             _simulation = await RwaService.SimulateActionAsync(_selectedAction.Code, _magnitude);
+            if (_simulation.QuarterProjections.Count == 0)
+            {
+                Toast.Error("Save a capital planning scenario first to run simulations.");
+            }
             StateHasChanged();
         }
         catch (Exception ex) { Toast.Error("Simulation failed: " + ex.Message); }
@@ -193,7 +198,7 @@
                 }
             });
         }
-        catch { }
+        catch (Exception ex) { Logger.LogWarning(ex, "Failed to render What-If projection chart"); }
     }
 
     private static string LeverBadge(string lever) => lever switch

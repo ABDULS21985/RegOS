@@ -37,6 +37,12 @@ public class ScenarioDefinition
     public List<string> AffectedModules { get; set; } = [];
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? CompletedAt { get; set; }
+
+    /// <summary>
+    /// SQL Server ROWVERSION for optimistic concurrency.
+    /// Populated on read from DB; sent back on UPDATE to detect conflicts.
+    /// </summary>
+    public byte[]? RowVersion { get; set; }
 }
 
 // ── Result Models ──────────────────────────────────────────────

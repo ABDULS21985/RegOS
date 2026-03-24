@@ -4,28 +4,27 @@ using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
-namespace FC.Engine.Infrastructure.Metadata.Migrations;
+namespace FC.Engine.Infrastructure.Migrations;
 
 [DbContext(typeof(MetadataDbContext))]
-[Migration("20260319120000_AddTenantSuspensionReasonAndTemplateSectionNav")]
-public partial class AddTenantSuspensionReasonAndTemplateSectionNav : Migration
+[Migration("20260402000000_AddRowVersionToScenarioDefinitions")]
+public partial class AddRowVersionToScenarioDefinitions : Migration
 {
     protected override void Up(MigrationBuilder migrationBuilder)
     {
         migrationBuilder.Sql("""
-IF OBJECT_ID('dbo.tenants', 'U') IS NOT NULL
-AND NOT EXISTS (
+IF NOT EXISTS (
     SELECT 1
     FROM   sys.columns c
     JOIN   sys.tables  t ON t.object_id = c.object_id
     JOIN   sys.schemas s ON s.schema_id = t.schema_id
-    WHERE  s.name = 'dbo'
-      AND  t.name = 'tenants'
-      AND  c.name = 'SuspensionReason'
+    WHERE  s.name = 'meta'
+      AND  t.name = 'scenario_definitions'
+      AND  c.name = 'RowVersion'
 )
 BEGIN
-    ALTER TABLE dbo.tenants
-        ADD SuspensionReason NVARCHAR(500) NULL;
+    ALTER TABLE meta.scenario_definitions
+        ADD RowVersion ROWVERSION NOT NULL;
 END
 """);
     }
@@ -38,13 +37,12 @@ IF EXISTS (
     FROM   sys.columns c
     JOIN   sys.tables  t ON t.object_id = c.object_id
     JOIN   sys.schemas s ON s.schema_id = t.schema_id
-    WHERE  s.name = 'dbo'
-      AND  t.name = 'tenants'
-      AND  c.name = 'SuspensionReason'
+    WHERE  s.name = 'meta'
+      AND  t.name = 'scenario_definitions'
+      AND  c.name = 'RowVersion'
 )
 BEGIN
-    ALTER TABLE dbo.tenants
-        DROP COLUMN SuspensionReason;
+    ALTER TABLE meta.scenario_definitions DROP COLUMN RowVersion;
 END
 """);
     }

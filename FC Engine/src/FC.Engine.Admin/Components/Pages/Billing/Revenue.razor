@@ -496,17 +496,15 @@
     private async Task LoadDashboard()
     {
         await using var db = await DbFactory.CreateDbContextAsync();
-        var revenueStatuses = new[]
-        {
-            SubscriptionStatus.Active,
-            SubscriptionStatus.PastDue,
-            SubscriptionStatus.Suspended,
-            SubscriptionStatus.Trial
-        };
-
-        var baseMrr = await db.Subscriptions
+        var revenueSubscriptions = db.Subscriptions
             .AsNoTracking()
-            .Where(s => revenueStatuses.Contains(s.Status))
+            .Where(s =>
+                s.Status == SubscriptionStatus.Active
+                || s.Status == SubscriptionStatus.PastDue
+                || s.Status == SubscriptionStatus.Suspended
+                || s.Status == SubscriptionStatus.Trial);
+
+        var baseMrr = await revenueSubscriptions
             .Join(db.SubscriptionPlans, s => s.PlanId, p => p.Id, (s, p) => new { s.BillingFrequency, p.BasePriceMonthly, p.BasePriceAnnual })
             .SumAsync(x => x.BillingFrequency == BillingFrequency.Annual
                 ? (decimal?)(x.BasePriceAnnual / 12m)
@@ -515,7 +513,7 @@
         var moduleMrr = await db.SubscriptionModules
             .AsNoTracking()
             .Where(sm => sm.IsActive)
-            .Join(db.Subscriptions.Where(s => revenueStatuses.Contains(s.Status)),
+            .Join(revenueSubscriptions,
                 sm => sm.SubscriptionId, s => s.Id, (sm, _) => (decimal?)sm.PriceMonthly)
             .SumAsync(x => x ?? 0m);
 

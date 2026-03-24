@@ -59,6 +59,10 @@ window.fcScenarios = (function () {
     return { syncScroll, animateMetric, exportComparison, downloadBase64File };
 })();
 
-window.portalDownloadBase64File = function (base64Content, filename, contentType) {
+/** Canonical admin-scoped download helper */
+window.fcDownloadBase64File = function (base64Content, filename, contentType) {
     window.fcScenarios.downloadBase64File(base64Content, filename, contentType);
 };
+
+/** @deprecated Use fcDownloadBase64File — kept for backward compatibility */
+window.portalDownloadBase64File = window.fcDownloadBase64File;

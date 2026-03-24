@@ -1,8 +1,10 @@
 @page "/platform/capital/stack"
 @attribute [Authorize(Policy = "PlatformAdmin")]
 @inject FC.Engine.Admin.Services.Capital.CapitalStackOptimizerService StackService
+@inject FC.Engine.Infrastructure.Services.CapitalPlanningScenarioStoreService ScenarioStore
 @inject FC.Engine.Admin.Services.ToastService Toast
 @inject IJSRuntime JS
+@inject ILogger<FC.Engine.Admin.Components.Pages.Capital.CapitalStackOptimizer> Logger
 
 <PageTitle>Capital Stack Optimiser</PageTitle>
 
@@ -148,7 +150,27 @@
     private FC.Engine.Admin.Services.Capital.StackOptimizationResult? _result;
     private List<FC.Engine.Admin.Services.Capital.CostFrontierPoint> _frontier = [];
 
-    protected override async Task OnInitializedAsync() => await OptimizeAsync();
+    protected override async Task OnInitializedAsync()
+    {
+        // Load saved scenario to populate input defaults before first optimization
+        try
+        {
+            var scenario = await ScenarioStore.LoadAsync();
+            if (scenario is not null)
+            {
+                _targetCar = scenario.TargetCarPercent;
+                _currentRwa = scenario.CurrentRwaBn;
+                _cet1Cost = scenario.Cet1CostPercent;
+                _at1Cost = scenario.At1CostPercent;
+                _tier2Cost = scenario.Tier2CostPercent;
+                _maxAt1 = scenario.MaxAt1SharePercent;
+                _maxTier2 = scenario.MaxTier2SharePercent;
+            }
+        }
+        catch { /* Fall through to hard-coded defaults */ }
+
+        await OptimizeAsync();
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -169,18 +191,6 @@
             var request = BuildRequest();
             _result = await StackService.OptimizeAsync(request);
             _frontier = await StackService.GetCostFrontierAsync(request);
-
-            // Sync inputs from scenario if optimizer loaded defaults
-            if (_result.ScenarioSavedAt.HasValue)
-            {
-                _targetCar = _result.TargetCarPercent;
-                _currentRwa = _result.CurrentRwaBn;
-                _cet1Cost = _result.Cet1CostPercent;
-                _at1Cost = _result.At1CostPercent;
-                _tier2Cost = _result.Tier2CostPercent;
-                _maxAt1 = _result.MaxAt1SharePercent;
-                _maxTier2 = _result.MaxTier2SharePercent;
-            }
         }
         catch (Exception ex) { _loadException = ex; }
         finally { _computing = false; }
@@ -222,6 +232,6 @@
                 });
             }
         }
-        catch { }
+        catch (Exception ex) { Logger.LogWarning(ex, "Failed to render stack optimizer charts"); }
     }
 }

@@ -33,13 +33,13 @@
 @if (_deleteTarget != null)
 {
     <AppModal Title="Delete Scenario" OnClose="CancelDelete">
-        <Body>
+        <ChildContent>
             <p>Are you sure you want to delete <strong>@_deleteTarget.Name</strong>? This action cannot be undone.</p>
-        </Body>
-        <Footer>
+        </ChildContent>
+        <FooterContent>
             <button class="fc-btn fc-btn--outline" @onclick="CancelDelete">Cancel</button>
             <button class="fc-btn fc-btn--danger" @onclick="ConfirmDelete">Delete</button>
-        </Footer>
+        </FooterContent>
     </AppModal>
 }
 
@@ -133,7 +133,14 @@ else
                 <DataTable TItem="ScenarioDefinition" Items="_scenarios" Responsive>
                     <DataColumn TItem="ScenarioDefinition" SortKey="s => s.Name" Title="Scenario">
                         <CellTemplate Context="row">
-                            <a href="/scenarios/@row.Id/results" class="fc-link">@row.Name</a>
+                            @if (row.Status == ScenarioStatus.Completed)
+                            {
+                                <a href="/scenarios/@row.Id/results" class="fc-link">@row.Name</a>
+                            }
+                            else
+                            {
+                                <a href="/scenarios/build/@row.Id" class="fc-link">@row.Name</a>
+                            }
                         </CellTemplate>
                     </DataColumn>
                     <DataColumn TItem="ScenarioDefinition" SortKey="s => s.Status.ToString()" Title="Status">

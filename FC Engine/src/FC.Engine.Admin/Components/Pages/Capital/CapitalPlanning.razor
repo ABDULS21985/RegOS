@@ -3,6 +3,7 @@
 @inject FC.Engine.Infrastructure.Services.CapitalPlanningScenarioStoreService ScenarioStore
 @inject FC.Engine.Admin.Services.ToastService Toast
 @inject IJSRuntime JS
+@inject ILogger<FC.Engine.Admin.Components.Pages.Capital.CapitalPlanning> Logger
 
 <PageTitle>Capital Planning</PageTitle>
 
@@ -31,17 +32,30 @@
                 <div class="fc-card">
                     <div class="fc-card__header"><h2 class="fc-card__title">Scenario Parameters</h2></div>
                     <div class="fc-card__body">
+                        @if (_validationErrors.Count > 0)
+                        {
+                            <div class="fc-alert fc-alert--error" style="margin-bottom:var(--space-4);">
+                                <strong>Please fix the following:</strong>
+                                <ul style="margin:var(--space-1) 0 0 var(--space-4);padding:0;">
+                                    @foreach (var err in _validationErrors)
+                                    {
+                                        <li>@err</li>
+                                    }
+                                </ul>
+                            </div>
+                        }
+
                         <div class="fc-form-row">
                             <label class="fc-form-label">Current CAR (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_currentCar" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_currentCar, 0, 100)" step="0.1" min="0" max="100" @bind="_currentCar" @bind:after="ProjectAsync" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Current RWA (bn)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_currentRwa" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_currentRwa, 0.01m, 99999)" step="0.1" min="0.01" @bind="_currentRwa" @bind:after="ProjectAsync" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Quarterly RWA Growth (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_rwaGrowth" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_rwaGrowth, -50, 50)" step="0.1" min="-50" max="50" @bind="_rwaGrowth" @bind:after="ProjectAsync" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Quarterly Retained Earnings (bn)</label>
@@ -53,51 +67,51 @@
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">RWA Optimisation (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_rwaOpt" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_rwaOpt, 0, 100)" step="0.1" min="0" max="100" @bind="_rwaOpt" @bind:after="ProjectAsync" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Target CAR (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_targetCar" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_targetCar, 0, 100)" step="0.1" min="0" max="100" @bind="_targetCar" @bind:after="ProjectAsync" />
                         </div>
 
                         <h3 class="fc-card__title" style="margin-top:var(--space-6)">Buffer Requirements</h3>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Minimum Requirement (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_minReq" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_minReq, 0, 50)" step="0.1" min="0" max="50" @bind="_minReq" @bind:after="ProjectAsync" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Conservation Buffer (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_conservation" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_conservation, 0, 20)" step="0.1" min="0" max="20" @bind="_conservation" @bind:after="ProjectAsync" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Countercyclical Buffer (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_countercyclical" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_countercyclical, 0, 20)" step="0.1" min="0" max="20" @bind="_countercyclical" @bind:after="ProjectAsync" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">D-SIB Buffer (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_dsib" @bind:after="ProjectAsync" />
+                            <input type="number" class="fc-input @InputClass(_dsib, 0, 20)" step="0.1" min="0" max="20" @bind="_dsib" @bind:after="ProjectAsync" />
                         </div>
 
                         <h3 class="fc-card__title" style="margin-top:var(--space-6)">Cost of Capital</h3>
                         <div class="fc-form-row">
                             <label class="fc-form-label">CET1 Cost (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_cet1Cost" />
+                            <input type="number" class="fc-input @InputClass(_cet1Cost, 0, 50)" step="0.1" min="0" max="50" @bind="_cet1Cost" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">AT1 Cost (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_at1Cost" />
+                            <input type="number" class="fc-input @InputClass(_at1Cost, 0, 50)" step="0.1" min="0" max="50" @bind="_at1Cost" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Tier 2 Cost (%)</label>
-                            <input type="number" class="fc-input" step="0.1" @bind="_tier2Cost" />
+                            <input type="number" class="fc-input @InputClass(_tier2Cost, 0, 50)" step="0.1" min="0" max="50" @bind="_tier2Cost" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Max AT1 Share (%)</label>
-                            <input type="number" class="fc-input" step="1" @bind="_maxAt1" />
+                            <input type="number" class="fc-input @InputClass(_maxAt1, 0, 100)" step="1" min="0" max="100" @bind="_maxAt1" />
                         </div>
                         <div class="fc-form-row">
                             <label class="fc-form-label">Max Tier 2 Share (%)</label>
-                            <input type="number" class="fc-input" step="1" @bind="_maxTier2" />
+                            <input type="number" class="fc-input @InputClass(_maxTier2, 0, 100)" step="1" min="0" max="100" @bind="_maxTier2" />
                         </div>
                     </div>
                 </div>
@@ -148,6 +162,7 @@
     private decimal _step = 0.5m;
 
     private List<ProjectionRow> _projections = [];
+    private List<string> _validationErrors = [];
 
     protected override async Task OnInitializedAsync() => await ReloadAsync();
 
@@ -230,8 +245,39 @@
         }
     }
 
+    private List<string> Validate()
+    {
+        var errors = new List<string>();
+        if (_currentCar < 0 || _currentCar > 100) errors.Add("Current CAR must be between 0% and 100%.");
+        if (_currentRwa <= 0) errors.Add("Current RWA must be greater than 0.");
+        if (_rwaGrowth < -50 || _rwaGrowth > 50) errors.Add("Quarterly RWA Growth must be between -50% and 50%.");
+        if (_rwaOpt < 0 || _rwaOpt > 100) errors.Add("RWA Optimisation must be between 0% and 100%.");
+        if (_targetCar < 0 || _targetCar > 100) errors.Add("Target CAR must be between 0% and 100%.");
+        if (_minReq < 0 || _minReq > 50) errors.Add("Minimum Requirement must be between 0% and 50%.");
+        if (_conservation < 0 || _conservation > 20) errors.Add("Conservation Buffer must be between 0% and 20%.");
+        if (_countercyclical < 0 || _countercyclical > 20) errors.Add("Countercyclical Buffer must be between 0% and 20%.");
+        if (_dsib < 0 || _dsib > 20) errors.Add("D-SIB Buffer must be between 0% and 20%.");
+        if (_cet1Cost < 0 || _cet1Cost > 50) errors.Add("CET1 Cost must be between 0% and 50%.");
+        if (_at1Cost < 0 || _at1Cost > 50) errors.Add("AT1 Cost must be between 0% and 50%.");
+        if (_tier2Cost < 0 || _tier2Cost > 50) errors.Add("Tier 2 Cost must be between 0% and 50%.");
+        if (_maxAt1 < 0 || _maxAt1 > 100) errors.Add("Max AT1 Share must be between 0% and 100%.");
+        if (_maxTier2 < 0 || _maxTier2 > 100) errors.Add("Max Tier 2 Share must be between 0% and 100%.");
+        if (_maxAt1 + _maxTier2 > 100) errors.Add("Max AT1 Share + Max Tier 2 Share cannot exceed 100%.");
+        return errors;
+    }
+
+    private static string InputClass(decimal value, decimal min, decimal max) =>
+        value < min || value > max ? "fc-input--error" : string.Empty;
+
     private async Task SaveScenarioAsync()
     {
+        _validationErrors = Validate();
+        if (_validationErrors.Count > 0)
+        {
+            Toast.Error("Please correct the validation errors before saving.");
+            return;
+        }
+
         _saving = true;
         try
         {
@@ -255,6 +301,7 @@
                 MaxTier2SharePercent = _maxTier2,
                 StepPercent = _step
             });
+            _validationErrors = [];
             Toast.Show(new ToastItem { Variant = ToastVariant.Success, Title = "Scenario Saved", Message = "Capital planning scenario saved to database." });
         }
         catch (Exception ex)
@@ -283,7 +330,7 @@
                 }
             });
         }
-        catch { }
+        catch (Exception ex) { Logger.LogWarning(ex, "Failed to render CAR projection chart"); }
     }
 
     private sealed record ProjectionRow(string Label, decimal Rwa, decimal Capital, decimal Car);

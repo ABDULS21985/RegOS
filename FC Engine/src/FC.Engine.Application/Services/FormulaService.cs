@@ -106,12 +106,14 @@ public class FormulaService
         string ruleCode, string ruleName, string ruleType,
         string? expression, string? appliesToTemplates,
         ValidationSeverity severity, string createdBy,
+        string? description = null,
         CancellationToken ct = default)
     {
         var rule = new BusinessRule
         {
             RuleCode = ruleCode,
             RuleName = ruleName,
+            Description = description,
             RuleType = ruleType,
             Expression = expression,
             AppliesToTemplates = appliesToTemplates,
@@ -208,6 +210,27 @@ public class FormulaService
         rule.IsActive = isActive;
         await _formulaRepo.UpdateBusinessRule(rule, ct);
         await _audit.Log("BusinessRule", rule.Id, isActive ? "Activated" : "Deactivated", null, rule, updatedBy, ct);
+    }
+
+    public async Task UpdateCrossSheetRule(
+        int ruleId, string ruleName, string? description,
+        List<CrossSheetRuleOperand> operands, CrossSheetRuleExpression expression,
+        ValidationSeverity severity, string updatedBy,
+        CancellationToken ct = default)
+    {
+        var rule = await _formulaRepo.GetCrossSheetRuleById(ruleId, ct)
+            ?? throw new InvalidOperationException($"Cross-sheet rule {ruleId} not found");
+
+        var oldState = new { rule.RuleName, rule.Description, rule.Severity };
+
+        rule.RuleName = ruleName;
+        rule.Description = description;
+        rule.Severity = severity;
+        rule.Expression = expression;
+        rule.SetOperands(operands);
+
+        await _formulaRepo.UpdateCrossSheetRule(rule, ct);
+        await _audit.Log("CrossSheetRule", rule.Id, "Updated", oldState, rule, updatedBy, ct);
     }
 
     public async Task ToggleCrossSheetRule(int ruleId, bool isActive, string updatedBy, CancellationToken ct = default)

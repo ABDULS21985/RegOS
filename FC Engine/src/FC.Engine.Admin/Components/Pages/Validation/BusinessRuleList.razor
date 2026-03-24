@@ -165,7 +165,7 @@
                         Title="Applies To"
                         CellClass="fc-list-cell-muted fc-list-cell-truncate">
                 <CellTemplate>
-                    <span title="@context.AppliesToTemplates">@(context.AppliesToTemplates ?? "All")</span>
+                    <span title="@ParseAppliesToDisplay(context.AppliesToTemplates)">@(string.IsNullOrWhiteSpace(context.AppliesToTemplates) ? "All" : (context.AppliesToTemplates == "*" ? "All" : ParseAppliesToDisplay(context.AppliesToTemplates)))</span>
                 </CellTemplate>
             </DataColumn>
             <DataColumn TItem="BusinessRule"
@@ -276,7 +276,7 @@
         _addName = rule.RuleName;
         _addRuleType = rule.RuleType;
         _addExpression = rule.Expression ?? "";
-        _addAppliesToTemplates = rule.AppliesToTemplates ?? "";
+        _addAppliesToTemplates = ParseAppliesToDisplay(rule.AppliesToTemplates);
         _addDescription = rule.Description ?? "";
         _addSeverity = rule.Severity;
     }
@@ -308,6 +308,34 @@
         return true;
     }
 
+    /// <summary>
+    /// Converts comma-separated template codes to JSON array for persistence.
+    /// Returns null for blank input, "*" as-is, otherwise a JSON array like ["MFCR 300","BSL 100"].
+    /// </summary>
+    private static string? BuildAppliesToJson(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input)) return null;
+        var trimmed = input.Trim();
+        if (trimmed == "*") return "*";
+        var codes = trimmed.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        return System.Text.Json.JsonSerializer.Serialize(codes);
+    }
+
+    /// <summary>
+    /// Parses JSON array (or "*") back to comma-separated display string for the edit form.
+    /// </summary>
+    private static string ParseAppliesToDisplay(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "";
+        if (json == "*") return "*";
+        try
+        {
+            var codes = System.Text.Json.JsonSerializer.Deserialize<string[]>(json);
+            return codes != null ? string.Join(", ", codes) : json;
+        }
+        catch { return json; }
+    }
+
     private async Task AddRule()
     {
         if (!ValidateForm()) return;
@@ -318,8 +346,9 @@
             await FormulaService.AddBusinessRule(
                 _addCode, _addName, _addRuleType,
                 string.IsNullOrWhiteSpace(_addExpression) ? null : _addExpression,
-                string.IsNullOrWhiteSpace(_addAppliesToTemplates) ? null : _addAppliesToTemplates,
-                _addSeverity, _currentUser);
+                BuildAppliesToJson(_addAppliesToTemplates),
+                _addSeverity, _currentUser,
+                string.IsNullOrWhiteSpace(_addDescription) ? null : _addDescription);
 
             Toast.Success($"Business rule '{_addCode}' created.", "Rule Created");
             _showAddForm = false;
@@ -345,7 +374,7 @@
             await FormulaService.UpdateBusinessRule(
                 _editRuleId.Value, _addName, _addRuleType,
                 string.IsNullOrWhiteSpace(_addExpression) ? null : _addExpression,
-                string.IsNullOrWhiteSpace(_addAppliesToTemplates) ? null : _addAppliesToTemplates,
+                BuildAppliesToJson(_addAppliesToTemplates),
                 _addSeverity, _currentUser,
                 string.IsNullOrWhiteSpace(_addDescription) ? null : _addDescription);
 

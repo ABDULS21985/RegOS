@@ -32,6 +32,8 @@ public sealed class CapitalPlanningScenarioRecordConfiguration : IEntityTypeConf
         builder.Property(x => x.SavedAtUtc).IsRequired();
         builder.Property(x => x.CreatedAt).HasDefaultValueSql("SYSUTCDATETIME()");
 
+        builder.Property(x => x.RowVersion).IsRowVersion();
+
         builder.HasIndex(x => x.ScenarioKey).IsUnique();
         builder.HasIndex(x => x.SavedAtUtc);
     }

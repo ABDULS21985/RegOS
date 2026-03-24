@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @inject FC.Engine.Infrastructure.Charts.ChartJsInterop Charts
 @inject IJSRuntime JS
+@inject FC.Engine.Admin.Services.RegulatorSessionService RegulatorSession
 
 <PageHeader Title="Scenario Comparison" Subtitle="Side-by-Side Metric Analysis" BackUrl="/scenarios">
     <SecondaryActions>
@@ -14,6 +15,14 @@
         </button>
     </SecondaryActions>
 </PageHeader>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <AppAlert Variant="AppAlert.AlertVariant.Error"
+              Message="@_error"
+              Dismissible="true"
+              OnDismiss="() => _error = null" />
+}
 
 <!-- Scenario Selectors -->
 <div class="fc-sc-selector-row">
@@ -112,9 +121,13 @@ else if (_report != null)
                                             _ => ""
                                         };
                                         var isRatio = !metricName.Contains("₦");
+                                        var metricHigherIsBetter = ScenarioComputationHelper.IsHigherBetter(metricName);
+                                        var deltaColor = metric.DeltaPct == 0 ? "var(--cbn-text-muted)"
+                                            : (metricHigherIsBetter ? metric.DeltaPct > 0 : metric.DeltaPct < 0) ? "var(--cbn-success)"
+                                            : "var(--cbn-danger)";
                                         <td class="@cellClass">
                                             <div style="font-weight:600;">@FormatMetric(metric.ScenarioValue, isRatio)</div>
-                                            <div style="font-size:var(--text-caption);color:@(metric.DeltaPct < 0 ? "var(--cbn-danger)" : metric.DeltaPct > 0 ? "var(--cbn-success)" : "var(--cbn-text-muted)");">
+                                            <div style="font-size:var(--text-caption);color:@deltaColor;">
                                                 @(metric.DeltaPct >= 0 ? "+" : "")@metric.DeltaPct.ToString("N1")%
                                             </div>
                                             <BreachIndicator Severity="metric.Breach" Compact />
@@ -191,9 +204,18 @@ else if (_report != null)
     private bool _loading;
     private bool _running;
     private bool _chartsRendered;
+    private string? _error;
+    private Guid _tenantId = Guid.Empty;
 
     protected override async Task OnInitializedAsync()
     {
+        try
+        {
+            var session = await RegulatorSession.GetRequiredAsync();
+            _tenantId = session.TenantId;
+        }
+        catch { /* engine resolves context internally */ }
+
         _allScenarios = await Engine.GetAllScenarios();
 
         if (!string.IsNullOrEmpty(InitialIds))
@@ -230,11 +252,16 @@ else if (_report != null)
         _running = true;
         _loading = true;
         _chartsRendered = false;
+        _error = null;
         StateHasChanged();
 
         try
         {
-            _report = await Engine.CompareScenarios(Guid.Empty, validIds);
+            _report = await Engine.CompareScenarios(_tenantId, validIds);
+        }
+        catch (Exception ex)
+        {
+            _error = $"Comparison failed: {ex.Message}";
         }
         finally
         {

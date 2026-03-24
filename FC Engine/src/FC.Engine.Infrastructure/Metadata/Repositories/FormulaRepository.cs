@@ -118,6 +118,24 @@ public class FormulaRepository : IFormulaRepository
 
     public async Task UpdateCrossSheetRule(CrossSheetRule rule, CancellationToken ct = default)
     {
+        // When operands/expression are replaced via SetOperands, we must explicitly
+        // remove old orphaned children before saving. EF tracks loaded operands from
+        // Include() — any not in the current collection are orphans to delete.
+        var existingOperands = await _db.CrossSheetRuleOperands
+            .Where(o => o.RuleId == rule.Id).ToListAsync(ct);
+        var currentOperandIds = rule.Operands.Where(o => o.Id != 0).Select(o => o.Id).ToHashSet();
+        var orphanedOperands = existingOperands.Where(o => !currentOperandIds.Contains(o.Id));
+        _db.CrossSheetRuleOperands.RemoveRange(orphanedOperands);
+
+        // Handle expression replacement
+        if (rule.Expression != null && rule.Expression.Id == 0)
+        {
+            var existingExpr = await _db.CrossSheetRuleExpressions
+                .FirstOrDefaultAsync(e => e.RuleId == rule.Id, ct);
+            if (existingExpr != null)
+                _db.CrossSheetRuleExpressions.Remove(existingExpr);
+        }
+
         _db.CrossSheetRules.Update(rule);
         await _db.SaveChangesAsync(ct);
     }

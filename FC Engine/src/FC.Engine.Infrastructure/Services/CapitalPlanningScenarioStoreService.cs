@@ -148,7 +148,15 @@ public sealed class CapitalPlanningScenarioStoreService
             CreatedAt = savedAtUtc
         });
 
-        await _db.SaveChangesAsync(ct);
+        try
+        {
+            await _db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            throw new InvalidOperationException(
+                "The capital planning scenario was modified by another user. Please reload and try again.");
+        }
 
         return new CapitalPlanningScenarioState
         {
@@ -208,13 +216,25 @@ public sealed class CapitalPlanningScenarioStoreService
                     [MaxTier2SharePercent] DECIMAL(18,4) NOT NULL,
                     [StepPercent] DECIMAL(18,4) NOT NULL,
                     [SavedAtUtc] DATETIME2 NOT NULL,
-                    [CreatedAt] DATETIME2 NOT NULL CONSTRAINT [DF_capital_planning_scenarios_CreatedAt] DEFAULT SYSUTCDATETIME()
+                    [CreatedAt] DATETIME2 NOT NULL CONSTRAINT [DF_capital_planning_scenarios_CreatedAt] DEFAULT SYSUTCDATETIME(),
+                    [RowVersion] ROWVERSION NULL
                 );
 
                 CREATE UNIQUE INDEX [IX_capital_planning_scenarios_ScenarioKey]
                     ON [meta].[capital_planning_scenarios]([ScenarioKey]);
                 CREATE INDEX [IX_capital_planning_scenarios_SavedAtUtc]
                     ON [meta].[capital_planning_scenarios]([SavedAtUtc]);
+            END;
+
+            IF NOT EXISTS (
+                SELECT 1 FROM sys.columns c
+                JOIN sys.tables t ON c.object_id = t.object_id
+                JOIN sys.schemas s ON t.schema_id = s.schema_id
+                WHERE s.name = 'meta' AND t.name = 'capital_planning_scenarios' AND c.name = 'RowVersion'
+            )
+            BEGIN
+                ALTER TABLE [meta].[capital_planning_scenarios]
+                    ADD [RowVersion] ROWVERSION NULL;
             END;
 
             IF OBJECT_ID(N'[meta].[capital_planning_scenario_history]', N'U') IS NULL

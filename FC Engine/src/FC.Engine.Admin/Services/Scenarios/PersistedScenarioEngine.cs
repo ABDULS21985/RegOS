@@ -36,6 +36,28 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
         return (ctx.RegulatorCode, ctx.TenantId);
     }
 
+    // ── Validation ──────────────────────────────────────────────────────────
+
+    private static void ValidateScenario(ScenarioDefinition scenario)
+    {
+        if (string.IsNullOrWhiteSpace(scenario.Name))
+            throw new ArgumentException("Scenario name is required.");
+
+        if (scenario.Name.Length > 200)
+            throw new ArgumentException("Scenario name must be 200 characters or fewer.");
+
+        if (scenario.Description?.Length > 2000)
+            throw new ArgumentException("Scenario description must be 2000 characters or fewer.");
+
+        if (scenario.TemplateId?.Length > 100)
+            throw new ArgumentException("Template ID must be 100 characters or fewer.");
+
+        // Strip empty overrides (defensive — frontend should already do this)
+        scenario.Overrides = scenario.Overrides
+            .Where(o => !string.IsNullOrWhiteSpace(o.FieldName))
+            .ToList();
+    }
+
     // ── CRUD ───────────────────────────────────────────────────────────────
 
     public async Task<List<ScenarioDefinition>> GetAllScenarios()
@@ -48,7 +70,7 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
             SELECT Id, RegulatorCode, Name, Description, TemplateId,
                    Status, Scope,
                    OverridesJson, MacroShocksJson, AffectedModulesJson,
-                   CreatedAt, CompletedAt
+                   CreatedAt, CompletedAt, RowVersion
             FROM   meta.scenario_definitions
             WHERE  RegulatorCode = @RegulatorCode
             ORDER  BY CreatedAt DESC
@@ -68,7 +90,7 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
             SELECT Id, RegulatorCode, Name, Description, TemplateId,
                    Status, Scope,
                    OverridesJson, MacroShocksJson, AffectedModulesJson,
-                   CreatedAt, CompletedAt
+                   CreatedAt, CompletedAt, RowVersion
             FROM   meta.scenario_definitions
             WHERE  Id            = @Id
               AND  RegulatorCode = @RegulatorCode
@@ -80,6 +102,8 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
 
     public async Task<ScenarioDefinition> SaveScenario(ScenarioDefinition scenario)
     {
+        ValidateScenario(scenario);
+
         var (regulatorCode, _) = await GetContextAsync();
         using var conn = await _db.OpenAsync();
 
@@ -89,15 +113,15 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
 
         if (scenario.Id == 0)
         {
-            // INSERT
-            var newId = await conn.ExecuteScalarAsync<int>(
+            // INSERT — return Id and RowVersion for concurrency tracking
+            var inserted = await conn.QuerySingleAsync<(int Id, byte[] RowVersion)>(
                 """
                 INSERT INTO meta.scenario_definitions
                     (RegulatorCode, Name, Description, TemplateId,
                      Status, Scope,
                      OverridesJson, MacroShocksJson, AffectedModulesJson,
                      CreatedAt, CompletedAt)
-                OUTPUT INSERTED.Id
+                OUTPUT INSERTED.Id, INSERTED.RowVersion
                 VALUES
                     (@RegulatorCode, @Name, @Description, @TemplateId,
                      @Status, @Scope,
@@ -119,12 +143,13 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
                     scenario.CompletedAt,
                 });
 
-            scenario.Id = newId;
+            scenario.Id = inserted.Id;
+            scenario.RowVersion = inserted.RowVersion;
         }
         else
         {
-            // UPDATE (enforce regulator ownership)
-            await conn.ExecuteAsync(
+            // UPDATE with optimistic concurrency — RowVersion must match
+            var updatedVersion = await conn.QuerySingleOrDefaultAsync<byte[]>(
                 """
                 UPDATE meta.scenario_definitions
                 SET    Name                = @Name,
@@ -136,8 +161,10 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
                        MacroShocksJson     = @MacroShocksJson,
                        AffectedModulesJson = @AffectedModulesJson,
                        CompletedAt         = @CompletedAt
+                OUTPUT INSERTED.RowVersion
                 WHERE  Id            = @Id
                   AND  RegulatorCode = @RegulatorCode
+                  AND  (@RowVersion IS NULL OR RowVersion = @RowVersion)
                 """,
                 new
                 {
@@ -152,7 +179,14 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
                     MacroShocksJson     = macroShocksJson,
                     AffectedModulesJson = affectedModulesJson,
                     scenario.CompletedAt,
+                    scenario.RowVersion,
                 });
+
+            if (updatedVersion is null)
+                throw new InvalidOperationException(
+                    "The scenario was modified by another user. Please reload and try again.");
+
+            scenario.RowVersion = updatedVersion;
         }
 
         return scenario;
@@ -392,6 +426,7 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
         public string   AffectedModulesJson { get; set; } = "[]";
         public DateTime CreatedAt           { get; set; }
         public DateTime? CompletedAt        { get; set; }
+        public byte[]?  RowVersion          { get; set; }
     }
 
     private sealed class ResultRow
@@ -425,6 +460,7 @@ public sealed class PersistedScenarioEngine : IScenarioEngine
         AffectedModules = Deserialize<List<string>>(r.AffectedModulesJson),
         CreatedAt       = r.CreatedAt,
         CompletedAt     = r.CompletedAt,
+        RowVersion      = r.RowVersion,
     };
 
     private static ScenarioResult MapToResult(ResultRow r) => new()

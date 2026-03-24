@@ -3,6 +3,7 @@
 @inject FC.Engine.Infrastructure.Services.CapitalPlanningScenarioStoreService ScenarioStore
 @inject FC.Engine.Admin.Services.ToastService Toast
 @inject IJSRuntime JS
+@inject ILogger<FC.Engine.Admin.Components.Pages.Capital.BufferManagement> Logger
 
 <PageTitle>Buffer Management</PageTitle>
 
@@ -163,18 +164,20 @@
         var rwaGrowth = s.QuarterlyRwaGrowthPercent;
         var earnings = s.QuarterlyRetainedEarningsBn;
         var rwa = s.CurrentRwaBn > 0 ? s.CurrentRwaBn : 1m;
+        var rwaOpt = s.RwaOptimisationPercent;
+        var capitalAction = s.CapitalActionBn;
 
         var rows = new List<BufferRow>();
 
-        AddBuffer(rows, "Minimum Requirement", s.MinimumRequirementPercent, currentCar, rwaGrowth, earnings, rwa);
-        AddBuffer(rows, "Conservation Buffer", s.ConservationBufferPercent, currentCar - s.MinimumRequirementPercent, rwaGrowth, earnings, rwa);
-        AddBuffer(rows, "Countercyclical Buffer", s.CountercyclicalBufferPercent, currentCar - s.MinimumRequirementPercent - s.ConservationBufferPercent, rwaGrowth, earnings, rwa);
-        AddBuffer(rows, "D-SIB Buffer", s.DsibBufferPercent, currentCar - s.MinimumRequirementPercent - s.ConservationBufferPercent - s.CountercyclicalBufferPercent, rwaGrowth, earnings, rwa);
+        AddBuffer(rows, "Minimum Requirement", s.MinimumRequirementPercent, currentCar, rwaGrowth, earnings, rwa, rwaOpt, capitalAction);
+        AddBuffer(rows, "Conservation Buffer", s.ConservationBufferPercent, currentCar - s.MinimumRequirementPercent, rwaGrowth, earnings, rwa, rwaOpt, capitalAction);
+        AddBuffer(rows, "Countercyclical Buffer", s.CountercyclicalBufferPercent, currentCar - s.MinimumRequirementPercent - s.ConservationBufferPercent, rwaGrowth, earnings, rwa, rwaOpt, capitalAction);
+        AddBuffer(rows, "D-SIB Buffer", s.DsibBufferPercent, currentCar - s.MinimumRequirementPercent - s.ConservationBufferPercent - s.CountercyclicalBufferPercent, rwaGrowth, earnings, rwa, rwaOpt, capitalAction);
 
         return rows;
     }
 
-    private static void AddBuffer(List<BufferRow> rows, string name, decimal required, decimal available, decimal rwaGrowth, decimal earnings, decimal rwa)
+    private static void AddBuffer(List<BufferRow> rows, string name, decimal required, decimal available, decimal rwaGrowth, decimal earnings, decimal rwa, decimal rwaOpt, decimal capitalAction)
     {
         if (available < 0) available = 0;
         var distance = available - required;
@@ -183,12 +186,17 @@
         int? qtrToBreach = null;
         if (rwaGrowth > 0 && distance > 0)
         {
-            // Rough estimate: how many quarters until organic RWA growth erodes this buffer
-            var qCar = available;
+            var projRwa = rwa;
+            var projCapital = rwa * available / 100m;
             for (var q = 1; q <= 20; q++)
             {
-                var projRwa = rwa * (decimal)Math.Pow((double)(1m + rwaGrowth / 100m), q);
-                var projCapital = rwa * available / 100m + earnings * q;
+                if (q == 1)
+                {
+                    projRwa *= (1m - rwaOpt / 100m);
+                    projCapital += capitalAction;
+                }
+                projRwa *= (1m + rwaGrowth / 100m);
+                projCapital += earnings;
                 var projCar = projRwa > 0 ? projCapital / projRwa * 100m : 0;
                 if (projCar < required)
                 {
@@ -257,6 +265,11 @@
 
             for (var q = 1; q <= 8; q++)
             {
+                if (q == 1)
+                {
+                    rwa *= (1.0 - (double)_scenario.RwaOptimisationPercent / 100.0);
+                    capital += (double)_scenario.CapitalActionBn;
+                }
                 rwa *= (1.0 + (double)_scenario.QuarterlyRwaGrowthPercent / 100.0);
                 capital += (double)_scenario.QuarterlyRetainedEarningsBn;
                 var car = rwa > 0 ? capital / rwa * 100.0 : 0;
@@ -275,7 +288,7 @@
                 }
             });
         }
-        catch { }
+        catch (Exception ex) { Logger.LogWarning(ex, "Failed to render buffer charts"); }
     }
 
     private sealed class BufferRow

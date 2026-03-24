@@ -23,6 +23,7 @@ public class CapitalPlanningScenarioRecord
     public decimal StepPercent { get; set; }
     public DateTime SavedAtUtc { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    public byte[]? RowVersion { get; set; }
 }
 
 public class CapitalPlanningScenarioHistoryRecord

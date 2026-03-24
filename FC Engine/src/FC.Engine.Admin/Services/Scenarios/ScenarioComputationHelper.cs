@@ -7,6 +7,23 @@ namespace FC.Engine.Admin.Services.Scenarios;
 /// </summary>
 internal static class ScenarioComputationHelper
 {
+    /// <summary>
+    /// Returns whether a higher value for the given metric is an improvement.
+    /// Looks up the canonical BaselineMetrics dictionary first, then falls back
+    /// to a name-based heuristic for metrics not in the dictionary.
+    /// </summary>
+    internal static bool IsHigherBetter(string metricName)
+    {
+        if (BaselineMetrics.TryGetValue(metricName, out var baseline))
+            return baseline.HigherIsBetter;
+
+        // Heuristic fallback for metrics not in the baseline dictionary
+        return !metricName.Contains("NPL") && !metricName.Contains("Open Position")
+            && !metricName.Contains("NDIC") && !metricName.Contains("Provisioning")
+            && !metricName.Contains("Loan-to-Deposit") && !metricName.Contains("Stranded")
+            && !metricName.Contains("Concentration");
+    }
+
     // ── Baseline data for key regulatory metrics ──────────────────────────
     internal static readonly Dictionary<string, (decimal Value, decimal? Threshold, bool HigherIsBetter)> BaselineMetrics = new()
     {
