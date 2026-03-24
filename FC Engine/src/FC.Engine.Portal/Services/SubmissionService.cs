@@ -9,6 +9,7 @@ using FC.Engine.Infrastructure.Metadata;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
+using System.Security.Claims;
 
 /// <summary>
 /// Portal service that orchestrates the submission wizard workflow:
@@ -528,6 +529,98 @@ public class SubmissionService
     }
 
     /// <summary>
+    /// Post-processes a bulk CSV/XLSX submission to achieve full parity with the XML
+    /// path: maker-checker routing with approval-request notifications when enabled,
+    /// direct-acceptance notification + SLA recording when not.
+    /// Returns true if the submission was rerouted to PendingApproval.
+    /// </summary>
+    public async Task<bool> FinalizeBulkSubmission(
+        int submissionId,
+        int institutionId,
+        int submittedByUserId,
+        string returnCode,
+        int returnPeriodId,
+        int errorCount,
+        int warningCount)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync();
+
+        var submission = await _submissionRepo.GetById(submissionId);
+        if (submission is null || submission.InstitutionId != institutionId)
+            return false;
+
+        var isAccepted = submission.Status is SubmissionStatus.Accepted or SubmissionStatus.AcceptedWithWarnings;
+        if (!isAccepted)
+            return false;
+
+        // Resolve display context once — shared by both branches
+        var submitter = await db.InstitutionUsers.FindAsync(submittedByUserId);
+        var period = await db.ReturnPeriods.FindAsync(returnPeriodId);
+        var submitterName = submitter?.DisplayName ?? "Maker";
+        var periodLabel = period is null
+            ? DateTime.UtcNow.ToString("MMM yyyy")
+            : new DateTime(period.Year, period.Month, 1).ToString("MMM yyyy");
+
+        var requiresApproval = await RequiresApprovalRouting(db, institutionId, submittedByUserId, submitter);
+
+        if (requiresApproval)
+        {
+            // ── Maker-checker: route to PendingApproval ──
+            submission.SubmittedByUserId = submittedByUserId;
+            submission.ApprovalRequired = true;
+            submission.MarkPendingApproval();
+            await _submissionRepo.Update(submission);
+
+            var approval = new SubmissionApproval
+            {
+                TenantId = submission.TenantId,
+                SubmissionId = submission.Id,
+                RequestedByUserId = submittedByUserId,
+                RequestedAt = DateTime.UtcNow,
+                Status = ApprovalStatus.Pending
+            };
+            await _approvalRepo.Create(approval);
+
+            // Notify checkers (parity with XML path)
+            try
+            {
+                await _notificationSvc.NotifyApprovalRequest(
+                    institutionId, submissionId, returnCode, periodLabel, submitterName);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to send approval-request notification for bulk submission {SubmissionId}",
+                    submissionId);
+            }
+
+            return true;
+        }
+
+        // ── No maker-checker: record SLA + send acceptance notification ──
+        submission.SubmittedByUserId = submittedByUserId;
+        await _submissionRepo.Update(submission);
+
+        await TryRecordSla(returnPeriodId, submissionId);
+
+        try
+        {
+            await _notificationSvc.NotifySubmissionResult(
+                submittedByUserId, institutionId, submissionId,
+                returnCode, periodLabel, submission.Status,
+                errorCount, warningCount);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Failed to send acceptance notification for bulk submission {SubmissionId}",
+                submissionId);
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Check if an institution has maker-checker enabled.
     /// </summary>
     public async Task<bool> IsMakerCheckerEnabled(int institutionId)
@@ -547,12 +640,17 @@ public class SubmissionService
         int? originalSubmissionId = null)
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var makerCheckerEnabled = submittedByUserId.HasValue && await IsMakerCheckerEnabled(institutionId);
+        InstitutionUser? submitter = null;
+        if (submittedByUserId.HasValue)
+        {
+            submitter = await db.InstitutionUsers.FindAsync(submittedByUserId.Value);
+        }
+
+        var requiresApproval = await RequiresApprovalRouting(db, institutionId, submittedByUserId, submitter);
         SubmissionReviewNotificationContext? reviewNotificationContext = null;
 
-        if (makerCheckerEnabled && submittedByUserId.HasValue)
+        if (requiresApproval && submittedByUserId.HasValue)
         {
-            var submitter = await db.InstitutionUsers.FindAsync(submittedByUserId.Value);
             var institution = await db.Institutions.FindAsync(institutionId);
             var period = await db.ReturnPeriods.FindAsync(returnPeriodId);
 
@@ -605,7 +703,7 @@ public class SubmissionService
             return result;
         }
 
-        if (!makerCheckerEnabled)
+        if (!requiresApproval)
         {
             // Even without maker-checker, record who submitted
             var sub = await _submissionRepo.GetById(result.SubmissionId);
@@ -663,6 +761,23 @@ public class SubmissionService
         }
 
         return result;
+    }
+
+    private async Task<bool> RequiresApprovalRouting(
+        MetadataDbContext db,
+        int institutionId,
+        int? submittedByUserId,
+        InstitutionUser? submitter = null)
+    {
+        if (!submittedByUserId.HasValue || !await IsMakerCheckerEnabled(institutionId))
+            return false;
+
+        submitter ??= await db.InstitutionUsers.FindAsync(submittedByUserId.Value);
+        if (submitter is not null)
+            return submitter.Role == InstitutionRole.Maker;
+
+        var roleClaim = _httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.Role)?.Value;
+        return string.Equals(roleClaim, InstitutionRole.Maker.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     private async Task TryRecordSla(int periodId, int submissionId)

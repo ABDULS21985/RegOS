@@ -207,9 +207,9 @@ public class ValidationOrchestrator
                 }
 
                 // Allowed values check
-                if (field.AllowedValues != null)
+                if (!string.IsNullOrWhiteSpace(field.AllowedValues))
                 {
-                    var allowed = System.Text.Json.JsonSerializer.Deserialize<List<string>>(field.AllowedValues);
+                    var allowed = ParseAllowedValues(field.AllowedValues);
                     if (allowed != null && !allowed.Contains(value.ToString()!, StringComparer.OrdinalIgnoreCase))
                     {
                         errors.Add(new ValidationError
@@ -228,5 +228,25 @@ public class ValidationOrchestrator
         }
 
         return errors;
+    }
+
+    private static List<string>? ParseAllowedValues(string rawAllowedValues)
+    {
+        if (string.IsNullOrWhiteSpace(rawAllowedValues))
+        {
+            return null;
+        }
+
+        var trimmed = rawAllowedValues.Trim();
+        if (trimmed.StartsWith("[", StringComparison.Ordinal))
+        {
+            return System.Text.Json.JsonSerializer.Deserialize<List<string>>(trimmed);
+        }
+
+        var values = trimmed
+            .Split([',', '|'], StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .ToList();
+
+        return values.Count == 0 ? null : values;
     }
 }

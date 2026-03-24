@@ -187,6 +187,211 @@ public class SubmissionServiceTests
         periods.Single(x => x.ReturnPeriodId == 102).HasExistingSubmission.Should().BeFalse();
     }
 
+    // ── FinalizeBulkSubmission tests ──────────────────────────────────────
+
+    [Fact]
+    public async Task FinalizeBulkSubmission_Routes_To_PendingApproval_When_MakerChecker_Enabled()
+    {
+        var tenantId = Guid.NewGuid();
+        var dbFactory = new TestMetadataDbContextFactory(nameof(FinalizeBulkSubmission_Routes_To_PendingApproval_When_MakerChecker_Enabled));
+        await using var db = dbFactory.CreateDbContext();
+
+        db.Institutions.Add(new Institution
+        {
+            Id = 1, TenantId = tenantId, InstitutionName = "Test Bank",
+            InstitutionCode = "001", LicenseType = "DMB",
+            MakerCheckerEnabled = true, CreatedAt = DateTime.UtcNow
+        });
+        db.InstitutionUsers.Add(new InstitutionUser
+        {
+            Id = 10, InstitutionId = 1, TenantId = tenantId,
+            Username = "jmaker", DisplayName = "Jane Maker", Email = "jane@test.com",
+            Role = InstitutionRole.Maker, IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.ReturnPeriods.Add(CreateReturnPeriod(tenantId, 55, 1, 2026, 3, true));
+        await db.SaveChangesAsync();
+
+        var submission = new Submission
+        {
+            Id = 5001, InstitutionId = 1, TenantId = tenantId,
+            ReturnCode = "CAP_BUF", ReturnPeriodId = 55,
+            Status = SubmissionStatus.Accepted,
+            SubmittedAt = DateTime.UtcNow
+        };
+
+        var submissionRepo = new Mock<ISubmissionRepository>();
+        submissionRepo.Setup(x => x.GetById(5001, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(submission);
+
+        var approvalRepo = new Mock<ISubmissionApprovalRepository>();
+        var notificationSvc = new Mock<NotificationService>(
+            Mock.Of<IPortalNotificationRepository>(),
+            Mock.Of<INotificationOrchestrator>(),
+            Mock.Of<IInstitutionUserRepository>(),
+            Mock.Of<IInstitutionRepository>(),
+            Mock.Of<ITenantContext>(),
+            Mock.Of<ITenantBrandingService>(),
+            Mock.Of<ITemplateMetadataCache>());
+
+        var sut = CreateSubmissionServiceFull(
+            submissionRepo.Object, approvalRepo.Object, notificationSvc.Object, dbFactory);
+
+        var routed = await sut.FinalizeBulkSubmission(5001, 1, 10, "CAP_BUF", 55, 0, 0);
+
+        routed.Should().BeTrue();
+        submission.Status.Should().Be(SubmissionStatus.PendingApproval);
+        submission.ApprovalRequired.Should().BeTrue();
+        approvalRepo.Verify(x => x.Create(It.Is<SubmissionApproval>(a =>
+            a.SubmissionId == 5001 && a.RequestedByUserId == 10 && a.Status == ApprovalStatus.Pending),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task FinalizeBulkSubmission_Records_SLA_And_Notifies_When_No_MakerChecker()
+    {
+        var tenantId = Guid.NewGuid();
+        var dbFactory = new TestMetadataDbContextFactory(nameof(FinalizeBulkSubmission_Records_SLA_And_Notifies_When_No_MakerChecker));
+        await using var db = dbFactory.CreateDbContext();
+
+        db.Institutions.Add(new Institution
+        {
+            Id = 2, TenantId = tenantId, InstitutionName = "Small FI",
+            InstitutionCode = "002", LicenseType = "MFB",
+            MakerCheckerEnabled = false, CreatedAt = DateTime.UtcNow
+        });
+        db.InstitutionUsers.Add(new InstitutionUser
+        {
+            Id = 20, InstitutionId = 2, TenantId = tenantId,
+            Username = "buser", DisplayName = "Bob User", Email = "bob@test.com",
+            Role = InstitutionRole.Maker, IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.ReturnPeriods.Add(CreateReturnPeriod(tenantId, 66, 1, 2026, 2, true));
+        await db.SaveChangesAsync();
+
+        var submission = new Submission
+        {
+            Id = 6001, InstitutionId = 2, TenantId = tenantId,
+            ReturnCode = "CAP_BUF", ReturnPeriodId = 66,
+            Status = SubmissionStatus.AcceptedWithWarnings,
+            SubmittedAt = DateTime.UtcNow
+        };
+
+        var submissionRepo = new Mock<ISubmissionRepository>();
+        submissionRepo.Setup(x => x.GetById(6001, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(submission);
+
+        var filingCalendar = new Mock<IFilingCalendarService>();
+        var notificationSvc = new Mock<NotificationService>(
+            Mock.Of<IPortalNotificationRepository>(),
+            Mock.Of<INotificationOrchestrator>(),
+            Mock.Of<IInstitutionUserRepository>(),
+            Mock.Of<IInstitutionRepository>(),
+            Mock.Of<ITenantContext>(),
+            Mock.Of<ITenantBrandingService>(),
+            Mock.Of<ITemplateMetadataCache>());
+
+        var sut = CreateSubmissionServiceFull(
+            submissionRepo.Object, Mock.Of<ISubmissionApprovalRepository>(),
+            notificationSvc.Object, dbFactory, filingCalendar.Object);
+
+        var routed = await sut.FinalizeBulkSubmission(6001, 2, 20, "CAP_BUF", 66, 0, 2);
+
+        routed.Should().BeFalse();
+        submission.Status.Should().Be(SubmissionStatus.AcceptedWithWarnings); // unchanged
+        filingCalendar.Verify(x => x.RecordSla(66, 6001, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task FinalizeBulkSubmission_Does_Not_Route_Admin_To_PendingApproval_When_MakerChecker_Enabled()
+    {
+        var tenantId = Guid.NewGuid();
+        var dbFactory = new TestMetadataDbContextFactory(nameof(FinalizeBulkSubmission_Does_Not_Route_Admin_To_PendingApproval_When_MakerChecker_Enabled));
+        await using var db = dbFactory.CreateDbContext();
+
+        db.Institutions.Add(new Institution
+        {
+            Id = 8, TenantId = tenantId, InstitutionName = "Access Bank",
+            InstitutionCode = "004", LicenseType = "DMB",
+            MakerCheckerEnabled = true, CreatedAt = DateTime.UtcNow
+        });
+        db.InstitutionUsers.Add(new InstitutionUser
+        {
+            Id = 80, InstitutionId = 8, TenantId = tenantId,
+            Username = "accessdemo", DisplayName = "Access Demo Admin", Email = "accessdemo@test.com",
+            Role = InstitutionRole.Admin, IsActive = true,
+            CreatedAt = DateTime.UtcNow
+        });
+        db.ReturnPeriods.Add(CreateReturnPeriod(tenantId, 88, 1, 2026, 3, true));
+        await db.SaveChangesAsync();
+
+        var submission = new Submission
+        {
+            Id = 8001, InstitutionId = 8, TenantId = tenantId,
+            ReturnCode = "DMB_OPR", ReturnPeriodId = 88,
+            Status = SubmissionStatus.AcceptedWithWarnings,
+            SubmittedAt = DateTime.UtcNow
+        };
+
+        var submissionRepo = new Mock<ISubmissionRepository>();
+        submissionRepo.Setup(x => x.GetById(8001, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(submission);
+
+        var filingCalendar = new Mock<IFilingCalendarService>();
+        var notificationSvc = new Mock<NotificationService>(
+            Mock.Of<IPortalNotificationRepository>(),
+            Mock.Of<INotificationOrchestrator>(),
+            Mock.Of<IInstitutionUserRepository>(),
+            Mock.Of<IInstitutionRepository>(),
+            Mock.Of<ITenantContext>(),
+            Mock.Of<ITenantBrandingService>(),
+            Mock.Of<ITemplateMetadataCache>());
+
+        var approvalRepo = new Mock<ISubmissionApprovalRepository>();
+
+        var sut = CreateSubmissionServiceFull(
+            submissionRepo.Object,
+            approvalRepo.Object,
+            notificationSvc.Object,
+            dbFactory,
+            filingCalendar.Object);
+
+        var routed = await sut.FinalizeBulkSubmission(8001, 8, 80, "DMB_OPR", 88, 0, 5);
+
+        routed.Should().BeFalse();
+        submission.Status.Should().Be(SubmissionStatus.AcceptedWithWarnings);
+        submission.ApprovalRequired.Should().BeFalse();
+        approvalRepo.Verify(x => x.Create(It.IsAny<SubmissionApproval>(), It.IsAny<CancellationToken>()), Times.Never);
+        filingCalendar.Verify(x => x.RecordSla(88, 8001, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task FinalizeBulkSubmission_Returns_False_For_Rejected_Submission()
+    {
+        var tenantId = Guid.NewGuid();
+        var dbFactory = new TestMetadataDbContextFactory(nameof(FinalizeBulkSubmission_Returns_False_For_Rejected_Submission));
+
+        var submission = new Submission
+        {
+            Id = 7001, InstitutionId = 3, TenantId = tenantId,
+            ReturnCode = "CAP_BUF", ReturnPeriodId = 77,
+            Status = SubmissionStatus.Rejected, SubmittedAt = DateTime.UtcNow
+        };
+
+        var submissionRepo = new Mock<ISubmissionRepository>();
+        submissionRepo.Setup(x => x.GetById(7001, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(submission);
+
+        var sut = CreateSubmissionServiceFull(submissionRepo.Object, dbFactory: dbFactory);
+
+        var routed = await sut.FinalizeBulkSubmission(7001, 3, 30, "CAP_BUF", 77, 5, 0);
+
+        routed.Should().BeFalse();
+    }
+
+    // ── Factory helpers ──────────────────────────────────────────────────
+
     private static SubmissionService CreateSubmissionService(
         TemplateService templateService,
         IEntitlementService entitlementService,
@@ -204,6 +409,28 @@ public class SubmissionServiceTests
             dbFactory,
             null!,
             Mock.Of<IFilingCalendarService>(),
+            Mock.Of<ITemplateMetadataCache>(),
+            Mock.Of<ILogger<SubmissionService>>(),
+            Mock.Of<Microsoft.AspNetCore.Http.IHttpContextAccessor>());
+    }
+
+    private static SubmissionService CreateSubmissionServiceFull(
+        ISubmissionRepository submissionRepository,
+        ISubmissionApprovalRepository? approvalRepository = null,
+        NotificationService? notificationService = null,
+        IDbContextFactory<MetadataDbContext>? dbFactory = null,
+        IFilingCalendarService? filingCalendarService = null)
+    {
+        return new SubmissionService(
+            null!,
+            Mock.Of<IEntitlementService>(),
+            new TestTenantContext(),
+            submissionRepository,
+            approvalRepository ?? Mock.Of<ISubmissionApprovalRepository>(),
+            null!,
+            dbFactory ?? new TestMetadataDbContextFactory("default"),
+            notificationService!,
+            filingCalendarService ?? Mock.Of<IFilingCalendarService>(),
             Mock.Of<ITemplateMetadataCache>(),
             Mock.Of<ILogger<SubmissionService>>(),
             Mock.Of<Microsoft.AspNetCore.Http.IHttpContextAccessor>());

@@ -1,100 +1,313 @@
 @page "/analytics/chat/history"
 @attribute [Authorize]
 @using System.Globalization
-@using System.Security.Claims
-@using FC.Engine.Domain.Abstractions
-@using FC.Engine.Domain.Models
-@using Microsoft.AspNetCore.Authorization
-@using Microsoft.AspNetCore.Components.Authorization
 @inject IComplianceIqService ComplianceIqService
 @inject NavigationManager Navigation
 
 <PageTitle>ComplianceIQ Query History</PageTitle>
 
-<div class="container-fluid px-4 py-3">
-    <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
-        <div>
-            <h1 class="h3 mb-1">ComplianceIQ Query History</h1>
-            <p class="text-muted mb-0">Recent audited questions asked in your tenant workspace.</p>
-        </div>
-        <button class="btn btn-primary btn-sm" type="button" @onclick="OpenChat">
-            Open Chat
-        </button>
-    </div>
+<div class="portal-page portal-qh-shell">
+    <PortalPageHeader Title="ComplianceIQ Query History"
+                      Subtitle="Recent audited questions asked in your tenant workspace."
+                      Breadcrumb="@_breadcrumb">
+        <SecondaryActions>
+            <button class="portal-btn portal-btn-ghost portal-btn-sm" @onclick="LoadAsync" disabled="@_isLoading">Refresh</button>
+        </SecondaryActions>
+        <PrimaryAction>
+            <button class="portal-btn portal-btn-primary portal-btn-sm" type="button" @onclick="OpenChat">Open Chat</button>
+        </PrimaryAction>
+    </PortalPageHeader>
 
     @if (_isLoading)
     {
-        <div class="text-center py-5">
-            <div class="spinner-border text-primary" role="status"></div>
-            <p class="text-muted mt-3 mb-0">Loading query history...</p>
+        <div class="portal-qh-flow" aria-busy="true" aria-label="Loading query history">
+            <div class="portal-qh-stat-grid">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="portal-qh-stat portal-skeleton" style="height: 120px;"></div>
+                }
+            </div>
+            <div class="portal-card portal-skeleton" style="height: 420px;"></div>
         </div>
     }
     else if (!string.IsNullOrWhiteSpace(_error))
     {
-        <div class="alert alert-danger">@_error</div>
+        <div class="portal-qh-error">
+            <strong>Unable to load query history.</strong>
+            <span>@_error</span>
+            <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="LoadAsync">Retry</button>
+        </div>
     }
     else if (_history.Count == 0)
     {
-        <div class="alert alert-info">No ComplianceIQ queries have been recorded yet for this tenant.</div>
+        <div class="portal-qh-empty portal-card">
+            <h3>No ComplianceIQ queries recorded yet</h3>
+            <p>Questions you ask in ComplianceIQ will appear here as an audited record of your analytical workspace activity.</p>
+            <button class="portal-btn portal-btn-primary portal-btn-sm" @onclick="OpenChat">Start a conversation</button>
+        </div>
     }
     else
     {
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white">
-                <h2 class="h6 mb-0">Latest questions</h2>
-            </div>
-            <div class="table-responsive">
-                <table class="table table-hover mb-0" aria-label="ComplianceIQ query history">
-                    <thead class="table-light">
-                        <tr>
-                            <th scope="col">When</th>
-                            <th scope="col">User</th>
-                            <th scope="col">Question</th>
-                            <th scope="col">Intent</th>
-                            <th scope="col">Template</th>
-                            <th scope="col">Confidence</th>
-                            <th scope="col">Time</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        @foreach (var entry in _history)
-                        {
+        <div class="portal-qh-flow">
+            <section class="portal-qh-stat-grid" aria-label="Query history metrics">
+                <article class="portal-qh-stat">
+                    <span class="portal-qh-stat-label">Total queries</span>
+                    <strong class="portal-qh-stat-value">@_history.Count</strong>
+                    <span class="portal-qh-stat-note">Audited questions in this tenant workspace.</span>
+                </article>
+                <article class="portal-qh-stat">
+                    <span class="portal-qh-stat-label">High confidence</span>
+                    <strong class="portal-qh-stat-value portal-qh-stat-value--success">@_history.Count(x => x.ConfidenceLevel == "HIGH")</strong>
+                    <span class="portal-qh-stat-note">Queries resolved with high model confidence.</span>
+                </article>
+                <article class="portal-qh-stat">
+                    <span class="portal-qh-stat-label">Latest query</span>
+                    <strong class="portal-qh-stat-value">@_history.Max(x => x.CreatedAt).ToString("dd MMM HH:mm", CultureInfo.InvariantCulture)</strong>
+                    <span class="portal-qh-stat-note">Most recent query recorded in this scope.</span>
+                </article>
+            </section>
+
+            <section class="portal-card portal-qh-panel">
+                <div class="portal-qh-panel-head">
+                    <div>
+                        <span class="portal-qh-panel-eyebrow">Audit trail</span>
+                        <h2 class="portal-qh-panel-title">Latest questions</h2>
+                        <p class="portal-qh-panel-copy">Sorted by timestamp so the newest queries stay visible first.</p>
+                    </div>
+                </div>
+                <div class="portal-qh-table-wrap">
+                    <table class="portal-qh-table" aria-label="ComplianceIQ query history">
+                        <thead>
                             <tr>
-                                <td class="text-nowrap">@entry.CreatedAt.ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture)</td>
-                                <td>@entry.UserId</td>
-                                <td>@entry.QueryText</td>
-                                <td>@entry.IntentCode</td>
-                                <td>@entry.TemplateCode</td>
-                                <td>
-                                    <span class="badge @(entry.ConfidenceLevel == "HIGH" ? "bg-success" : entry.ConfidenceLevel == "MEDIUM" ? "bg-warning text-dark" : "bg-danger")">
-                                        @entry.ConfidenceLevel
-                                    </span>
-                                </td>
-                                <td>@entry.TotalTimeMs ms</td>
+                                <th>When</th>
+                                <th>User</th>
+                                <th>Question</th>
+                                <th>Intent</th>
+                                <th>Template</th>
+                                <th>Confidence</th>
+                                <th>Time</th>
                             </tr>
-                        }
-                    </tbody>
-                </table>
-            </div>
+                        </thead>
+                        <tbody>
+                            @foreach (var entry in _history)
+                            {
+                                <tr>
+                                    <td class="portal-qh-nowrap">@entry.CreatedAt.ToString("dd MMM yyyy HH:mm", CultureInfo.InvariantCulture)</td>
+                                    <td>@entry.UserId</td>
+                                    <td>@entry.QueryText</td>
+                                    <td><span class="portal-qh-chip">@entry.IntentCode</span></td>
+                                    <td><span class="portal-qh-chip">@entry.TemplateCode</span></td>
+                                    <td><span class="portal-qh-badge @ConfidenceClass(entry.ConfidenceLevel)">@entry.ConfidenceLevel</span></td>
+                                    <td class="portal-qh-nowrap">@entry.TotalTimeMs ms</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </section>
         </div>
     }
 </div>
 
+<style>
+    .portal-qh-shell {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    .portal-qh-flow {
+        display: flex;
+        flex-direction: column;
+        gap: 1.25rem;
+    }
+
+    .portal-qh-stat-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+    }
+
+    .portal-qh-stat {
+        display: grid;
+        gap: 0.75rem;
+        padding: 1.1rem 1.15rem;
+        border-radius: 22px;
+        background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,251,248,.95));
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.07);
+    }
+
+    .portal-qh-stat-label {
+        color: var(--portal-muted-strong, #64748b);
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+    }
+
+    .portal-qh-stat-value {
+        font-size: 1.8rem;
+        line-height: 1;
+        color: var(--portal-text, #18212f);
+    }
+
+    .portal-qh-stat-value--success { color: #0b6b3f; }
+
+    .portal-qh-stat-note {
+        color: var(--portal-muted, #66758b);
+        line-height: 1.6;
+    }
+
+    .portal-qh-panel {
+        border-radius: 26px;
+        overflow: hidden;
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.07);
+    }
+
+    .portal-qh-panel-head {
+        padding: 1.25rem 1.35rem 0;
+    }
+
+    .portal-qh-panel-eyebrow {
+        color: var(--portal-muted-strong, #64748b);
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+    }
+
+    .portal-qh-panel-title {
+        margin: 0.5rem 0 0;
+        color: var(--portal-text, #18212f);
+        font-weight: 800;
+        letter-spacing: -0.03em;
+    }
+
+    .portal-qh-panel-copy {
+        color: var(--portal-muted, #66758b);
+        line-height: 1.6;
+    }
+
+    .portal-qh-table-wrap {
+        overflow: auto;
+        padding: 1rem 1.35rem 1.35rem;
+    }
+
+    .portal-qh-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.92rem;
+    }
+
+    .portal-qh-table th,
+    .portal-qh-table td {
+        padding: 0.8rem 0.5rem;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+        text-align: left;
+    }
+
+    .portal-qh-table th {
+        color: var(--portal-muted-strong, #64748b);
+        font-size: 0.75rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+
+    .portal-qh-nowrap { white-space: nowrap; }
+
+    .portal-qh-chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+        background: rgba(23, 50, 77, 0.06);
+        border: 1px solid rgba(23, 50, 77, 0.08);
+        color: #4b5563;
+    }
+
+    .portal-qh-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 62px;
+        min-height: 26px;
+        padding: 0 0.6rem;
+        border-radius: 999px;
+        font-size: 0.76rem;
+        font-weight: 700;
+    }
+
+    .portal-qh-badge--success { background: rgba(11, 107, 63, 0.12); color: #0b6b3f; }
+    .portal-qh-badge--warning { background: rgba(224, 124, 36, 0.14); color: #b97908; }
+    .portal-qh-badge--danger { background: rgba(185, 28, 28, 0.12); color: #b91c1c; }
+
+    .portal-qh-error,
+    .portal-qh-empty {
+        display: grid;
+        gap: 0.75rem;
+        padding: 1.25rem;
+        border-radius: 24px;
+        background: rgba(255,255,255,.97);
+        border: 1px solid rgba(15, 23, 42, 0.08);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.07);
+    }
+
+    .portal-qh-error { color: #991b1b; }
+
+    .portal-qh-empty {
+        text-align: center;
+        justify-items: center;
+        padding: 2rem;
+    }
+
+    .portal-qh-empty h3 {
+        margin: 0;
+        color: var(--portal-text, #18212f);
+    }
+
+    .portal-qh-empty p {
+        color: var(--portal-muted, #66758b);
+        max-width: 48ch;
+    }
+
+    @@media (max-width: 768px) {
+        .portal-qh-stat-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
 @code {
     [CascadingParameter] private Task<AuthenticationState> AuthenticationStateTask { get; set; } = default!;
+
+    private readonly IReadOnlyList<BreadcrumbItem> _breadcrumb = new List<BreadcrumbItem>
+    {
+        new("Home", "/"),
+        new("Analytics", "/analytics/chat"),
+        new("Query History", IsCurrent: true)
+    };
 
     private IReadOnlyList<ComplianceIqHistoryEntry> _history = Array.Empty<ComplianceIqHistoryEntry>();
     private bool _isLoading = true;
     private string? _error;
 
-    protected override async Task OnInitializedAsync()
+    protected override async Task OnInitializedAsync() => await LoadAsync();
+
+    private async Task LoadAsync()
     {
+        _isLoading = true;
+        _error = null;
+
         try
         {
             var authState = await AuthenticationStateTask;
             var principal = authState.User;
-            var tenantId = Guid.Parse(principal.FindFirst("TenantId")?.Value
-                ?? throw new InvalidOperationException("Tenant context is unavailable."));
+            var tenantId = PortalTenantClaimResolver.ResolveTenantId(principal);
             var userId = principal.FindFirst(ClaimTypes.NameIdentifier)?.Value
                 ?? principal.Identity?.Name;
 
@@ -114,4 +327,11 @@
     {
         Navigation.NavigateTo("/analytics/chat");
     }
+
+    private static string ConfidenceClass(string level) => level switch
+    {
+        "HIGH" => "portal-qh-badge--success",
+        "MEDIUM" => "portal-qh-badge--warning",
+        _ => "portal-qh-badge--danger"
+    };
 }

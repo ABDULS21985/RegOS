@@ -91,6 +91,7 @@ public class ApprovalService
                 ModuleName = PortalSubmissionLinkBuilder.ResolveModuleName(moduleCode),
                 WorkspaceHref = PortalSubmissionLinkBuilder.ResolveWorkspaceHref(moduleCode),
                 Period = period,
+                RequestedByUserId = approval.RequestedByUserId,
                 SubmittedBy = submitterName,
                 SubmittedAt = approval.RequestedAt,
                 SubmitterNotes = approval.SubmitterNotes,
@@ -260,6 +261,7 @@ public class PendingApprovalItem
     public string? ModuleName { get; set; }
     public string? WorkspaceHref { get; set; }
     public string Period { get; set; } = "";
+    public int RequestedByUserId { get; set; }
     public string SubmittedBy { get; set; } = "";
     public DateTime SubmittedAt { get; set; }
     public string? SubmitterNotes { get; set; }

@@ -1758,10 +1758,36 @@
 
                 if (bulkResult.Success
                     && (bulkResult.Status == SubmissionStatusNames.Accepted
+                        || bulkResult.Status == SubmissionStatusNames.AcceptedWithWarnings
                         || bulkResult.Status == SubmissionStatusNames.PendingApproval))
-                    file.Status = BulkFileStatus.Passed;
-                else if (bulkResult.Success && bulkResult.Status == SubmissionStatusNames.AcceptedWithWarnings)
-                    file.Status = BulkFileStatus.PassedWithWarnings;
+                {
+                    // Finalize: maker-checker routing, notifications, SLA (parity with XML path)
+                    if (_userId.HasValue
+                        && bulkResult.SubmissionId > 0
+                        && SubmissionStatusNames.IsAcceptedLike(bulkResult.Status))
+                    {
+                        try
+                        {
+                            var routed = await SubmissionService.FinalizeBulkSubmission(
+                                bulkResult.SubmissionId,
+                                _institutionId,
+                                _userId.Value,
+                                file.DetectedReturnCode,
+                                _selectedPeriodId,
+                                file.Result.ValidationReport?.ErrorCount ?? 0,
+                                file.Result.ValidationReport?.WarningCount ?? 0);
+                            if (routed)
+                            {
+                                file.Result.Status = SubmissionStatusNames.PendingApproval;
+                            }
+                        }
+                        catch { /* non-fatal: submission is already accepted */ }
+                    }
+
+                    file.Status = bulkResult.Status == SubmissionStatusNames.AcceptedWithWarnings
+                        ? BulkFileStatus.PassedWithWarnings
+                        : BulkFileStatus.Passed;
+                }
                 else
                 {
                     file.Status = BulkFileStatus.Failed;

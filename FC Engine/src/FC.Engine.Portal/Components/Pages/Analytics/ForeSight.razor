@@ -34,6 +34,23 @@
     @if (_isLoading)
     {
         <section class="portal-fs40-loading" role="status" aria-label="Loading ForeSight workspace">
+            @if (_isBootstrapping)
+            {
+                <div class="portal-fs40-bootstrap-notice">
+                    <div class="portal-fs40-bootstrap-icon" aria-hidden="true">
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9">
+                            <path d="M12 2v4"></path><path d="M12 18v4"></path>
+                            <path d="M4.93 4.93l2.83 2.83"></path><path d="M16.24 16.24l2.83 2.83"></path>
+                            <path d="M2 12h4"></path><path d="M18 12h4"></path>
+                            <path d="M4.93 19.07l2.83-2.83"></path><path d="M16.24 7.76l2.83-2.83"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <strong>Generating initial forecasts</strong>
+                        <p>ForeSight is computing filing risk, capital pressure, and compliance-health predictions for your institution. This may take a moment on first visit.</p>
+                    </div>
+                </div>
+            }
             <div class="portal-fs40-loading-hero"></div>
             <div class="portal-fs40-loading-grid">
                 @for (var i = 0; i < 4; i++)
@@ -917,6 +934,47 @@
         }
     }
 
+
+    .portal-fs40-bootstrap-notice {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 1rem;
+        align-items: center;
+        padding: 1.25rem;
+        border-radius: 24px;
+        border: 1px solid rgba(0, 107, 63, 0.18);
+        background: linear-gradient(135deg, rgba(247, 254, 249, 0.97), rgba(255, 255, 255, 0.95));
+        margin-bottom: 1rem;
+    }
+
+    .portal-fs40-bootstrap-icon {
+        width: 50px;
+        height: 50px;
+        border-radius: 16px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, rgba(0, 107, 63, 0.12), rgba(200, 164, 21, 0.1));
+        color: #006b3f;
+        animation: portal-fs40-spin 2s linear infinite;
+    }
+
+    .portal-fs40-bootstrap-notice strong {
+        display: block;
+        color: #172335;
+        margin-bottom: 0.3rem;
+    }
+
+    .portal-fs40-bootstrap-notice p {
+        margin: 0;
+        color: #607082;
+        line-height: 1.55;
+    }
+
+    @@keyframes portal-fs40-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+
     @@media (max-width: 1220px) {
         .portal-fs40-overview,
         .portal-fs40-grid,
@@ -962,6 +1020,7 @@
     private ForeSightDashboardData? _dashboard;
     private Guid _tenantId;
     private bool _isLoading = true;
+    private bool _isBootstrapping;
     private bool _busy;
     private string? _error;
 
@@ -1079,7 +1138,17 @@
             return dashboard;
         }
 
-        await RunPredictionsAsync(tenantId, "FORESIGHT_AUTO");
+        _isBootstrapping = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await RunPredictionsAsync(tenantId, "FORESIGHT_AUTO");
+        }
+        finally
+        {
+            _isBootstrapping = false;
+        }
 
         await using var refreshedScope = ScopeFactory.CreateAsyncScope();
         var refreshedService = refreshedScope.ServiceProvider.GetRequiredService<IForeSightService>();

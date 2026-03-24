@@ -5,6 +5,7 @@ using FC.Engine.Infrastructure;
 using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Domain.Models;
 using FC.Engine.Infrastructure.Export;
+using FC.Engine.Migrator;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -20,7 +21,8 @@ builder.Configuration
     .AddJsonFile(
         Path.Combine(configurationBasePath, $"appsettings.{builder.Environment.EnvironmentName}.json"),
         optional: true,
-        reloadOnChange: false);
+        reloadOnChange: false)
+    .AddEnvironmentVariables();
 
 builder.Services.AddSingleton<IWebHostEnvironment>(_ =>
 {
@@ -46,6 +48,7 @@ builder.Services.AddScoped<CrossSheetRuleSeedService>();
 builder.Services.AddScoped<BusinessRuleSeedService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<InstitutionAuthService>();
+builder.Services.AddScoped<DmbDemoWorkspaceService>();
 
 var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
@@ -310,6 +313,24 @@ try
     var rulesCreated = await businessRuleSeeder.SeedDefaultRules();
     logger.LogInformation("Business rules seeded: {Created} created", rulesCreated);
 
+    if (string.Equals(command, "prepare-dmb-demo", StringComparison.OrdinalIgnoreCase))
+    {
+        var dmbDemoService = scope.ServiceProvider.GetRequiredService<DmbDemoWorkspaceService>();
+        var templatesDirectory = ResolveDmbTemplatesDirectory(builder.Configuration, configurationBasePath);
+        var demoPassword = builder.Configuration["Demo:DmbPassword"]
+            ?? builder.Configuration["DefaultAdmin:Password"]
+            ?? "Admin@FcEngine2026!";
+
+        var result = await dmbDemoService.PrepareAsync(templatesDirectory, demoPassword);
+        logger.LogInformation(
+            "DMB demo prepared: {FilesWritten} sample files written, {FilesDeleted} removed, {HistoricalPeriodsCreated} periods created, {HistoricalSubmissionsCreated} submissions created, verification sample {VerificationSamplePath}",
+            result.SampleFilesWritten,
+            result.SampleFilesDeleted,
+            result.HistoricalPeriodsCreated,
+            result.HistoricalSubmissionsCreated,
+            result.VerificationSamplePath);
+    }
+
     logger.LogInformation("RegOS™ Migrator completed successfully");
 }
 catch (Exception ex)
@@ -330,6 +351,29 @@ static async Task<bool> PhysicalTableExistsAsync(MetadataDbContext db, string ta
             """,
             tableName)
         .AnyAsync(ct);
+}
+
+static string ResolveDmbTemplatesDirectory(IConfiguration configuration, string configurationBasePath)
+{
+    var configured = configuration["Demo:DmbTemplatesDirectory"];
+    if (!string.IsNullOrWhiteSpace(configured))
+    {
+        return Path.GetFullPath(configured);
+    }
+
+    var cwdTemplates = Path.Combine(Directory.GetCurrentDirectory(), "Templates");
+    if (Directory.Exists(cwdTemplates))
+    {
+        return cwdTemplates;
+    }
+
+    var repoTemplates = Path.GetFullPath(Path.Combine(configurationBasePath, "..", "..", "..", "Templates"));
+    if (Directory.Exists(repoTemplates))
+    {
+        return repoTemplates;
+    }
+
+    return cwdTemplates;
 }
 
 static async Task<(int Backfilled, int Skipped)> BackfillMissingAnomalyReportsAsync(

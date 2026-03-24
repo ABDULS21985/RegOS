@@ -8,6 +8,7 @@
 @using Microsoft.AspNetCore.Components.Web
 @inject IComplianceIqService ComplianceIqService
 @inject NavigationManager Navigation
+@inject ToastService Toast
 
 <PageTitle>ComplianceIQ</PageTitle>
 <HeadContent>
@@ -340,15 +341,22 @@
                                             @if (message.Response?.TurnId is int turnId)
                                             {
                                                 <div class="portal-iq-feedback-row">
-                                                    <span class="portal-iq-block-label">Was this useful?</span>
-                                                    <div class="portal-iq-feedback-actions">
-                                                        <button class="portal-iq-feedback-btn" type="button" @onclick="() => SubmitFeedbackAsync(turnId, (short)5)">
-                                                            Helpful
-                                                        </button>
-                                                        <button class="portal-iq-feedback-btn portal-iq-feedback-btn--muted" type="button" @onclick="() => SubmitFeedbackAsync(turnId, (short)2)">
-                                                            Needs work
-                                                        </button>
-                                                    </div>
+                                                    @if (_submittedFeedbackTurnIds.Contains(turnId))
+                                                    {
+                                                        <span class="portal-iq-block-label portal-iq-feedback-thanked">Feedback recorded</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="portal-iq-block-label">Was this useful?</span>
+                                                        <div class="portal-iq-feedback-actions">
+                                                            <button class="portal-iq-feedback-btn" type="button" @onclick="() => SubmitFeedbackAsync(turnId, (short)5)">
+                                                                Helpful
+                                                            </button>
+                                                            <button class="portal-iq-feedback-btn portal-iq-feedback-btn--muted" type="button" @onclick="() => SubmitFeedbackAsync(turnId, (short)2)">
+                                                                Needs work
+                                                            </button>
+                                                        </div>
+                                                    }
                                                 </div>
                                             }
                                         </article>
@@ -437,6 +445,7 @@
     ];
 
     private readonly List<ChatMessage> _messages = new();
+    private readonly HashSet<int> _submittedFeedbackTurnIds = new();
     private IReadOnlyList<ComplianceIqQuickQuestionView> _quickQuestions = Array.Empty<ComplianceIqQuickQuestionView>();
     private Guid? _conversationId;
     private string _query = string.Empty;
@@ -596,11 +605,11 @@
         await SendAsync();
     }
 
-    private void HandleKeyDown(KeyboardEventArgs args)
+    private async Task HandleKeyDown(KeyboardEventArgs args)
     {
         if (args.Key == "Enter" && !args.ShiftKey)
         {
-            _ = SendAsync();
+            await SendAsync();
         }
     }
 
@@ -608,6 +617,7 @@
     {
         _conversationId = null;
         _messages.Clear();
+        _submittedFeedbackTurnIds.Clear();
         _query = string.Empty;
         _error = null;
     }
@@ -638,9 +648,11 @@
                 ?? "unknown";
 
             await ComplianceIqService.SubmitFeedbackAsync(turnId, tenantId, userId, rating, null);
+            _submittedFeedbackTurnIds.Add(turnId);
         }
-        catch
+        catch (Exception ex)
         {
+            Toast.Warning("Feedback could not be saved: " + ex.Message, "Feedback");
         }
     }
 

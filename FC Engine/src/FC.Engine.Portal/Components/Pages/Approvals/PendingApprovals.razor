@@ -76,14 +76,17 @@
                      id="pa-card-@c.Item.SubmissionId"
                      role="listitem">
 
-                    <!-- Hover-revealed checkbox -->
-                    <div class="pa-card-check" @onclick:stopPropagation>
-                        <input type="checkbox"
-                               class="pa-checkbox"
-                               checked="@c.IsChecked"
-                               @onchange="() => ToggleCheck(c)"
-                               aria-label="Select submission #@c.Item.SubmissionId" />
-                    </div>
+                    <!-- Hover-revealed checkbox (hidden for self-submissions) -->
+                    @if (c.Item.RequestedByUserId != _currentUserId)
+                    {
+                        <div class="pa-card-check" @onclick:stopPropagation>
+                            <input type="checkbox"
+                                   class="pa-checkbox"
+                                   checked="@c.IsChecked"
+                                   @onchange="() => ToggleCheck(c)"
+                                   aria-label="Select submission #@c.Item.SubmissionId" />
+                        </div>
+                    }
 
                     <!-- Main body (click → detail page) -->
                     <div class="pa-card-body" @onclick="() => NavigateToDetail(c.Item.SubmissionId)" role="button" tabindex="0" aria-label="View submission #@c.Item.SubmissionId">
@@ -161,22 +164,34 @@
 
                     <!-- Action buttons -->
                     <div class="pa-card-actions" @onclick:stopPropagation>
-                        <button class="portal-btn portal-btn-success portal-btn-sm"
-                                @onclick="() => ApproveOptimistic(c.Item.SubmissionId, null)"
-                                title="Approve this submission"
-                                aria-label="Approve submission #@c.Item.SubmissionId">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-                                <polyline points="20 6 9 17 4 12"/>
-                            </svg>
-                        </button>
-                        <button class="portal-btn portal-btn-danger portal-btn-sm"
-                                @onclick="() => OpenRejectModal(c.Item.SubmissionId)"
-                                title="Reject this submission"
-                                aria-label="Reject submission #@c.Item.SubmissionId">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
-                                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                            </svg>
-                        </button>
+                        @if (c.Item.RequestedByUserId == _currentUserId)
+                        {
+                            <span class="pa-self-chip" title="You submitted this — a different Checker must review it">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                                </svg>
+                                Your submission
+                            </span>
+                        }
+                        else
+                        {
+                            <button class="portal-btn portal-btn-success portal-btn-sm"
+                                    @onclick="() => ApproveOptimistic(c.Item.SubmissionId, null)"
+                                    title="Approve this submission"
+                                    aria-label="Approve submission #@c.Item.SubmissionId">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                    <polyline points="20 6 9 17 4 12"/>
+                                </svg>
+                            </button>
+                            <button class="portal-btn portal-btn-danger portal-btn-sm"
+                                    @onclick="() => OpenRejectModal(c.Item.SubmissionId)"
+                                    title="Reject this submission"
+                                    aria-label="Reject submission #@c.Item.SubmissionId">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true">
+                                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                                </svg>
+                            </button>
+                        }
                         <a href="/submissions/@c.Item.SubmissionId"
                            class="portal-btn portal-btn-ghost portal-btn-sm"
                            @onclick:stopPropagation>
@@ -331,7 +346,7 @@
     private PeriodicTimer? _presenceTimer;
     private CancellationTokenSource _presenceCts = new();
 
-    private int _selectedCount => _cards.Count(c => c.IsChecked);
+    private int _selectedCount => _cards.Count(c => c.IsChecked && c.Item.RequestedByUserId != _currentUserId);
 
     // ── Services ──────────────────────────────────────────────────
     [CascadingParameter] private Task<AuthenticationState>? AuthState { get; set; }
@@ -471,10 +486,12 @@
                     var msg = result switch
                     {
                         ApprovalActionResult.SelfApprovalNotAllowed => "You cannot approve your own submission.",
-                        ApprovalActionResult.AlreadyProcessed        => "This submission has already been reviewed.",
+                        ApprovalActionResult.AlreadyProcessed       => "This submission has already been reviewed.",
+                        ApprovalActionResult.NotFound                => "Submission not found — it may have been withdrawn.",
+                        ApprovalActionResult.CommentsRequired        => "Rejection comments are required.",
                         _                                            => isApproval
-                                                                            ? "Could not approve — please try again"
-                                                                            : "Could not reject — please try again"
+                                                                            ? "Could not approve — please try again."
+                                                                            : "Could not reject — please try again."
                     };
                     Toast.Error(msg);
                     StateHasChanged();
@@ -621,7 +638,7 @@
     {
         _showBatchConfirm = false;
 
-        var selected = _cards.Where(c => c.IsChecked).ToList();
+        var selected = _cards.Where(c => c.IsChecked && c.Item.RequestedByUserId != _currentUserId).ToList();
         var total    = selected.Count;
         if (total == 0) return;
 

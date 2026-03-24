@@ -94,27 +94,56 @@
             <AppAlert Variant="AppAlert.AlertVariant.Error" Message="@_errorMessage" Dismissible="true" OnDismiss="() => _errorMessage = null" />
         }
 
-        <!-- Template meta strip -->
-        <div class="fc-detail-meta-strip">
-            <div class="fc-detail-meta-item">
-                <span class="fc-detail-meta-label">Return Code</span>
-                <span class="fc-detail-meta-value"><code>@_detail.ReturnCode</code></span>
+        <!-- KPI Stat Cards -->
+        <div class="fc-td-kpi-grid">
+            <div class="fc-td-kpi" style="--td-kpi-accent:#006B3F;--td-kpi-bg:rgba(0,107,63,0.08);">
+                <div class="fc-td-kpi__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                </div>
+                <div class="fc-td-kpi__body">
+                    <div class="fc-td-kpi__value"><code class="fc-tpl-code">@_detail.ReturnCode</code></div>
+                    <div class="fc-td-kpi__label">Return Code</div>
+                </div>
             </div>
-            <div class="fc-detail-meta-item">
-                <span class="fc-detail-meta-label">Category</span>
-                <span class="fc-detail-meta-value">@_detail.StructuralCategory</span>
+            <div class="fc-td-kpi" style="--td-kpi-accent:#8B5CF6;--td-kpi-bg:rgba(139,92,246,0.08);">
+                <div class="fc-td-kpi__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+                </div>
+                <div class="fc-td-kpi__body">
+                    <div class="fc-td-kpi__value">@(_activeVersion?.FieldCount ?? 0)</div>
+                    <div class="fc-td-kpi__label">Fields</div>
+                    <div class="fc-td-kpi__sub">@_detail.StructuralCategory structure</div>
+                </div>
             </div>
-            <div class="fc-detail-meta-item">
-                <span class="fc-detail-meta-label">Version</span>
-                <span class="fc-detail-meta-value">v@(_activeVersion?.VersionNumber)</span>
+            <div class="fc-td-kpi" style="--td-kpi-accent:#3B82F6;--td-kpi-bg:rgba(59,130,246,0.08);">
+                <div class="fc-td-kpi__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+                </div>
+                <div class="fc-td-kpi__body">
+                    <div class="fc-td-kpi__value">@(_activeVersion?.FormulaCount ?? 0)</div>
+                    <div class="fc-td-kpi__label">Formulas</div>
+                    <div class="fc-td-kpi__sub">@_crossSheetRules.Count cross-sheet</div>
+                </div>
             </div>
-            <div class="fc-detail-meta-item">
-                <span class="fc-detail-meta-label">Fields</span>
-                <span class="fc-detail-meta-value">@(_activeVersion?.FieldCount ?? 0)</span>
+            <div class="fc-td-kpi" style="--td-kpi-accent:@VersionAccentColor();--td-kpi-bg:@VersionBgColor();">
+                <div class="fc-td-kpi__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                </div>
+                <div class="fc-td-kpi__body">
+                    <div class="fc-td-kpi__value">v@(_activeVersion?.VersionNumber ?? 0)</div>
+                    <div class="fc-td-kpi__label">@(_activeVersion?.Status ?? "No Version")</div>
+                    <div class="fc-td-kpi__sub">@_detail.Versions.Count version(s) total</div>
+                </div>
             </div>
-            <div class="fc-detail-meta-item">
-                <span class="fc-detail-meta-label">Formulas</span>
-                <span class="fc-detail-meta-value">@(_activeVersion?.FormulaCount ?? 0)</span>
+            <div class="fc-td-kpi" style="--td-kpi-accent:#F59E0B;--td-kpi-bg:rgba(245,158,11,0.08);">
+                <div class="fc-td-kpi__icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg>
+                </div>
+                <div class="fc-td-kpi__body">
+                    <div class="fc-td-kpi__value"><code class="fc-tpl-table-name">@_detail.PhysicalTableName</code></div>
+                    <div class="fc-td-kpi__label">Physical Table</div>
+                    <div class="fc-td-kpi__sub">@FormatFrequency(_detail.Frequency) frequency</div>
+                </div>
             </div>
         </div>
 
@@ -155,108 +184,115 @@
 
         <!-- Tab: Overview -->
         <div class="fc-tab-content @(_activeTab == "overview" ? "fc-tab-content-active" : "")" role="tabpanel">
-            <div class="fc-section">
-                <div class="fc-section-header">
-                    <h3>
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-                        Template Overview
-                    </h3>
-                </div>
-                <div class="fc-section-body">
-                    <div class="fc-detail-info-grid">
-                        <div class="fc-detail-info-item">
-                            <span class="fc-detail-info-label">Return Code</span>
-                            <span class="fc-detail-info-value"><code>@_detail.ReturnCode</code></span>
+            <div class="fc-td-overview-grid">
+                <section class="rg-premium-panel">
+                    <div class="rg-premium-panel__header">
+                        <div>
+                            <div class="rg-premium-panel__eyebrow">Template identity</div>
+                            <h2 class="rg-premium-panel__title">@_detail.Name</h2>
                         </div>
-                        <div class="fc-detail-info-item">
-                            <span class="fc-detail-info-label">Template Name</span>
-                            <span class="fc-detail-info-value">@_detail.Name</span>
+                    </div>
+                    <div class="rg-premium-panel__body">
+                        <div class="rg-premium-list">
+                            <article class="rg-premium-list__item">
+                                <div class="rg-premium-list__top">
+                                    <div class="rg-premium-list__heading">Return Code</div>
+                                    <div class="rg-premium-list__value"><code class="fc-tpl-code">@_detail.ReturnCode</code></div>
+                                </div>
+                            </article>
+                            <article class="rg-premium-list__item">
+                                <div class="rg-premium-list__top">
+                                    <div class="rg-premium-list__heading">Physical Table</div>
+                                    <div class="rg-premium-list__value"><code class="fc-tpl-table-name">@_detail.PhysicalTableName</code></div>
+                                </div>
+                            </article>
+                            <article class="rg-premium-list__item">
+                                <div class="rg-premium-list__top">
+                                    <div class="rg-premium-list__heading">Frequency</div>
+                                    <div class="rg-premium-list__value">@FormatFrequency(_detail.Frequency)</div>
+                                </div>
+                            </article>
+                            <article class="rg-premium-list__item">
+                                <div class="rg-premium-list__top">
+                                    <div class="rg-premium-list__heading">Structure</div>
+                                    <div class="rg-premium-list__value"><span class="fc-badge @CategoryBadge(_detail.StructuralCategory)">@_detail.StructuralCategory</span></div>
+                                </div>
+                            </article>
+                            <article class="rg-premium-list__item">
+                                <div class="rg-premium-list__top">
+                                    <div class="rg-premium-list__heading">Created</div>
+                                    <div class="rg-premium-list__value">@_detail.CreatedAt.ToString("d MMM yyyy")</div>
+                                </div>
+                            </article>
                         </div>
-                        <div class="fc-detail-info-item">
-                            <span class="fc-detail-info-label">Frequency</span>
-                            <span class="fc-detail-info-value">@FormatFrequency(_detail.Frequency)</span>
-                        </div>
-                        <div class="fc-detail-info-item">
-                            <span class="fc-detail-info-label">Structural Category</span>
-                            <span class="fc-detail-info-value">
-                                <span class="fc-badge @CategoryBadge(_detail.StructuralCategory)">@_detail.StructuralCategory</span>
+                    </div>
+                </section>
+
+                @if (_activeVersion != null)
+                {
+                    <section class="rg-premium-panel">
+                        <div class="rg-premium-panel__header">
+                            <div>
+                                <div class="rg-premium-panel__eyebrow">Active version</div>
+                                <h2 class="rg-premium-panel__title">Version @_activeVersion.VersionNumber</h2>
+                            </div>
+                            <span class="fc-detail-status fc-detail-status-@_activeVersion.Status.ToLowerInvariant()">
+                                <span class="fc-detail-status-dot" aria-hidden="true"></span>
+                                @_activeVersion.Status
                             </span>
                         </div>
-                        <div class="fc-detail-info-item">
-                            <span class="fc-detail-info-label">Physical Table</span>
-                            <span class="fc-detail-info-value"><code>@_detail.PhysicalTableName</code></span>
-                        </div>
-                        <div class="fc-detail-info-item">
-                            <span class="fc-detail-info-label">Created</span>
-                            <span class="fc-detail-info-value">@_detail.CreatedAt.ToString("d MMM yyyy")</span>
-                        </div>
-                        @if (_detail.Description != null)
-                        {
-                            <div class="fc-detail-info-item fc-grid-span-2">
-                                <span class="fc-detail-info-label">Description</span>
-                                <span class="fc-detail-info-value">@_detail.Description</span>
+                        <div class="rg-premium-panel__body">
+                            <div class="fc-td-version-stats">
+                                <div class="fc-td-version-stat">
+                                    <div class="fc-td-version-stat__value">@_activeVersion.FieldCount</div>
+                                    <div class="fc-td-version-stat__label">Fields</div>
+                                </div>
+                                <div class="fc-td-version-stat">
+                                    <div class="fc-td-version-stat__value">@_activeVersion.FormulaCount</div>
+                                    <div class="fc-td-version-stat__label">Formulas</div>
+                                </div>
+                                <div class="fc-td-version-stat">
+                                    <div class="fc-td-version-stat__value">@_activeVersion.ItemCodes.Count</div>
+                                    <div class="fc-td-version-stat__label">Item Codes</div>
+                                </div>
                             </div>
-                        }
-                    </div>
-                </div>
-            </div>
 
-            @if (_activeVersion != null)
-            {
-                <div class="fc-section">
-                    <div class="fc-section-header">
-                        <h3>
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-                            Active Version Summary
-                        </h3>
-                        <span class="fc-detail-status fc-detail-status-@_activeVersion.Status.ToLowerInvariant()">
-                            <span class="fc-detail-status-dot" aria-hidden="true"></span>
-                            v@(_activeVersion.VersionNumber) — @_activeVersion.Status
-                        </span>
-                    </div>
-                    <div class="fc-section-body">
-                        <div class="fc-detail-info-grid">
-                            <div class="fc-detail-info-item">
-                                <span class="fc-detail-info-label">Version</span>
-                                <span class="fc-detail-info-value">v@(_activeVersion.VersionNumber)</span>
-                            </div>
-                            <div class="fc-detail-info-item">
-                                <span class="fc-detail-info-label">Status</span>
-                                <span class="fc-detail-info-value">@_activeVersion.Status</span>
-                            </div>
-                            <div class="fc-detail-info-item">
-                                <span class="fc-detail-info-label">Fields</span>
-                                <span class="fc-detail-info-value">@_activeVersion.FieldCount</span>
-                            </div>
-                            <div class="fc-detail-info-item">
-                                <span class="fc-detail-info-label">Formulas</span>
-                                <span class="fc-detail-info-value">@_activeVersion.FormulaCount</span>
-                            </div>
-                            @if (_activeVersion.ApprovedBy != null)
+                            @if (_activeVersion.ApprovedBy != null || _activeVersion.PublishedAt.HasValue || _activeVersion.ChangeSummary != null)
                             {
-                                <div class="fc-detail-info-item">
-                                    <span class="fc-detail-info-label">Approved By</span>
-                                    <span class="fc-detail-info-value">@_activeVersion.ApprovedBy</span>
-                                </div>
-                            }
-                            @if (_activeVersion.PublishedAt.HasValue)
-                            {
-                                <div class="fc-detail-info-item">
-                                    <span class="fc-detail-info-label">Published</span>
-                                    <span class="fc-detail-info-value">@_activeVersion.PublishedAt.Value.ToString("d MMM yyyy, HH:mm")</span>
-                                </div>
-                            }
-                            @if (_activeVersion.ChangeSummary != null)
-                            {
-                                <div class="fc-detail-info-item fc-grid-span-2">
-                                    <span class="fc-detail-info-label">Change Summary</span>
-                                    <span class="fc-detail-info-value">@_activeVersion.ChangeSummary</span>
+                                <div class="rg-premium-list" style="margin-top:var(--space-4);">
+                                    @if (_activeVersion.PublishedAt.HasValue)
+                                    {
+                                        <article class="rg-premium-list__item">
+                                            <div class="rg-premium-list__top">
+                                                <div class="rg-premium-list__heading">Published</div>
+                                                <div class="rg-premium-list__value">@_activeVersion.PublishedAt.Value.ToString("d MMM yyyy, HH:mm")</div>
+                                            </div>
+                                        </article>
+                                    }
+                                    @if (_activeVersion.ApprovedBy != null)
+                                    {
+                                        <article class="rg-premium-list__item">
+                                            <div class="rg-premium-list__top">
+                                                <div class="rg-premium-list__heading">Approved by</div>
+                                                <div class="rg-premium-list__value">@_activeVersion.ApprovedBy</div>
+                                            </div>
+                                        </article>
+                                    }
+                                    @if (_activeVersion.ChangeSummary != null)
+                                    {
+                                        <article class="rg-premium-list__item">
+                                            <div class="rg-premium-list__top">
+                                                <div class="rg-premium-list__heading">Change summary</div>
+                                            </div>
+                                            <div class="rg-premium-list__meta">@_activeVersion.ChangeSummary</div>
+                                        </article>
+                                    }
                                 </div>
                             }
                         </div>
-                    </div>
-                </div>
-            }
+                    </section>
+                }
+            </div>
         </div>
 
         <!-- Tab: Fields -->
@@ -1003,6 +1039,22 @@
         "multirow" => "fc-badge--teal",
         "itemcoded" => "fc-badge--pink",
         _ => "fc-badge--neutral"
+    };
+
+    private string VersionAccentColor() => _activeVersion?.Status switch
+    {
+        "Published" => "#22C55E",
+        "Review" => "#F59E0B",
+        "Draft" => "#6B7280",
+        _ => "#6B7280"
+    };
+
+    private string VersionBgColor() => _activeVersion?.Status switch
+    {
+        "Published" => "rgba(34,197,94,0.08)",
+        "Review" => "rgba(245,158,11,0.08)",
+        "Draft" => "rgba(107,114,128,0.08)",
+        _ => "rgba(107,114,128,0.08)"
     };
 
     private static string FormulaBadge(string type) => type.ToLowerInvariant() switch
