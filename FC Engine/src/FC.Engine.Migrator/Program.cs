@@ -6,6 +6,7 @@ using FC.Engine.Infrastructure.Metadata;
 using FC.Engine.Domain.Models;
 using FC.Engine.Infrastructure.Export;
 using FC.Engine.Migrator;
+using System.Text;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -49,6 +50,7 @@ builder.Services.AddScoped<BusinessRuleSeedService>();
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<InstitutionAuthService>();
 builder.Services.AddScoped<DmbDemoWorkspaceService>();
+builder.Services.AddScoped<DemoCredentialSeedService>();
 
 var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
@@ -313,6 +315,30 @@ try
     var rulesCreated = await businessRuleSeeder.SeedDefaultRules();
     logger.LogInformation("Business rules seeded: {Created} created", rulesCreated);
 
+    if (string.Equals(command, "seed-demo-credentials", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(command, "prepare-dmb-demo", StringComparison.OrdinalIgnoreCase))
+    {
+        var demoCredentialService = scope.ServiceProvider.GetRequiredService<DemoCredentialSeedService>();
+        var demoPassword = builder.Configuration["Demo:SharedPassword"]
+            ?? builder.Configuration["DefaultAdmin:Password"]
+            ?? "Admin@FcEngine2026!";
+
+        var demoCredentialResult = await demoCredentialService.SeedAsync(demoPassword);
+        var demoCredentialPath = ResolveDemoCredentialPackPath(builder.Configuration, configurationBasePath);
+        await WriteDemoCredentialPackAsync(demoCredentialResult, demoCredentialPath);
+
+        logger.LogInformation(
+            "Demo credentials seeded and written to {Path}: {PlatformCount} platform accounts, {InstitutionCount} institution accounts",
+            demoCredentialPath,
+            demoCredentialResult.PlatformAccounts.Count,
+            demoCredentialResult.InstitutionGroups.Sum(x => x.Accounts.Count));
+
+        if (string.Equals(command, "seed-demo-credentials", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+    }
+
     if (string.Equals(command, "prepare-dmb-demo", StringComparison.OrdinalIgnoreCase))
     {
         var dmbDemoService = scope.ServiceProvider.GetRequiredService<DmbDemoWorkspaceService>();
@@ -374,6 +400,90 @@ static string ResolveDmbTemplatesDirectory(IConfiguration configuration, string 
     }
 
     return cwdTemplates;
+}
+
+static string ResolveDemoCredentialPackPath(IConfiguration configuration, string configurationBasePath)
+{
+    var configured = configuration["Demo:CredentialPackPath"];
+    if (!string.IsNullOrWhiteSpace(configured))
+    {
+        return Path.GetFullPath(configured);
+    }
+
+    return Path.GetFullPath(Path.Combine(configurationBasePath, "..", "..", "..", "DEMO_CREDENTIALS.md"));
+}
+
+static async Task WriteDemoCredentialPackAsync(DemoCredentialSeedResult result, string path, CancellationToken ct = default)
+{
+    Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+    var builder = new StringBuilder();
+    builder.AppendLine("# Demo Credentials");
+    builder.AppendLine();
+    builder.AppendLine($"Generated: {result.GeneratedAtUtc:yyyy-MM-dd HH:mm:ss} UTC");
+    builder.AppendLine();
+    builder.AppendLine("## Shared Password");
+    builder.AppendLine();
+    builder.AppendLine($"All seeded demo accounts use `{result.SharedPassword}`.");
+    builder.AppendLine();
+    builder.AppendLine("## URLs");
+    builder.AppendLine();
+    builder.AppendLine("- Admin portal: `http://localhost:5200/login`");
+    builder.AppendLine("- Institution portal: `http://localhost:5300/login`");
+    builder.AppendLine();
+    builder.AppendLine("## Platform Accounts");
+    builder.AppendLine();
+    builder.AppendLine("| Username | Role | Email | Password | MFA |");
+    builder.AppendLine("| --- | --- | --- | --- | --- |");
+    foreach (var account in result.PlatformAccounts.OrderBy(x => x.Role).ThenBy(x => x.Username))
+    {
+        builder.AppendLine($"| `{account.Username}` | `{account.Role}` | `{account.Email}` | `{account.Password}` | {(account.MfaRequired ? "Required" : "Not required")} |");
+    }
+
+    foreach (var account in result.PlatformAccounts.Where(x => x.MfaRequired))
+    {
+        AppendMfaSection(builder, $"{account.DisplayName} ({account.Username})", account);
+    }
+
+    foreach (var group in result.InstitutionGroups.OrderBy(x => x.InstitutionCode))
+    {
+        builder.AppendLine();
+        builder.AppendLine($"## {group.InstitutionName} ({group.InstitutionCode})");
+        builder.AppendLine();
+        builder.AppendLine($"- Licence type: `{group.LicenseType}`");
+        builder.AppendLine($"- Login URL: `{group.LoginUrl}`");
+        builder.AppendLine($"- Notes: {group.Notes}");
+        builder.AppendLine();
+        builder.AppendLine("| Username | Role | Email | Password | MFA |");
+        builder.AppendLine("| --- | --- | --- | --- | --- |");
+        foreach (var account in group.Accounts.OrderBy(x => x.Role).ThenBy(x => x.Username))
+        {
+            builder.AppendLine($"| `{account.Username}` | `{account.Role}` | `{account.Email}` | `{account.Password}` | {(account.MfaRequired ? "Required" : "Not required")} |");
+        }
+
+        foreach (var account in group.Accounts.Where(x => x.MfaRequired))
+        {
+            AppendMfaSection(builder, $"{account.DisplayName} ({account.Username})", account);
+        }
+    }
+
+    builder.AppendLine();
+    builder.AppendLine("## Notes");
+    builder.AppendLine();
+    builder.AppendLine("- Backup codes are one-time use. If you exhaust them, rerun `seed-demo-credentials` to rotate MFA material.");
+    builder.AppendLine("- The institution `Checker` and `Approver` roles require MFA by design, so this pack includes both a TOTP secret and backup codes for those users.");
+    builder.AppendLine("- The admin portal still treats tenantless users as platform-level sessions. `Admin`, `Approver`, and `Viewer` accounts are seeded and usable, but platform least-privilege separation is not strict yet.");
+
+    await File.WriteAllTextAsync(path, builder.ToString(), ct);
+}
+
+static void AppendMfaSection(StringBuilder builder, string heading, DemoCredentialAccount account)
+{
+    builder.AppendLine();
+    builder.AppendLine($"### MFA: {heading}");
+    builder.AppendLine();
+    builder.AppendLine($"- TOTP secret: `{account.TotpSecret}`");
+    builder.AppendLine($"- Backup codes: {string.Join(", ", account.BackupCodes.Select(x => $"`{x}`"))}");
 }
 
 static async Task<(int Backfilled, int Skipped)> BackfillMissingAnomalyReportsAsync(

@@ -19,16 +19,26 @@
     }
     else
     {
-        <div class="regiq-panel__header">
-            <div>
-                <span class="regiq-panel__eyebrow">Context Panel</span>
-                <h3 class="mb-1">Current supervisory picture</h3>
-                <p class="mb-0 text-secondary">@ResolveSubtitle()</p>
+        <div class="regiq-panel__header regiq-panel__header--@CurrentScope.ToLowerInvariant()">
+            <div class="regiq-panel__header-top">
+                <div class="regiq-panel__header-icon" style="--rp-accent:@ResolveScopeColor(CurrentScope);">
+                    <i class="bi @ResolveScopeIcon(CurrentScope)" aria-hidden="true"></i>
+                </div>
+                <div class="regiq-panel__header-text">
+                    <span class="regiq-panel__eyebrow">Context Panel</span>
+                    <h3 class="regiq-panel__title">Current supervisory picture</h3>
+                </div>
+                <button type="button" class="regiq-panel__toggle" @onclick="ToggleCollapsedAsync" aria-label="@(_collapsed ? "Expand panel" : "Collapse panel")">
+                    <i class="bi bi-chevron-@(_collapsed ? "up" : "down")" aria-hidden="true"></i>
+                </button>
             </div>
-            <button type="button" class="regiq-panel__toggle" @onclick="ToggleCollapsedAsync" aria-label="@(_collapsed ? "Expand panel" : "Collapse panel")">
-                <i class="bi bi-chevron-@(_collapsed ? "up" : "down")" aria-hidden="true"></i>
-            </button>
-            <span class="badge @ResolveScopeBadge(CurrentScope)">@ResolveScopeLabel(CurrentScope)</span>
+            <div class="regiq-panel__header-meta">
+                <span class="regiq-panel__scope-badge" style="--rp-accent:@ResolveScopeColor(CurrentScope);">
+                    <span class="regiq-panel__scope-dot"></span>
+                    @ResolveScopeLabel(CurrentScope)
+                </span>
+                <span class="regiq-panel__subtitle">@ResolveSubtitle()</span>
+            </div>
         </div>
 
     @if (EntityProfile is not null && CurrentScope.Equals("ENTITY", StringComparison.OrdinalIgnoreCase))
@@ -121,57 +131,54 @@
     else if (SectorSummary is not null)
     {
         <section class="regiq-panel__card regiq-panel__card--sector">
-            <div class="regiq-panel__stats">
-                <div class="regiq-panel__stat">
-                    <div class="regiq-panel__stat-icon">
-                        <i class="bi bi-building"></i>
-                    </div>
-                    <div class="regiq-panel__stat-content">
-                        <span class="regiq-panel__stat-label">Entities</span>
-                        <strong class="regiq-panel__stat-value">@SectorSummary.EntityCount</strong>
-                    </div>
+            <div class="regiq-panel__stats-grid">
+                <div class="regiq-panel__kpi" style="--rpk-accent:#3B82F6;--rpk-bg:rgba(59,130,246,0.08);">
+                    <div class="regiq-panel__kpi-icon"><i class="bi bi-building"></i></div>
+                    <strong class="regiq-panel__kpi-value">@SectorSummary.EntityCount</strong>
+                    <span class="regiq-panel__kpi-label">Entities</span>
                 </div>
-                <div class="regiq-panel__stat">
-                    <div class="regiq-panel__stat-icon">
-                        <i class="bi bi-shield-check"></i>
-                    </div>
-                    <div class="regiq-panel__stat-content">
-                        <span class="regiq-panel__stat-label">Avg CAR</span>
-                        <strong class="regiq-panel__stat-value">@FormatPercent(SectorSummary.AverageCarRatio)</strong>
-                    </div>
+                <div class="regiq-panel__kpi" style="--rpk-accent:#22C55E;--rpk-bg:rgba(34,197,94,0.08);">
+                    <div class="regiq-panel__kpi-icon"><i class="bi bi-shield-check"></i></div>
+                    <strong class="regiq-panel__kpi-value">@FormatPercent(SectorSummary.AverageCarRatio)</strong>
+                    <span class="regiq-panel__kpi-label">Avg CAR</span>
                 </div>
-                <div class="regiq-panel__stat">
-                    <div class="regiq-panel__stat-icon">
-                        <i class="bi bi-graph-up"></i>
-                    </div>
-                    <div class="regiq-panel__stat-content">
-                        <span class="regiq-panel__stat-label">Avg NPL</span>
-                        <strong class="regiq-panel__stat-value">@FormatPercent(SectorSummary.AverageNplRatio)</strong>
-                    </div>
+                <div class="regiq-panel__kpi" style="--rpk-accent:#F59E0B;--rpk-bg:rgba(245,158,11,0.08);">
+                    <div class="regiq-panel__kpi-icon"><i class="bi bi-graph-up"></i></div>
+                    <strong class="regiq-panel__kpi-value">@FormatPercent(SectorSummary.AverageNplRatio)</strong>
+                    <span class="regiq-panel__kpi-label">Avg NPL</span>
                 </div>
-                <div class="regiq-panel__stat">
-                    <div class="regiq-panel__stat-icon">
-                        <i class="bi bi-check-circle"></i>
-                    </div>
-                    <div class="regiq-panel__stat-content">
-                        <span class="regiq-panel__stat-label">Avg CHS</span>
-                        <strong class="regiq-panel__stat-value">@FormatScore(SectorSummary.AverageComplianceHealthScore)</strong>
-                    </div>
+                <div class="regiq-panel__kpi" style="--rpk-accent:#8B5CF6;--rpk-bg:rgba(139,92,246,0.08);">
+                    <div class="regiq-panel__kpi-icon"><i class="bi bi-check-circle"></i></div>
+                    <strong class="regiq-panel__kpi-value">@FormatScore(SectorSummary.AverageComplianceHealthScore)</strong>
+                    <span class="regiq-panel__kpi-label">Avg CHS</span>
                 </div>
             </div>
 
-            <div class="regiq-panel__summary">
-                <div class="regiq-panel__summary-row">
-                    <span class="regiq-panel__summary-label">Overdue filings</span>
-                    <strong class="regiq-panel__summary-value @ResolveUrgencyClass(SectorSummary.OverdueFilingCount > 0)">@SectorSummary.OverdueFilingCount</strong>
+            <div class="regiq-panel__alerts">
+                <div class="regiq-panel__alert @(SectorSummary.OverdueFilingCount > 0 ? "regiq-panel__alert--warn" : "regiq-panel__alert--ok")">
+                    <div class="regiq-panel__alert-icon">
+                        <i class="bi @(SectorSummary.OverdueFilingCount > 0 ? "bi-exclamation-triangle-fill" : "bi-check-circle-fill")"></i>
+                    </div>
+                    <div class="regiq-panel__alert-body">
+                        <span class="regiq-panel__alert-label">Overdue filings</span>
+                        <strong class="regiq-panel__alert-value">@SectorSummary.OverdueFilingCount</strong>
+                    </div>
                 </div>
-                <div class="regiq-panel__summary-row">
-                    <span class="regiq-panel__summary-label">High-risk entities</span>
-                    <strong class="regiq-panel__summary-value @ResolveUrgencyClass(SectorSummary.HighRiskEntityCount > 0)">@SectorSummary.HighRiskEntityCount</strong>
+                <div class="regiq-panel__alert @(SectorSummary.HighRiskEntityCount > 0 ? "regiq-panel__alert--danger" : "regiq-panel__alert--ok")">
+                    <div class="regiq-panel__alert-icon">
+                        <i class="bi @(SectorSummary.HighRiskEntityCount > 0 ? "bi-shield-exclamation" : "bi-shield-check")"></i>
+                    </div>
+                    <div class="regiq-panel__alert-body">
+                        <span class="regiq-panel__alert-label">High-risk entities</span>
+                        <strong class="regiq-panel__alert-value">@SectorSummary.HighRiskEntityCount</strong>
+                    </div>
                 </div>
-                <div class="regiq-panel__summary-row">
-                    <span class="regiq-panel__summary-label">Licence filter</span>
-                    <strong class="regiq-panel__summary-value">@(string.IsNullOrWhiteSpace(SectorSummary.LicenceCategory) ? "All supervised entities" : SectorSummary.LicenceCategory)</strong>
+                <div class="regiq-panel__alert regiq-panel__alert--info">
+                    <div class="regiq-panel__alert-icon"><i class="bi bi-funnel"></i></div>
+                    <div class="regiq-panel__alert-body">
+                        <span class="regiq-panel__alert-label">Licence filter</span>
+                        <strong class="regiq-panel__alert-value" style="font-size:0.78rem;">@(string.IsNullOrWhiteSpace(SectorSummary.LicenceCategory) ? "All supervised" : SectorSummary.LicenceCategory)</strong>
+                    </div>
                 </div>
             </div>
 
@@ -260,25 +267,26 @@
         };
     }
 
-    private static string ResolveScopeLabel(string? scope)
+    private static string ResolveScopeLabel(string? scope) => scope?.ToUpperInvariant() switch
     {
-        return scope?.ToUpperInvariant() switch
-        {
-            "ENTITY" => "Entity scope",
-            "SYSTEMIC" => "Systemic scope",
-            _ => "Sector scope"
-        };
-    }
+        "ENTITY" => "Entity scope",
+        "SYSTEMIC" => "Systemic scope",
+        _ => "Sector scope"
+    };
 
-    private static string ResolveScopeBadge(string? scope)
+    private static string ResolveScopeColor(string? scope) => scope?.ToUpperInvariant() switch
     {
-        return scope?.ToUpperInvariant() switch
-        {
-            "ENTITY" => "text-bg-primary",
-            "SYSTEMIC" => "text-bg-danger",
-            _ => "text-bg-success"
-        };
-    }
+        "ENTITY" => "#8B5CF6",
+        "SYSTEMIC" => "#EF4444",
+        _ => "#22C55E"
+    };
+
+    private static string ResolveScopeIcon(string? scope) => scope?.ToUpperInvariant() switch
+    {
+        "ENTITY" => "bi-building",
+        "SYSTEMIC" => "bi-activity",
+        _ => "bi-bar-chart-line"
+    };
 
     private static string FormatPercent(decimal? value) => value.HasValue ? $"{value.Value:N1}%" : "N/A";
     private static string FormatScore(decimal? value) => value.HasValue ? value.Value.ToString("N1", CultureInfo.InvariantCulture) : "N/A";

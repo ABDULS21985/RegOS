@@ -76,8 +76,18 @@ public sealed class StakeholderDashboardService
             ? Math.Round((decimal)resolved / interventions.Count * 100, 1)
             : 0m;
 
+        var now = DateTime.UtcNow;
+        var overdueCount = interventions.Count(i => i.DueDate < now && i.Signal != "Resolved");
+        var dueSoonCount = interventions.Count(i => i.DueDate >= now && i.DueDate <= now.AddDays(7) && i.Signal != "Resolved");
+
         var domainDistribution = interventions
             .GroupBy(i => i.Domain)
+            .Select(g => new LabelCount { Label = g.Key, Count = g.Count() })
+            .OrderByDescending(x => x.Count)
+            .ToList();
+
+        var priorityDistribution = interventions
+            .GroupBy(i => i.Priority)
             .Select(g => new LabelCount { Label = g.Key, Count = g.Count() })
             .OrderByDescending(x => x.Count)
             .ToList();
@@ -88,13 +98,22 @@ public sealed class StakeholderDashboardService
             UnresolvedIssues = totalIssues,
             Escalations = escalations,
             RemediationRatePercent = remediationRate,
+            ResolvedCount = resolved,
+            TotalInterventions = interventions.Count,
+            OverdueInterventions = overdueCount,
+            DueSoonInterventions = dueSoonCount,
             DomainDistribution = domainDistribution,
+            PriorityDistribution = priorityDistribution,
             InterventionQueue = interventions
                 .OrderBy(i => i.DueDate)
                 .Take(20)
                 .ToList(),
             InstitutionScorecards = scorecards
                 .OrderByDescending(s => s.OverdueObligations)
+                .Take(15)
+                .ToList(),
+            RecentActivity = ws.ActivityTimeline
+                .OrderByDescending(a => a.HappenedAt)
                 .Take(15)
                 .ToList()
         };
@@ -204,9 +223,15 @@ public sealed class DeputyGovernorDashboardData
     public int UnresolvedIssues { get; set; }
     public int Escalations { get; set; }
     public decimal RemediationRatePercent { get; set; }
+    public int ResolvedCount { get; set; }
+    public int TotalInterventions { get; set; }
+    public int OverdueInterventions { get; set; }
+    public int DueSoonInterventions { get; set; }
     public List<LabelCount> DomainDistribution { get; set; } = [];
+    public List<LabelCount> PriorityDistribution { get; set; } = [];
     public List<InterventionQueueRow> InterventionQueue { get; set; } = [];
     public List<InstitutionScorecardRow> InstitutionScorecards { get; set; } = [];
+    public List<ActivityTimelineRow> RecentActivity { get; set; } = [];
 }
 
 public sealed class ExaminerDashboardData

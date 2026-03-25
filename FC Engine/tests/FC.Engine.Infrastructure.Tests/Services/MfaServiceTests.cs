@@ -28,6 +28,16 @@ public class MfaServiceTests
         return (sut, dbName, tenantId);
     }
 
+    private static MfaService CreatePlatformSut(string dbName)
+    {
+        var tenantContext = new Mock<ITenantContext>();
+        tenantContext.SetupGet(x => x.CurrentTenantId).Returns((Guid?)null);
+        tenantContext.SetupGet(x => x.IsPlatformAdmin).Returns(true);
+        tenantContext.SetupGet(x => x.ImpersonatingTenantId).Returns((Guid?)null);
+
+        return new MfaService(new TestDbContextFactory(dbName), tenantContext.Object);
+    }
+
     private static MetadataDbContext OpenDb(string dbName)
     {
         var options = new DbContextOptionsBuilder<MetadataDbContext>()
@@ -117,5 +127,37 @@ public class MfaServiceTests
 
         var viewerRequired = await sut.IsMfaRequired(tenantId, "Viewer");
         viewerRequired.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task MFA_Setup_Allows_Tenantless_Portal_User()
+    {
+        var dbName = Guid.NewGuid().ToString();
+        await using (var db = OpenDb(dbName))
+        {
+            db.PortalUsers.Add(new PortalUser
+            {
+                Id = 404,
+                Username = "platformapprover",
+                DisplayName = "Platform Approver",
+                Email = "platform.approver@test.local",
+                PasswordHash = "hash",
+                Role = PortalRole.Approver,
+                TenantId = null,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var sut = CreatePlatformSut(dbName);
+        var result = await sut.InitiateSetup(404, "PortalUser", "platform.approver@test.local");
+
+        result.SecretKey.Should().NotBeNullOrWhiteSpace();
+
+        await using var verifyDb = OpenDb(dbName);
+        var stored = await verifyDb.UserMfaConfigs.SingleAsync(x => x.UserId == 404 && x.UserType == "PortalUser");
+        stored.TenantId.Should().Be(Guid.Empty);
+        stored.IsEnabled.Should().BeFalse();
     }
 }

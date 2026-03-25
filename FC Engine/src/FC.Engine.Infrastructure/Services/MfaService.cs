@@ -322,6 +322,14 @@ public class MfaService : IMfaService
             {
                 return tenantId.Value;
             }
+
+            // Tenantless portal users are platform accounts. Persist MFA config under Guid.Empty
+            // so admin-portal approver demos can still use MFA-backed sign-in.
+            var platformUserExists = await db.PortalUsers.AnyAsync(u => u.Id == userId);
+            if (platformUserExists)
+            {
+                return Guid.Empty;
+            }
         }
 
         throw new InvalidOperationException($"Could not resolve TenantId for {userType}:{userId}.");

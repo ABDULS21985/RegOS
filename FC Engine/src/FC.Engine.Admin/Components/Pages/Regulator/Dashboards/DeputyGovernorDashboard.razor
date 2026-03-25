@@ -12,8 +12,14 @@
             StatusBadge="@ResolveStatusBadge()"
             StatusVariant="@ResolveStatusVariant()">
     <PrimaryAction>
-        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">Refresh</button>
+        <button class="fc-btn fc-btn--primary" @onclick="ReloadAsync" disabled="@_loading">
+            @if (_loading) { <span class="fc-btn__spinner"></span> }
+            Refresh
+        </button>
     </PrimaryAction>
+    <SecondaryActions>
+        <button class="fc-btn fc-btn--outline" @onclick='() => JS.InvokeVoidAsync("print")'>Print</button>
+    </SecondaryActions>
 </PageHeader>
 
 <div class="fc-page">
@@ -22,21 +28,25 @@
         {
             <div class="rg-premium-flow">
                 <div class="rg-premium-banner"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="138px" /></div>
-                <div class="rg-premium-stat-grid">
-                    @for (var i = 0; i < 4; i++)
+                <div class="rg-premium-stat-grid rg-premium-stat-grid--5">
+                    @for (var i = 0; i < 5; i++)
                     {
                         <div class="rg-premium-stat"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="140px" /></div>
                     }
                 </div>
                 <div class="rg-premium-content-grid">
                     <div class="rg-premium-main">
-                        <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="320px" /></div>
+                        <div class="rg-premium-dual-grid">
+                            <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="320px" /></div>
+                            <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="320px" /></div>
+                        </div>
                         <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="420px" /></div>
                         <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="420px" /></div>
                     </div>
                     <div class="rg-premium-side">
                         <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="260px" /></div>
                         <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="320px" /></div>
+                        <div class="rg-premium-panel"><SkeletonLoader Variant="SkeletonLoader.SkeletonVariant.Block" Height="280px" /></div>
                     </div>
                 </div>
             </div>
@@ -48,6 +58,7 @@
         else
         {
             <div class="rg-premium-flow">
+                @* ── Banner ────────────────────────────────────────────── *@
                 <section class="rg-premium-banner @ResolveBannerTone()" aria-label="Deputy governor posture">
                     <div class="rg-premium-banner__grid">
                         <div>
@@ -63,6 +74,7 @@
                     </div>
                 </section>
 
+                @* ── Hero ──────────────────────────────────────────────── *@
                 <section class="rg-premium-hero" aria-labelledby="deputy-hero-title">
                     <div class="rg-premium-hero__grid">
                         <div>
@@ -76,6 +88,14 @@
                                 <span class="rg-premium-chip rg-premium-chip--info">@($"{_data.PortfolioSize} institutions in portfolio")</span>
                                 <span class="rg-premium-chip @BuildEscalationChipClass()">@($"{_data.Escalations} escalations live")</span>
                                 <span class="rg-premium-chip @BuildRemediationChipClass()">@($"{_data.RemediationRatePercent:F1}% remediated")</span>
+                                @if (_data.OverdueInterventions > 0)
+                                {
+                                    <span class="rg-premium-chip rg-premium-chip--danger">@($"{_data.OverdueInterventions} overdue")</span>
+                                }
+                                @if (_data.DueSoonInterventions > 0)
+                                {
+                                    <span class="rg-premium-chip rg-premium-chip--warning">@($"{_data.DueSoonInterventions} due within 7 days")</span>
+                                }
                             </div>
                         </div>
                         <div class="rg-premium-hero__aside">
@@ -95,48 +115,108 @@
                     </div>
                 </section>
 
-                <section class="rg-premium-stat-grid" aria-label="Deputy governor metrics">
+                @* ── Stat cards (5-up) ─────────────────────────────────── *@
+                <section class="rg-premium-stat-grid rg-premium-stat-grid--5" aria-label="Deputy governor metrics">
                     <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__icon">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2a6 6 0 0 0-6 6v1H3a1 1 0 0 0 0 2h1v1a6 6 0 0 0 12 0v-1h1a1 1 0 1 0 0-2h-1V8a6 6 0 0 0-6-6Zm-4 6a4 4 0 1 1 8 0v4a4 4 0 0 1-8 0V8Z" fill="currentColor"/></svg>
+                        </div>
                         <div class="rg-premium-stat__label">Portfolio size</div>
                         <div class="rg-premium-stat__value">@_data.PortfolioSize</div>
                         <div class="rg-premium-stat__note">Institutions currently routed into this portfolio oversight lane.</div>
                     </article>
                     <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__icon rg-premium-stat__icon--warning">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm-.75 4.75a.75.75 0 0 1 1.5 0v4a.75.75 0 0 1-1.5 0v-4ZM10 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z" fill="currentColor"/></svg>
+                        </div>
                         <div class="rg-premium-stat__label">Unresolved issues</div>
                         <div class="rg-premium-stat__value @BuildIssueValueClass()">@_data.UnresolvedIssues</div>
                         <div class="rg-premium-stat__note">Current unresolved pressure needing remediation follow-through or re-sequencing.</div>
                     </article>
                     <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__icon rg-premium-stat__icon--danger">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3.5 2A1.5 1.5 0 0 0 2 3.5v13A1.5 1.5 0 0 0 3.5 18h13a1.5 1.5 0 0 0 1.5-1.5v-13A1.5 1.5 0 0 0 16.5 2h-13ZM10 6a.75.75 0 0 1 .75.75v4.5a.75.75 0 0 1-1.5 0v-4.5A.75.75 0 0 1 10 6Zm0 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" fill="currentColor"/></svg>
+                        </div>
                         <div class="rg-premium-stat__label">Escalations</div>
                         <div class="rg-premium-stat__value @BuildEscalationValueClass()">@_data.Escalations</div>
                         <div class="rg-premium-stat__note">Critical and high-priority interventions requiring deputy governor attention.</div>
                     </article>
                     <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__icon rg-premium-stat__icon--success">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm3.03 6.53-3.5 3.5a.75.75 0 0 1-1.06 0l-1.5-1.5a.75.75 0 1 1 1.06-1.06L9 10.44l2.97-2.97a.75.75 0 1 1 1.06 1.06Z" fill="currentColor"/></svg>
+                        </div>
                         <div class="rg-premium-stat__label">Remediation rate</div>
                         <div class="rg-premium-stat__value @BuildRemediationValueClass()">@($"{_data.RemediationRatePercent:F1}%")</div>
-                        <div class="rg-premium-stat__note">Share of intervention queue items that have already moved into resolved state.</div>
+                        <div class="rg-deputy-remediation-bar" title="@($"{_data.ResolvedCount} resolved of {_data.TotalInterventions} total")">
+                            <div class="rg-deputy-remediation-bar__fill @BuildRemediationBarClass()" style="width: @($"{Math.Min(_data.RemediationRatePercent, 100):F0}%")"></div>
+                        </div>
+                        <div class="rg-premium-stat__note">@($"{_data.ResolvedCount} of {_data.TotalInterventions}") interventions resolved.</div>
+                    </article>
+                    <article class="rg-premium-stat">
+                        <div class="rg-premium-stat__icon rg-premium-stat__icon--info">
+                            <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16Zm.75 4.75v2.5h2.5a.75.75 0 0 1 0 1.5h-2.5v2.5a.75.75 0 0 1-1.5 0v-2.5h-2.5a.75.75 0 0 1 0-1.5h2.5v-2.5a.75.75 0 0 1 1.5 0Z" fill="currentColor"/></svg>
+                        </div>
+                        <div class="rg-premium-stat__label">Queue depth</div>
+                        <div class="rg-premium-stat__value">@_data.TotalInterventions</div>
+                        <div class="rg-premium-stat__note">
+                            @if (_data.OverdueInterventions > 0)
+                            {
+                                <span class="fc-text-danger">@_data.OverdueInterventions overdue</span><span> · </span>
+                            }
+                            @if (_data.DueSoonInterventions > 0)
+                            {
+                                <span class="fc-text-warning">@_data.DueSoonInterventions due soon</span>
+                            }
+                            else
+                            {
+                                <span>No items due within 7 days.</span>
+                            }
+                        </div>
                     </article>
                 </section>
 
+                @* ── Main + Sidebar ────────────────────────────────────── *@
                 <section class="rg-premium-content-grid">
                     <div class="rg-premium-main">
-                        <section class="rg-premium-panel">
-                            <div class="rg-premium-panel__header">
-                                <div>
-                                    <div class="rg-premium-panel__eyebrow">Issue concentration</div>
-                                    <h2 class="rg-premium-panel__title">Issue distribution by domain</h2>
-                                    <p class="rg-premium-panel__subtitle">Use this to spot which operating lane is absorbing the largest share of queue pressure.</p>
-                                </div>
-                                <div class="rg-premium-panel__metric">
-                                    <span class="rg-premium-panel__metric-label">Largest lane</span>
-                                    @BuildDominantDomainLabel()
-                                </div>
-                            </div>
-                            <div class="rg-premium-panel__body rg-premium-panel__body--chart">
-                                <canvas id="deputyDomainChart" style="max-height:260px;"></canvas>
-                            </div>
-                        </section>
 
+                        @* ── Dual charts: Domain + Priority ───────────── *@
+                        <div class="rg-premium-dual-grid">
+                            <section class="rg-premium-panel">
+                                <div class="rg-premium-panel__header">
+                                    <div>
+                                        <div class="rg-premium-panel__eyebrow">Issue concentration</div>
+                                        <h2 class="rg-premium-panel__title">Issue distribution by domain</h2>
+                                        <p class="rg-premium-panel__subtitle">Spot which operating lane is absorbing the largest share of queue pressure.</p>
+                                    </div>
+                                    <div class="rg-premium-panel__metric">
+                                        <span class="rg-premium-panel__metric-label">Largest lane</span>
+                                        @BuildDominantDomainLabel()
+                                    </div>
+                                </div>
+                                <div class="rg-premium-panel__body rg-premium-panel__body--chart">
+                                    <canvas id="deputyDomainChart" style="max-height:260px;"></canvas>
+                                </div>
+                            </section>
+
+                            <section class="rg-premium-panel">
+                                <div class="rg-premium-panel__header">
+                                    <div>
+                                        <div class="rg-premium-panel__eyebrow">Escalation mix</div>
+                                        <h2 class="rg-premium-panel__title">Priority distribution</h2>
+                                        <p class="rg-premium-panel__subtitle">Whether escalation pressure is clustering in critical lanes or spread across lower severity.</p>
+                                    </div>
+                                    <div class="rg-premium-panel__metric">
+                                        <span class="rg-premium-panel__metric-label">Dominant band</span>
+                                        @BuildTopPriorityLabel()
+                                    </div>
+                                </div>
+                                <div class="rg-premium-panel__body rg-premium-panel__body--chart">
+                                    <canvas id="deputyPriorityChart" style="max-height:260px;"></canvas>
+                                </div>
+                            </section>
+                        </div>
+
+                        @* ── Intervention queue ───────────────────────── *@
                         <section class="rg-premium-panel">
                             <div class="rg-premium-panel__header">
                                 <div>
@@ -176,8 +256,26 @@
                                             <DataColumn TItem="InterventionQueueRow" Title="Owner" Width="110px" SortKey="@(x => x.OwnerLane)">
                                                 <CellTemplate>@context.OwnerLane</CellTemplate>
                                             </DataColumn>
-                                            <DataColumn TItem="InterventionQueueRow" Title="Due" Width="120px" SortKey="@(x => x.DueDate)">
-                                                <CellTemplate>@context.DueDate.ToString("dd MMM yyyy")</CellTemplate>
+                                            <DataColumn TItem="InterventionQueueRow" Title="Due" Width="140px" SortKey="@(x => x.DueDate)">
+                                                <CellTemplate>
+                                                    @{
+                                                        var days = (context.DueDate.Date - DateTime.UtcNow.Date).Days;
+                                                    }
+                                                    <span class="rg-deputy-due">
+                                                        <span class="rg-deputy-due__date">@context.DueDate.ToString("dd MMM yyyy")</span>
+                                                        @if (context.Signal != "Resolved")
+                                                        {
+                                                            @if (days < 0)
+                                                            {
+                                                                <span class="fc-badge fc-badge--danger fc-badge--sm">@Math.Abs(days)d overdue</span>
+                                                            }
+                                                            else if (days <= 7)
+                                                            {
+                                                                <span class="fc-badge fc-badge--warning fc-badge--sm">@(days)d left</span>
+                                                            }
+                                                        }
+                                                    </span>
+                                                </CellTemplate>
                                             </DataColumn>
                                         </ChildContent>
                                     </DataTable>
@@ -185,6 +283,7 @@
                             </div>
                         </section>
 
+                        @* ── Institution scorecards ───────────────────── *@
                         <section class="rg-premium-panel">
                             <div class="rg-premium-panel__header">
                                 <div>
@@ -207,16 +306,28 @@
                                             <CellTemplate><span class="fc-badge fc-badge--neutral">@context.LicenceType</span></CellTemplate>
                                         </DataColumn>
                                         <DataColumn TItem="InstitutionScorecardRow" Title="Overdue" Width="90px" SortKey="@(x => x.OverdueObligations)">
-                                            <CellTemplate><span class="@(context.OverdueObligations > 0 ? "fc-text-danger" : string.Empty)">@context.OverdueObligations</span></CellTemplate>
+                                            <CellTemplate><span class="@(context.OverdueObligations > 0 ? "fc-text-danger fc-text-bold" : string.Empty)">@context.OverdueObligations</span></CellTemplate>
                                         </DataColumn>
                                         <DataColumn TItem="InstitutionScorecardRow" Title="Due Soon" Width="90px" SortKey="@(x => x.DueSoonObligations)">
                                             <CellTemplate><span class="@(context.DueSoonObligations > 0 ? "fc-text-warning" : string.Empty)">@context.DueSoonObligations</span></CellTemplate>
                                         </DataColumn>
                                         <DataColumn TItem="InstitutionScorecardRow" Title="Capital" Width="90px" SortKey="@(x => x.CapitalScore)">
-                                            <CellTemplate>@(context.CapitalScore?.ToString("F1") ?? "—")</CellTemplate>
+                                            <CellTemplate>
+                                                @if (context.CapitalScore.HasValue)
+                                                {
+                                                    <span class="@CapitalScoreClass(context.CapitalScore.Value)">@context.CapitalScore.Value.ToString("F1")</span>
+                                                }
+                                                else
+                                                {
+                                                    <span>—</span>
+                                                }
+                                            </CellTemplate>
                                         </DataColumn>
                                         <DataColumn TItem="InstitutionScorecardRow" Title="Incidents" Width="90px" SortKey="@(x => x.OpenResilienceIncidents)">
-                                            <CellTemplate>@context.OpenResilienceIncidents</CellTemplate>
+                                            <CellTemplate><span class="@(context.OpenResilienceIncidents > 0 ? "fc-text-warning" : string.Empty)">@context.OpenResilienceIncidents</span></CellTemplate>
+                                        </DataColumn>
+                                        <DataColumn TItem="InstitutionScorecardRow" Title="Alerts" Width="80px" SortKey="@(x => x.OpenSecurityAlerts)">
+                                            <CellTemplate><span class="@(context.OpenSecurityAlerts > 0 ? "fc-text-danger" : string.Empty)">@context.OpenSecurityAlerts</span></CellTemplate>
                                         </DataColumn>
                                         <DataColumn TItem="InstitutionScorecardRow" Title="Priority" Width="100px" SortKey="@(x => x.Priority)">
                                             <CellTemplate><span class="fc-badge @PriorityBadge(context.Priority)">@context.Priority</span></CellTemplate>
@@ -227,7 +338,46 @@
                         </section>
                     </div>
 
+                    @* ── Sidebar ───────────────────────────────────────── *@
                     <aside class="rg-premium-side">
+                        @* ── Remediation gauge card ────────────────────── *@
+                        <section class="rg-premium-panel">
+                            <div class="rg-premium-panel__header">
+                                <div>
+                                    <div class="rg-premium-panel__eyebrow">Remediation throughput</div>
+                                    <h2 class="rg-premium-panel__title">Queue resolution</h2>
+                                </div>
+                            </div>
+                            <div class="rg-premium-panel__body" style="text-align:center;padding-block:var(--space-6);">
+                                <div class="rg-deputy-gauge" style="--pct:@($"{Math.Min(_data.RemediationRatePercent, 100):F0}")">
+                                    <svg viewBox="0 0 120 120" class="rg-deputy-gauge__ring">
+                                        <circle cx="60" cy="60" r="52" fill="none" stroke="var(--cbn-border, #e2e8f0)" stroke-width="10"/>
+                                        <circle cx="60" cy="60" r="52" fill="none"
+                                                stroke="@RemediationGaugeColor()"
+                                                stroke-width="10"
+                                                stroke-linecap="round"
+                                                stroke-dasharray="@($"{_data.RemediationRatePercent / 100m * 326.7m:F1}") 326.7"
+                                                transform="rotate(-90 60 60)"/>
+                                    </svg>
+                                    <div class="rg-deputy-gauge__label">
+                                        <span class="rg-deputy-gauge__value">@($"{_data.RemediationRatePercent:F0}")%</span>
+                                        <span class="rg-deputy-gauge__caption">resolved</span>
+                                    </div>
+                                </div>
+                                <div class="rg-deputy-gauge-legend">
+                                    <div class="rg-deputy-gauge-legend__item">
+                                        <span class="rg-deputy-gauge-legend__dot rg-deputy-gauge-legend__dot--resolved"></span>
+                                        @_data.ResolvedCount resolved
+                                    </div>
+                                    <div class="rg-deputy-gauge-legend__item">
+                                        <span class="rg-deputy-gauge-legend__dot rg-deputy-gauge-legend__dot--open"></span>
+                                        @(_data.TotalInterventions - _data.ResolvedCount) open
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+
+                        @* ── Due-soon preview cards ────────────────────── *@
                         <section class="rg-premium-panel">
                             <div class="rg-premium-panel__header">
                                 <div>
@@ -246,7 +396,8 @@
                                     <div class="rg-premium-list">
                                         @foreach (var item in _data.InterventionQueue.Take(5))
                                         {
-                                            <article class="rg-premium-list__item">
+                                            var itemDays = (item.DueDate.Date - DateTime.UtcNow.Date).Days;
+                                            <article class="rg-premium-list__item @(itemDays < 0 ? "rg-premium-list__item--overdue" : string.Empty)">
                                                 <div class="rg-premium-list__top">
                                                     <div class="rg-premium-list__heading">@item.Subject</div>
                                                     <span class="fc-badge @PriorityBadge(item.Priority)">@item.Priority</span>
@@ -255,7 +406,21 @@
                                                 <div class="rg-premium-list__tags">
                                                     <span class="fc-badge fc-badge--neutral">@item.Domain</span>
                                                     <span class="fc-badge @SignalBadge(item.Signal)">@item.Signal</span>
-                                                    <span class="fc-badge fc-badge--neutral">@item.DueDate.ToString("dd MMM")</span>
+                                                    @if (item.Signal != "Resolved")
+                                                    {
+                                                        @if (itemDays < 0)
+                                                        {
+                                                            <span class="fc-badge fc-badge--danger">@Math.Abs(itemDays)d overdue</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            <span class="fc-badge fc-badge--neutral">@item.DueDate.ToString("dd MMM")</span>
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="fc-badge fc-badge--neutral">@item.DueDate.ToString("dd MMM")</span>
+                                                    }
                                                 </div>
                                             </article>
                                         }
@@ -264,12 +429,13 @@
                             </div>
                         </section>
 
+                        @* ── Portfolio pressure cards ──────────────────── *@
                         <section class="rg-premium-panel">
                             <div class="rg-premium-panel__header">
                                 <div>
                                     <div class="rg-premium-panel__eyebrow">Priority spread</div>
                                     <h2 class="rg-premium-panel__title">Portfolio pressure cards</h2>
-                                    <p class="rg-premium-panel__subtitle">A compact view of the institutions carrying the heaviest open obligation load.</p>
+                                    <p class="rg-premium-panel__subtitle">Institutions carrying the heaviest open obligation load.</p>
                                 </div>
                             </div>
                             <div class="rg-premium-panel__body">
@@ -282,12 +448,42 @@
                                     <div class="rg-premium-list">
                                         @foreach (var institution in _data.InstitutionScorecards.Take(5))
                                         {
+                                            var totalPressure = institution.OverdueObligations + institution.DueSoonObligations + institution.OpenResilienceIncidents + institution.OpenSecurityAlerts;
                                             <article class="rg-premium-list__item">
                                                 <div class="rg-premium-list__top">
                                                     <div class="rg-premium-list__heading">@institution.InstitutionName</div>
                                                     <span class="fc-badge @PriorityBadge(institution.Priority)">@institution.Priority</span>
                                                 </div>
                                                 <div class="rg-premium-list__meta">@institution.Summary</div>
+                                                @if (totalPressure > 0)
+                                                {
+                                                    <div class="rg-deputy-pressure-bar" title="@($"Combined pressure: {totalPressure} items")">
+                                                        @if (institution.OverdueObligations > 0)
+                                                        {
+                                                            <div class="rg-deputy-pressure-bar__seg rg-deputy-pressure-bar__seg--danger"
+                                                                 style="flex:@institution.OverdueObligations"
+                                                                 title="@($"{institution.OverdueObligations} overdue")"></div>
+                                                        }
+                                                        @if (institution.DueSoonObligations > 0)
+                                                        {
+                                                            <div class="rg-deputy-pressure-bar__seg rg-deputy-pressure-bar__seg--warning"
+                                                                 style="flex:@institution.DueSoonObligations"
+                                                                 title="@($"{institution.DueSoonObligations} due soon")"></div>
+                                                        }
+                                                        @if (institution.OpenResilienceIncidents > 0)
+                                                        {
+                                                            <div class="rg-deputy-pressure-bar__seg rg-deputy-pressure-bar__seg--info"
+                                                                 style="flex:@institution.OpenResilienceIncidents"
+                                                                 title="@($"{institution.OpenResilienceIncidents} incidents")"></div>
+                                                        }
+                                                        @if (institution.OpenSecurityAlerts > 0)
+                                                        {
+                                                            <div class="rg-deputy-pressure-bar__seg rg-deputy-pressure-bar__seg--purple"
+                                                                 style="flex:@institution.OpenSecurityAlerts"
+                                                                 title="@($"{institution.OpenSecurityAlerts} alerts")"></div>
+                                                        }
+                                                    </div>
+                                                }
                                                 <div class="rg-premium-list__tags">
                                                     <span class="fc-badge fc-badge--neutral">@institution.LicenceType</span>
                                                     @if (institution.OverdueObligations > 0)
@@ -298,6 +494,42 @@
                                                     {
                                                         <span class="fc-badge fc-badge--warning">@($"{institution.DueSoonObligations} due soon")</span>
                                                     }
+                                                </div>
+                                            </article>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </section>
+
+                        @* ── Activity timeline ─────────────────────────── *@
+                        <section class="rg-premium-panel">
+                            <div class="rg-premium-panel__header">
+                                <div>
+                                    <div class="rg-premium-panel__eyebrow">Activity rail</div>
+                                    <h2 class="rg-premium-panel__title">Recent supervisory movement</h2>
+                                    <p class="rg-premium-panel__subtitle">The latest significant activity captured across the portfolio.</p>
+                                </div>
+                            </div>
+                            <div class="rg-premium-panel__body">
+                                @if (_data.RecentActivity.Count == 0)
+                                {
+                                    <div class="rg-premium-empty">No recent supervisory events are available yet.</div>
+                                }
+                                else
+                                {
+                                    <div class="rg-premium-list">
+                                        @foreach (var activity in _data.RecentActivity.Take(8))
+                                        {
+                                            <article class="rg-premium-list__item">
+                                                <div class="rg-premium-list__top">
+                                                    <div class="rg-premium-list__heading">@activity.Title</div>
+                                                    <span class="fc-badge @SeverityBadge(activity.Severity)">@activity.Severity</span>
+                                                </div>
+                                                <div class="rg-premium-list__meta">@activity.Detail</div>
+                                                <div class="rg-premium-list__tags">
+                                                    <span class="fc-badge fc-badge--neutral">@activity.Domain</span>
+                                                    <span class="fc-badge fc-badge--neutral">@activity.HappenedAt.ToString("dd MMM HH:mm")</span>
                                                 </div>
                                             </article>
                                         }
@@ -322,25 +554,46 @@
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!_chartsRendered && _data is not null && _data.DomainDistribution.Count > 0)
+        if (!_chartsRendered && _data is not null)
         {
             _chartsRendered = true;
+            await RenderChartsAsync();
+        }
+    }
 
-            try
+    private async Task RenderChartsAsync()
+    {
+        if (_data is null) return;
+
+        try
+        {
+            if (_data.DomainDistribution.Count > 0)
             {
-                await JS.InvokeVoidAsync("fcCharts.renderBar", "deputyDomainChart", new
+                await JS.InvokeVoidAsync("fcCharts.init", "deputyDomainChart", new
                 {
+                    type = "bar",
                     labels = _data.DomainDistribution.Select(d => d.Label).ToArray(),
                     datasets = new object[]
                     {
-                        new { label = "Issues", data = _data.DomainDistribution.Select(d => d.Count).ToArray(), backgroundColor = "#006B3F" }
+                        new { label = "Issues", data = _data.DomainDistribution.Select(d => d.Count).ToArray(), color = "primary" }
                     }
                 });
             }
-            catch (Exception ex)
+
+            if (_data.PriorityDistribution.Count > 0)
             {
-                Logger.LogWarning(ex, "Deputy Governor dashboard chart rendering failed");
+                await JS.InvokeVoidAsync("fcCharts.init", "deputyPriorityChart", new
+                {
+                    type = "doughnut",
+                    labels = _data.PriorityDistribution.Select(p => p.Label).ToArray(),
+                    data = _data.PriorityDistribution.Select(p => p.Count).ToArray(),
+                    colors = _data.PriorityDistribution.Select(p => PriorityColor(p.Label)).ToArray()
+                });
             }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Deputy Governor dashboard chart rendering failed");
         }
     }
 
@@ -366,81 +619,34 @@
 
     private string ResolveStatusBadge()
     {
-        if (_loading)
-        {
-            return "Refreshing";
-        }
-
-        if (_data is null)
-        {
-            return "Awaiting data";
-        }
-
-        if (_data.Escalations > 0)
-        {
-            return $"{_data.Escalations} escalations";
-        }
-
+        if (_loading) return "Refreshing";
+        if (_data is null) return "Awaiting data";
+        if (_data.Escalations > 0) return $"{_data.Escalations} escalations";
         return _data.RemediationRatePercent >= 80m ? "Queue controlled" : "Monitoring";
     }
 
     private string ResolveStatusVariant()
     {
-        if (_data is null)
-        {
-            return "neutral";
-        }
-
-        if (_data.Escalations >= 5 || _data.RemediationRatePercent < 50m)
-        {
-            return "danger";
-        }
-
-        if (_data.Escalations > 0 || _data.UnresolvedIssues > 0 || _data.RemediationRatePercent < 80m)
-        {
-            return "warning";
-        }
-
+        if (_data is null) return "neutral";
+        if (_data.Escalations >= 5 || _data.RemediationRatePercent < 50m) return "danger";
+        if (_data.Escalations > 0 || _data.UnresolvedIssues > 0 || _data.RemediationRatePercent < 80m) return "warning";
         return "success";
     }
 
     private string ResolveBannerTone()
     {
-        if (_data is null)
-        {
-            return "rg-premium-banner--info";
-        }
-
-        if (_data.Escalations >= 5 || _data.RemediationRatePercent < 50m)
-        {
-            return "rg-premium-banner--danger";
-        }
-
-        if (_data.Escalations > 0 || _data.UnresolvedIssues > 0 || _data.RemediationRatePercent < 80m)
-        {
-            return "rg-premium-banner--warning";
-        }
-
+        if (_data is null) return "rg-premium-banner--info";
+        if (_data.Escalations >= 5 || _data.RemediationRatePercent < 50m) return "rg-premium-banner--danger";
+        if (_data.Escalations > 0 || _data.UnresolvedIssues > 0 || _data.RemediationRatePercent < 80m) return "rg-premium-banner--warning";
         return "rg-premium-banner--success";
     }
 
     private string BuildBannerHeadline()
     {
-        if (_data is null)
-        {
-            return "Refreshing intervention posture.";
-        }
-
-        if (_data.Escalations >= 5)
-        {
-            return "Escalation pressure is high enough to dominate portfolio management today.";
-        }
-
-        if (_data.RemediationRatePercent < 50m)
-        {
-            return "Remediation throughput is lagging the pace of new supervisory pressure.";
-        }
-
+        if (_data is null) return "Refreshing intervention posture.";
+        if (_data.Escalations >= 5) return "Escalation pressure is high enough to dominate portfolio management today.";
+        if (_data.RemediationRatePercent < 50m) return "Remediation throughput is lagging the pace of new supervisory pressure.";
+        if (_data.OverdueInterventions > 0) return $"{_data.OverdueInterventions} interventions are past their due date and need immediate sequencing.";
         return _data.UnresolvedIssues > 0
             ? "The queue is manageable, but unresolved issues still require deliberate sequencing."
             : "Intervention pressure is currently under control.";
@@ -448,21 +654,13 @@
 
     private string BuildBannerDetail()
     {
-        if (_data is null)
-        {
-            return string.Empty;
-        }
-
+        if (_data is null) return string.Empty;
         return $"The portfolio spans {_data.PortfolioSize} institutions, {_data.UnresolvedIssues} unresolved issues, and {_data.InterventionQueue.Count} queued interventions.";
     }
 
     private string BuildEscalationCopy()
     {
-        if (_data is null)
-        {
-            return string.Empty;
-        }
-
+        if (_data is null) return string.Empty;
         return _data.Escalations == 0
             ? "No critical or high-priority interventions are currently waiting for escalation."
             : $"{_data.Escalations} intervention items are sitting in critical or high-priority lanes and may need direct deputy governor steering.";
@@ -482,9 +680,15 @@
             : $"{dominant.Count} queued items are concentrated in the {dominant.Label.ToLowerInvariant()} lane.";
     }
 
+    private string BuildTopPriorityLabel()
+    {
+        var top = _data?.PriorityDistribution.OrderByDescending(x => x.Count).FirstOrDefault();
+        return top is null ? "Balanced" : $"{top.Label} ({top.Count})";
+    }
+
     private string BuildNextDueDate()
     {
-        var nextDue = _data?.InterventionQueue.OrderBy(x => x.DueDate).FirstOrDefault();
+        var nextDue = _data?.InterventionQueue.Where(i => i.Signal != "Resolved").OrderBy(x => x.DueDate).FirstOrDefault();
         return nextDue is null ? "No due date" : nextDue.DueDate.ToString("dd MMM");
     }
 
@@ -506,6 +710,18 @@
         _data.RemediationRatePercent >= 50m ? "rg-premium-stat__value--warning" :
         "rg-premium-stat__value--danger";
 
+    private string BuildRemediationBarClass() =>
+        _data is null ? string.Empty :
+        _data.RemediationRatePercent >= 80m ? "rg-deputy-remediation-bar__fill--success" :
+        _data.RemediationRatePercent >= 50m ? "rg-deputy-remediation-bar__fill--warning" :
+        "rg-deputy-remediation-bar__fill--danger";
+
+    private string RemediationGaugeColor() =>
+        _data is null ? "#9CA3AF" :
+        _data.RemediationRatePercent >= 80m ? "#16a34a" :
+        _data.RemediationRatePercent >= 50m ? "#d97706" :
+        "#dc2626";
+
     private string BuildEscalationChipClass() =>
         _data is null ? "rg-premium-chip--info" :
         _data.Escalations == 0 ? "rg-premium-chip--success" :
@@ -518,6 +734,11 @@
         _data.RemediationRatePercent >= 50m ? "rg-premium-chip--warning" :
         "rg-premium-chip--danger";
 
+    private static string CapitalScoreClass(decimal score) =>
+        score >= 80m ? "fc-text-success" :
+        score >= 65m ? "fc-text-warning" :
+        "fc-text-danger";
+
     private static string PriorityBadge(string priority) => priority switch
     {
         "Critical" => "fc-badge--danger",
@@ -526,11 +747,27 @@
         _ => "fc-badge--neutral"
     };
 
+    private static string PriorityColor(string priority) => priority switch
+    {
+        "Critical" => "#D32F2F",
+        "High" => "#E07C24",
+        "Medium" => "#C8A415",
+        _ => "#9CA3AF"
+    };
+
     private static string SignalBadge(string signal) => signal switch
     {
         "Critical" or "Alert" => "fc-badge--danger",
         "Warning" or "Watch" => "fc-badge--warning",
         "Resolved" => "fc-badge--success",
+        _ => "fc-badge--neutral"
+    };
+
+    private static string SeverityBadge(string severity) => severity switch
+    {
+        "Critical" => "fc-badge--danger",
+        "High" or "Warning" => "fc-badge--warning",
+        "Info" => "fc-badge--info",
         _ => "fc-badge--neutral"
     };
 }
