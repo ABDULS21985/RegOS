@@ -11,16 +11,16 @@ namespace FC.Engine.Infrastructure.Services;
 
 public sealed class PolicyScenarioService : IPolicyScenarioService
 {
-    private readonly MetadataDbContext _db;
+    private readonly IDbContextFactory<MetadataDbContext> _dbFactory;
     private readonly IPolicyAuditLogger _audit;
     private readonly ILogger<PolicyScenarioService> _log;
 
     public PolicyScenarioService(
-        MetadataDbContext db,
+        IDbContextFactory<MetadataDbContext> dbFactory,
         IPolicyAuditLogger audit,
         ILogger<PolicyScenarioService> log)
     {
-        _db = db;
+        _dbFactory = dbFactory;
         _audit = audit;
         _log = log;
     }
@@ -37,6 +37,8 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
         int createdByUserId,
         CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
         var scenario = new PolicyScenario
         {
             RegulatorId = regulatorId,
@@ -52,8 +54,8 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
             UpdatedAt = DateTime.UtcNow
         };
 
-        _db.PolicyScenarios.Add(scenario);
-        await _db.SaveChangesAsync(ct);
+        db.PolicyScenarios.Add(scenario);
+        await db.SaveChangesAsync(ct);
 
         await _audit.LogAsync(
             scenario.Id, regulatorId, Guid.NewGuid(),
@@ -78,15 +80,17 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
         int userId,
         CancellationToken ct = default)
     {
-        var scenario = await _db.PolicyScenarios
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var scenario = await db.PolicyScenarios
             .FirstOrDefaultAsync(s => s.Id == scenarioId && s.RegulatorId == regulatorId, ct)
             ?? throw new InvalidOperationException($"Scenario {scenarioId} not found for regulator {regulatorId}.");
 
-        var preset = await _db.PolicyParameterPresets
+        var preset = await db.PolicyParameterPresets
             .FirstOrDefaultAsync(p => p.ParameterCode == parameterCode && p.IsActive, ct)
             ?? throw new InvalidOperationException($"Parameter preset '{parameterCode}' not found or inactive.");
 
-        var nextOrder = await _db.PolicyParameters
+        var nextOrder = await db.PolicyParameters
             .Where(p => p.ScenarioId == scenarioId)
             .CountAsync(ct) + 1;
 
@@ -104,7 +108,7 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
             CreatedAt = DateTime.UtcNow
         };
 
-        _db.PolicyParameters.Add(param);
+        db.PolicyParameters.Add(param);
 
         if (scenario.Status == PolicyStatus.Draft)
         {
@@ -112,7 +116,7 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
             scenario.UpdatedAt = DateTime.UtcNow;
         }
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
         await _audit.LogAsync(
             scenarioId, regulatorId, Guid.NewGuid(),
@@ -133,21 +137,23 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
         int userId,
         CancellationToken ct = default)
     {
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
         // Verify regulator access on the parent scenario
-        var scenarioExists = await _db.PolicyScenarios
+        var scenarioExists = await db.PolicyScenarios
             .AnyAsync(s => s.Id == scenarioId && s.RegulatorId == regulatorId, ct);
 
         if (!scenarioExists)
             throw new InvalidOperationException($"Scenario {scenarioId} not found for regulator {regulatorId}.");
 
-        var param = await _db.PolicyParameters
+        var param = await db.PolicyParameters
             .FirstOrDefaultAsync(p => p.ScenarioId == scenarioId && p.ParameterCode == parameterCode, ct)
             ?? throw new InvalidOperationException($"Parameter '{parameterCode}' not found on scenario {scenarioId}.");
 
         var previousValue = param.ProposedValue;
         param.ProposedValue = newProposedValue;
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
         await _audit.LogAsync(
             scenarioId, regulatorId, Guid.NewGuid(),
@@ -167,7 +173,9 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
         int regulatorId,
         CancellationToken ct = default)
     {
-        var scenario = await _db.PolicyScenarios
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var scenario = await db.PolicyScenarios
             .AsNoTracking()
             .Include(s => s.Parameters)
             .Include(s => s.ImpactRuns)
@@ -223,7 +231,9 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
         int pageSize,
         CancellationToken ct = default)
     {
-        var query = _db.PolicyScenarios
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var query = db.PolicyScenarios
             .AsNoTracking()
             .Where(s => s.RegulatorId == regulatorId);
 
@@ -274,7 +284,9 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
     {
         try
         {
-            var counts = await _db.PolicyScenarios
+            await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+            var counts = await db.PolicyScenarios
                 .AsNoTracking()
                 .Where(s => s.RegulatorId == regulatorId)
                 .GroupBy(s => s.Status)
@@ -308,7 +320,9 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
         int userId,
         CancellationToken ct = default)
     {
-        var source = await _db.PolicyScenarios
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var source = await db.PolicyScenarios
             .AsNoTracking()
             .Include(s => s.Parameters)
             .Where(s => s.Id == sourceScenarioId && s.RegulatorId == regulatorId)
@@ -330,12 +344,12 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
             UpdatedAt = DateTime.UtcNow
         };
 
-        _db.PolicyScenarios.Add(clone);
-        await _db.SaveChangesAsync(ct);
+        db.PolicyScenarios.Add(clone);
+        await db.SaveChangesAsync(ct);
 
         foreach (var srcParam in source.Parameters.OrderBy(p => p.DisplayOrder))
         {
-            _db.PolicyParameters.Add(new PolicyParameter
+            db.PolicyParameters.Add(new PolicyParameter
             {
                 ScenarioId = clone.Id,
                 ParameterCode = srcParam.ParameterCode,
@@ -356,7 +370,7 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
             clone.UpdatedAt = DateTime.UtcNow;
         }
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
         await _audit.LogAsync(
             clone.Id, regulatorId, Guid.NewGuid(),
@@ -380,7 +394,9 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
         int userId,
         CancellationToken ct = default)
     {
-        var scenario = await _db.PolicyScenarios
+        await using var db = await _dbFactory.CreateDbContextAsync(ct);
+
+        var scenario = await db.PolicyScenarios
             .FirstOrDefaultAsync(s => s.Id == scenarioId && s.RegulatorId == regulatorId, ct)
             ?? throw new InvalidOperationException($"Scenario {scenarioId} not found for regulator {regulatorId}.");
 
@@ -388,7 +404,7 @@ public sealed class PolicyScenarioService : IPolicyScenarioService
         scenario.Status = newStatus;
         scenario.UpdatedAt = DateTime.UtcNow;
 
-        await _db.SaveChangesAsync(ct);
+        await db.SaveChangesAsync(ct);
 
         await _audit.LogAsync(
             scenarioId, regulatorId, Guid.NewGuid(),

@@ -13,31 +13,39 @@ namespace FC.Engine.Migrator;
 public sealed class DemoCredentialSeedService
 {
     private const string PlatformLoginUrl = "http://localhost:5200/login";
+    private const string RegulatorLoginUrl = "http://localhost:5200/login";
     private const string InstitutionLoginUrl = "http://localhost:5300/login";
 
     private static readonly DemoPortalUserSpec[] PlatformUsers =
     [
-        new("admin", "System Administrator", "admin@fcengine.local", PortalRole.Admin, requiresMfa: false),
-        new("platformapprover", "Platform Approver", "platform.approver@fcengine.local", PortalRole.Approver, requiresMfa: true),
-        new("platformviewer", "Platform Viewer", "platform.viewer@fcengine.local", PortalRole.Viewer, requiresMfa: false)
+        new("admin", "System Administrator", "admin@fcengine.local", PortalRole.Admin, RequiresMfa: false),
+        new("platformapprover", "Platform Approver", "platform.approver@fcengine.local", PortalRole.Approver, RequiresMfa: true),
+        new("platformviewer", "Platform Viewer", "platform.viewer@fcengine.local", PortalRole.Viewer, RequiresMfa: false)
+    ];
+
+    private static readonly DemoPortalUserSpec[] RegulatorUsers =
+    [
+        new("cbnadmin", "CBN Demo Admin", "cbn.admin@fcengine.local", PortalRole.Admin, RequiresMfa: false),
+        new("cbnapprover", "CBN Demo Approver", "cbn.approver@fcengine.local", PortalRole.Approver, RequiresMfa: true),
+        new("cbnviewer", "CBN Demo Viewer", "cbn.viewer@fcengine.local", PortalRole.Viewer, RequiresMfa: false)
     ];
 
     private static readonly DemoInstitutionUserSpec[] BdcUsers =
     [
-        new("cashcodeadmin", "Cashcode Admin", "admin@cashcode.local", InstitutionRole.Admin, requiresMfa: false),
-        new("cashcodemaker", "Cashcode Maker", "maker@cashcode.local", InstitutionRole.Maker, requiresMfa: false),
-        new("cashcodechecker", "Cashcode Checker", "checker@cashcode.local", InstitutionRole.Checker, requiresMfa: true),
-        new("cashcodeviewer", "Cashcode Viewer", "viewer@cashcode.local", InstitutionRole.Viewer, requiresMfa: false),
-        new("cashcodeapprover", "Cashcode Approver", "approver@cashcode.local", InstitutionRole.Approver, requiresMfa: true)
+        new("cashcodeadmin", "Cashcode Admin", "admin@cashcode.local", InstitutionRole.Admin, RequiresMfa: false),
+        new("cashcodemaker", "Cashcode Maker", "maker@cashcode.local", InstitutionRole.Maker, RequiresMfa: false),
+        new("cashcodechecker", "Cashcode Checker", "checker@cashcode.local", InstitutionRole.Checker, RequiresMfa: true),
+        new("cashcodeviewer", "Cashcode Viewer", "viewer@cashcode.local", InstitutionRole.Viewer, RequiresMfa: false),
+        new("cashcodeapprover", "Cashcode Approver", "approver@cashcode.local", InstitutionRole.Approver, RequiresMfa: true)
     ];
 
     private static readonly DemoInstitutionUserSpec[] DmbUsers =
     [
-        new("accessdemo", "Access Demo Admin", "accessdemo@accessbank.local", InstitutionRole.Admin, requiresMfa: false),
-        new("accessmaker", "Access Demo Maker", "maker@accessbank.local", InstitutionRole.Maker, requiresMfa: false),
-        new("accesschecker", "Access Demo Checker", "checker@accessbank.local", InstitutionRole.Checker, requiresMfa: true),
-        new("accessviewer", "Access Demo Viewer", "viewer@accessbank.local", InstitutionRole.Viewer, requiresMfa: false),
-        new("accessapprover", "Access Demo Approver", "approver@accessbank.local", InstitutionRole.Approver, requiresMfa: true)
+        new("accessdemo", "Access Demo Admin", "accessdemo@accessbank.local", InstitutionRole.Admin, RequiresMfa: false),
+        new("accessmaker", "Access Demo Maker", "maker@accessbank.local", InstitutionRole.Maker, RequiresMfa: false),
+        new("accesschecker", "Access Demo Checker", "checker@accessbank.local", InstitutionRole.Checker, RequiresMfa: true),
+        new("accessviewer", "Access Demo Viewer", "viewer@accessbank.local", InstitutionRole.Viewer, RequiresMfa: false),
+        new("accessapprover", "Access Demo Approver", "approver@accessbank.local", InstitutionRole.Approver, RequiresMfa: true)
     ];
 
     private readonly MetadataDbContext _db;
@@ -76,8 +84,22 @@ public sealed class DemoCredentialSeedService
 
         foreach (var spec in PlatformUsers)
         {
-            result.PlatformAccounts.Add(await EnsurePortalUserAsync(spec, sharedPassword, ct));
+            result.PlatformAccounts.Add(await EnsurePortalUserAsync(
+                spec,
+                sharedPassword,
+                tenantId: null,
+                audience: "Platform",
+                loginUrl: PlatformLoginUrl,
+                ct));
         }
+
+        var regulatorTenant = await ResolveTenantAsync("cbn", "Central Bank of Nigeria", ct);
+        result.RegulatorGroups.Add(await EnsurePortalTenantUsersAsync(
+            regulatorTenant,
+            "Regulator workspace demo with policy simulation, stress testing, surveillance, and examination workflows.",
+            RegulatorUsers,
+            sharedPassword,
+            ct));
 
         var bdcInstitution = await ResolveInstitutionAsync("CASHCODE", "CASHCODE BDC LTD", ct);
         result.InstitutionGroups.Add(await EnsureInstitutionUsersAsync(
@@ -106,6 +128,9 @@ public sealed class DemoCredentialSeedService
     private async Task<DemoCredentialAccount> EnsurePortalUserAsync(
         DemoPortalUserSpec spec,
         string password,
+        Guid? tenantId,
+        string audience,
+        string loginUrl,
         CancellationToken ct)
     {
         var user = await _portalUserRepository.GetByUsername(spec.Username, ct);
@@ -117,7 +142,7 @@ public sealed class DemoCredentialSeedService
                 spec.Email,
                 password,
                 spec.Role,
-                tenantId: null,
+                tenantId,
                 ct);
         }
         else
@@ -127,7 +152,7 @@ public sealed class DemoCredentialSeedService
                    ?? throw new InvalidOperationException($"Portal user {spec.Username} disappeared after password reset.");
         }
 
-        user.TenantId = null;
+        user.TenantId = tenantId;
         user.DisplayName = spec.DisplayName;
         user.Email = spec.Email;
         user.Role = spec.Role;
@@ -142,8 +167,8 @@ public sealed class DemoCredentialSeedService
 
         return new DemoCredentialAccount
         {
-            Audience = "Platform",
-            LoginUrl = PlatformLoginUrl,
+            Audience = audience,
+            LoginUrl = loginUrl,
             Username = user.Username,
             Email = user.Email,
             DisplayName = user.DisplayName,
@@ -153,6 +178,36 @@ public sealed class DemoCredentialSeedService
             TotpSecret = mfa?.TotpSecret,
             BackupCodes = mfa?.BackupCodes ?? []
         };
+    }
+
+    private async Task<DemoPortalGroup> EnsurePortalTenantUsersAsync(
+        Tenant tenant,
+        string notes,
+        IReadOnlyList<DemoPortalUserSpec> specs,
+        string password,
+        CancellationToken ct)
+    {
+        var group = new DemoPortalGroup
+        {
+            Audience = "Regulator",
+            LoginUrl = RegulatorLoginUrl,
+            TenantName = tenant.TenantName,
+            TenantSlug = tenant.TenantSlug,
+            Notes = notes
+        };
+
+        foreach (var spec in specs)
+        {
+            group.Accounts.Add(await EnsurePortalUserAsync(
+                spec,
+                password,
+                tenant.TenantId,
+                tenant.TenantSlug.ToUpperInvariant(),
+                RegulatorLoginUrl,
+                ct));
+        }
+
+        return group;
     }
 
     private async Task<DemoCredentialGroup> EnsureInstitutionUsersAsync(
@@ -280,6 +335,18 @@ public sealed class DemoCredentialSeedService
         return institution ?? throw new InvalidOperationException(
             $"Institution {institutionCode} / {institutionName} was not found.");
     }
+
+    private async Task<Tenant> ResolveTenantAsync(string tenantSlug, string tenantName, CancellationToken ct)
+    {
+        var tenant = await _db.Tenants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.TenantSlug == tenantSlug || x.TenantName == tenantName,
+                ct);
+
+        return tenant ?? throw new InvalidOperationException(
+            $"Tenant {tenantSlug} / {tenantName} was not found.");
+    }
 }
 
 public sealed class DemoCredentialSeedResult
@@ -287,7 +354,18 @@ public sealed class DemoCredentialSeedResult
     public DateTimeOffset GeneratedAtUtc { get; set; }
     public string SharedPassword { get; set; } = string.Empty;
     public List<DemoCredentialAccount> PlatformAccounts { get; } = [];
+    public List<DemoPortalGroup> RegulatorGroups { get; } = [];
     public List<DemoCredentialGroup> InstitutionGroups { get; } = [];
+}
+
+public sealed class DemoPortalGroup
+{
+    public string Audience { get; set; } = string.Empty;
+    public string LoginUrl { get; set; } = string.Empty;
+    public string TenantName { get; set; } = string.Empty;
+    public string TenantSlug { get; set; } = string.Empty;
+    public string Notes { get; set; } = string.Empty;
+    public List<DemoCredentialAccount> Accounts { get; } = [];
 }
 
 public sealed class DemoCredentialGroup
@@ -317,20 +395,20 @@ public sealed class DemoCredentialAccount
     public IReadOnlyList<string> BackupCodes { get; set; } = [];
 }
 
-file sealed record DemoPortalUserSpec(
+sealed record DemoPortalUserSpec(
     string Username,
     string DisplayName,
     string Email,
     PortalRole Role,
     bool RequiresMfa);
 
-file sealed record DemoInstitutionUserSpec(
+sealed record DemoInstitutionUserSpec(
     string Username,
     string DisplayName,
     string Email,
     InstitutionRole Role,
     bool RequiresMfa);
 
-file sealed record DemoMfaMaterial(
+sealed record DemoMfaMaterial(
     string TotpSecret,
     IReadOnlyList<string> BackupCodes);

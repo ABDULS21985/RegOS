@@ -1,9 +1,13 @@
+using FC.Engine.Infrastructure.Metadata;
+using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
 
 namespace FC.Engine.Infrastructure.Migrations;
 
+[DbContext(typeof(MetadataDbContext))]
+[Migration("20260330_AddConductRiskSchema")]
 /// <summary>
 /// RG-38: Conduct Risk &amp; Market Abuse Surveillance.
 /// Creates regulator-owned surveillance tables, whistleblower workflow tables,

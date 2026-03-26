@@ -34,7 +34,7 @@ public class ConsultationFeedbackTests
     {
         var db = CreateDb(testName);
         var audit = new PolicyAuditLogger(db, NullLogger<PolicyAuditLogger>.Instance);
-        var scenarioSvc = new PolicyScenarioService(db, audit, NullLogger<PolicyScenarioService>.Instance);
+        var scenarioSvc = new PolicyScenarioService(new TestDbContextFactory(testName), audit, NullLogger<PolicyScenarioService>.Instance);
         var consultationSvc = new ConsultationService(new TestDbContextFactory(testName), audit, NullLogger<ConsultationService>.Instance);
         return (scenarioSvc, consultationSvc, db);
     }

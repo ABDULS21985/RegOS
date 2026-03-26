@@ -51,6 +51,7 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<InstitutionAuthService>();
 builder.Services.AddScoped<DmbDemoWorkspaceService>();
 builder.Services.AddScoped<DemoCredentialSeedService>();
+builder.Services.AddScoped<EndToEndDemoSeedService>();
 
 var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
@@ -328,9 +329,10 @@ try
         await WriteDemoCredentialPackAsync(demoCredentialResult, demoCredentialPath);
 
         logger.LogInformation(
-            "Demo credentials seeded and written to {Path}: {PlatformCount} platform accounts, {InstitutionCount} institution accounts",
+            "Demo credentials seeded and written to {Path}: {PlatformCount} platform accounts, {RegulatorCount} regulator accounts, {InstitutionCount} institution accounts",
             demoCredentialPath,
             demoCredentialResult.PlatformAccounts.Count,
+            demoCredentialResult.RegulatorGroups.Sum(x => x.Accounts.Count),
             demoCredentialResult.InstitutionGroups.Sum(x => x.Accounts.Count));
 
         if (string.Equals(command, "seed-demo-credentials", StringComparison.OrdinalIgnoreCase))
@@ -355,6 +357,32 @@ try
             result.HistoricalPeriodsCreated,
             result.HistoricalSubmissionsCreated,
             result.VerificationSamplePath);
+    }
+
+    if (string.Equals(command, "seed-end-to-end-demo", StringComparison.OrdinalIgnoreCase))
+    {
+        var endToEndDemoSeeder = scope.ServiceProvider.GetRequiredService<EndToEndDemoSeedService>();
+        var sharedPassword = builder.Configuration["Demo:SharedPassword"]
+            ?? builder.Configuration["DefaultAdmin:Password"]
+            ?? "Admin@FcEngine2026!";
+        var templatesDirectory = ResolveDmbTemplatesDirectory(builder.Configuration, configurationBasePath);
+
+        var result = await endToEndDemoSeeder.SeedAsync(sharedPassword, templatesDirectory);
+        var demoCredentialPath = ResolveDemoCredentialPackPath(builder.Configuration, configurationBasePath);
+        await WriteDemoCredentialPackAsync(result.Credentials, demoCredentialPath);
+
+        logger.LogInformation(
+            "End-to-end demo seeded for {RegulatorCode} ({PeriodCode}): {PrudentialRows} prudential rows, {ExposureRows} interbank exposures, {StressRuns} stress runs, {PolicyScenarios} policy scenarios, {WhistleblowerCases} whistleblower cases, {ExamProjects} examination project(s). Credentials written to {Path}",
+            result.RegulatorCode,
+            result.CurrentPeriodCode,
+            result.PrudentialRowsUpserted,
+            result.InterbankExposureRowsUpserted,
+            result.StressRunsCreated,
+            result.PolicyScenariosSeeded,
+            result.WhistleblowerCasesSeeded,
+            result.ExaminationProjectsSeeded,
+            demoCredentialPath);
+        return;
     }
 
     logger.LogInformation("RegOS™ Migrator completed successfully");
@@ -443,6 +471,28 @@ static async Task WriteDemoCredentialPackAsync(DemoCredentialSeedResult result, 
     foreach (var account in result.PlatformAccounts.Where(x => x.MfaRequired))
     {
         AppendMfaSection(builder, $"{account.DisplayName} ({account.Username})", account);
+    }
+
+    foreach (var group in result.RegulatorGroups.OrderBy(x => x.TenantSlug))
+    {
+        builder.AppendLine();
+        builder.AppendLine($"## {group.TenantName} ({group.TenantSlug.ToUpperInvariant()})");
+        builder.AppendLine();
+        builder.AppendLine($"- Audience: `{group.Audience}`");
+        builder.AppendLine($"- Login URL: `{group.LoginUrl}`");
+        builder.AppendLine($"- Notes: {group.Notes}");
+        builder.AppendLine();
+        builder.AppendLine("| Username | Role | Email | Password | MFA |");
+        builder.AppendLine("| --- | --- | --- | --- | --- |");
+        foreach (var account in group.Accounts.OrderBy(x => x.Role).ThenBy(x => x.Username))
+        {
+            builder.AppendLine($"| `{account.Username}` | `{account.Role}` | `{account.Email}` | `{account.Password}` | {(account.MfaRequired ? "Required" : "Not required")} |");
+        }
+
+        foreach (var account in group.Accounts.Where(x => x.MfaRequired))
+        {
+            AppendMfaSection(builder, $"{account.DisplayName} ({account.Username})", account);
+        }
     }
 
     foreach (var group in result.InstitutionGroups.OrderBy(x => x.InstitutionCode))

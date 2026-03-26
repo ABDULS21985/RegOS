@@ -24,6 +24,7 @@ BEGIN
     CREATE TABLE StressScenarios (
         Id                  INT IDENTITY(1,1) PRIMARY KEY,
         ScenarioCode        VARCHAR(30)     NOT NULL,
+        RegulatorCode       VARCHAR(10)     NULL,
         ScenarioName        NVARCHAR(150)   NOT NULL,
         Category            VARCHAR(20)     NOT NULL,
         NarrativeSummary    NVARCHAR(2000)  NOT NULL,
@@ -33,6 +34,35 @@ BEGIN
         CreatedAt           DATETIME2(3)    NOT NULL DEFAULT SYSUTCDATETIME(),
         CONSTRAINT UQ_StressScenarios_Code UNIQUE (ScenarioCode)
     );
+END
+""");
+
+        migrationBuilder.Sql("""
+IF OBJECT_ID('StressScenarios', 'U') IS NOT NULL
+AND NOT EXISTS (
+    SELECT 1
+    FROM   sys.columns c
+    JOIN   sys.tables  t ON t.object_id = c.object_id
+    WHERE  t.name = 'StressScenarios'
+      AND  c.name = 'RegulatorCode'
+)
+BEGIN
+    ALTER TABLE StressScenarios
+        ADD RegulatorCode VARCHAR(10) NULL;
+END
+""");
+
+        migrationBuilder.Sql("""
+IF OBJECT_ID('StressScenarios', 'U') IS NOT NULL
+AND NOT EXISTS (
+    SELECT 1
+    FROM   sys.indexes
+    WHERE  name      = 'IX_StressScenarios_RegulatorCode'
+      AND  object_id = OBJECT_ID('StressScenarios')
+)
+BEGIN
+    CREATE INDEX IX_StressScenarios_RegulatorCode
+        ON StressScenarios (RegulatorCode, IsActive, Category);
 END
 """);
 
