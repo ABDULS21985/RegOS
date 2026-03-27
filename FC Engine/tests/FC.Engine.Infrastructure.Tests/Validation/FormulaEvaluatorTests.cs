@@ -771,6 +771,61 @@ public class FormulaEvaluatorTests
     }
 
     [Fact]
+    public async Task Evaluate_CustomFunction_Sum_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord("CAP_STK", new Dictionary<string, object?>
+        {
+            ["cet1_share_percent"] = 9m,
+            ["at1_share_percent"] = 2m,
+            ["tier2_share_percent"] = 4m,
+            ["total_stack_share_percent"] = 15m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "CAP-STK-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "total_stack_share_percent",
+            OperandFields = "[\"cet1_share_percent\",\"at1_share_percent\",\"tier2_share_percent\"]",
+            CustomExpression = "FUNC:SUM(cet1_share_percent,at1_share_percent,tier2_share_percent)",
+            Severity = ValidationSeverity.Warning,
+            IsActive = true
+        };
+        SetupCache("CAP_STK", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Evaluate_CustomFunction_Delta_Calculates_Correctly()
+    {
+        var record = CreateFixedRowRecord("OPS_RTO", new Dictionary<string, object?>
+        {
+            ["tested_recovery_minutes"] = 55m,
+            ["recovery_target_minutes"] = 45m,
+            ["variance_minutes"] = 10m
+        });
+
+        var formula = new IntraSheetFormula
+        {
+            RuleCode = "OPS-RTO-001",
+            FormulaType = FormulaType.Custom,
+            TargetFieldName = "variance_minutes",
+            OperandFields = "[\"tested_recovery_minutes\",\"recovery_target_minutes\"]",
+            CustomExpression = "FUNC:DELTA(tested_recovery_minutes,recovery_target_minutes)",
+            Severity = ValidationSeverity.Warning,
+            IsActive = true
+        };
+        SetupCache("OPS_RTO", formula);
+
+        var errors = await _evaluator.Evaluate(record);
+
+        errors.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Existing_FormulaEvaluator_Functions_Unchanged()
     {
         var record = CreateFixedRowRecord(new Dictionary<string, object?>
@@ -952,8 +1007,11 @@ public class FormulaEvaluatorTests
     }
 
     private ReturnDataRecord CreateFixedRowRecord(Dictionary<string, object?> fields)
+        => CreateFixedRowRecord("MFCR 300", fields);
+
+    private ReturnDataRecord CreateFixedRowRecord(string returnCode, Dictionary<string, object?> fields)
     {
-        var record = new ReturnDataRecord("MFCR 300", 1, StructuralCategory.FixedRow);
+        var record = new ReturnDataRecord(returnCode, 1, StructuralCategory.FixedRow);
         var row = new ReturnDataRow();
         foreach (var (k, v) in fields) row.SetValue(k, v);
         record.AddRow(row);

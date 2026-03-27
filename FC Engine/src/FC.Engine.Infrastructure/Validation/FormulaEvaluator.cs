@@ -332,6 +332,18 @@ public partial class FormulaEvaluator : IFormulaEvaluator
     {
         return new Dictionary<string, Func<Dictionary<string, decimal>, decimal>>(StringComparer.OrdinalIgnoreCase)
         {
+            ["SUM"] = args =>
+            {
+                return args
+                    .Where(kvp => kvp.Key.StartsWith("arg", StringComparison.OrdinalIgnoreCase))
+                    .Sum(kvp => kvp.Value);
+            },
+            ["DELTA"] = args =>
+            {
+                var minuend = Arg(args, "arg1");
+                var subtrahend = Arg(args, "arg2");
+                return Math.Round(minuend - subtrahend, 2);
+            },
             ["CAR"] = args =>
             {
                 var tier1 = Arg(args, "tier1", "arg1");

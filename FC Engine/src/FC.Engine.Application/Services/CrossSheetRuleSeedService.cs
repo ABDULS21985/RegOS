@@ -20,17 +20,40 @@ public class CrossSheetRuleSeedService
 
     public async Task<int> SeedCrossSheetRules(string performedBy, CancellationToken ct = default)
     {
-        var existing = await _formulaRepo.GetAllActiveCrossSheetRules(ct);
-        if (existing.Any()) return 0; // Already seeded
+        var existing = await _formulaRepo.GetAllCrossSheetRules(ct);
+        var existingByCode = existing
+            .GroupBy(rule => rule.RuleCode, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(
+                group => group.Key,
+                group => group
+                    .OrderByDescending(rule => rule.IsActive)
+                    .ThenByDescending(rule => rule.Id)
+                    .First(),
+                StringComparer.OrdinalIgnoreCase);
 
         var rules = BuildCrossSheetRules(performedBy);
+        var changes = 0;
 
-        foreach (var rule in rules)
+        foreach (var seededRule in rules)
         {
-            await _formulaRepo.AddCrossSheetRule(rule, ct);
+            if (!existingByCode.TryGetValue(seededRule.RuleCode, out var existingRule))
+            {
+                await _formulaRepo.AddCrossSheetRule(seededRule, ct);
+                changes++;
+                continue;
+            }
+
+            if (!NeedsUpdate(existingRule, seededRule))
+            {
+                continue;
+            }
+
+            ApplySeedDefinition(existingRule, seededRule);
+            await _formulaRepo.UpdateCrossSheetRule(existingRule, ct);
+            changes++;
         }
 
-        return rules.Count;
+        return changes;
     }
 
     private static List<CrossSheetRule> BuildCrossSheetRules(string createdBy)
@@ -105,16 +128,15 @@ public class CrossSheetRuleSeedService
             },
             "A = B", createdBy, now));
 
-        // XS-007: PPE = MFCR 362 total
+        // XS-007: PPE = MFCR 362 net carrying amount
         rules.Add(CreateRule("XS-007",
             "Property Plant Equipment Reconciliation",
-            "PPE on balance sheet should match MFCR 362 schedule",
+            "PPE on balance sheet should match the net carrying amount reported in MFCR 362",
             new[] {
                 ("A", "MFCR 300", "property_plant_equipment", (string?)null, (string?)null),
-                ("B", "MFCR 362", "carrying_end_naira", null, "SUM"),
-                ("C", "MFCR 362", "carrying_end_foreign", null, "SUM")
+                ("B", "MFCR 362", "net_carrying_amount", null, "SUM")
             },
-            "A = B + C", createdBy, now));
+            "A = B", createdBy, now));
 
         // XS-008: Investments in Subsidiaries = MFCR 354 carrying value
         rules.Add(CreateRule("XS-008",
@@ -201,15 +223,14 @@ public class CrossSheetRuleSeedService
 
         // === Quarterly Return Cross-Checks (XS-036 to XS-045) ===
 
-        // XS-036: QFCR should be consistent with corresponding MFCR
+        // XS-036: keep a warning-only quarterly sanity check until quarter-to-month temporal reconciliation is modeled.
         rules.Add(CreateRule("XS-036",
-            "Quarterly vs Monthly Consistency",
-            "Quarterly total assets should match last month's MFCR 300",
-            new[] {
-                ("A", "QFCR 364", "total", (string?)null, "SUM"),
-                ("B", "MFCR 300", "total_assets", null, null)
+            "Direct Credit Substitutes Total",
+            "Total direct credit substitutes should be non-negative",
+            new (string Alias, string ReturnCode, string FieldName, string? LineCode, string? Aggregate)[] {
+                ("A", "QFCR 364", "amount", null, "SUM")
             },
-            "A >= 0", createdBy, now, // Simplified check — exact match requires temporal context
+            "A >= 0", createdBy, now,
             ValidationSeverity.Warning));
 
         // XS-037: Other Assets Breakdown Detail
@@ -343,5 +364,71 @@ public class CrossSheetRuleSeedService
         };
 
         return rule;
+    }
+
+    private static bool NeedsUpdate(CrossSheetRule existing, CrossSheetRule seeded)
+    {
+        if (!existing.IsActive) return true;
+        if (!string.Equals(existing.RuleName, seeded.RuleName, StringComparison.Ordinal)) return true;
+        if (!string.Equals(existing.Description, seeded.Description, StringComparison.Ordinal)) return true;
+        if (existing.Severity != seeded.Severity) return true;
+
+        var existingExpression = existing.Expression;
+        var seededExpression = seeded.Expression;
+        if (existingExpression is null != seededExpression is null) return true;
+        if (existingExpression is not null && seededExpression is not null)
+        {
+            if (!string.Equals(existingExpression.Expression, seededExpression.Expression, StringComparison.Ordinal)) return true;
+            if (existingExpression.ToleranceAmount != seededExpression.ToleranceAmount) return true;
+            if (existingExpression.TolerancePercent != seededExpression.TolerancePercent) return true;
+            if (!string.Equals(existingExpression.ErrorMessage, seededExpression.ErrorMessage, StringComparison.Ordinal)) return true;
+        }
+
+        var existingOperands = existing.Operands.OrderBy(operand => operand.SortOrder).ToList();
+        var seededOperands = seeded.Operands.OrderBy(operand => operand.SortOrder).ToList();
+        if (existingOperands.Count != seededOperands.Count) return true;
+
+        for (var i = 0; i < existingOperands.Count; i++)
+        {
+            var existingOperand = existingOperands[i];
+            var seededOperand = seededOperands[i];
+
+            if (!string.Equals(existingOperand.OperandAlias, seededOperand.OperandAlias, StringComparison.Ordinal)) return true;
+            if (!string.Equals(existingOperand.TemplateReturnCode, seededOperand.TemplateReturnCode, StringComparison.Ordinal)) return true;
+            if (!string.Equals(existingOperand.FieldName, seededOperand.FieldName, StringComparison.Ordinal)) return true;
+            if (!string.Equals(existingOperand.LineCode, seededOperand.LineCode, StringComparison.Ordinal)) return true;
+            if (!string.Equals(existingOperand.AggregateFunction, seededOperand.AggregateFunction, StringComparison.Ordinal)) return true;
+            if (!string.Equals(existingOperand.FilterItemCode, seededOperand.FilterItemCode, StringComparison.Ordinal)) return true;
+            if (existingOperand.SortOrder != seededOperand.SortOrder) return true;
+        }
+
+        return false;
+    }
+
+    private static void ApplySeedDefinition(CrossSheetRule existing, CrossSheetRule seeded)
+    {
+        existing.RuleName = seeded.RuleName;
+        existing.Description = seeded.Description;
+        existing.Severity = seeded.Severity;
+        existing.IsActive = true;
+        existing.Expression = seeded.Expression is null
+            ? null
+            : new CrossSheetRuleExpression
+            {
+                Expression = seeded.Expression.Expression,
+                ToleranceAmount = seeded.Expression.ToleranceAmount,
+                TolerancePercent = seeded.Expression.TolerancePercent,
+                ErrorMessage = seeded.Expression.ErrorMessage
+            };
+        existing.SetOperands(seeded.Operands.Select(operand => new CrossSheetRuleOperand
+        {
+            OperandAlias = operand.OperandAlias,
+            TemplateReturnCode = operand.TemplateReturnCode,
+            FieldName = operand.FieldName,
+            LineCode = operand.LineCode,
+            AggregateFunction = operand.AggregateFunction,
+            FilterItemCode = operand.FilterItemCode,
+            SortOrder = operand.SortOrder
+        }));
     }
 }

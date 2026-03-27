@@ -298,7 +298,11 @@ public class TenantOnboardingService : ITenantOnboardingService
             ct);
 
         var baselineEntitlement = await ResolveEntitlementsUsingCurrentContext(tenant.TenantId, ct);
-        foreach (var requiredModule in baselineEntitlement.EligibleModules.Where(m => m.IsRequired))
+        var activeModuleCodes = baselineEntitlement.ActiveModules
+            .Select(module => module.ModuleCode)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var requiredModule in baselineEntitlement.EligibleModules
+                     .Where(m => m.IsRequired && !activeModuleCodes.Contains(m.ModuleCode)))
         {
             try
             {

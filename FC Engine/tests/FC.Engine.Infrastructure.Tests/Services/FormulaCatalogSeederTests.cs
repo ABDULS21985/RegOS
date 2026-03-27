@@ -3,6 +3,7 @@ using FC.Engine.Application.Services;
 using FC.Engine.Domain.Abstractions;
 using FC.Engine.Domain.Enums;
 using FC.Engine.Domain.Metadata;
+using FC.Engine.Domain.Validation;
 using FluentAssertions;
 using Moq;
 using Xunit;
@@ -346,6 +347,182 @@ public class FormulaCatalogSeederTests
 
             var operands = JsonSerializer.Deserialize<List<string>>(formula.OperandFields);
             operands.Should().BeEquivalentTo(new[] { "gross_loans", "impairment_loans" });
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task SeedFromCatalog_WithResolvableCrossSheetReference_UsesTemplateFieldNames()
+    {
+        var targetVersion = new TemplateVersion
+        {
+            Id = 10,
+            TemplateId = 10,
+            VersionNumber = 1,
+            Status = TemplateStatus.Published,
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = "test"
+        };
+        targetVersion.SetFields(new List<TemplateField>
+        {
+            new() { FieldName = "cash", DisplayName = "CASH", XmlElementName = "Cash" }
+        });
+
+        var targetTemplate = new ReturnTemplate
+        {
+            Id = 10,
+            ReturnCode = "FC CAR 1",
+            Name = "Capital Adequacy",
+            PhysicalTableName = "fc_car_1",
+            Frequency = ReturnFrequency.Computed,
+            StructuralCategory = StructuralCategory.FixedRow
+        };
+        targetTemplate.AddVersion(targetVersion);
+
+        var sourceVersion = new TemplateVersion
+        {
+            Id = 20,
+            TemplateId = 20,
+            VersionNumber = 1,
+            Status = TemplateStatus.Published,
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = "test"
+        };
+        sourceVersion.SetFields(new List<TemplateField>
+        {
+            new() { FieldName = "total_cash", DisplayName = "Total Cash", XmlElementName = "TotalCash", LineCode = "10140" }
+        });
+
+        var sourceTemplate = new ReturnTemplate
+        {
+            Id = 20,
+            ReturnCode = "MFCR 300",
+            Name = "Statement of Financial Position",
+            PhysicalTableName = "mfcr_300",
+            Frequency = ReturnFrequency.Monthly,
+            StructuralCategory = StructuralCategory.FixedRow
+        };
+        sourceTemplate.AddVersion(sourceVersion);
+
+        var capturedRules = new List<CrossSheetRule>();
+        _templateRepo.Setup(r => r.GetByReturnCode("FC CAR 1", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(targetTemplate);
+        _templateRepo.Setup(r => r.GetByReturnCode("MFCR 300", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(sourceTemplate);
+        _formulaRepo.Setup(r => r.GetAllCrossSheetRules(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<CrossSheetRule>());
+        _formulaRepo.Setup(r => r.AddCrossSheetRule(It.IsAny<CrossSheetRule>(), It.IsAny<CancellationToken>()))
+            .Callback<CrossSheetRule, CancellationToken>((rule, _) => capturedRules.Add(rule))
+            .Returns(Task.CompletedTask);
+
+        var catalog = new FormulaCatalog
+        {
+            CrossSheetRules = new List<CatalogCrossSheetRef>
+            {
+                new()
+                {
+                    TargetReturnCode = "FC CAR 1",
+                    ReferenceExpression = "MFCR 300: 10140",
+                    Description = "CASH"
+                }
+            }
+        };
+
+        var tempFile = Path.GetTempFileName();
+        await File.WriteAllTextAsync(tempFile, JsonSerializer.Serialize(catalog, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+        }));
+
+        try
+        {
+            var seeder = CreateSeeder();
+            var result = await seeder.SeedFromCatalog(tempFile, "test");
+
+            result.TotalCrossSheetRulesCreated.Should().Be(1);
+            result.Warnings.Should().BeEmpty();
+            capturedRules.Should().ContainSingle();
+            capturedRules[0].Operands.Should().ContainSingle(operand =>
+                operand.OperandAlias == "A" &&
+                operand.TemplateReturnCode == "FC CAR 1" &&
+                operand.FieldName == "cash");
+            capturedRules[0].Operands.Should().ContainSingle(operand =>
+                operand.OperandAlias == "B" &&
+                operand.TemplateReturnCode == "MFCR 300" &&
+                operand.FieldName == "total_cash" &&
+                operand.LineCode == "10140");
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public async Task SeedFromCatalog_WithUnresolvableCrossSheetReference_SkipsBrokenCatalogRule()
+    {
+        var targetVersion = new TemplateVersion
+        {
+            Id = 10,
+            TemplateId = 10,
+            VersionNumber = 1,
+            Status = TemplateStatus.Published,
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = "test"
+        };
+        targetVersion.SetFields(new List<TemplateField>
+        {
+            new() { FieldName = "cash", DisplayName = "CASH", XmlElementName = "Cash" }
+        });
+
+        var targetTemplate = new ReturnTemplate
+        {
+            Id = 10,
+            ReturnCode = "FC FHR",
+            Name = "FHR",
+            PhysicalTableName = "fc_fhr",
+            Frequency = ReturnFrequency.Computed,
+            StructuralCategory = StructuralCategory.FixedRow
+        };
+        targetTemplate.AddVersion(targetVersion);
+
+        _templateRepo.Setup(r => r.GetByReturnCode("FC FHR", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(targetTemplate);
+        _formulaRepo.Setup(r => r.GetAllCrossSheetRules(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Array.Empty<CrossSheetRule>());
+        _formulaRepo.Setup(r => r.AddCrossSheetRule(It.IsAny<CrossSheetRule>(), It.IsAny<CancellationToken>()))
+            .Throws(new InvalidOperationException("Should not add invalid cross-sheet rules"));
+
+        var catalog = new FormulaCatalog
+        {
+            CrossSheetRules = new List<CatalogCrossSheetRef>
+            {
+                new()
+                {
+                    TargetReturnCode = "FC FHR",
+                    ReferenceExpression = "=MFCR 1000: 30560 x 100/(MFCR 1000: 30180+MFCR1000:30290)",
+                    Description = ""
+                }
+            }
+        };
+
+        var tempFile = Path.GetTempFileName();
+        await File.WriteAllTextAsync(tempFile, JsonSerializer.Serialize(catalog, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
+        }));
+
+        try
+        {
+            var seeder = CreateSeeder();
+            var result = await seeder.SeedFromCatalog(tempFile, "test");
+
+            result.TotalCrossSheetRulesCreated.Should().Be(0);
+            result.Warnings.Should().ContainSingle(w => w.Contains("Could not parse expression", StringComparison.Ordinal));
+            _formulaRepo.Verify(r => r.AddCrossSheetRule(It.IsAny<CrossSheetRule>(), It.IsAny<CancellationToken>()), Times.Never);
         }
         finally
         {

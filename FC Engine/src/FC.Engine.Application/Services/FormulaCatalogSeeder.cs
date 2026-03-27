@@ -190,7 +190,12 @@ public class FormulaCatalogSeeder
         FormulaCatalogSeedResult result,
         CancellationToken ct)
     {
-        // Group cross-sheet references by target return code
+        var existingCatalogRules = (await _formulaRepo.GetAllCrossSheetRules(ct) ?? Array.Empty<CrossSheetRule>())
+            .Where(rule => rule.RuleCode.StartsWith("XS-FC-", StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(rule => rule.RuleCode, rule => rule, StringComparer.OrdinalIgnoreCase);
+
+        var desiredRules = new List<CrossSheetRule>();
+        var desiredRuleCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var grouped = crossRefs.GroupBy(r => r.TargetReturnCode);
         var ruleIndex = 0;
 
@@ -212,11 +217,46 @@ public class FormulaCatalogSeeder
                         continue;
                     }
 
+                    var targetTemplate = await _templateRepo.GetByReturnCode(targetReturnCode, ct);
+                    var targetVersion = targetTemplate?.CurrentPublishedVersion;
+                    if (targetVersion == null)
+                    {
+                        result.Warnings.Add($"Cross-sheet {targetReturnCode}: Target template not found or unpublished");
+                        continue;
+                    }
+
+                    var sourceTemplate = await _templateRepo.GetByReturnCode(parsed.SourceReturnCode, ct);
+                    var sourceVersion = sourceTemplate?.CurrentPublishedVersion;
+                    if (sourceVersion == null)
+                    {
+                        result.Warnings.Add($"Cross-sheet {targetReturnCode}: Source template {parsed.SourceReturnCode} not found or unpublished");
+                        continue;
+                    }
+
+                    var targetField = ResolveTargetField(targetVersion, crossRef.Description);
+                    if (targetField == null)
+                    {
+                        result.Warnings.Add(
+                            $"Cross-sheet {targetReturnCode}: Could not map target description '{crossRef.Description}' to a template field");
+                        continue;
+                    }
+
+                    var sourceField = ResolveSourceField(sourceVersion, parsed.SourceItemCode);
+                    if (sourceField == null)
+                    {
+                        result.Warnings.Add(
+                            $"Cross-sheet {targetReturnCode}: Could not map source item code {parsed.SourceItemCode} on {parsed.SourceReturnCode} to a template field");
+                        continue;
+                    }
+
+                    var ruleCode = $"XS-FC-{++ruleIndex:D3}";
                     var rule = new CrossSheetRule
                     {
-                        RuleCode = $"XS-FC-{++ruleIndex:D3}",
+                        RuleCode = ruleCode,
                         RuleName = $"{targetReturnCode} references {parsed.SourceReturnCode}:{parsed.SourceItemCode}",
-                        Description = crossRef.Description,
+                        Description = string.IsNullOrWhiteSpace(crossRef.Description)
+                            ? crossRef.ReferenceExpression
+                            : crossRef.Description,
                         Severity = ValidationSeverity.Error,
                         IsActive = true,
                         CreatedAt = DateTime.UtcNow,
@@ -235,23 +275,23 @@ public class FormulaCatalogSeeder
                         {
                             OperandAlias = "A",
                             TemplateReturnCode = targetReturnCode,
-                            FieldName = crossRef.Description ?? "computed_field",
-                            LineCode = null,
+                            FieldName = targetField.FieldName,
+                            LineCode = targetField.LineCode,
                             SortOrder = 1
                         },
                         new()
                         {
                             OperandAlias = "B",
                             TemplateReturnCode = parsed.SourceReturnCode,
-                            FieldName = "source_field",
+                            FieldName = sourceField.FieldName,
                             LineCode = parsed.SourceItemCode,
                             SortOrder = 2
                         }
                     };
 
                     rule.SetOperands(operands);
-                    await _formulaRepo.AddCrossSheetRule(rule, ct);
-                    result.TotalCrossSheetRulesCreated++;
+                    desiredRules.Add(rule);
+                    desiredRuleCodes.Add(ruleCode);
                 }
                 catch (Exception ex)
                 {
@@ -259,6 +299,32 @@ public class FormulaCatalogSeeder
                         $"Cross-sheet {targetReturnCode}: {ex.Message}");
                 }
             }
+        }
+
+        foreach (var desiredRule in desiredRules)
+        {
+            if (!existingCatalogRules.TryGetValue(desiredRule.RuleCode, out var existingRule))
+            {
+                await _formulaRepo.AddCrossSheetRule(desiredRule, ct);
+                result.TotalCrossSheetRulesCreated++;
+                continue;
+            }
+
+            if (!NeedsCrossSheetRuleUpdate(existingRule, desiredRule))
+            {
+                continue;
+            }
+
+            ApplyCrossSheetRuleDefinition(existingRule, desiredRule);
+            await _formulaRepo.UpdateCrossSheetRule(existingRule, ct);
+            result.TotalCrossSheetRulesCreated++;
+        }
+
+        foreach (var obsoleteRule in existingCatalogRules.Values.Where(rule =>
+                     rule.IsActive &&
+                     !desiredRuleCodes.Contains(rule.RuleCode)))
+        {
+            await _formulaRepo.DeleteCrossSheetRule(obsoleteRule.Id, ct);
         }
     }
 
@@ -297,15 +363,22 @@ public class FormulaCatalogSeeder
         // ='MFCR 300: 10140 (Total cash)
         // MFCR 300: 10180
         // MFCR300:10640
-        // ='MFCR 300:10280+MFCR300:10310
-        var cleaned = expr.Replace("='", "").Replace("=", "").Trim();
+        var cleaned = expr.Replace("='", "").Replace("'", "").Replace("=", "").Trim();
 
-        // Extract first template reference
-        var match = System.Text.RegularExpressions.Regex.Match(
+        // Only seed direct one-to-one references. Multi-operand expressions need explicit field mapping first.
+        if (cleaned.IndexOfAny(['+', '-', '*', '/']) >= 0)
+        {
+            return null;
+        }
+
+        var matches = System.Text.RegularExpressions.Regex.Matches(
             cleaned,
-            @"(MFCR|QFCR|SFCR)\s*(\d+)\s*[:\s]\s*(\d{4,5})");
+            @"(MFCR|QFCR|SFCR)\s*(\d+)\s*[:\s]\s*(\d{4,5})",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
 
-        if (!match.Success) return null;
+        if (matches.Count != 1) return null;
+
+        var match = matches[0];
 
         var prefix = match.Groups[1].Value;
         var number = match.Groups[2].Value;
@@ -317,6 +390,113 @@ public class FormulaCatalogSeeder
             SourceItemCode = itemCode,
             Expression = "A = B"
         };
+    }
+
+    private static TemplateField? ResolveTargetField(TemplateVersion version, string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+        {
+            return null;
+        }
+
+        var itemCodeMatch = System.Text.RegularExpressions.Regex.Match(description, @"\b(\d{4,5})\b");
+        if (itemCodeMatch.Success)
+        {
+            var fieldByLineCode = version.Fields.FirstOrDefault(field =>
+                string.Equals(field.LineCode, itemCodeMatch.Groups[1].Value, StringComparison.OrdinalIgnoreCase));
+            if (fieldByLineCode != null)
+            {
+                return fieldByLineCode;
+            }
+        }
+
+        var normalizedDescription = NormalizeFieldToken(description);
+        return version.Fields.FirstOrDefault(field =>
+            NormalizeFieldToken(field.DisplayName) == normalizedDescription ||
+            NormalizeFieldToken(field.FieldName) == normalizedDescription ||
+            NormalizeFieldToken(field.XmlElementName) == normalizedDescription);
+    }
+
+    private static TemplateField? ResolveSourceField(TemplateVersion version, string sourceItemCode)
+    {
+        return version.Fields.FirstOrDefault(field =>
+            string.Equals(field.LineCode, sourceItemCode, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static string NormalizeFieldToken(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return System.Text.RegularExpressions.Regex
+            .Replace(value, @"[^A-Za-z0-9]+", string.Empty)
+            .ToUpperInvariant();
+    }
+
+    private static bool NeedsCrossSheetRuleUpdate(CrossSheetRule existing, CrossSheetRule desired)
+    {
+        if (!existing.IsActive) return true;
+        if (!string.Equals(existing.RuleName, desired.RuleName, StringComparison.Ordinal)) return true;
+        if (!string.Equals(existing.Description, desired.Description, StringComparison.Ordinal)) return true;
+        if (existing.Severity != desired.Severity) return true;
+        if (existing.Expression is null != desired.Expression is null) return true;
+
+        if (existing.Expression != null && desired.Expression != null)
+        {
+            if (!string.Equals(existing.Expression.Expression, desired.Expression.Expression, StringComparison.Ordinal)) return true;
+            if (existing.Expression.ToleranceAmount != desired.Expression.ToleranceAmount) return true;
+            if (existing.Expression.TolerancePercent != desired.Expression.TolerancePercent) return true;
+            if (!string.Equals(existing.Expression.ErrorMessage, desired.Expression.ErrorMessage, StringComparison.Ordinal)) return true;
+        }
+
+        var existingOperands = existing.Operands.OrderBy(operand => operand.SortOrder).ToList();
+        var desiredOperands = desired.Operands.OrderBy(operand => operand.SortOrder).ToList();
+        if (existingOperands.Count != desiredOperands.Count) return true;
+
+        for (var i = 0; i < existingOperands.Count; i++)
+        {
+            var current = existingOperands[i];
+            var seeded = desiredOperands[i];
+
+            if (!string.Equals(current.OperandAlias, seeded.OperandAlias, StringComparison.Ordinal)) return true;
+            if (!string.Equals(current.TemplateReturnCode, seeded.TemplateReturnCode, StringComparison.Ordinal)) return true;
+            if (!string.Equals(current.FieldName, seeded.FieldName, StringComparison.Ordinal)) return true;
+            if (!string.Equals(current.LineCode, seeded.LineCode, StringComparison.Ordinal)) return true;
+            if (!string.Equals(current.AggregateFunction, seeded.AggregateFunction, StringComparison.Ordinal)) return true;
+            if (!string.Equals(current.FilterItemCode, seeded.FilterItemCode, StringComparison.Ordinal)) return true;
+            if (current.SortOrder != seeded.SortOrder) return true;
+        }
+
+        return false;
+    }
+
+    private static void ApplyCrossSheetRuleDefinition(CrossSheetRule existing, CrossSheetRule desired)
+    {
+        existing.RuleName = desired.RuleName;
+        existing.Description = desired.Description;
+        existing.Severity = desired.Severity;
+        existing.IsActive = true;
+        existing.Expression = desired.Expression is null
+            ? null
+            : new CrossSheetRuleExpression
+            {
+                Expression = desired.Expression.Expression,
+                ToleranceAmount = desired.Expression.ToleranceAmount,
+                TolerancePercent = desired.Expression.TolerancePercent,
+                ErrorMessage = desired.Expression.ErrorMessage
+            };
+        existing.SetOperands(desired.Operands.Select(operand => new CrossSheetRuleOperand
+        {
+            OperandAlias = operand.OperandAlias,
+            TemplateReturnCode = operand.TemplateReturnCode,
+            FieldName = operand.FieldName,
+            LineCode = operand.LineCode,
+            AggregateFunction = operand.AggregateFunction,
+            FilterItemCode = operand.FilterItemCode,
+            SortOrder = operand.SortOrder
+        }));
     }
 
     private record ParsedCrossSheetRef

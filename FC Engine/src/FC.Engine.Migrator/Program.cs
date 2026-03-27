@@ -52,6 +52,7 @@ builder.Services.AddScoped<InstitutionAuthService>();
 builder.Services.AddScoped<DmbDemoWorkspaceService>();
 builder.Services.AddScoped<DemoCredentialSeedService>();
 builder.Services.AddScoped<EndToEndDemoSeedService>();
+builder.Services.AddScoped<BulkInstitutionDemoSeedService>();
 
 var host = builder.Build();
 var logger = host.Services.GetRequiredService<ILogger<Program>>();
@@ -78,6 +79,13 @@ try
     logger.LogInformation("Applying EF Core migrations...");
     await db.Database.MigrateAsync();
     logger.LogInformation("EF Core migrations applied successfully");
+
+    if (string.Equals(command, "repair-cross-sheet-rules", StringComparison.OrdinalIgnoreCase))
+    {
+        await RunCrossSheetRuleRepairAsync(host.Services, logger);
+        logger.LogInformation("RegOS™ Migrator completed successfully");
+        return;
+    }
 
     // Step 2: Execute metadata schema SQL (meta.* tables with additional indexes/constraints)
     var schemaScriptPath = builder.Configuration["Seeding:MetadataSchemaPath"];
@@ -180,10 +188,7 @@ try
         }
 
         // Step 5: Seed cross-sheet validation rules
-        logger.LogInformation("Seeding cross-sheet rules...");
-        var crossSheetSeedService = scope.ServiceProvider.GetRequiredService<CrossSheetRuleSeedService>();
-        var crossSheetCount = await crossSheetSeedService.SeedCrossSheetRules("migrator");
-        logger.LogInformation("Cross-sheet rules seeded: {Count}", crossSheetCount);
+        await RunCrossSheetRuleRepairAsync(host.Services, logger);
     }
 
     // Step 6: Create physical data tables for all published templates
@@ -385,6 +390,89 @@ try
         return;
     }
 
+    if (string.Equals(command, "seed-bulk-bdc-dmb-demo", StringComparison.OrdinalIgnoreCase))
+    {
+        var bulkDemoSeeder = scope.ServiceProvider.GetRequiredService<BulkInstitutionDemoSeedService>();
+        var sharedPassword = builder.Configuration["Demo:SharedPassword"]
+            ?? builder.Configuration["DefaultAdmin:Password"]
+            ?? "Admin@FcEngine2026!";
+        var templatesDirectory = ResolveDmbTemplatesDirectory(builder.Configuration, configurationBasePath);
+
+        var result = await bulkDemoSeeder.SeedAsync(templatesDirectory, sharedPassword);
+        var demoCredentialPath = ResolveDemoCredentialPackPath(builder.Configuration, configurationBasePath);
+        await WriteDemoCredentialPackAsync(result.Credentials, demoCredentialPath);
+
+        logger.LogInformation(
+            "Bulk demo seeded: {BdcCount} BDC institutions, {DmbCount} DMB institutions, {InstitutionsCreated} new institutions, {PeriodsCreated} return periods, {SubmissionsCreated} submissions. Credentials written to {Path}",
+            result.BdcInstitutionsProcessed,
+            result.DmbInstitutionsProcessed,
+            result.InstitutionsCreated,
+            result.PeriodsCreated,
+            result.SubmissionsCreated,
+            demoCredentialPath);
+        return;
+    }
+
+    if (string.Equals(command, "seed-bulk-fc-demo", StringComparison.OrdinalIgnoreCase))
+    {
+        var bulkDemoSeeder = scope.ServiceProvider.GetRequiredService<BulkInstitutionDemoSeedService>();
+        var sharedPassword = builder.Configuration["Demo:SharedPassword"]
+            ?? builder.Configuration["DefaultAdmin:Password"]
+            ?? "Admin@FcEngine2026!";
+        var templatesDirectory = ResolveDmbTemplatesDirectory(builder.Configuration, configurationBasePath);
+        var fcCount = builder.Configuration.GetValue<int?>("Demo:FcCount") ?? 120;
+
+        var result = await bulkDemoSeeder.SeedAsync(
+            templatesDirectory,
+            sharedPassword,
+            bdcCount: 0,
+            dmbCount: 0,
+            fcCount: fcCount);
+        var demoCredentialPath = ResolveDemoCredentialPackPath(builder.Configuration, configurationBasePath);
+        await WriteDemoCredentialPackAsync(result.Credentials, demoCredentialPath);
+
+        logger.LogInformation(
+            "Bulk FC demo seeded: {FcCount} Finance Company institutions, {InstitutionsCreated} new institutions, {PeriodsCreated} return periods, {SubmissionsCreated} submissions. Credentials written to {Path}",
+            result.FcInstitutionsProcessed,
+            result.InstitutionsCreated,
+            result.PeriodsCreated,
+            result.SubmissionsCreated,
+            demoCredentialPath);
+        return;
+    }
+
+    if (string.Equals(command, "seed-platform-demo-expansion", StringComparison.OrdinalIgnoreCase))
+    {
+        var bulkDemoSeeder = scope.ServiceProvider.GetRequiredService<BulkInstitutionDemoSeedService>();
+        var sharedPassword = builder.Configuration["Demo:SharedPassword"]
+            ?? builder.Configuration["DefaultAdmin:Password"]
+            ?? "Admin@FcEngine2026!";
+        var templatesDirectory = ResolveDmbTemplatesDirectory(builder.Configuration, configurationBasePath);
+        var mfbCount = builder.Configuration.GetValue<int?>("Demo:MfbCount") ?? 24;
+        var overlayInstitutionCountPerType = builder.Configuration.GetValue<int?>("Demo:OverlayInstitutionCountPerType") ?? 5;
+
+        var result = await bulkDemoSeeder.SeedAsync(
+            templatesDirectory,
+            sharedPassword,
+            bdcCount: 0,
+            dmbCount: 0,
+            fcCount: 0,
+            mfbCount: mfbCount,
+            overlayInstitutionCountPerType: overlayInstitutionCountPerType);
+        var demoCredentialPath = ResolveDemoCredentialPackPath(builder.Configuration, configurationBasePath);
+        await WriteDemoCredentialPackAsync(result.Credentials, demoCredentialPath);
+
+        logger.LogInformation(
+            "Platform demo expansion seeded: {MfbCount} MFB institutions, {OverlayInstitutionCount} overlay institutions, {InstitutionsCreated} new institutions, {PeriodsCreated} return periods, {SubmissionsCreated} submissions. Credentials written to {Path}",
+            result.MfbInstitutionsProcessed,
+            result.OverlayInstitutionsProcessed,
+            result.InstitutionsCreated,
+            result.PeriodsCreated,
+            result.SubmissionsCreated,
+            demoCredentialPath);
+        return;
+    }
+
     logger.LogInformation("RegOS™ Migrator completed successfully");
 }
 catch (Exception ex)
@@ -405,6 +493,20 @@ static async Task<bool> PhysicalTableExistsAsync(MetadataDbContext db, string ta
             """,
             tableName)
         .AnyAsync(ct);
+}
+
+static async Task RunCrossSheetRuleRepairAsync(
+    IServiceProvider services,
+    ILogger logger,
+    CancellationToken ct = default)
+{
+    logger.LogInformation("Seeding cross-sheet rules...");
+
+    using var scope = services.CreateScope();
+    var crossSheetSeedService = scope.ServiceProvider.GetRequiredService<CrossSheetRuleSeedService>();
+    var crossSheetCount = await crossSheetSeedService.SeedCrossSheetRules("migrator", ct);
+
+    logger.LogInformation("Cross-sheet rules seeded: {Count}", crossSheetCount);
 }
 
 static string ResolveDmbTemplatesDirectory(IConfiguration configuration, string configurationBasePath)
